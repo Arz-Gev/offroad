@@ -54,6 +54,8 @@ export class Drivetrain {
     this.running = true;
     this.stalled = false;
     this.starterTime = 0;
+    this.crankTime = 0;
+    this.startGrace = 0;            // s after the engine catches with no stall check
     this.cranking = false;
     this.thr = 0.1;                 // effective (lagged) throttle
     this.driverThrottle = 0;
@@ -148,8 +150,13 @@ export class Drivetrain {
     else { this.rearLock = false; this.frontLock = false; this.say('Axle lockers off'); }
   }
   startEngine() {
-    if (this.running) return;
-    this.starterTime = 1.6;
+    if (this.running) { this.say('Engine is already running (O switches it off)'); return; }
+    if (this.mode === 'manual' && !this.clutchAssist && this.manualGear !== 0 && this.clutchPedal < 0.6) {
+      this.say('In gear: hold the clutch (Shift) or select neutral, then press I');
+      return;
+    }
+    this.starterTime = 2.5; this.crankTime = 0;
+    this.say('Starting...');
   }
   stopEngine() { this.running = false; }
   setSelector(s) {
@@ -191,12 +198,20 @@ export class Drivetrain {
     const rpm = this.rpm;
 
     // ---- engine state
+    // The starter spins the engine at ~300 rpm; it fires after a few compression strokes,
+    // then the starter stays engaged until the engine pulls past it.
     if (this.starterTime > 0) {
       this.starterTime -= h;
+      this.crankTime += h;
       this.cranking = true;
-      if (rpm > 450) { this.running = true; this.stalled = false; this.starterTime = 0; this.cranking = false; this.idleInt = 0; }
+      if (!this.running && rpm > 200 && this.crankTime > 0.4) {
+        this.running = true; this.stalled = false; this.idleInt = 150; this.startGrace = 1.0;
+      }
+      if (this.running && rpm > 550) { this.starterTime = 0; this.cranking = false; }
+      if (this.starterTime <= 0 && !this.running) { this.cranking = false; this.say('Engine did not start: select N/P or press the clutch'); }
     } else this.cranking = false;
-    if (this.running && rpm < E.stallRpm) {
+    this.startGrace = Math.max(0, this.startGrace - h);
+    if (this.running && rpm < E.stallRpm && !this.cranking && this.startGrace <= 0) {
       this.running = false; this.stalled = true;
       this.say('Engine stalled: press I to start');
     }
