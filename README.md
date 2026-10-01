@@ -8,6 +8,11 @@ npm run dev        # http://localhost:5174
 npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual)
 ```
 
+See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
+
+```
+```
+
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.
 - **Tyres**: 39-ray fan per wheel (3 rows across the tread) gives contact point/normal/deflection, so tyres climb steps and rocks. Radial spring/damper depends on pressure (6–38 psi); transient slip (relaxation length) + Pacejka-style combined slip; load sensitivity; surface types (dirt, grass, rock, mud, sand, wood, concrete). Tyre mesh squashes against the contact plane in the vertex shader (flat patch + sidewall bulge). Side-impact cylinders stop rocks passing through sidewalls.
