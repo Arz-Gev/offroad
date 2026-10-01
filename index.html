@@ -2,53 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
   <title>Offroad Defender</title>
   <style>
-    :root { --panel: rgba(12, 14, 18, 0.55); --line: rgba(255, 255, 255, 0.12); --txt: #eef1f4; --dim: rgba(238, 241, 244, 0.6); --amber: #ffb347; --red: #ff5a45; --blue: #8cc8ff; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f12; color: var(--txt); font: 13px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-    canvas#c { display: block; width: 100vw; height: 100vh; cursor: grab; }
+    /* only what the page needs before the JS (and src/ui.css) loads */
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f12; color: #eef1f4; font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    canvas#c { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
     canvas#c:active { cursor: grabbing; }
-    #hud { position: fixed; inset: 0; pointer-events: none; }
-    #msg { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px; background: var(--panel); backdrop-filter: blur(6px); font-weight: 600; font-size: 15px; transition: opacity .4s; opacity: 0; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
-    #camlabel { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); color: var(--dim); font-weight: 600; letter-spacing: .04em; transition: opacity .4s; opacity: 0; }
-    #help { position: absolute; top: 16px; right: 16px; width: 330px; padding: 12px 14px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(6px); border: 1px solid var(--line); max-height: calc(100vh - 290px); overflow: auto; }
-    #help .title { font-weight: 700; margin-bottom: 6px; letter-spacing: .05em; text-transform: uppercase; font-size: 11px; color: var(--dim); }
-    #help .row { display: flex; gap: 10px; padding: 2px 0; }
-    #help .k { flex: 0 0 92px; font-family: ui-monospace, Menlo, monospace; color: var(--amber); font-size: 12px; }
-    #dial { position: absolute; right: 14px; bottom: 10px; width: 220px; height: 220px; }
-    #dial canvas { width: 220px; height: 220px; }
-    #wheels { position: absolute; left: 14px; bottom: 132px; width: 150px; height: 150px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(6px); border: 1px solid var(--line); }
-    #wheels canvas { width: 150px; height: 150px; }
-    #status { position: absolute; left: 14px; bottom: 14px; width: 330px; padding: 10px 12px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(6px); border: 1px solid var(--line); }
-    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-    .chip { font: 700 10px/1 ui-monospace, Menlo, monospace; padding: 4px 6px; border-radius: 5px; border: 1px solid var(--line); color: rgba(255,255,255,0.35); letter-spacing: .04em; }
-    .chip.on { color: #fff; border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.1); }
-    .chip.on.amber { color: #1a1206; background: var(--amber); border-color: var(--amber); }
-    .chip.on.red { color: #fff; background: var(--red); border-color: var(--red); }
-    .chip.on.blue { color: #0a1622; background: var(--blue); border-color: var(--blue); }
-    .bars { display: grid; gap: 4px; }
-    .bar { display: flex; align-items: center; gap: 8px; }
-    .bar label { flex: 0 0 30px; font: 700 10px ui-monospace, Menlo, monospace; color: var(--dim); }
-    .bar div { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
-    .bar i { display: block; height: 100%; width: 0; background: #7bdc7b; }
-    .bar i.red { background: var(--red); } .bar i.blue { background: var(--blue); }
-    .line { display: flex; justify-content: space-between; margin-top: 8px; color: var(--dim); font-weight: 600; }
-    #telemetry { display: none; position: absolute; left: 14px; top: 14px; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,0.6); font: 11px/1.45 ui-monospace, Menlo, monospace; white-space: pre; }
-    #fps { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); color: rgba(255,255,255,0.35); font: 10px ui-monospace, Menlo, monospace; }
-    #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0f12; transition: opacity .6s; z-index: 10; }
-    #loading .box { text-align: center; }
-    #loading .h { font-size: 22px; font-weight: 800; letter-spacing: .08em; }
-    #loading .t { margin-top: 8px; color: var(--dim); }
-    #soundhint { position: fixed; bottom: 250px; right: 22px; color: var(--dim); font-weight: 600; pointer-events: none; }
-    @media (max-width: 900px) { #help { display: none; } }
+    [hidden] { display: none !important; }
+    #loading { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, #1a1e25 0%, #0d0f12 70%); transition: opacity .5s ease; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading .ld-box { width: min(340px, calc(100vw - 48px)); text-align: center; }
+    #loading .ld-eyebrow { font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ffb347; }
+    #loading .ld-title { margin-top: 8px; font: 800 28px/1.1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .01em; }
+    #loading .ld-bar { height: 3px; margin: 22px 0 10px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; }
+    #loading .ld-bar i { display: block; height: 100%; background: #ffb347; transform-origin: 0 50%; transform: scaleX(var(--p, .04)); transition: transform .3s ease; }
+    #loading .ld-t { color: rgba(238,241,244,.6); font-size: 13px; min-height: 1.4em; }
+    #loading.error .ld-bar i { background: #ff5a45; }
+    #loading .ld-err { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: rgba(255,90,69,.1); border: 1px solid rgba(255,90,69,.35); color: #ffd2cb; font-size: 13px; line-height: 1.5; text-align: left; }
+    #loading .ld-err button { margin-top: 10px; height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; font: 600 13px/1 inherit; cursor: pointer; }
+    #loading noscript { display: block; margin-top: 14px; color: #ffd2cb; }
   </style>
 </head>
 <body>
-  <canvas id="c"></canvas>
+  <canvas id="c" aria-label="Game view"></canvas>
   <div id="hud"></div>
-  <div id="soundhint">🔊 click or press any key for sound</div>
-  <div id="loading"><div class="box"><div class="h">OFFROAD · DEFENDER 110</div><div class="t">Loading…</div></div></div>
+  <div id="menu" class="overlay" hidden></div>
+  <div id="intro" class="overlay" hidden></div>
+  <div id="loading" role="status" aria-live="polite">
+    <div class="ld-box">
+      <div class="ld-eyebrow">Offroad</div>
+      <div class="ld-title">Defender 110</div>
+      <div class="ld-bar"><i></i></div>
+      <div class="ld-t">Loading…</div>
+      <div class="ld-err" hidden></div>
+      <noscript>This game needs JavaScript.</noscript>
+    </div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

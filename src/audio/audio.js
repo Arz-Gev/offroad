@@ -6,6 +6,8 @@ export class GameAudio {
     this.ctx = null;
     this.ready = false;
     this.muted = false;
+    this.volume = 1;              // player volume 0..1 on top of the mix level
+    this.paused = false;          // game paused: master faded out, synthesis keeps running
     this.knockCooldown = 0;
     this.lastGrind = 0;
   }
@@ -16,7 +18,7 @@ export class GameAudio {
     this.ctx = ctx;
     await ctx.audioWorklet.addModule(new URL('./engine-worklet.js', import.meta.url));
     const master = ctx.createGain();
-    master.gain.value = 0.8;
+    master.gain.value = this.masterLevel();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
     master.connect(comp).connect(ctx.destination);
@@ -135,5 +137,15 @@ export class GameAudio {
     }
   }
 
-  toggleMute() { this.muted = !this.muted; return this.muted; }
+  toggleMute() { this.setMuted(!this.muted); return this.muted; }
+  setMuted(m) { this.muted = !!m; this.applyMaster(); }
+
+  // UI controls: they only scale the master gain, the mix itself is unchanged.
+  // Mute also closes the master so one-shots (bump-stop knocks) are silenced too.
+  masterLevel() { return this.paused || this.muted ? 0 : 0.8 * this.volume; }
+  applyMaster() { if (this.master) this.master.gain.setTargetAtTime(this.masterLevel(), this.ctx.currentTime, 0.04); }
+  setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); this.applyMaster(); }
+  setPaused(p) { this.paused = !!p; this.applyMaster(); }
+  // 'locked' until the browser lets the context run (needs a user gesture), then 'running'
+  get state() { return this.ctx ? this.ctx.state : 'locked'; }
 }

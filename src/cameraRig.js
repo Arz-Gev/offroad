@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const CAM_MODES = ['chase', 'cockpit', 'hood', 'wheel', 'orbit'];
-const CAM_NAMES = { chase: 'Chase camera', cockpit: 'Cockpit (first person)', hood: 'Hood camera', wheel: 'Wheel camera (front left)', orbit: 'Free orbit' };
+export const CAM_NAMES = { chase: 'Chase camera', cockpit: 'Cockpit (first person)', hood: 'Hood camera', wheel: 'Wheel camera (front left)', orbit: 'Free orbit' };
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
@@ -25,8 +25,12 @@ export class CameraRig {
   get label() { return CAM_NAMES[this.mode]; }
 
   cycle() {
-    const i = (CAM_MODES.indexOf(this.mode) + 1) % CAM_MODES.length;
-    this.mode = CAM_MODES[i];
+    return this.setMode(CAM_MODES[(CAM_MODES.indexOf(this.mode) + 1) % CAM_MODES.length]);
+  }
+
+  setMode(mode) {
+    if (!CAM_MODES.includes(mode)) return this.mode;
+    this.mode = mode;
     this.lookYaw = this.lookPitch = 0;
     this.orbitYaw = this.orbitPitch = 0;
     this.first = true;

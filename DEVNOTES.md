@@ -30,12 +30,25 @@ Things that are not obvious from reading the code: conventions, measured baselin
 - **Torque reactions**: the body gets `-(Ie*αe + Tprop_f + Tprop_r)` about `+z`, and each axle gets `+Tprop`. That's where the launch body roll and axle wrap come from. The sign follows a crank turning clockwise seen from the front.
 - **Auto upshift** uses `min(wheel speed, ground speed)`. Without that it upshifted while the wheels were spinning in the rock garden.
 
+## UI (HUD, menu, input)
+
+- **Files**: `input.js` (keyboard + gamepad, `BINDINGS`), `hud.js` (in-game HUD), `menu.js` (Esc menu + welcome card), `settings.js` (saved settings), `ui.css` (all UI styles), `main.js` (wires them together). `index.html` only holds the loading screen and its inline styles.
+- **`BINDINGS` in `input.js` is the single source of truth** for every control: the key/pad dispatch, the HUD hints, the toasts' key caps, the welcome card and the menu's Controls page are all generated from it. To add a control, add a binding with an `id`, then a handler in `ACTIONS` in `main.js`.
+- Discrete actions fire from the key event (`input.onAction`), not from the game loop, so they work while driving frames by hand with `game.tick`. Plain keys are `preventDefault`ed while driving (no scrolling, no Firefox quick find); the F row except F3 and every Cmd/Ctrl/Alt combination go to the browser. On a Cmd keydown the held keys are dropped (macOS sends no keyup for them).
+- **Settings**: `settings.set(key, value, { silent })` saves to localStorage (every access wrapped in try/catch) and calls `APPLY[key]` in `main.js`. Keys, the menu and startup all go through it, so a setting can't drift from the game state. `silent` means no toast (startup, and menu changes, where the control shows the result). The welcome card's "seen" flag is a separate storage key.
+- **Pause**: the menu and the welcome card pause the game (`game.paused`): no physics steps, the master gain fades out, the menu gets the keys/pad (`input.uiHandler`), and the 3D view renders only when something changes (`game.redraw`, time-of-day blend). Auto-pause on window blur / tab hide is a setting.
+- **Feedback**: `hud.toast(html, { kind: '' | 'good' | 'warn', key })`. A toast with the same `key` updates in place instead of stacking (pressure, lights, camera, ...). Drivetrain `say()` strings are mapped to toasts with device-specific key caps in `DT_MESSAGES` (`hud.js`). Persistent context tips (rolled over, engine off, in neutral, stuck) come from `HUD.updateTips` at 4 Hz.
+- **Cost rules**: no layout reads per frame; DOM text/classes are written only when the shown value changes (cache in `hud.c`); bars move with `transform`; the rpm dial redraws only when the rpm moves ≥ 20 rpm, over a cached static layer; the suspension panel checks at 20 Hz and redraws only when a shown value changes; telemetry updates at 10 Hz only while visible. Measured: HUD ≈ 0.02 ms/frame, < 1 DOM mutation per frame while driving.
+- **Scaling**: the HUD scales with `--s` = √(min(W/1600, H/1000)) clamped to 0.8–1.4, times the HUD-size setting; every HUD length is `calc(N * var(--u))`. Small windows (< 760 wide or < 560 high) and the cockpit view get the compact cluster. The menu uses fixed px with media queries (full-screen sheet under 640 px).
+- **Sound pill**: audio needs a user gesture; the pill says so until the AudioContext runs, then hides (or shows "Sound off" while muted). Mute and volume act on the master gain only.
+- **Testing the UI**: dismiss the first-start card first (`game.menu.closeIntro()`; it also pauses `game.tick` physics until closed). Dispatch `KeyboardEvent`s on `window` to test keys; `game.action('camera')` etc. runs an action directly; a fake gamepad works by overriding `navigator.getGamepads`. The browser pane can't screenshot HTML overlays reliably at emulated sizes larger than the pane, so use `tools/cdp.mjs` (headless Chrome over CDP) for HUD/menu screenshots at any size.
+
 ## Baselines (re-run `npm run simtest` after physics changes and compare)
 
 | Check | Value |
 |---|---|
 | Static load sum | = weight (21 974 N); tyre squash ≈ 3 cm at 20 psi, 5–6 cm at 8 psi |
-| 0–100 km/h (auto) | 8.7 s; shifts at ~4800 rpm WOT |
+| 0–100 km/h (auto) | 9.06 s; shifts at ~4800 rpm WOT |
 | 80→0 km/h braking | 28 m, 0.85 g, stable with ABS (without ABS the rear locks and it spins) |
 | 30° slope, P + handbrake | holds, ~2 cm settle |
 | 30° climb, low range | open centre diff: can't climb (correct); centre locked: 10 km/h; auto idles holding on the slope |
@@ -62,7 +75,9 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - `tick(dt)` runs one frame by hand
   - `autopilot = fn(vehicle, dt) -> raw input`
   - `placeVehicle(x, z, yaw)` and `teleports`
+  - `action(id)` runs a control (`BINDINGS` id), `menu`, `settings`, `setPaused(bool)`, `paused`
   - `timings` (ms per stage), plus `vehicle`, `rig`, `env`, `bloom`, …
+- `shot()` captures only the WebGL canvas. For the HUD and menus use `tools/cdp.mjs` (see its header), or `read_page` / DOM inspection in the pane.
 - A hidden browser pane or background tab throttles `requestAnimationFrame`. FPS readings are then meaningless and screenshots are stale. Drive with `game.tick` and capture frames with `tools/shotserver.py` plus the `shot()` helper in `tools/browser-snippets.js`, which also has the lane and trail test drivers.
 - Engine sound: `node tools/enginesound.mjs out.wav` renders the worklet through a fixed script (idle, blip, lugging, cruise, WOT, overrun) and prints the level of each segment. Keep low-rpm lugging quieter than high-rpm WOT. Exhaust pulses last a fixed crank angle; the old fixed ~1.5 ms noise clicks sounded like a ticking motorboat at idle (user complaint). Audio-model reviews (seed via OpenRouter) of the WAV were inconsistent, so treat them as weak evidence.
 

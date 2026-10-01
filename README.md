@@ -10,6 +10,39 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 
 See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
 
+## Controls
+**Esc** (gamepad **Menu**) pauses and opens the menu: **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. The first start shows a short controls card. Settings are saved in the browser.
+
+| Keyboard | Gamepad | Action |
+|---|---|---|
+| W / ↑ · S / ↓ | RT · LT | Throttle · brake (automatic: hold brake at a stop to reverse) |
+| A D / ← → | Left stick | Steer |
+| Space | A | Handbrake |
+| Shift | LB | Clutch (manual with auto-clutch off) |
+| E · Q | RB · X | Shift up · down (automatic: selector P R N D) |
+| M | View | Automatic ⇄ manual |
+| K | | Auto-clutch on / off |
+| T | D-pad ↓ | Transfer case high / low (stop first) |
+| X | D-pad ← | Centre diff lock |
+| Z | D-pad → | Axle lockers: rear → front + rear → off |
+| [ · ] | | Tyre pressure down · up |
+| I | Left stick click | Start engine |
+| O | | Stop engine |
+| L | D-pad ↑ | Headlights off / low / high |
+| J | | Roof light bar |
+| G | | Hazard lights |
+| R | B | Recover (back on the wheels) |
+| C | Y | Camera: chase, cockpit, hood, wheel, orbit |
+| Mouse drag · wheel | Right stick | Look around · zoom |
+| N | | Time of day: day, dusk, night |
+| P | | Locations (teleport picker; 1–7 in the picker) |
+| H | | Controls list |
+| V | | Sound on / off |
+| U | | Suspension and tyre-load panel |
+| F3 or ` | | Telemetry |
+
+Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
+
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.
 - **Tyres**: 39-ray fan per wheel (3 rows across the tread) gives contact point/normal/deflection, so tyres climb steps and rocks. Radial spring/damper depends on pressure (6–38 psi); transient slip (relaxation length) + Pacejka-style combined slip; load sensitivity; surface types (dirt, grass, rock, mud, sand, wood, concrete). Tyre mesh squashes against the contact plane in the vertex shader (flat patch + sidewall bulge). Side-impact cylinders stop rocks passing through sidewalls.
@@ -17,4 +50,4 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 - **Audio**: procedural cross-plane V8 (AudioWorklet), gravel/skid/mud/wind, transfer whine, gear grind, bump-stop knocks.
 
 ## Map
-400 m procedural terrain: trail loop + branch with ruts and a mud hole, a big hill, mountains, trees, boulders, and a proving ground (P to teleport): A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber.
+400 m procedural terrain: trail loop + branch with ruts and a mud hole, a big hill, mountains, trees, boulders, and a proving ground (P opens the location picker): A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber.
