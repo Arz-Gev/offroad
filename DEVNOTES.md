@@ -64,7 +64,7 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - `placeVehicle(x, z, yaw)` and `teleports`
   - `timings` (ms per stage), plus `vehicle`, `rig`, `env`, `bloom`, …
 - A hidden browser pane or background tab throttles `requestAnimationFrame`. FPS readings are then meaningless and screenshots are stale. Drive with `game.tick` and capture frames with `tools/shotserver.py` plus the `shot()` helper in `tools/browser-snippets.js`, which also has the lane and trail test drivers.
-- Engine sound can be checked offline with an `OfflineAudioContext` and the worklet (level, NaNs, periodicity = rpm/120 for the uneven V8). Nobody has listened to it yet.
+- Engine sound: `node tools/enginesound.mjs out.wav` renders the worklet through a fixed script (idle, blip, lugging, cruise, WOT, overrun) and prints the level of each segment. Keep low-rpm lugging quieter than high-rpm WOT. Exhaust pulses last a fixed crank angle; the old fixed ~1.5 ms noise clicks sounded like a ticking motorboat at idle (user complaint). Audio-model reviews (seed via OpenRouter) of the WAV were inconsistent, so treat them as weak evidence.
 
 ## Backlog / ideas
 
