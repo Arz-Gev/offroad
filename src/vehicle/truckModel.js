@@ -162,7 +162,8 @@ export function buildTruck(P) {
       const topY = ap.droopY + ap.travel + 0.36;
       const coil = add(mesh(coilGeometry(0.085, 0.014, 7), mats.blackMetal), root);
       add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 16), mats.chassis, sx, topY, ap.z), root);
-      const shockX = s * (ap.springTrack / 2 + 0.16);
+      // damper track from params when it has one (main branch: damperTrack), else just outboard of the spring
+      const shockX = s * (ap.damperTrack ? ap.damperTrack / 2 : ap.springTrack / 2 + 0.16);
       const shockZ = ap.z + (ai === 0 ? 0.12 : -0.12);
       const shockBody = add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 12).translate(0, -0.15, 0), mats.yellow), root);
       const shockRod = add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 8).translate(0, 0.16, 0), mats.chrome), root);
