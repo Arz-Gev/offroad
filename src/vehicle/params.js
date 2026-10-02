@@ -82,11 +82,11 @@ export function makeDefenderParams() {
     // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding]
     colliders: [
       [0, 1.30, 0.78, 0.89, 0.66, 1.62, 0.06],    // cabin / rear body
-      [0, 0.92, -1.42, 0.87, 0.33, 0.70, 0.06],   // engine bay / bonnet
+      [0, 0.985, -1.42, 0.87, 0.395, 0.70, 0.06], // engine bay / bonnet (bottom unchanged, top 1.38 = raised bonnet centre)
       [0, 0.62, -2.21, 0.96, 0.16, 0.13, 0.03],   // front bumper
       [0, 0.66, 2.44, 0.93, 0.14, 0.09, 0.03],    // rear bumper
       [0, 0.52, 0.05, 0.42, 0.09, 2.15, 0.03],    // chassis rails
-      [0, 2.12, 0.70, 0.84, 0.10, 1.58, 0.03],    // roof rack
+      [0, 2.20, 0.70, 0.84, 0.13, 1.58, 0.03],    // roof rack (top 2.33)
       [0, 1.18, 2.62, 0.36, 0.38, 0.15, 0.06],    // spare wheel
     ],
   };
