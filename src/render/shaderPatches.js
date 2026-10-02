@@ -22,6 +22,8 @@ export const ATMO = {
   atmoToward: { x: 0.6, y: 0.6, z: 0.6, w: 1 },
   // rgb: Mie glow colour around the sun, w: anisotropy g
   atmoGlow: { x: 0, y: 0, z: 0, w: 0.7 },
+  // cloud shadows: xy wind drift of the cloud layer (m), z: cloud cover 0..1, w: shadow strength (0 = off)
+  atmoCloud: { x: 0, y: 0, z: 0.45, w: 0 },
 };
 
 // uniforms to add to custom ShaderMaterials that use fog
@@ -60,6 +62,23 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 		uniform vec4 atmoSide;
 		uniform vec4 atmoToward;
 		uniform vec4 atmoGlow;
+		uniform vec4 atmoCloud;
+		// Cloud shadows: project the shaded point along the light onto the cloud layer (1.8 km, like the sky
+		// dome's) and darken the sun by a soft value-noise cover there. Procedural, so no texture per material.
+		float atmoHash( vec2 p ) { p = fract( p * vec2( 0.1031, 0.1030 ) ); p += dot( p, p.yx + 33.33 ); return fract( ( p.x + p.y ) * p.y ); }
+		float atmoNoise( vec2 p ) {
+			vec2 i = floor( p ), f = fract( p );
+			f = f * f * ( 3.0 - 2.0 * f );
+			return mix( mix( atmoHash( i ), atmoHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( atmoHash( i + vec2( 0.0, 1.0 ) ), atmoHash( i + 1.0 ), f.x ), f.y );
+		}
+		float atmoCloudShadow( vec3 viewPos ) {
+			if ( atmoCloud.w <= 0.0 || atmoSun.y <= 0.02 ) return 1.0;
+			vec3 wp = cameraPosition + ( vec4( viewPos, 0.0 ) * viewMatrix ).xyz;
+			vec2 q = ( wp.xz + atmoSun.xz * ( ( 1800.0 - wp.y ) / max( atmoSun.y, 0.12 ) ) + atmoCloud.xy ) / 520.0;
+			float f = atmoNoise( q ) * 0.55 + atmoNoise( q * 2.13 + 7.1 ) * 0.28 + atmoNoise( q * 4.7 + 3.3 ) * 0.17;
+			float c = smoothstep( 1.0 - atmoCloud.z, 1.0 - atmoCloud.z + 0.3, f );
+			return 1.0 - atmoCloud.w * c;
+		}
 		// fog opacity and colour for a camera-relative world offset d
 		float atmoFogFactor( vec3 d ) {
 			float dist = length( d );
@@ -121,6 +140,12 @@ export function installShaderPatches() {
 
   // lights: skip lamps that contribute nothing to this pixel
   let lf = C.lights_fragment_begin;
+  const dirInfo = '\t\tgetDirectionalLightInfo( directionalLight, directLight );\n';
+  if (lf.includes(dirInfo)) {
+    lf = lf.replace(dirInfo, dirInfo + '\t\t#if defined( USE_FOG ) && defined( FOG_EXP2 )\n\t\tdirectLight.color *= atmoCloudShadow( geometryPosition );\n\t\t#endif\n');
+  } else {
+    console.warn('shaderPatches: directional light layout changed, cloud shadows disabled');
+  }
   const pointRE = /(\t\tgetPointLightInfo\( pointLight, geometryPosition, directLight \);\n)([\s\S]*?)(\t\tRE_Direct\( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight \);\n)/;
   const spotRE = /(\t\tgetSpotLightInfo\( spotLight, geometryPosition, directLight \);\n)([\s\S]*?)(\t\tRE_Direct\( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight \);\n)/;
   const wrap = (m, a, body, re) => `${a}\t\tif ( directLight.visible ) {\n${body}${re}\t\t}\n`;

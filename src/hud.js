@@ -53,6 +53,7 @@ export class HUD {
           <span class="tt red" id="t-hb" hidden>HANDBRAKE</span>
           <span class="tt amber" id="t-abs" hidden>ABS</span>
           <span class="tt amber" id="t-tc" hidden>TC</span>
+          <span class="tt blue" id="t-rwd" hidden>2WD</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
           <span class="tt amber" id="t-bar" hidden>LIGHT BAR</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
@@ -105,7 +106,7 @@ export class HUD {
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
       psi: $('h-psi'), surf: $('h-surf'),
-      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
+      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
     this.sctx = $('h-suspcv').getContext('2d');
@@ -306,7 +307,9 @@ export class HUD {
     const eng = d.running ? '' : d.cranking ? 'CRANKING' : d.stalled ? 'STALLED' : 'ENGINE OFF';
     if (eng !== c.eng) { c.eng = eng; e.tEng.hidden = !eng; if (eng) { e.tEng.textContent = eng; e.tEng.className = 'tt ' + (d.cranking ? 'amber' : 'red'); } }
     this.lamp(e.tHb, 'hb', v.ctl.handbrake > 0.5);
-    this.lamp(e.tAbs, 'abs', v.absActive > 0);
+    const abs = !v.abs ? 'ABS OFF' : v.absActive > 0 ? 'ABS' : '';
+    if (abs !== c.abs) { c.abs = abs; e.tAbs.hidden = !abs; if (abs) e.tAbs.textContent = abs; }
+    this.lamp(e.tRwd, 'rwd', d.rwd);
     const tc = !v.tc ? 'TC OFF' : v.tcActive > 0 ? 'TC' : '';
     if (tc !== c.tc) { c.tc = tc; e.tTc.hidden = !tc; if (tc) e.tTc.textContent = tc; }
     const head = view.lights.head;
@@ -515,6 +518,11 @@ const DT_MESSAGES = [
   [/^Rear locker ON/, () => 'Rear locker on', 'good', 'lockers'],
   [/^Front \+ rear lockers ON/, () => 'Front and rear lockers on', 'good', 'lockers'],
   [/^Axle lockers off/, () => 'Axle lockers off', '', 'lockers'],
+  [/^2WD/, () => '2WD: rear-wheel drive', '', 'rwd'],
+  [/^4WD/, () => '4WD: all wheels driven', 'good', 'rwd'],
+  [/^Select 4WD before LOW|^RWD only in HIGH/, k => `2WD works in HIGH range only · ${k('rwd')} for 4WD first`, 'warn', 'rwd'],
+  [/^Slow down to change 2WD/, () => 'Slow down below 30 km/h to change 2WD / 4WD', 'warn', 'rwd'],
+  [/^Centre lock needs 4WD/, k => `Centre lock needs 4WD · ${k('rwd')}`, 'warn', 'centre'],
 ];
 
 export function escapeHTML(s) {

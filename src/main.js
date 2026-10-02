@@ -219,6 +219,10 @@ async function main() {
   const APPLY = {
     gearbox(v, o) { if (d.mode !== v) { d.toggleMode(); if (o.silent) d.message = null; } },
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
+    handbrake(v, o) {
+      vehicle.hbMode = v; vehicle.hbLatched = false;
+      if (!o.silent) say('hb', { hold: 'Handbrake: hold the key', toggle: 'Handbrake: press on, press off', auto: 'Handbrake: automatic at a stop' }[v]);
+    },
     camera(v, o) { rig.setMode(v); if (!o.silent) say('camera', CAM_NAMES[v]); },
     time(v, o) {
       env.setMode(v);
@@ -274,6 +278,8 @@ async function main() {
     centreLock: () => d.toggleCenterLock(),
     lockers: () => d.cycleAxleLockers(),
     traction: () => { vehicle.tc = !vehicle.tc; say('tc', vehicle.tc ? 'Traction control on' : 'Traction control off: open diffs spin the lightest wheel'); },
+    abs: () => { vehicle.abs = !vehicle.abs; say('abs', vehicle.abs ? 'ABS on' : 'ABS off: hard braking locks the wheels'); },
+    rwd: () => d.toggleRwd(vehicle.speed),
     engineStart: () => d.startEngine(),
     engineStop: () => {
       if (!d.running && !d.cranking) { say('engine', `Engine is already off · ${k('engineStart')} starts it`); return; }

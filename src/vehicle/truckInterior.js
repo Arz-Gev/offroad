@@ -256,12 +256,12 @@ export function buildInterior(mats, body) {
     add(span(x - w / 2, x + w / 2, 0.99, 1.13, z - 0.5, z + 0.04, mats.seat, 0.05));                 // cushion
     for (const s of sides) add(span(x + s * (w / 2 - 0.05), x + s * (w / 2), 1.08, 1.17, z - 0.48, z + 0.02, mats.seat, 0.03)); // bolsters
     const bk = add(rbox(w, 0.64, 0.13, 0.05, mats.seat, x, 1.44, z + 0.13));
-    bk.rotation.x = -back;
-    for (const s of sides) { const b = add(rbox(0.06, 0.6, 0.15, 0.03, mats.seat, x + s * (w / 2 - 0.03), 1.43, z + 0.14)); b.rotation.x = -back; }
-    add(rbox(w - 0.1, 0.5, 0.03, 0.01, mats.seatTrim, x, 1.42, z + 0.215)).rotation.x = -back; // seat back shell
+    bk.rotation.x = back;   // + leans the top rearwards (towards +z)
+    for (const s of sides) { const b = add(rbox(0.06, 0.6, 0.15, 0.03, mats.seat, x + s * (w / 2 - 0.03), 1.43, z + 0.14)); b.rotation.x = back; }
+    add(rbox(w - 0.1, 0.5, 0.03, 0.01, mats.seatTrim, x, 1.42, z + 0.215)).rotation.x = back; // seat back shell
     if (head) {
-      add(rbox(0.27, 0.17, 0.09, 0.04, mats.seat, x, 1.85, z + 0.33));
-      for (const s of sides) add(bar([x + s * 0.06, 1.77, z + 0.31], [x + s * 0.06, 1.72, z + 0.29], 0.006, mats.cabinMetal, 6));
+      add(rbox(0.27, 0.17, 0.09, 0.04, mats.seat, x, 1.85, z + 0.26));
+      for (const s of sides) add(bar([x + s * 0.06, 1.77, z + 0.25], [x + s * 0.06, 1.72, z + 0.24], 0.006, mats.cabinMetal, 6));
     }
   };
   seat(DX, 0.0);
@@ -271,7 +271,7 @@ export function buildInterior(mats, body) {
   add(span(-0.8, 0.8, FLOOR, 0.98, 0.62, 1.15, mats.cabinPaint, 0.01));
   add(span(-0.76, 0.76, 0.98, 1.11, 0.64, 1.14, mats.seat, 0.05));
   const rb = add(rbox(1.5, 0.6, 0.13, 0.05, mats.seat, 0, 1.41, 1.22));
-  rb.rotation.x = -0.17;
+  rb.rotation.x = 0.17;
   for (const x of [-0.5, 0, 0.5]) add(rbox(0.25, 0.15, 0.08, 0.035, mats.seat, x, 1.79, 1.3));
   for (const s of sides) {
     add(span(s * 0.555, s * 0.86, 1.03, 1.1, 0.8, 2.0, mats.cabinPaint, 0.02));     // wheel arch housing

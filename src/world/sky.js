@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { ATMOSPHERE_GLSL } from './atmosphere.js';
 import { mulberry32 } from './noise.js';
+import { ATMO, setVec4 } from '../render/shaderPatches.js';
 
 // Sky: a 256x128 sky-view LUT rendered with single scattering whenever the light changes (time-of-day
 // blends), then a dome that reads it and adds the sun disc, the moon, stars, the Milky Way and a moving
@@ -226,6 +227,9 @@ export class Sky {
     this.uniforms.uTime.value += dt;
     this.dome.position.copy(camera.position);
     this.uniforms.uCamPos.value.copy(camera.position);
+    // cloud shadows on the ground drift with the visible layer (its texture space is 9 km per unit)
+    const u = this.uniforms, wt = u.uTime.value * 9000;
+    setVec4(ATMO.atmoCloud, u.uWind.value.x * wt, u.uWind.value.y * wt, u.uCover.value, 0.42 * u.uCloudAlpha.value);
     const far = camera.far * 0.9;
     if (this.dome.scale.x !== far) this.dome.scale.setScalar(far);
   }

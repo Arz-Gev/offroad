@@ -14,7 +14,7 @@ export const BINDINGS = [
   { id: 'throttle', group: 'Driving', label: 'Throttle', keys: ['W', '↑'], pad: 'RT' },
   { id: 'brake', group: 'Driving', label: 'Brake · automatic: hold at a stop to reverse', keys: ['S', '↓'], pad: 'LT' },
   { id: 'steer', group: 'Driving', label: 'Steer', keys: ['A', 'D'], alt: ['←', '→'], pad: 'L stick' },
-  { id: 'handbrake', group: 'Driving', label: 'Handbrake', keys: ['Space'], pad: 'A' },
+  { id: 'handbrake', group: 'Driving', label: 'Handbrake (hold, toggle or auto: Menu → Driving)', keys: ['Space'], pad: 'A' },
   { id: 'clutch', group: 'Driving', label: 'Clutch pedal (manual with auto-clutch off)', keys: ['Shift'], pad: 'LB' },
 
   { id: 'shiftUp', group: 'Gearbox & 4×4', label: 'Shift up · automatic: selector P → R → N → D', codes: ['KeyE'], keys: ['E'], pad: 'RB', button: PAD.RB },
@@ -25,6 +25,8 @@ export const BINDINGS = [
   { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT },
   { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT },
   { id: 'traction', group: 'Gearbox & 4×4', label: 'Traction control on / off (brakes a spinning wheel)', codes: ['KeyY'], keys: ['Y'] },
+  { id: 'abs', group: 'Gearbox & 4×4', label: 'ABS on / off (off: wheels can lock under braking)', codes: ['KeyB'], keys: ['B'] },
+  { id: 'rwd', group: 'Gearbox & 4×4', label: '2WD (rear-wheel drive) ⇄ 4WD · HIGH range only', codes: ['KeyF'], keys: ['F'] },
 
   { id: 'engineStart', group: 'Vehicle', label: 'Start engine', codes: ['KeyI'], keys: ['I'], pad: 'L stick click', button: PAD.LS },
   { id: 'engineStop', group: 'Vehicle', label: 'Stop engine', codes: ['KeyO'], keys: ['O'] },

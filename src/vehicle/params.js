@@ -52,7 +52,7 @@ export function makeDefenderParams() {
 
     steer: { maxAngle: 0.62, kingpinTrack: 1.38, ratio: 17 },
 
-    brakes: { front: 2700, rear: 1350, handbrake: 3200 }, // max torque per wheel (handbrake: at rear axle)
+    brakes: { front: 2700, rear: 1350, handbrake: 3200, handbrakeHold: 24000 }, // max torque per wheel (handbrake: at rear axle; hold: whole transfer output at a stop)
 
     engine: {
       name: '4.6 V8',

@@ -138,3 +138,10 @@ Things that are not obvious from reading the code: conventions, measured baselin
 - **Quality presets** (`quality.js`, Settings → Graphics, applied live; Auto picks High on an M1 Pro/Max, one step down for windows over ~9 Mpx at the device ratio): measured in headless Chrome 1920×1080 @ DPR 2, trail drive, day: Low 5.1 ms (1920×1080, FXAA, no grass), Medium 8.7 ms (2400×1350, FXAA), High 13.0 ms (2880×1620, MSAA 2), Ultra 22 ms (3840×2160, MSAA 4). The base build measured 11.5–13 ms at 3360×1890 in the same runs (night 13.5–14.1 vs High 13.9–14.4; cockpit 15.1 vs 13.4). Absolute numbers drift ±30 % with other GPU load (other agents' headless pages, the in-app browser); compare interleaved runs. A headless page left on the game keeps the GPU busy: end CDP runs on `about:blank`.
 - **Load**: ~3 s to "Ready" (terrain 1.1 s, ground layers/splat/ground data 0.7 s, props + trees 0.6 s, compile + warm-up 0.4 s). `game.loadLog` has the stage times.
 - **Not done / ideas**: screen-space AO (only baked cavity/canopy AO), cloud shadows, terrain and trees in water reflections (sky only), undergrowth shadow casting, a drivable ramp into the quarry, interior detail for the hut, snow on the near mountains.
+
+## 2026-10-02: quick fixes batch
+- Handbrake: rear-axle brake as before, plus a standstill hold on the transfer output (`brakes.handbrakeHold`, fades out by 2 m/s) so an open centre diff can't let the front pull away. Modes `hold | toggle | auto` (setting `handbrake`, logic in `Vehicle.handbrakeLogic`). Test: `node tools/hbtest.mjs [deg]`.
+- 2WD (key F): `drivetrain.rwd` drives the rear axle only, HIGH range only, forces the centre lock off; `wheelMean()` follows the driven wheels.
+- ABS on/off (key B); HUD shows "ABS OFF".
+- Seat backs leaned forward (looked rear-facing): rotation sign fixed in `truckInterior.js`.
+- Cloud shadows: procedural, in `shaderPatches.js` (`atmoCloudShadow` on directional lights, driven by `ATMO.atmoCloud` from `sky.update`).

@@ -19,6 +19,7 @@ const SECTIONS = [
   { title: 'Driving', rows: [
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Manual gearbox only. Off: hold Shift for the clutch.' }),
+    row('handbrake', 'Handbrake', 'seg', { options: [['hold', 'Hold'], ['toggle', 'Toggle'], ['auto', 'Auto']], note: 'Hold: while the key is down. Toggle: press on, press off. Auto: sets itself at a stop, releases when you drive off.' }),
     row('pressure', 'Tyre pressure', 'stepper', { hot: ['pressureDown', 'pressureUp'], note: 'Lower pressure: bigger footprint, more grip off-road.' }),
   ] },
   { title: 'View', rows: [

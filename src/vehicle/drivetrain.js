@@ -47,6 +47,7 @@ export class Drivetrain {
     this.centerLock = false;
     this.frontLock = false;
     this.rearLock = false;
+    this.rwd = false;               // front prop shaft disconnected: rear-wheel drive only (high range)
 
     this.w = new Float64Array(6);
     this.inv = new Float64Array(6);
@@ -78,7 +79,7 @@ export class Drivetrain {
 
     this.rows = {
       gear: new Row(), clutch: new Row(), center: new Row(), front: new Row(), rear: new Row(), park: new Row(),
-      hb: new Row(), efric: new Row(), ifric: new Row(),
+      hb: new Row(), hold: new Row(), efric: new Row(), ifric: new Row(),
       b0: new Row(), b1: new Row(), b2: new Row(), b3: new Row(),
       r0: new Row(), r1: new Row(), r2: new Row(), r3: new Row(),
     };
@@ -116,7 +117,8 @@ export class Drivetrain {
     return 0;
   }
 
-  wheelMean() { const w = this.w; return 0.25 * (w[2] + w[3] + w[4] + w[5]); }
+  // mean speed of the driven wheels (= transfer case output / ratio)
+  wheelMean() { const w = this.w; return this.rwd ? 0.5 * (w[4] + w[5]) : 0.25 * (w[2] + w[3] + w[4] + w[5]); }
 
   gearLabel() {
     if (this.mode === 'manual') return this.manualGear === 0 ? 'N' : this.manualGear < 0 ? 'R' : String(this.manualGear);
@@ -140,10 +142,21 @@ export class Drivetrain {
   }
   toggleRange(speed) {
     if (Math.abs(speed) > 1.5) { this.say('Stop to change transfer range'); return; }
+    if (this.rwd && this.range === 'high') { this.say('Select 4WD before LOW range'); return; }
     this.range = this.range === 'high' ? 'low' : 'high';
     this.say(this.range === 'low' ? 'LOW range engaged' : 'HIGH range engaged');
   }
-  toggleCenterLock() { this.centerLock = !this.centerLock; this.say(this.centerLock ? 'Centre diff LOCKED' : 'Centre diff open'); }
+  toggleCenterLock() {
+    if (this.rwd) { this.say('Centre lock needs 4WD'); return; }
+    this.centerLock = !this.centerLock; this.say(this.centerLock ? 'Centre diff LOCKED' : 'Centre diff open');
+  }
+  toggleRwd(speed) {
+    if (!this.rwd && this.range === 'low') { this.say('RWD only in HIGH range'); return; }
+    if (Math.abs(speed) > 8) { this.say('Slow down to change 2WD / 4WD'); return; }
+    this.rwd = !this.rwd;
+    if (this.rwd) this.centerLock = false;
+    this.say(this.rwd ? '2WD: rear-wheel drive' : '4WD: all wheels driven');
+  }
   cycleAxleLockers() {
     if (!this.rearLock) { this.rearLock = true; this.say('Rear locker ON'); }
     else if (!this.frontLock) { this.frontLock = true; this.say('Front + rear lockers ON'); }
@@ -321,7 +334,8 @@ export class Drivetrain {
   // ---------------------------------------------------------------- substep integration
   // tireT: torque from tyre on each wheel (Nm, + = accelerates forward rotation)
   // rrT: rolling-resistance bound per wheel (Nm), brakeT: service brake torque per wheel, hbT: handbrake torque at rear axle
-  substep(h, tireT, rrT, brakeT, hbT) {
+  // holdT: standstill hold of the transmission brake on the transfer output (all driven wheels)
+  substep(h, tireT, rrT, brakeT, hbT, holdT = 0) {
     const P = this.P, E = P.engine, w = this.w, inv = this.inv, R = this.rows;
     const rpm = w[0] * RPM;
     const w0Old = w[0];
@@ -346,7 +360,7 @@ export class Drivetrain {
     const G = this.currentRatio();
     if (G !== 0) {
       const g4 = -G / 4;
-      const row = R.gear.set(0, 1, g4, g4, g4, g4);
+      const row = this.rwd ? R.gear.set(0, 1, 0, 0, -G / 2, -G / 2) : R.gear.set(0, 1, g4, g4, g4, g4);
       if (this.mode === 'auto' && this.shift) {
         const f = clamp(this.shift.t / P.auto.shiftTime, 0, 1);
         row.bound(P.auto.shiftCapacity * (0.3 + 0.7 * f) * h);
@@ -361,12 +375,13 @@ export class Drivetrain {
     } else {
       const cap = P.auto.lockupCapacity * this.lockup;
       if (cap > 0) A.push(R.clutch.set(1, -1, 0, 0, 0, 0).bound(cap * h)); else R.clutch.lambda = 0;
-      if (this.selector === 'P') A.push(R.park.set(0, 0, 0.25, 0.25, 0.25, 0.25).bound(Infinity));
+      if (this.selector === 'P') A.push((this.rwd ? R.park.set(0, 0, 0, 0, 0.5, 0.5) : R.park.set(0, 0, 0.25, 0.25, 0.25, 0.25)).bound(Infinity));
     }
     if (this.centerLock) A.push(R.center.set(0, 0, 0.5, 0.5, -0.5, -0.5).bound(Infinity));
     if (this.frontLock) A.push(R.front.set(0, 0, 1, -1, 0, 0).bound(Infinity));
     if (this.rearLock) A.push(R.rear.set(0, 0, 0, 0, 1, -1).bound(Infinity));
     if (hbT > 0) A.push(R.hb.set(0, 0, 0, 0, 0.5, 0.5).bound(hbT * h)); else R.hb.lambda = 0;
+    if (holdT > 0) A.push((this.rwd ? R.hold.set(0, 0, 0, 0, 0.5, 0.5) : R.hold.set(0, 0, 0.25, 0.25, 0.25, 0.25)).bound(holdT * h)); else R.hold.lambda = 0;
     const bRows = [R.b0, R.b1, R.b2, R.b3], rRows = [R.r0, R.r1, R.r2, R.r3];
     for (let i = 0; i < 4; i++) {
       if (brakeT[i] > 0) {
@@ -388,10 +403,11 @@ export class Drivetrain {
     const lg = G !== 0 ? R.gear.lambda : 0;
     const lc = this.centerLock ? R.center.lambda : 0;
     const lh = hbT > 0 ? R.hb.lambda : 0;
-    const gj = R.gear.j, cj = R.center.j, hj = R.hb.j;
+    const lo = holdT > 0 ? R.hold.lambda : 0;
+    const gj = R.gear.j, cj = R.center.j, hj = R.hb.j, oj = R.hold.j;
     for (let i = 0; i < 4; i++) {
       const b = 2 + i;
-      this.wheelDrive[i] = ((G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0)) / h;
+      this.wheelDrive[i] = ((G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0)) / h;
     }
     const fd = P.finalDrive;
     this.propTorque[0] = (this.wheelDrive[0] + this.wheelDrive[1]) / fd;

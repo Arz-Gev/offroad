@@ -110,6 +110,10 @@ export class Vehicle {
     this.brakeT = new Float64Array(4);
     this.absFactor = new Float64Array([1, 1, 1, 1]);
     this.abs = true;
+    this.hbMode = 'hold';    // handbrake key: 'hold' (while pressed) | 'toggle' (press on / press off) | 'auto' (sets itself at a stop)
+    this.hbLatched = false;
+    this._hbPrev = 0;
+    this._hbStill = 0;
     this.absActive = 0;
     this.tc = true;          // electronic traction control (brakes a spinning wheel)
     this.tcActive = 0;
@@ -130,6 +134,24 @@ export class Vehicle {
     this.pressure = Math.max(t.minPressure, Math.min(t.maxPressure, psi));
   }
 
+  // Handbrake modes. 'auto' works like an electric parking brake: it sets itself after ~0.6 s stopped
+  // with no throttle, and releases when you drive off in gear. The key still works on top of it.
+  handbrakeLogic(raw, h) {
+    const key = raw.handbrake > 0.5, edge = key && !this._hbPrev;
+    this._hbPrev = key ? 1 : 0;
+    if (this.hbMode === 'hold') { this.hbLatched = false; return raw.handbrake; }
+    if (this.hbMode === 'toggle') { if (edge) this.hbLatched = !this.hbLatched; return this.hbLatched ? 1 : 0; }
+    const dt = this.drivetrain;
+    const inGear = dt.mode === 'auto' ? dt.selector === 'D' || dt.selector === 'R' : dt.manualGear !== 0;
+    const pedal = dt.mode === 'auto' && dt.selector === 'R' ? raw.brake : raw.throttle;
+    if (edge && this.hbLatched) { this.hbLatched = false; this._hbStill = -1; return 0; } // key releases a set brake
+    if (Math.abs(this.speed) < 0.3 && pedal < 0.05) this._hbStill += h; else this._hbStill = Math.min(this._hbStill, 0);
+    if (this._hbStill > 0.6) this.hbLatched = true;
+    if (this.hbLatched && inGear && pedal > 0.12 && dt.running) { this.hbLatched = false; this._hbStill = 0; }
+    if (!key && this._hbStill < 0 && Math.abs(this.speed) > 0.5) this._hbStill = 0;
+    return this.hbLatched || key ? 1 : 0;
+  }
+
   applyInput(raw, h) {
     const dt = this.drivetrain;
     const c = this.ctl;
@@ -148,7 +170,7 @@ export class Vehicle {
     c.throttle = throttle;
     c.brake = brake;
     c.clutch = raw.clutch;
-    c.handbrake = raw.handbrake;
+    c.handbrake = this.handbrakeLogic(raw, h);
     // steering: speed sensitive limit. Keyboard full lock asks for the angle that corners at ~0.75 g plus
     // a little slip angle; more than that only scrubs the front tyres and rocks the truck onto two wheels.
     const v = Math.abs(this.speed), maxA = this.P.steer.maxAngle;
@@ -315,6 +337,9 @@ export class Vehicle {
 
     const S = this.substeps, hs = h / S;
     const hbT = c.handbrake * P.brakes.handbrake;
+    // at a standstill the handbrake holds the whole transfer output (all driven wheels), not just the rear axle,
+    // so the front can't pull through an open centre diff; fades out above ~2 m/s to keep handbrake turns
+    const holdT = c.handbrake > 0.5 ? P.brakes.handbrakeHold * Math.max(0, Math.min(1, 2 - Math.abs(this.speed))) : 0;
     // brakes with a simple 4-channel ABS (releases a wheel that is about to lock, then reapplies)
     for (let i = 0; i < 4; i++) {
       const w = this.wheels[i];
@@ -372,7 +397,7 @@ export class Vehicle {
         this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + 2.5;
       }
       // c. drivetrain
-      dt.substep(hs, this.tireT, this.rrT, this.brakeT, hbT);
+      dt.substep(hs, this.tireT, this.rrT, this.brakeT, hbT, holdT);
       tpf += dt.propTorque[0]; tpr += dt.propTorque[1]; engA += dt.engineAlpha;
       // d. tyre transient state
       for (let i = 0; i < 4; i++) {
