@@ -11,7 +11,7 @@ export function makeDefenderParams() {
     name: 'Defender 110 V8',
     bodyMass: 1880,                       // sprung mass incl. roof rack, winch, spare
     bodyInertia: [3300, 3700, 950],       // principal inertia about COM: pitch (x), yaw (y), roll (z)
-    com: [0, 0.96, 0.08],                 // centre of mass (local)
+    com: [0, 0.90, 0.08],                 // centre of mass (local)
     aero: { cdA: 2.15, rho: 1.2 },
     wheelbase,
     track,
@@ -23,14 +23,17 @@ export function makeDefenderParams() {
         name: 'front', z: -wheelbase / 2, droopY: 0.275, travel: 0.24,
         mass: 185, rollInertia: 75,
         springTrack: 1.0, k: 43000, preload: 0.0,
-        bump: 2700, rebound: 4300, arb: 11000,
+        // dampers sit outboard, close to the wheels; digressive above the knee (m/s)
+        damperTrack: 1.24, bump: 3800, rebound: 6000, damperKnee: 0.22, damperHigh: 0.55,
+        arb: 8000,
         steered: true,
       },
       {
         name: 'rear', z: wheelbase / 2, droopY: 0.27, travel: 0.25,
         mass: 175, rollInertia: 72,
         springTrack: 1.04, k: 47000, preload: 0.0,
-        bump: 2800, rebound: 4500, arb: 4000,
+        damperTrack: 1.24, bump: 4000, rebound: 6300, damperKnee: 0.22, damperHigh: 0.55,
+        arb: 8500,
         steered: false,
       },
     ],

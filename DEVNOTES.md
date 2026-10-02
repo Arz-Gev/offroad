@@ -28,6 +28,8 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - Warm start, 24 PGS iterations.
   - Open diffs need no special code: the gear row with `-G/4` per wheel already gives an equal torque split.
 - **Torque reactions**: the body gets `-(Ie*αe + Tprop_f + Tprop_r)` about `+z`, and each axle gets `+Tprop`. That's where the launch body roll and axle wrap come from. The sign follows a crank turning clockwise seen from the front.
+- **Suspension**: coil springs at `springTrack` with progressive bump stops (with hysteresis), dampers at `damperTrack` (outboard, digressive above `damperKnee`). Roll damping matters most: it was ζ≈0.2 and the truck rocked itself onto two wheels.
+- **Traction control** (`vehicle.tc`, key Y): brakes any wheel whose surface speed exceeds the ground speed under it, so open diffs send torque to the wheels with grip. Full authority below ~30 km/h, fading with speed.
 - **Auto upshift** uses `min(wheel speed, ground speed)`. Without that it upshifted while the wheels were spinning in the rock garden.
 
 ## UI (HUD, menu, input)
@@ -48,16 +50,19 @@ Things that are not obvious from reading the code: conventions, measured baselin
 | Check | Value |
 |---|---|
 | Static load sum | = weight (21 974 N); tyre squash ≈ 3 cm at 20 psi, 5–6 cm at 8 psi |
-| 0–100 km/h (auto) | 9.06 s; shifts at ~4800 rpm WOT |
-| 80→0 km/h braking | 28 m, 0.85 g, stable with ABS (without ABS the rear locks and it spins) |
+| 0–100 km/h (auto) | 8.7 s; shifts at ~4800 rpm WOT (traction control trims launch wheelspin) |
+| 80→0 km/h braking | 34 m, ~0.75 g on dirt (μ 0.72), stable with ABS (without ABS the rear locks and it spins) |
 | 30° slope, P + handbrake | holds, ~2 cm settle |
-| 30° climb, low range | open centre diff: can't climb (correct); centre locked: 10 km/h; auto idles holding on the slope |
-| Steady cornering | ~0.57 g limit, ~9° roll, understeer, inner wheels near lift |
+| 30° climb, low range | open diffs + traction control: climbs; centre locked: climbs faster; TC off + open centre: can't (correct) |
+| Steady cornering (`tools/handling.mjs`) | dirt ~0.59 g, grass ~0.50 g, ~8° roll, no wheel lift in steady turns or keyboard slalom up to 70 km/h |
 | Proving ground | steps up to 45 cm OK, logs OK, 35° ramp OK, twister ±11° axle roll; rock garden needs lockers + a line |
-| Trail lap at ≤60 km/h with the corner-slowing driver | completes upright; ~11 % of time a wheel is off the ground |
+| Trail lap (`tools/traillap.mjs 60 0.45 90`) | 53 km/h mean, wheel off ground 5.8 %, vertical accel rms 2.65 m/s², max roll 9°, no rollovers (before the Oct 2 ride fix: 12 %, 4.0 m/s², 27°) |
 | Browser cost | physics ≈ 0.45 ms/step (≈1.8 ms/frame), render ≈ 1 ms, truck = 78 meshes after `mergeStatic` |
 
 ## Traps already hit
+
+- **Wheel side cylinders must never touch the terrain heightfield.** They are teleported to the hub every step, so any contact with the ground becomes a huge impulse on the whole truck (10–37 g spikes, the "pogo stick" ride). Collision groups: heightfields are `GROUP_GROUND` (set in the Vehicle constructor), the cylinders filter it out and only hit rocks, logs and trees.
+- Keyboard steering at speed must be limited by lateral acceleration (`applyInput`): full lock at 45 km/h used to ask for 4× the angle the bend needed, which rocked the truck onto two wheels.
 
 - `flat` is a reserved GLSL word (the tyre shader failed to compile).
 - three r186 removed `PCFSoftShadowMap`; use `PCFShadowMap`. Use `NeutralToneMapping`: ACES made the red paint look salmon.
@@ -70,7 +75,8 @@ Things that are not obvious from reading the code: conventions, measured baselin
 
 ## Testing workflow
 
-- **Headless**: `npm run simtest [settle|accel|brake|slope|climb|turn|manual]`. Also `tools/terraintest.mjs` and `tools/junction.mjs` (steepest slope on trail centres).
+- **Headless**: `npm run simtest [settle|accel|brake|slope|climb|turn|manual]`.
+  - Ride/handling on the real map and synthetic roads: `tools/traillap.mjs [kmh] [cornerG] [secs] [analog|digital]` (trail loop with a pure-pursuit driver; `digital` mimics keyboard steering), `tools/handling.mjs [surface]` (keyboard full-lock circles and slaloms), `tools/bumptest.mjs [kmh] [height] [length] [both|left]`, `tools/climb.mjs [surface] [high|low] [humps] [open,centre,all]` (`NOTC=1` turns traction control off). Also `tools/terraintest.mjs` and `tools/junction.mjs` (steepest slope on trail centres).
 - **In the browser**, `window.game` exposes:
   - `tick(dt)` runs one frame by hand
   - `autopilot = fn(vehicle, dt) -> raw input`

@@ -20,6 +20,11 @@ const _q2 = new THREE.Quaternion();
 const _v = new V3(), _v2 = new V3(), _v3 = new V3();
 const X = new V3(1, 0, 0), Y = new V3(0, 1, 0), Z = new V3(0, 0, 1);
 
+// Rapier collision groups: high 16 bits = membership, low 16 bits = filter.
+const GROUND_BIT = 0x0001, WHEEL_BIT = 0x0002;
+export const GROUP_GROUND = (GROUND_BIT << 16) | 0xffff;
+const GROUP_WHEEL_SIDE = (WHEEL_BIT << 16) | (0xffff & ~GROUND_BIT);
+
 export class Vehicle {
   constructor(RAPIER, world, P, opts = {}) {
     this.RAPIER = RAPIER;
@@ -62,7 +67,7 @@ export class Vehicle {
         c: Math.min(p.travel * 0.9, load / p.k - p.preload),
         vz: 0, phi: 0, Om: 0,
         A: new V3(), q: new THREE.Quaternion(), mount: new V3(), vMountU: 0, rollRateBody: 0,
-        S: [0, 0], accS: [0, 0], accArb: 0,
+        S: [0, 0], accS: [0, 0], accD: [0, 0], accArb: 0,
       };
     });
 
@@ -80,11 +85,19 @@ export class Vehicle {
       });
     }
 
-    // Side-impact cylinders for the wheels. Ground contact is handled by the ray fan; these are smaller
-    // than the tyre so they only touch when a rock or wall hits the sidewall, or the tyre bottoms out.
+    // Side-impact cylinders for the wheels. Ground contact is handled by the ray fan; these only stop
+    // rocks, logs and walls from passing through the sidewall. They must never touch the terrain
+    // heightfield: they are teleported to the hub every step, so a contact there turns into a huge
+    // impulse on the whole truck (that was the "pogo stick" ride). Radius sits near the rim-bottoming
+    // depth for the same reason.
+    // Collision groups: heightfields are put in GROUND only; the wheel cylinders filter GROUND out.
+    world.forEachCollider(c => {
+      if (c.shape.type === RAPIER.ShapeType.HeightField) c.setCollisionGroups(GROUP_GROUND);
+    });
     for (const w of this.wheels) {
-      const cd = RAPIER.ColliderDesc.cylinder(P.tire.width * 0.42, P.tire.radius - 0.085)
-        .setDensity(0).setFriction(0.35).setRestitution(0.0);
+      const cd = RAPIER.ColliderDesc.cylinder(P.tire.width * 0.42, P.tire.radius - 0.12)
+        .setDensity(0).setFriction(0.35).setRestitution(0.0)
+        .setCollisionGroups(GROUP_WHEEL_SIDE);
       w.sideCollider = world.createCollider(cd, this.body);
     }
 
@@ -98,6 +111,9 @@ export class Vehicle {
     this.absFactor = new Float64Array([1, 1, 1, 1]);
     this.abs = true;
     this.absActive = 0;
+    this.tc = true;          // electronic traction control (brakes a spinning wheel)
+    this.tcActive = 0;
+    this.tcT = new Float64Array(4);
     this.time = 0;
 
     // body state cache
@@ -133,10 +149,13 @@ export class Vehicle {
     c.brake = brake;
     c.clutch = raw.clutch;
     c.handbrake = raw.handbrake;
-    // steering: speed sensitive limit for digital input
-    const v = Math.abs(this.speed);
-    const lim = raw.analogSteer ? 1 / (1 + Math.max(0, v - 8) / 30) : 1 / (1 + Math.max(0, v - 4) / 11);
-    const target = raw.steer * this.P.steer.maxAngle * lim;
+    // steering: speed sensitive limit. Keyboard full lock asks for the angle that corners at ~0.75 g plus
+    // a little slip angle; more than that only scrubs the front tyres and rocks the truck onto two wheels.
+    const v = Math.abs(this.speed), maxA = this.P.steer.maxAngle;
+    let lim;
+    if (raw.analogSteer) lim = 1 / (1 + Math.max(0, v - 8) / 30);
+    else lim = Math.min(1, (Math.atan(this.P.wheelbase * 0.75 * G / Math.max(v * v, 1e-3)) + 0.09) / maxA);
+    const target = raw.steer * maxA * lim;
     const rate = 1.35; // rad/s at the road wheel (hydraulic rack speed)
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));
     c.steer = this.steerAngle;
@@ -270,7 +289,7 @@ export class Vehicle {
       this.pointVel(ax.mount, _v);
       ax.vMountU = _v.dot(up);
       ax.rollRateBody = this.angVel.dot(this.back);
-      ax.accS[0] = ax.accS[1] = 0; ax.accArb = 0;
+      ax.accS[0] = ax.accS[1] = 0; ax.accD[0] = ax.accD[1] = 0; ax.accArb = 0;
     }
     this.updateGeometry();
 
@@ -308,6 +327,26 @@ export class Vehicle {
       this.brakeT[i] = c.brake * f * (i < 2 ? P.brakes.front : P.brakes.rear);
     }
     this.absActive = Math.max(0, this.absActive - h);
+    // Traction control (like Land Rover ETC): brake a wheel that spins faster than the ground under it.
+    // An open diff always splits torque evenly, so braking the spinning wheel lets the others drive.
+    // Works across the axle diffs and, when a whole axle spins, across the centre diff too.
+    for (let i = 0; i < 4; i++) {
+      const w = this.wheels[i];
+      let T = this.tcT[i];
+      if (this.tc && c.throttle > 0.05 && dt.running) {
+        const surfV = dt.w[2 + i] * w.Re;
+        const ref = w.contact && w.Fn > 0 ? w.vcx : this.speed;
+        const excess = Math.sign(surfV) === Math.sign(ref) || Math.abs(ref) < 0.05 ? Math.abs(surfV) - Math.abs(ref) : Math.abs(surfV) + Math.abs(ref);
+        const thr = 0.7 + 0.12 * Math.abs(ref);
+        // full authority while crawling and climbing, fading out at speed
+        const tMax = 2400 * Math.max(0.15, Math.min(1, 1 - (Math.abs(this.speed) - 8) / 12));
+        if (excess > thr) { T = Math.min(tMax, T + h * 9000 * (excess - thr) + h * 600); this.tcActive = 0.3; }
+        else T = Math.max(0, T - h * (excess < thr * 0.5 ? 9000 : 3000));
+      } else T = Math.max(0, T - h * 8000);
+      this.tcT[i] = T;
+      this.brakeT[i] = Math.max(this.brakeT[i], T);
+    }
+    this.tcActive = Math.max(0, this.tcActive - h);
     let tpf = 0, tpr = 0, engA = 0;
 
     for (let k = 0; k < S; k++) {
@@ -373,6 +412,9 @@ export class Vehicle {
         _v2.set(side * p.springTrack / 2, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
         _v.copy(up).multiplyScalar(ax.accS[s] * inv);
         b.addForceAtPoint(_v, _v2, true);
+        _v2.set(side * p.damperTrack / 2, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
+        _v.copy(up).multiplyScalar(ax.accD[s] * inv);
+        b.addForceAtPoint(_v, _v2, true);
       }
       // unsprung weight is carried by the axle DOF along 'up'; remove it from the chassis
       _v.copy(up).multiplyScalar(p.mass * G * up.y);
@@ -402,17 +444,26 @@ export class Vehicle {
     w.penDot = -((v.x + up.x * vU) * n.x + (v.y + up.y * vU) * n.y + (v.z + up.z * vU) * n.z);
   }
 
+  // Coil spring + bump stop + droop limit, at the spring seat. x = compression, xd = compression rate.
   springForce(p, x, xd) {
     let F = Math.max(0, p.k * (x + p.preload));
-    const cd = xd > 0 ? p.bump : p.rebound;
-    const v = Math.abs(xd);
-    const Fd = v < 0.13 ? cd * v : cd * (0.13 + 0.45 * (v - 0.13));
-    F += xd > 0 ? Fd : -Fd;
     const bs = x - (p.travel - 0.05);
-    if (bs > 0) F += 220000 * bs + 8e6 * bs * bs + (xd > 0 ? 2500 * xd * Math.min(1, bs / 0.02) : 0);
+    if (bs > 0) {
+      // progressive rubber bump stop with hysteresis: it gives back less than it took (no pogo off the stops)
+      const el = 220000 * bs + 8e6 * bs * bs;
+      F += (xd > 0 ? el : 0.55 * el) + (xd > 0 ? 6000 * xd * Math.min(1, bs / 0.02) : 0);
+    }
     if (x > p.travel) F += 3e6 * (x - p.travel) + (xd > 0 ? 25000 * xd : 0);
     if (x < 0) F += 1.6e6 * x + (xd < 0 ? 12000 * xd : 0);
     return F;
+  }
+
+  // Digressive damper: linear up to the knee, then a shallower slope (blow-off).
+  damperForce(p, xd) {
+    const cd = xd > 0 ? p.bump : p.rebound;
+    const v = Math.abs(xd), knee = p.damperKnee;
+    const Fd = v < knee ? cd * v : cd * (knee + p.damperHigh * (v - knee));
+    return xd > 0 ? Fd : -Fd;
   }
 
   axleSubstep(ax, hs, gU, propT) {
@@ -441,15 +492,19 @@ export class Vehicle {
     const pd = ax.Om - ax.rollRateBody;
     const SL = this.springForce(p, ax.c - s2 * sn, cd - s2 * cs * pd);
     const SR = this.springForce(p, ax.c + s2 * sn, cd + s2 * cs * pd);
+    const d2 = p.damperTrack / 2;
+    const DL = this.damperForce(p, cd - d2 * cs * pd);
+    const DR = this.damperForce(p, cd + d2 * cs * pd);
     const arb = -p.arb * ax.phi;
-    const heave = (FuL + FuR - SL - SR) / p.mass + gU;
-    const roll = (tyreRoll - (SR - SL) * s2 * cs + arb + propT) / p.rollInertia;
+    const heave = (FuL + FuR - SL - SR - DL - DR) / p.mass + gU;
+    const roll = (tyreRoll - (SR - SL) * s2 * cs - (DR - DL) * d2 * cs + arb + propT) / p.rollInertia;
     ax.vz += hs * heave;
     ax.Om += hs * roll;
     ax.c += hs * (ax.vz - ax.vMountU);
     ax.phi += hs * (ax.Om - ax.rollRateBody);
-    ax.S[0] = SL; ax.S[1] = SR;
+    ax.S[0] = SL + DL; ax.S[1] = SR + DR;
     ax.accS[0] += SL; ax.accS[1] += SR;
+    ax.accD[0] += DL; ax.accD[1] += DR;
     ax.accArb += arb;
   }
 

@@ -52,6 +52,7 @@ export class HUD {
           <span class="tt red" id="t-eng" hidden>ENGINE OFF</span>
           <span class="tt red" id="t-hb" hidden>HANDBRAKE</span>
           <span class="tt amber" id="t-abs" hidden>ABS</span>
+          <span class="tt amber" id="t-tc" hidden>TC</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
           <span class="tt amber" id="t-bar" hidden>LIGHT BAR</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
@@ -104,7 +105,7 @@ export class HUD {
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
       psi: $('h-psi'), surf: $('h-surf'),
-      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
+      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
     this.sctx = $('h-suspcv').getContext('2d');
@@ -306,6 +307,8 @@ export class HUD {
     if (eng !== c.eng) { c.eng = eng; e.tEng.hidden = !eng; if (eng) { e.tEng.textContent = eng; e.tEng.className = 'tt ' + (d.cranking ? 'amber' : 'red'); } }
     this.lamp(e.tHb, 'hb', v.ctl.handbrake > 0.5);
     this.lamp(e.tAbs, 'abs', v.absActive > 0);
+    const tc = !v.tc ? 'TC OFF' : v.tcActive > 0 ? 'TC' : '';
+    if (tc !== c.tc) { c.tc = tc; e.tTc.hidden = !tc; if (tc) e.tTc.textContent = tc; }
     const head = view.lights.head;
     if (head !== c.head) {
       c.head = head; e.tHead.hidden = !head;

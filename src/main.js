@@ -201,6 +201,7 @@ async function main() {
     range: () => d.toggleRange(vehicle.speed),
     centreLock: () => d.toggleCenterLock(),
     lockers: () => d.cycleAxleLockers(),
+    traction: () => { vehicle.tc = !vehicle.tc; say('tc', vehicle.tc ? 'Traction control on' : 'Traction control off: open diffs spin the lightest wheel'); },
     engineStart: () => d.startEngine(),
     engineStop: () => {
       if (!d.running && !d.cranking) { say('engine', `Engine is already off · ${k('engineStart')} starts it`); return; }
