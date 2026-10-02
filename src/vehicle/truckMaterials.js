@@ -139,7 +139,7 @@ export function createMaterials() {
     rubber: std({ color: 0x111112, roughness: 0.9, metalness: 0.0 }, { dirt: 0.4 }),
     seal: std({ color: 0x0c0c0d, roughness: 0.6, metalness: 0.0 }, { env: 1.0 }),
     // glass: premultiplied blending so reflections stay at full strength while the tint is see-through
-    glass: std({ color: 0x0a1014, roughness: 0.04, metalness: 0.0, transparent: true, opacity: 0.52, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
+    glass: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassClear: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
     mirror: std({ color: 0x646a70, roughness: 0.02, metalness: 1.0 }, { env: 2.0 }),
