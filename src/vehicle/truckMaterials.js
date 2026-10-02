@@ -92,12 +92,18 @@ float tkDirt;
 #endif
 `;
     if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance *= uCabinAO * ${(+ao).toFixed(3)}; radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
-    if (glass) post += 'radiance *= gl_FrontFacing ? 1.0 : 0.04;\n';
     if (post) frag = frag.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${post}`);
     if (glass) {
-      // premultiplied output: tinted body is attenuated by alpha, reflections are not
+      // The pane is a closed slab (two caps). Drawing both attenuated the view through it twice
+      // (0.26^2 = 7% transmission: opaque blue-black), so only the cap facing the viewer is drawn.
+      // Premultiplied output: tinted body is attenuated by alpha, reflections are not. Alpha rises
+      // towards grazing angles (Fresnel), so the glass is clearest head-on and mirror-like at a slant.
       frag = frag
-        .replace('#include <opaque_fragment>', 'gl_FragColor = vec4( totalDiffuse * diffuseColor.a + totalSpecular + totalEmissiveRadiance, diffuseColor.a );')
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (!gl_FrontFacing) discard;')
+        .replace('#include <opaque_fragment>', `float tkNV = abs(dot(normalize(vViewPosition), normal));
+float tkFr = pow(1.0 - tkNV, 3.0);
+float tkA = mix(diffuseColor.a, 1.0, tkFr * 0.55);
+gl_FragColor = vec4( totalDiffuse * tkA + totalSpecular + totalEmissiveRadiance, tkA );`)
         .replace('#include <fog_fragment>', `#ifdef USE_FOG
   #ifdef FOG_EXP2
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
@@ -133,8 +139,8 @@ export function createMaterials() {
     rubber: std({ color: 0x111112, roughness: 0.9, metalness: 0.0 }, { dirt: 0.4 }),
     seal: std({ color: 0x0c0c0d, roughness: 0.6, metalness: 0.0 }, { env: 1.0 }),
     // glass: premultiplied blending so reflections stay at full strength while the tint is see-through
-    glass: std({ color: 0x080b0e, roughness: 0.04, metalness: 0.0, transparent: true, opacity: 0.74, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
-    glassClear: std({ color: 0x0c1215, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
+    glass: std({ color: 0x0a1014, roughness: 0.04, metalness: 0.0, transparent: true, opacity: 0.52, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
+    glassClear: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
     mirror: std({ color: 0x646a70, roughness: 0.02, metalness: 1.0 }, { env: 2.0 }),
     // interior (darkened ambient: the cabin hides most of the sky)
