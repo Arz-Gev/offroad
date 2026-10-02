@@ -1,28 +1,29 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale is applied.
-// Measured on an M1 Pro (1920x1080 window, devicePixelRatio 2): see DEVNOTES "World and rendering".
+// Frame times measured on an M1 Pro (headless Chrome, 1920x1080 window, devicePixelRatio 2, trail drive):
+// low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
 export const QUALITY_ORDER = ['low', 'medium', 'high', 'ultra'];
 
 export const QUALITY = {
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: true, shadowMap: 1024, shadowFar: 90, shadowRadius: 1.2,
-    grass: 0.0, grassRadius: 0, flowers: false, treeNear: 45, treeFar: 600, impostorShadows: false,
-    terrainDetail: 0, lodScale: 0.7, bloom: true, anisotropy: 2, bushes: 0.5,
+    grass: 0.0, grassRadius: 0, treeNear: 45, impostorShadows: false,
+    terrainDetail: 0, lodScale: 0.7, bloom: true, bushes: 0.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: true, shadowMap: 2048, shadowFar: 130, shadowRadius: 1.4,
-    grass: 0.55, grassRadius: 34, flowers: true, treeNear: 60, treeFar: 900, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.85, bloom: true, anisotropy: 4, bushes: 0.8,
+    grass: 0.55, grassRadius: 34, treeNear: 60, impostorShadows: false,
+    terrainDetail: 1, lodScale: 0.85, bloom: true, bushes: 0.8,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadowMap: 2048, shadowFar: 170, shadowRadius: 1.6,
-    grass: 1.0, grassRadius: 46, flowers: true, treeNear: 80, treeFar: 1400, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, anisotropy: 8, bushes: 1,
+    grass: 1.0, grassRadius: 46, treeNear: 80, impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.0, bloom: true, bushes: 1,
   },
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 4, fxaa: false, shadowMap: 3072, shadowFar: 220, shadowRadius: 1.8,
-    grass: 1.35, grassRadius: 64, flowers: true, treeNear: 110, treeFar: 2000, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, anisotropy: 16, bushes: 1,
+    grass: 1.35, grassRadius: 64, treeNear: 110, impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.3, bloom: true, bushes: 1,
   },
 };
 
@@ -43,7 +44,7 @@ export function autoQuality(renderer) {
   else if (/nvidia|geforce|rtx|radeon rx|radeon pro/.test(n)) q = /rtx|rx [67]\d{3}|rx [6-9]\d00/.test(n) ? 'ultra' : 'high';
   else if (/intel|uhd|iris|adreno|mali|powervr/.test(n)) q = 'low';
   // very large windows on a mid GPU: one step down
-  if (px > 9e6 && q === 'high' && !/max|ultra/.test(n)) q = 'high';
+  if (px > 9e6 && q === 'high' && !/max|ultra/.test(n)) q = 'medium';
   if (/mobile|android|iphone|ipad/i.test(navigator.userAgent)) q = 'low';
   return { preset: q, gpu: name };
 }
