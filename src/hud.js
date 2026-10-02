@@ -360,7 +360,7 @@ export class HUD {
     let key = null, html = '';
     if (rolled > 1.0) { key = 'rolled'; html = `Rolled over. Press ${k('recover')} to put the truck back on its wheels.`; }
     else if (engine > 0.6) { key = 'engine'; html = `Engine ${d.stalled ? 'stalled' : 'off'}. Press ${k('engineStart')} to start it.`; }
-    else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Gearbox in neutral. Press ${k('shiftUp')} for 1st, ${k('shiftDown')} for reverse.` : `Selector in ${d.selector}. Press ${k('shiftUp')} for Drive.`; }
+    else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Gearbox in neutral. Press ${k('shiftUp')} for 1st, ${k('shiftDown')} for reverse.` : `Selector in ${d.selector}. Press ${k('shiftUp')} for Drive${d.selector === 'P' ? ` (reverse: ${k('shiftUp')} once)` : ''}.`; }
     else if (stuck > 3) {
       const s = [];
       if (d.range === 'high') s.push(`${k('range')} low range`);

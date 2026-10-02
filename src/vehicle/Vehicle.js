@@ -104,6 +104,7 @@ export class Vehicle {
     this.ctl = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };
     this.steerAngle = 0;
     this.revTimer = 0;
+    this.arcadeAuto = false; // automatic gearbox: pedals pick R / D by themselves (Settings: Arcade automatic)
     this.speed = 0;          // forward speed m/s
     this.tireT = new Float64Array(4);
     this.rrT = new Float64Array(4);
@@ -154,14 +155,15 @@ export class Vehicle {
     let throttle = raw.throttle, brake = raw.brake;
     if (dt.mode === 'auto') {
       const v = this.speed;
-      if (dt.selector === 'R') { throttle = raw.brake; brake = raw.throttle; }
-      if (Math.abs(v) < 0.8) {
+      // realistic automatic: W is always the gas, S always the brake, reverse only from the R selector.
+      // arcade: R swaps the pedals and holding a pedal at a standstill picks R / D by itself.
+      if (this.arcadeAuto && dt.selector === 'R') { throttle = raw.brake; brake = raw.throttle; }
+      if (this.arcadeAuto && Math.abs(v) < 0.8) {
         const wantR = raw.brake > 0.5 && raw.throttle < 0.05 && dt.selector !== 'R';
         const wantD = raw.throttle > 0.5 && raw.brake < 0.05 && dt.selector !== 'D';
         if (wantR || wantD) this.revTimer += h; else this.revTimer = 0;
         if (this.revTimer > 0.45) { dt.setSelector(wantR ? 'R' : 'D'); this.revTimer = 0; }
       } else this.revTimer = 0;
-      if (dt.selector === 'P' || dt.selector === 'N') { /* throttle just revs */ }
     }
     c.throttle = throttle;
     c.brake = brake;

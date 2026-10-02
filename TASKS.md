@@ -39,6 +39,7 @@ Technical notes live in `DEVNOTES.md`.
 | 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
 | 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Best as a separate agent together with the bigger wheels. |
 | 📋 Vehicle tuning settings | Large | Tyre pressure, springs, dampers, travel, gear ratios, power. Some need rebuilding the physics body live. |
+| 📋 River is badly built | Medium | Must be fixed, but later. Most of its length floats in the air, and from below it isn't even visible: the water surface doesn't follow the terrain / the riverbed isn't carved into it. |
 | 📋 Phones and tablets | Large | Touch controls, a mobile performance preset, HUD layout. Last. |
 
 ## Parked

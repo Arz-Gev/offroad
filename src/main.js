@@ -233,6 +233,10 @@ async function main() {
   const APPLY = {
     gearbox(v, o) { if (d.mode !== v) { d.toggleMode(); if (o.silent) d.message = null; } },
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
+    arcadeAuto(v, o) {
+      vehicle.arcadeAuto = v; vehicle.revTimer = 0;
+      if (!o.silent) say('arcade', v ? 'Arcade automatic: hold brake at a stop to reverse' : 'Realistic automatic: select R to reverse');
+    },
     handbrake(v, o) {
       vehicle.hbMode = v; vehicle.hbLatched = false;
       if (!o.silent) say('hb', { hold: 'Handbrake: hold the key', toggle: 'Handbrake: press on, press off', auto: 'Handbrake: tap toggles, long press holds' }[v]);
@@ -291,7 +295,7 @@ async function main() {
     shiftUp: () => d.requestShift(1),
     shiftDown: () => d.requestShift(-1),
     gearbox: () => settings.set('gearbox', d.mode === 'auto' ? 'manual' : 'auto'),
-    autoClutch: () => settings.set('autoClutch', !d.clutchAssist),
+    autoClutch: () => (d.mode === 'auto' ? toggle('arcadeAuto') : settings.set('autoClutch', !d.clutchAssist)),
     range: () => d.toggleRange(vehicle.speed),
     centreLock: () => d.toggleCenterLock(),
     lockers: () => d.cycleAxleLockers(),
@@ -338,6 +342,7 @@ async function main() {
       switch (key) {
         case 'gearbox': return d.mode;
         case 'autoClutch': return d.clutchAssist;
+        case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
         case 'time': return env.mode;
         case 'sound': return !settings.get('muted');

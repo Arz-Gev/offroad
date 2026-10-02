@@ -12,7 +12,7 @@ export const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8
 // pad: label of the gamepad control. button: pad button index that fires the action.
 export const BINDINGS = [
   { id: 'throttle', group: 'Driving', label: 'Throttle', keys: ['W', '↑'], pad: 'RT' },
-  { id: 'brake', group: 'Driving', label: 'Brake · automatic: hold at a stop to reverse', keys: ['S', '↓'], pad: 'LT' },
+  { id: 'brake', group: 'Driving', label: 'Brake', keys: ['S', '↓'], pad: 'LT' },
   { id: 'steer', group: 'Driving', label: 'Steer', keys: ['A', 'D'], alt: ['←', '→'], pad: 'L stick' },
   { id: 'handbrake', group: 'Driving', label: 'Handbrake (hold, toggle or auto: Menu → Driving)', keys: ['Space'], pad: 'A' },
   { id: 'clutch', group: 'Driving', label: 'Clutch pedal (manual with auto-clutch off)', keys: ['Shift'], pad: 'LB' },
@@ -20,7 +20,7 @@ export const BINDINGS = [
   { id: 'shiftUp', group: 'Gearbox & 4×4', label: 'Shift up · automatic: selector P → R → N → D', codes: ['KeyE'], keys: ['E'], pad: 'RB', button: PAD.RB },
   { id: 'shiftDown', group: 'Gearbox & 4×4', label: 'Shift down · automatic: selector D → N → R → P', codes: ['KeyQ'], keys: ['Q'], pad: 'X', button: PAD.X },
   { id: 'gearbox', group: 'Gearbox & 4×4', label: 'Automatic ⇄ manual gearbox', codes: ['KeyM'], keys: ['M'], pad: 'View', button: PAD.VIEW },
-  { id: 'autoClutch', group: 'Gearbox & 4×4', label: 'Auto-clutch on / off (manual)', codes: ['KeyK'], keys: ['K'] },
+  { id: 'autoClutch', group: 'Gearbox & 4×4', label: 'Manual: auto-clutch on / off · automatic: arcade reverse on / off', codes: ['KeyK'], keys: ['K'] },
   { id: 'range', group: 'Gearbox & 4×4', label: 'Transfer case HIGH / LOW (stop first)', codes: ['KeyT'], keys: ['T'], pad: 'D-pad ↓', button: PAD.DOWN },
   { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT },
   { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT },

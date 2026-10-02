@@ -19,7 +19,8 @@ const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
-    row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Manual gearbox only. Off: hold Shift for the clutch.' }),
+    row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
+    row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),
     row('handbrake', 'Handbrake', 'seg', { options: [['hold', 'Hold'], ['toggle', 'Toggle'], ['auto', 'Auto']], note: 'Hold: while the key is down. Toggle: press on, press off. Auto: a short tap toggles, a long press holds.' }),
     row('pressure', 'Tyre pressure', 'stepper', { hot: ['pressureDown', 'pressureUp'], note: 'Lower pressure: bigger footprint, more grip off-road.' }),
   ] },
@@ -241,8 +242,10 @@ export class Menu {
     const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
     if (qn && qt && qn.textContent !== qt) qn.textContent = qt;
-    // auto-clutch only matters with the manual gearbox
-    this.panes.settings.querySelector('[data-key="autoClutch"]').classList.toggle('dim', api.get('gearbox') !== 'manual');
+    // one of the two switches (they share the K key) is shown per gearbox
+    const manual = api.get('gearbox') === 'manual';
+    this.panes.settings.querySelector('[data-key="autoClutch"]').hidden = !manual;
+    this.panes.settings.querySelector('[data-key="arcadeAuto"]').hidden = manual;
   }
 
   setValue(key, v) {
