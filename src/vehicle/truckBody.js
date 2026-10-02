@@ -55,19 +55,20 @@ export function buildExterior(mats, body) {
 
   // inner wheel wells (black), so the arches don't look into a hollow body
   const well = (zc, hb, yRear, yFront, x0, x1) => {
-    const inner = arch(zc, yRear, yFront, hb);
-    const outer = inner.map(([z, y]) => [z + Math.sign(z - zc) * 0.03, y === yRear || y === yFront ? y : y + 0.03]);
+    // liner just inside the opening: it hides the painted cut faces of the body around the arch
+    const outer = arch(zc, yRear, yFront, hb).map(([z, y]) => [z - Math.sign(z - zc) * 0.004, y === yRear || y === yFront ? y : y - 0.004]);
+    const inner = outer.map(([z, y]) => [z - Math.sign(z - zc) * 0.02, y === yRear || y === yFront ? y : y - 0.02]);
     for (const s of sides) {
       const roofP = extrudeProfile([...outer, ...inner.slice().reverse()], x1 - x0, mats.chassis, 0);
       roofP.position.x = s * (x0 + x1) / 2;
       add(roofP);
-      const wall = extrudeProfile([...inner, [zc - hb, yFront - 0.02], [zc + hb, yRear - 0.02]], 0.012, mats.chassis, 0);
+      const wall = extrudeProfile([...arch(zc, yRear, yFront, hb), [zc - hb, yFront - 0.02], [zc + hb, yRear - 0.02]], 0.012, mats.chassis, 0);
       wall.position.x = s * x0;
       add(wall);
     }
   };
-  well(ARCH_F, AH, SILL, 0.80, 0.47, W - 0.02);
-  well(ARCH_R, 0.57, 0.68, SILL, 0.56, W - 0.035);
+  well(ARCH_F, AH, SILL, 0.80, 0.47, W + 0.002);
+  well(ARCH_R, 0.57, 0.68, SILL, 0.56, W + 0.002);
 
   // ------------------------------------------------------------------ bonnet + wing tops
   const BON_Y = 1.383;
@@ -349,10 +350,18 @@ export function buildExterior(mats, body) {
   }
 
   // ------------------------------------------------------------------ mirrors
+  // convex glass (R 1 m, like real door mirrors): its normals spread, so the environment reflection
+  // shows sky above and ground below instead of one flat grey tone
+  const mirrorGlass = new THREE.PlaneGeometry(0.135, 0.205, 6, 8);
+  {
+    const p = mirrorGlass.attributes.position, R = 1.0, r2max = 0.0675 ** 2 + 0.1025 ** 2;
+    for (let i = 0; i < p.count; i++) p.setZ(i, (r2max - p.getX(i) ** 2 - p.getY(i) ** 2) / (2 * R));
+    mirrorGlass.computeVertexNormals();
+  }
   for (const s of sides) {
     add(pipe([[s * (W - 0.02), WAIST + 0.02, -0.63], [s * (W + 0.1), WAIST + 0.06, -0.635], [s * (W + 0.14), 1.50, -0.62]], 0.013, mats.black, 0.05, 8));
     add(rbox(0.16, 0.235, 0.06, 0.025, mats.black, s * (W + 0.19), 1.595, -0.615));
-    add(rbox(0.135, 0.205, 0.008, 0.004, mats.mirror, s * (W + 0.19), 1.595, -0.584)).castShadow = false;
+    add(mesh(mirrorGlass, mats.mirror, s * (W + 0.19), 1.595, -0.585)).castShadow = false;
   }
 
   // ------------------------------------------------------------------ snorkel (right A-pillar)

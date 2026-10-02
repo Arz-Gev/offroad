@@ -132,12 +132,15 @@ export function buildInterior(mats, body) {
   for (let k = 0; k < 4; k++) add(rbox(0.024, 0.032, 0.015, 0.004, mats.seal, -0.27 + k * 0.034, 1.17, -0.445)); // rocker switches
 
   // ---------------------------------------------------------------- instrument pod
-  // the gauge face tilts back to face the eye; its hood is high enough not to clip the dials
+  // the binnacle sits on the fascia's front edge, in front of the dash shelf (which would otherwise cut
+  // the lower half of the dials), and looks between the rim top (21-25 deg below the eye line) and the
+  // wheel boss (35 deg); the gauge face tilts back to face the eye
+  const POD = new THREE.Vector3(DX, 1.405, -0.50);
   const pod = new THREE.Group();
-  pod.position.set(DX, 1.40, -0.57);
-  pod.rotation.x = -Math.atan2(EYE.y + 0.02 - 1.40, EYE.z + 0.57);
+  pod.position.copy(POD);
+  pod.rotation.x = -Math.atan2(EYE.y + 0.02 - POD.y, EYE.z - POD.z);
   body.add(pod);
-  add(rbox(0.385, 0.15, 0.15, 0.035, mats.dash, 0, 0.0, -0.075), pod);              // housing
+  add(rbox(0.385, 0.15, 0.15, 0.035, mats.dash, 0, 0.0, -0.087), pod);             // housing (face 12 mm behind the dials)
   add(span(-0.197, 0.197, 0.066, 0.084, -0.15, 0.062, mats.dash, 0.008), pod);     // hood
   for (const s of sides) add(span(s * 0.178, s * 0.197, -0.06, 0.084, -0.05, 0.058, mats.dash, 0.006), pod);
   add(span(-0.182, 0.182, -0.068, 0.07, -0.012, -0.004, mats.seal), pod);          // face plate

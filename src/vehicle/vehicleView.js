@@ -189,7 +189,7 @@ export class VehicleView {
     mt.barLens.emissiveIntensity = ls.bar ? 6.0 : 0;
     mt.workLens.emissiveIntensity = ls.bar && reversing ? 4.0 : 0;
     mt.tail.emissiveIntensity = tailOn ? 1.6 : 0;
-    mt.brake.emissiveIntensity = braking ? 5.0 : tailOn ? 1.2 : 0;
+    mt.brake.emissiveIntensity = braking ? 3.2 : tailOn ? 1.0 : 0;
     mt.reverse.emissiveIntensity = reversing ? 4.0 : 0;
     this.blink += dt;
     const blinkOn = ls.hazard && (this.blink % 0.8) < 0.4;
@@ -197,15 +197,15 @@ export class VehicleView {
     mt.beacon.emissiveIntensity = 0;
 
     // rear: tail / brake glow on the ground behind + the reversing lamps (one small spot)
-    const red = (braking ? 1.6 : 0) + (tailOn ? 0.18 : 0);
+    const red = (braking ? 0.5 : 0) + (tailOn ? 0.08 : 0);
     const white = reversing ? 9 : 0;
     L.rear.intensity = (red + white) * k;
     if (red + white > 0) L.rear.color.setRGB(1, 0.16, 0.06).multiplyScalar(red / (red + white)).add(_c.setRGB(1, 0.97, 0.92).multiplyScalar(white / (red + white)));
 
     // instrument backlight (night / lights on) and warning lamps
     const back = tailOn || env.night ? 1 : 0;
-    m.gaugeMat.emissiveIntensity = back ? 0.85 : 0.3;
-    if (m.needleMat) m.needleMat.emissiveIntensity = back ? 1.6 : 0.35;
+    m.gaugeMat.emissiveIntensity = back ? 0.85 : 0.45;
+    if (m.needleMat) m.needleMat.emissiveIntensity = back ? 1.0 : 0.35;
     if (m.warnMat) m.warnMat.emissiveIntensity = dt_.running ? 0 : 1.2;
 
     // reflections: scale the (deliberately dim) scene environment up for paint and glass

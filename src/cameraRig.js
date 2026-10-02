@@ -85,7 +85,7 @@ export class CameraRig {
         near = 0.03; fov = 62;
       } else {
         // on the bonnet, just behind the raised centre section
-        eye = new THREE.Vector3(0, 1.7, -1.2);
+        eye = new THREE.Vector3(0, 1.8, -1.0);
         near = 0.08; fov = 60;
       }
       cam.position.copy(eye).applyQuaternion(quat).add(pos);

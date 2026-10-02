@@ -92,7 +92,7 @@ float tkDirt;
 #endif
 `;
     if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance *= uCabinAO * ${(+ao).toFixed(3)}; radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
-    if (glass) post += 'radiance *= gl_FrontFacing ? 1.0 : 0.22;\n';
+    if (glass) post += 'radiance *= gl_FrontFacing ? 1.0 : 0.04;\n';
     if (post) frag = frag.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${post}`);
     if (glass) {
       // premultiplied output: tinted body is attenuated by alpha, reflections are not
@@ -118,12 +118,13 @@ const phys = (o, p = {}) => patch(new THREE.MeshPhysicalMaterial(o), p);
 
 export function createMaterials() {
   const m = {
-    // satin red with a clear coat; dirt on the lower panels
-    paint: phys({ color: 0x9e150e, roughness: 0.46, metalness: 0.0, clearcoat: 0.16, clearcoatRoughness: 0.18 }, { dirt: 0.75, env: 0.65 }),
+    // red with a clear coat; dirt on the lower panels. The base specular is kept low (specularIntensity)
+    // and fairly sharp: a broad satin lobe washed the flat bonnet pink in the sun from the cockpit/hood view
+    paint: phys({ color: 0x9e150e, roughness: 0.3, metalness: 0.0, specularIntensity: 0.35, clearcoat: 0.25, clearcoatRoughness: 0.12 }, { dirt: 0.75, env: 0.5 }),
     // textured black plastic (flares, grille, trims, mirrors)
     black: std({ color: 0x161719, roughness: 0.7, metalness: 0.0 }, { dirt: 0.4, env: 1.0, grain: 0.5 }),
     // black powder-coated steel (bumpers, rack, sliders)
-    blackMetal: std({ color: 0x18191b, roughness: 0.5, metalness: 0.4 }, { dirt: 0.35, env: 1.2 }),
+    blackMetal: std({ color: 0x17181a, roughness: 0.58, metalness: 0.12 }, { dirt: 0.35, env: 0.8 }),
     chassis: std({ color: 0x1c1d1f, roughness: 0.8, metalness: 0.25 }, { dirt: 0.8 }),
     steel: std({ color: 0x151618, roughness: 0.45, metalness: 0.5 }, { dirt: 0.2, env: 1.2 }),
     zinc: std({ color: 0xa4a7ab, roughness: 0.3, metalness: 0.95 }, { env: 1.8 }),
@@ -135,7 +136,7 @@ export function createMaterials() {
     glass: std({ color: 0x080b0e, roughness: 0.04, metalness: 0.0, transparent: true, opacity: 0.74, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassClear: std({ color: 0x0c1215, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
-    mirror: std({ color: 0x9aa0a6, roughness: 0.02, metalness: 1.0 }, { env: 2.0 }),
+    mirror: std({ color: 0x646a70, roughness: 0.02, metalness: 1.0 }, { env: 2.0 }),
     // interior (darkened ambient: the cabin hides most of the sky)
     dash: std({ color: 0x232427, roughness: 0.74, metalness: 0.0 }, { ao: 0.5, grain: 0.4 }),
     dashSoft: std({ color: 0x2c2d30, roughness: 0.88, metalness: 0.0 }, { ao: 0.5, grain: 0.25 }),
