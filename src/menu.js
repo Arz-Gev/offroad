@@ -76,16 +76,16 @@ const GFX_SECTIONS = [
   ] },
   { title: 'Grass and bushes', rows: [
     row('vegetation', 'Grass and bushes', 'switch', { note: 'Off hides all the grass and undergrowth (trees stay). The most expensive part of the world.' }),
-    row('gGrass', 'Grass density', 'range', { min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeight', 'Grass height', 'range', { min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Grass blade width', 'range', { min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassDist', 'Grass distance', 'range', { min: 119, max: 287, step: 1, scale: 1, unit: ' m' }),
-    row('gGrassNear', 'Dense grass radius', 'range', { min: 42, max: 72, step: 1, scale: 1, unit: ' m', note: 'The fine layer around you. The expensive one.' }),
-    row('gGrassFarWidth', 'Far grass blade width', 'range', { min: 130, max: 360, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFarSpacing', 'Far grass spacing', 'range', { min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×', note: 'Lower packs more blades into the far layer (slower).' }),
-    row('gBushes', 'Bush density', 'range', { min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Bush size', 'range', { min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushDist', 'Bush distance', 'range', { min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrass', 'Grass density', 'range', { veg: true, min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassHeight', 'Grass height', 'range', { veg: true, min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassWidth', 'Grass blade width', 'range', { veg: true, min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassDist', 'Grass distance', 'range', { veg: true, min: 119, max: 287, step: 1, scale: 1, unit: ' m' }),
+    row('gGrassNear', 'Dense grass radius', 'range', { veg: true, min: 42, max: 72, step: 1, scale: 1, unit: ' m', note: 'The fine layer around you. The expensive one.' }),
+    row('gGrassFarWidth', 'Far grass blade width', 'range', { veg: true, min: 130, max: 360, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassFarSpacing', 'Far grass spacing', 'range', { veg: true, min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×', note: 'Lower packs more blades into the far layer (slower).' }),
+    row('gBushes', 'Bush density', 'range', { veg: true, min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushHeight', 'Bush size', 'range', { veg: true, min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushDist', 'Bush distance', 'range', { veg: true, min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
   ] },
 ];
 
@@ -247,6 +247,9 @@ export class Menu {
     }
     // graphics: say which preset Auto chose
     // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
+    // the grass and bush sliders follow the Grass and bushes switch
+    const veg = !!api.get('vegetation');
+    for (const r of this.panes.graphics.querySelectorAll('.set-row')) if (this.rowDef(r.dataset.key)?.veg) r.hidden = !veg;
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
     const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
