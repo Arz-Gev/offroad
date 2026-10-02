@@ -17,6 +17,7 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ SSAO | Graphics → Ambient occlusion: Off / Low / High. On by default on High (Low) and Ultra (High) presets. |
 | ✅ Fullscreen switch in Graphics, Welcome card button removed | |
 | ✅ SSAO pattern on some displays | Banding / dot grid on flat ground on the Mac and in 1440p fullscreen. Fixed in the AO depth reconstruction; confirmed gone by the player. |
+| ✅ Glass shader | Windows were grey and almost opaque. Now one face per pane (it was dimming the view twice), Fresnel alpha, a lighter tint; every pane is as clear as the front door glass. |
 | ✅ Gap between rim and tyre | The rim face was smaller than the barrel and the barrel was one-sided, so you could see through a ring around the face. |
 | ✅ Pixel density cap hidden where it does nothing | Shown only on screens with a device pixel ratio above 1. |
 | ✅ Cloud shadows | Tried, then removed at the player's request. |
@@ -36,7 +37,6 @@ Technical notes live in `DEVNOTES.md`.
 | 📋 Can't climb steep slopes although nothing touches the wheel | Medium | Probably the chassis rails and the front bumper/winch colliders sit lower and further forward than the visible model: an invisible nose hits the slope first. |
 | 📋 Body bounces off when the roof or side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
 | 📋 Time-of-day slider | Medium | Instead of the three presets: blend lamps, fog and exposure smoothly. |
-| 📋 Glass shader | Medium | Windows look almost opaque grey and flat. Needs Fresnel and cleaner transparency. |
 | 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
 | 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Best as a separate agent together with the bigger wheels. |
 | 📋 Vehicle tuning settings | Large | Tyre pressure, springs, dampers, travel, gear ratios, power. Some need rebuilding the physics body live. |
