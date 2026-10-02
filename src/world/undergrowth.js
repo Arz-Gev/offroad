@@ -116,7 +116,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       group.add(m);
       tiles.push(m);
     }
-    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, radius, baseRadius: radius, k };
+    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, radius, baseRadius: radius, baseScale: [shape[0], shape[1]], k };
   };
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
@@ -132,18 +132,21 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
   return {
     group, kinds,
     configure(q) {
-      const s = q.bushes ?? 1;
-      enabled = s > 0;
+      // density: closer / further apart cells (the per-kind probability stays), distance and height are multipliers
+      const dens = q.bushes ?? 1, dist = q.bushDist ?? 1, hs = q.bushHeight ?? 1;
+      enabled = dens > 0 && dist > 0;
       group.visible = enabled;
+      if (!enabled) return;
       for (const K of kinds) {
-        // below 100% the radius shrinks; above it plants get denser (closer cells) and the radius grows
-        const r = K.baseRadius * (s <= 1 ? s : 1 + (s - 1) * 0.5);
+        const r = K.baseRadius * dist;
         K.radius = r;
-        K.spacing = K.baseSpacing / Math.sqrt(Math.max(1, s));
+        K.spacing = K.baseSpacing / Math.sqrt(dens);
         K.k = Math.ceil(r * 2 / K.spacing / TILES);
         K.uniforms.uGrid.value.z = K.spacing;
         K.uniforms.uGrid.value.w = K.k;
         K.uniforms.uRad.value.set(r * 0.7, r, 0, 0);
+        K.uniforms.uShape.value.x = K.baseScale[0] * hs;
+        K.uniforms.uShape.value.y = K.baseScale[1] * hs;
         for (const m of K.tiles) m.geometry.instanceCount = K.k * K.k;
       }
     },

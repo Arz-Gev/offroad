@@ -21,6 +21,7 @@ import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
+import { buildTuner } from './tuner.js';
 import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
@@ -379,6 +380,7 @@ async function main() {
     introDone: () => { settings.introSeen = true; },
   });
   game.menu = menu;
+  buildTuner(settings, game);   // temporary grass / undergrowth experiment panel
   game.setPaused = setPaused;
   hud.onMenu = () => menu.open();
 

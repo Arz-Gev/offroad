@@ -34,9 +34,14 @@ export const DEFAULTS = {
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gGrass: 1,                // grass density (0 = off)
+  // grass / undergrowth experiment (src/tuner.js): exact values, wide ranges
   gGrassHeight: 1.5,        // grass blade height (1 = the original height)
+  gGrassWidth: 1,           // grass blade width multiplier
+  gGrassNear: 0,            // radius of the dense near grass layer (m, 0 = automatic)
   gGrassDist: 46,           // grass radius (m)
-  gBushes: 1,               // undergrowth density (0 = off)
+  gBushes: 1,               // undergrowth density multiplier (0 = off)
+  gBushHeight: 1,           // undergrowth size multiplier
+  gBushDist: 1,             // undergrowth distance multiplier
 };
 
 const CHOICES = {
@@ -55,7 +60,8 @@ const CHOICES = {
 };
 const RANGES = {
   volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
-  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 3], gGrassHeight: [0.3, 4], gGrassDist: [20, 150], gBushes: [0, 2.5],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 8], gGrassHeight: [0.1, 10], gGrassWidth: [0.2, 6], gGrassNear: [0, 80], gGrassDist: [10, 500],
+  gBushes: [0, 8], gBushHeight: [0.2, 6], gBushDist: [0.2, 6],
 };
 
 export const storage = {

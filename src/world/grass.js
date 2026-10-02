@@ -214,20 +214,20 @@ vec3 nonPerturbedNormal = normal;`)
       near.uniforms.uShape.value.z = Math.min(1, scale);
       far.uniforms.uShape.value.z = Math.min(1, scale * 1.1);
       // the near layer's 2-segment blades cost most per square metre (vertex bound): keep it short
-      const rn = Math.min(17 + Math.max(0, r - 46) * 0.12, r * 0.34);
+      const rn = q.grassNear > 0 ? Math.min(q.grassNear, r) : Math.min(17 + Math.max(0, r - 46) * 0.12, r * 0.34);
       far.uniforms.uRad.value.set(r * 0.72, r, rn * 0.66, rn * 0.97);
       near.uniforms.uRad.value.set(rn * 0.7, rn, -1, 0);
       // far blades past ~52 m get coarser (wider and further apart) so the blade count grows with the
       // radius, not its square
       const coarse = Math.max(1, r / 52);
-      const hs = q.grassHeight ?? 1.5;
+      const hs = q.grassHeight ?? 1.5, ws = q.grassWidth ?? 1;
       for (const [L, R, mul] of [[near, rn, fine], [far, r, fine * coarse]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;
         L.uniforms.uGrid.value.w = L.k;
         L.uniforms.uShape.value.x = L.baseHeight * hs;
-        L.uniforms.uShape.value.y = L.baseWidth * Math.max(1, mul / fine);
+        L.uniforms.uShape.value.y = L.baseWidth * ws * Math.max(1, mul / fine);
         for (const m of L.tiles) m.geometry.instanceCount = L.k * L.k;
       }
     },
