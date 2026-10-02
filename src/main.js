@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
-import { QUALITY, autoQuality } from './render/quality.js';
+import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 
 import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
@@ -182,24 +182,38 @@ async function main() {
   window.game = game;
 
   // ---------------------------------------------------------------- graphics quality
-  // preset (auto picks one from the GPU) + resolution scale; everything is applied live
+  // preset (auto picks one from the GPU) or 'custom' (the g* settings) + resolution scale; applied live
   const gfx = { auto: autoQuality(renderer), preset: null, q: null };
   const _db = new THREE.Vector2();
+  const GFX_KEYS = Object.keys(presetToGfx(QUALITY.high));
   function applyGraphics() {
     const sel = settings.get('quality');
-    const name = sel === 'auto' ? gfx.auto.preset : sel;
-    const q = QUALITY[name] || QUALITY.high;
-    gfx.preset = name; gfx.q = q;
+    let q;
+    if (sel === 'custom') {
+      q = gfxToQuality(settings.all);
+      gfx.preset = 'custom';
+    } else {
+      const name = sel === 'auto' ? gfx.auto.preset : sel;
+      q = QUALITY[name] || QUALITY.high;
+      gfx.preset = name;
+      // show the preset's values in the per-option controls
+      const g = presetToGfx(q);
+      for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
+    }
+    gfx.q = q;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * settings.get('renderScale'));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.getDrawingBufferSize(_db);
-    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa });
+    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
     pipeline.params.bloom = q.bloom !== false;
     pipeline.setSize(_db.x, _db.y);
-    const sh = env.sun.shadow;
-    if (sh.mapSize.x !== q.shadowMap) { sh.mapSize.set(q.shadowMap, q.shadowMap); if (sh.map) { sh.map.dispose(); sh.map = null; } }
-    sh.camera.far = q.shadowFar;
-    sh.radius = q.shadowRadius;
+    const S = SHADOWS[q.shadows], sh = env.sun.shadow;
+    env.sun.castShadow = !!S;
+    if (S) {
+      if (sh.mapSize.x !== S.map) { sh.mapSize.set(S.map, S.map); if (sh.map) { sh.map.dispose(); sh.map = null; } }
+      sh.camera.far = S.far;
+      sh.radius = S.radius;
+    }
     scenery.configure(q);
     game.redraw = 3;
   }
@@ -233,6 +247,10 @@ async function main() {
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
     quality: () => applyGraphics(),
+    ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
+      if (o.sync || o.startup || o.reset) return;
+      if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
+    }])),
     renderScale: () => applyGraphics(),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
   };
@@ -328,7 +346,10 @@ async function main() {
         case 'lightBar': return view.lights.bar;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
-        case 'qualityNote': return settings.get('quality') === 'auto' ? `Auto: ${QUALITY[gfx.auto.preset].label} for this graphics chip.` : `Auto would pick ${QUALITY[gfx.auto.preset].label} here.`;
+        case 'qualityNote': {
+          const sel = settings.get('quality'), auto = QUALITY[gfx.auto.preset].label;
+          return sel === 'auto' ? `Auto: ${auto} for this graphics chip.` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`;
+        }
         default: return settings.get(key);
       }
     },
@@ -338,7 +359,7 @@ async function main() {
       else if (key === 'headlights') setHeadlights(v, true);
       else if (key === 'lightBar') view.lights.bar = !!v;
       else if (key === 'hazards') view.lights.hazard = !!v;
-      else if (key === 'resetSettings') settings.reset();
+      else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
       else settings.set(key, v, silent);
       game.redraw = 3;
     },

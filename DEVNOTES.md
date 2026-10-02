@@ -89,12 +89,14 @@ Things that are not obvious from reading the code: conventions, measured baselin
 
 ## Backlog / ideas
 
+The player's task list with status is in `TASKS.md`; keep it current.
+
 - **Unverified by ear**: engine sound character, levels of tyre/wind/whine.
 - Water and fording (the snorkel is decorative for now); winch with a rope; recovery points.
 - Tyre tracks: the map-wide 2048² texture is coarse (0.2 m/texel). A local high-res map or decals would look better. Mud sinkage / deformable mud would also help.
 - The shadow uses the un-squashed tyre; it needs a custom depth material with the same deform code.
 - Terrain: LOD and skirts for far chunks, less visible texture tiling, grass, more biomes. The map is 400 m and the user said it will grow.
-- Gameplay: hill descent control, ABS on/off key, selectable engine (diesel), a damage model, force feedback, more gamepad mappings.
+- Gameplay: hill descent control, selectable engine (diesel), a damage model, force feedback, more gamepad mappings.
 - The rock garden can wedge the chassis on boulders. That's fair, but watch for frustration.
 - Rollovers at 60–70 km/h in corners are physically plausible (rollover threshold ≈ 0.7 g against dirt μ 0.72) but may feel harsh.
 
@@ -136,8 +138,10 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - Lamp visibility / shadow flags change the lights hash and recompile every lit program: the load warms up with one real frame with all lamps on (first lamp switch at night 600 → 20 ms).
   - Instanced grass is vertex bound on the M1 Pro (~2.5 ms per million blade vertices, culled blades included): radius × density of the 2-segment near layer is the main cost knob. The tile index rides in the mesh matrix (no instanced divisor attribute).
 - **Quality presets** (`quality.js`, Settings → Graphics, applied live; Auto picks High on an M1 Pro/Max, one step down for windows over ~9 Mpx at the device ratio): measured in headless Chrome 1920×1080 @ DPR 2, trail drive, day: Low 5.1 ms (1920×1080, FXAA, no grass), Medium 8.7 ms (2400×1350, FXAA), High 13.0 ms (2880×1620, MSAA 2), Ultra 22 ms (3840×2160, MSAA 4). The base build measured 11.5–13 ms at 3360×1890 in the same runs (night 13.5–14.1 vs High 13.9–14.4; cockpit 15.1 vs 13.4). Absolute numbers drift ±30 % with other GPU load (other agents' headless pages, the in-app browser); compare interleaved runs. A headless page left on the game keeps the GPU busy: end CDP runs on `about:blank`.
+- **Graphics options** (menu Graphics tab): every preset field has a setting with a `g` prefix (`presetToGfx` / `gfxToQuality` in `quality.js`). Picking a preset writes its values into them (`{ sync: true }`, ignored by their handlers); changing one switches `quality` to `custom`, which builds the quality object from them. Shadows `off` sets `sun.castShadow = false` (recompiles lit programs once).
+- **SSAO** (`pipeline.js`): the HDR target carries a `DepthTexture` (resolved from MSAA by three). Half-resolution pass, 8 or 16 spiral samples, normals rebuilt from depth neighbours (smaller depth step wins), 1.0 / 1.4 m radius, fades out by 160 m, separable depth-aware 9-tap blur, multiplied into the scene colour before exposure. Intensity 1.25 (1.6 looked heavy on grass).
 - **Load**: ~3 s to "Ready" (terrain 1.1 s, ground layers/splat/ground data 0.7 s, props + trees 0.6 s, compile + warm-up 0.4 s). `game.loadLog` has the stage times.
-- **Not done / ideas**: screen-space AO (only baked cavity/canopy AO), cloud shadows, terrain and trees in water reflections (sky only), undergrowth shadow casting, a drivable ramp into the quarry, interior detail for the hut, snow on the near mountains.
+- **Not done / ideas**: terrain and trees in water reflections (sky only), undergrowth shadow casting, a drivable ramp into the quarry, interior detail for the hut, snow on the near mountains.
 
 ## 2026-10-02: quick fixes batch
 - Handbrake: rear-axle brake as before, plus a standstill hold on the transfer output (`brakes.handbrakeHold`, fades out by 2 m/s) so an open centre diff can't let the front pull away. Modes `hold | toggle | auto` (auto: tap < 0.3 s toggles, long press holds) (setting `handbrake`, logic in `Vehicle.handbrakeLogic`). Test: `node tools/hbtest.mjs [deg]`.

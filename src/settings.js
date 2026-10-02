@@ -21,8 +21,21 @@ export const DEFAULTS = {
   telemetry: false,
   fps: false,
   autoPause: true,          // open the menu when the window loses focus
-  quality: 'auto',          // graphics preset: 'auto' | 'low' | 'medium' | 'high' | 'ultra'
-  renderScale: 1,           // resolution scale on top of the preset's pixel-ratio cap (0.5..1)
+  quality: 'auto',          // graphics preset: 'auto' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
+  renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
+  // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
+  gDpr: 1.5,                // device pixel ratio cap
+  gAA: 'msaa2',             // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
+  gShadows: 'high',         // 'off' | 'low' | 'medium' | 'high' | 'ultra'
+  gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
+  gBloom: true,
+  gViewDist: 1,             // terrain LOD distance scale
+  gTerrain: 2,              // terrain shading detail 0..2
+  gTrees: 80,               // full-detail tree radius (m)
+  gTreeShadows: true,       // distant (impostor) trees cast shadows
+  gGrass: 1,                // grass density (0 = off)
+  gGrassDist: 46,           // grass radius (m)
+  gBushes: 1,               // undergrowth density (0 = off)
 };
 
 const CHOICES = {
@@ -33,9 +46,16 @@ const CHOICES = {
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
-  quality: ['auto', 'low', 'medium', 'high', 'ultra'],
+  quality: ['auto', 'low', 'medium', 'high', 'ultra', 'custom'],
+  gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
+  gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
+  gSSAO: ['off', 'low', 'high'],
+  gTerrain: [0, 1, 2],
 };
-const RANGES = { volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1] };
+const RANGES = {
+  volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5], gTrees: [40, 120], gGrass: [0, 1.35], gGrassDist: [20, 70], gBushes: [0, 1],
+};
 
 export const storage = {
   get(k) { try { return window.localStorage.getItem(k); } catch { return null; } },
@@ -76,7 +96,7 @@ export class Settings {
   onChange(f) { this.subs.push(f); }
   applyAll(opts = {}) { for (const k in this.v) for (const f of this.subs) f(k, this.v[k], { silent: true, ...opts }); }
   save() { storage.set(KEY, JSON.stringify(this.v)); }
-  reset() { for (const k in DEFAULTS) this.set(k, DEFAULTS[k], { silent: true }); }
+  reset() { for (const k in DEFAULTS) this.set(k, DEFAULTS[k], { silent: true, reset: true }); }
 
   get introSeen() { return storage.get(INTRO_KEY) === '1'; }
   set introSeen(v) { if (v) storage.set(INTRO_KEY, '1'); else storage.remove(INTRO_KEY); }

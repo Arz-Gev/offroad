@@ -3,7 +3,8 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 
 // HDR render pipeline:
-//   scene -> half-float target (optional MSAA)
+//   scene -> half-float target (optional MSAA) + depth texture
+//   -> optional SSAO (half resolution, from depth only: normals rebuilt from the depth, bilateral blur)
 //   -> bloom (13-tap downsample / tent upsample chain, soft threshold after exposure)
 //   -> eye adaptation (log-average luminance on the GPU, no read-back; clamped per time of day)
 //   -> composite: exposure, bloom, Neutral tone mapping, grade, vignette, sRGB, dither
@@ -95,9 +96,70 @@ void main() {
   gl_FragColor = vec4(exp2(v), v, 0.0, 1.0);
 }`;
 
+// Screen-space ambient occlusion (SAO-style hemisphere estimate). Runs at half resolution on the resolved
+// depth; view-space normals come from the depth neighbours (the side with the smaller depth step, so
+// silhouettes don't smear). Output: r = AO (1 = open), g = view depth for the bilateral blur.
+const AO_FRAG = /* glsl */`
+uniform sampler2D tDepth;
+uniform mat4 uProjInv;
+uniform vec2 uTexel;
+uniform float uProjScale, uRadius, uIntensity, uMaxPx, uFadeFar;
+varying vec2 vUv;
+vec3 viewPos(vec2 uv) {
+  float d = texture2D(tDepth, uv).r;
+  vec4 p = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+  return p.xyz / p.w;
+}
+void main() {
+  float d0 = texture2D(tDepth, vUv).r;
+  if (d0 >= 0.999999) { gl_FragColor = vec4(1.0, 1e5, 0.0, 1.0); return; }
+  vec3 P = viewPos(vUv);
+  vec3 pr = viewPos(vUv + vec2(uTexel.x, 0.0)), pl = viewPos(vUv - vec2(uTexel.x, 0.0));
+  vec3 pu = viewPos(vUv + vec2(0.0, uTexel.y)), pd = viewPos(vUv - vec2(0.0, uTexel.y));
+  vec3 dx = abs(pr.z - P.z) < abs(P.z - pl.z) ? pr - P : P - pl;
+  vec3 dy = abs(pu.z - P.z) < abs(P.z - pd.z) ? pu - P : P - pd;
+  vec3 N = normalize(cross(dx, dy));
+  if (dot(N, P) > 0.0) N = -N;
+  float z = -P.z;
+  float rpx = min(uRadius * uProjScale / z, uMaxPx);
+  float fade = 1.0 - smoothstep(uFadeFar * 0.5, uFadeFar, z);
+  if (rpx < 1.5 || fade <= 0.0) { gl_FragColor = vec4(1.0, z, 0.0, 1.0); return; }
+  // interleaved gradient noise rotates the spiral per pixel; the blur removes the pattern
+  float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  float occ = 0.0, r2 = uRadius * uRadius;
+  for (int i = 0; i < AO_SAMPLES; i++) {
+    float t = (float(i) + 0.5) / float(AO_SAMPLES);
+    float a = ang + float(i) * 2.3999632;
+    vec3 S = viewPos(vUv + vec2(cos(a), sin(a)) * (t * t * rpx + 1.0) * uTexel);
+    vec3 v = S - P;
+    float vv = dot(v, v);
+    float cosA = dot(v, N) * inversesqrt(vv + 1e-6);
+    occ += max(0.0, cosA - 0.12) * max(0.0, 1.0 - vv / r2);
+  }
+  float ao = clamp(1.0 - uIntensity * occ / float(AO_SAMPLES), 0.0, 1.0);
+  gl_FragColor = vec4(mix(1.0, ao, fade), z, 0.0, 1.0);
+}`;
+
+// separable depth-aware blur of the AO
+const AO_BLUR_FRAG = /* glsl */`
+uniform sampler2D tSrc;
+uniform vec2 uDir;
+varying vec2 vUv;
+void main() {
+  vec2 c = texture2D(tSrc, vUv).rg;
+  float sum = c.r, wsum = 1.0;
+  for (int i = -4; i <= 4; i++) {
+    if (i == 0) continue;
+    vec2 s = texture2D(tSrc, vUv + uDir * float(i)).rg;
+    float w = exp(-float(i * i) / 12.0) * max(0.0, 1.0 - abs(s.g - c.g) / (0.04 * c.g + 0.05));
+    sum += s.r * w; wsum += w;
+  }
+  gl_FragColor = vec4(sum / wsum, c.g, 0.0, 1.0);
+}`;
+
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure;
-uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn;
+uniform sampler2D tScene, tBloom, tExposure, tAO;
+uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn;
 uniform vec3 uTint, uLift;
 uniform vec2 uRes;
 varying vec2 vUv;
@@ -123,6 +185,7 @@ float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.545
 void main() {
   float ex = texture2D(tExposure, vec2(0.5)).r;
   vec3 c = texture2D(tScene, vUv).rgb * ex;
+  if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c = max(c * uTint + uLift, 0.0);
   c = neutral(c);
@@ -163,6 +226,10 @@ export class RenderPipeline {
     this.resetExposure = true;
     const hf = { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false };
     this.hdr = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.msaa, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    this.hdr.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    // SSAO: 'off' | 'low' | 'high'
+    this.ssao = 'off';
+    this.ao = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { ...hf }));
     this.hdr.texture.name = 'hdr';
     this.ldr = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     this.mips = [];
@@ -181,12 +248,26 @@ export class RenderPipeline {
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
     });
+    this.aoMat = mat(AO_FRAG, {
+      tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
+      uProjScale: { value: 1 }, uRadius: { value: 1 }, uIntensity: { value: 1.25 }, uMaxPx: { value: 80 }, uFadeFar: { value: 160 },
+    });
+    this.aoMat.defines = { AO_SAMPLES: 8 };
+    this.aoBlurMat = mat(AO_BLUR_FRAG, { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } });
+    this.compMat.uniforms.tAO = { value: this.ao[0].texture };
+    this.compMat.uniforms.uAOOn = { value: 0 };
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
     this.gpuTimer = null;
   }
 
-  configure({ msaa, fxaa }) {
+  configure({ msaa, fxaa, ssao }) {
+    if (ssao !== undefined && ssao !== this.ssao) {
+      this.ssao = ssao;
+      const n = ssao === 'high' ? 16 : 8;
+      if (this.aoMat.defines.AO_SAMPLES !== n) { this.aoMat.defines.AO_SAMPLES = n; this.aoMat.needsUpdate = true; }
+      this.aoMat.uniforms.uRadius.value = ssao === 'high' ? 1.4 : 1.0;
+    }
     if (msaa !== undefined && msaa !== this.msaa) {
       this.msaa = msaa;
       this.hdr.dispose();
@@ -202,6 +283,7 @@ export class RenderPipeline {
     this.ldr.setSize(w, h);
     let mw = w, mh = h;
     for (const m of this.mips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
+    for (const t of this.ao) t.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
   }
@@ -219,6 +301,23 @@ export class RenderPipeline {
     r.autoClear = true;
     r.setRenderTarget(this.hdr);
     r.render(this.scene, this.camera);
+
+    // ---- SSAO (half resolution), multiplied into the scene colour in the composite
+    const aoOn = this.ssao !== 'off';
+    if (aoOn) {
+      const au = this.aoMat.uniforms, cam = this.camera;
+      au.uProjInv.value.copy(cam.projectionMatrixInverse);
+      au.uTexel.value.set(1 / this.width, 1 / this.height);
+      // pixels (full res) covered by 1 m at 1 m distance
+      au.uProjScale.value = cam.projectionMatrix.elements[5] * 0.5 * this.height;
+      au.uMaxPx.value = this.height * 0.08;
+      this.pass(this.aoMat, this.ao[0]);
+      const bm = this.aoBlurMat.uniforms, aw = this.ao[0].width, ah = this.ao[0].height;
+      bm.tSrc.value = this.ao[0].texture; bm.uDir.value.set(1 / aw, 0);
+      this.pass(this.aoBlurMat, this.ao[1]);
+      bm.tSrc.value = this.ao[1].texture; bm.uDir.value.set(0, 1 / ah);
+      this.pass(this.aoBlurMat, this.ao[0]);
+    }
 
     // ---- eye adaptation (or a fixed exposure written to the same 1x1 target)
     const prev = this.adapt[this.adaptIdx], next = this.adapt[1 - this.adaptIdx];
@@ -265,6 +364,7 @@ export class RenderPipeline {
     const cu = this.compMat.uniforms;
     cu.tExposure.value = exposureTex;
     cu.uBloomOn.value = P.bloom && P.bloomStrength > 0 ? 1 : 0;
+    cu.uAOOn.value = aoOn ? 1 : 0;
     cu.uBloom.value = P.bloomStrength;
     cu.uVignette.value = P.vignette; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
@@ -280,6 +380,6 @@ export class RenderPipeline {
   }
 
   dispose() {
-    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt]) t.dispose();
+    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt, ...this.ao]) t.dispose();
   }
 }

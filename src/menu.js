@@ -11,6 +11,7 @@ import { escapeHTML } from './hud.js';
 const TABS = [
   { id: 'locations', label: 'Locations', hot: 'locations' },
   { id: 'settings', label: 'Settings' },
+  { id: 'graphics', label: 'Graphics' },
   { id: 'controls', label: 'Controls', hot: 'controls' },
 ];
 
@@ -25,10 +26,6 @@ const SECTIONS = [
   { title: 'View', rows: [
     row('camera', 'Camera', 'seg', { hot: 'camera', options: [['chase', 'Chase'], ['cockpit', 'Cockpit'], ['hood', 'Hood'], ['wheel', 'Wheel'], ['orbit', 'Orbit']] }),
     row('time', 'Time of day', 'seg', { hot: 'time', options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
-  ] },
-  { title: 'Graphics', rows: [
-    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Auto picks a preset for your graphics chip.' }),
-    row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
   ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),
@@ -54,6 +51,30 @@ const SECTIONS = [
   { title: 'Game', rows: [
     row('autoPause', 'Pause when the window loses focus', 'switch'),
     row('_game', '', 'buttons', { buttons: [['fullscreen', 'Fullscreen'], ['intro', 'Welcome card'], ['resetSettings', 'Reset settings']] }),
+  ] },
+];
+
+// Graphics tab. Changing any option below the preset switches the preset to Custom.
+const GFX_SECTIONS = [
+  { title: 'Preset', rows: [
+    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
+    row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
+    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'Limit for Retina / 4K screens (200% = full Retina). The biggest cost of all.' }),
+  ] },
+  { title: 'Lighting and effects', rows: [
+    row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
+    row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']], note: 'SSAO: contact shading in corners, under the truck and between rocks. About 1–2 ms.' }),
+    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharper, FXAA is cheaper.' }),
+    row('gBloom', 'Bloom', 'switch', { note: 'Glow around lamps and the sun.' }),
+  ] },
+  { title: 'World detail', rows: [
+    row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
+    row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
+    row('gTrees', 'Full-detail trees', 'range', { min: 40, max: 120, step: 5, scale: 1, unit: ' m', note: 'Beyond this distance trees are flat impostors.' }),
+    row('gTreeShadows', 'Distant tree shadows', 'switch'),
+    row('gGrass', 'Grass density', 'range', { min: 0, max: 135, step: 5, scale: 100, unit: '%', note: '0% turns the grass off. Grass is the most expensive part of the world.' }),
+    row('gGrassDist', 'Grass distance', 'range', { min: 20, max: 70, step: 2, scale: 1, unit: ' m' }),
+    row('gBushes', 'Bushes and plants', 'range', { min: 0, max: 100, step: 10, scale: 100, unit: '%' }),
   ] },
 ];
 
@@ -89,13 +110,15 @@ export class Menu {
         </nav>
         <section class="pane" role="tabpanel" id="pane-locations" data-pane="locations"></section>
         <section class="pane" role="tabpanel" id="pane-settings" data-pane="settings" hidden></section>
+        <section class="pane" role="tabpanel" id="pane-graphics" data-pane="graphics" hidden></section>
         <section class="pane" role="tabpanel" id="pane-controls" data-pane="controls" hidden></section>
         <footer class="sheet-foot" id="m-foot"></footer>
       </div>`;
     this.sheet = r.querySelector('.sheet');
     this.panes = Object.fromEntries([...r.querySelectorAll('.pane')].map(p => [p.dataset.pane, p]));
     this.buildLocations();
-    this.buildSettings();
+    this.buildSettings(this.panes.settings, SECTIONS);
+    this.buildSettings(this.panes.graphics, GFX_SECTIONS);
     this.buildControls();
     this.renderDevice();
 
@@ -133,9 +156,9 @@ export class Menu {
       </div>`;
   }
 
-  rowDef(key) { for (const s of SECTIONS) for (const r of s.rows) if (r.key === key) return r; return null; }
+  rowDef(key) { for (const s of [...SECTIONS, ...GFX_SECTIONS]) for (const r of s.rows) if (r.key === key) return r; return null; }
 
-  buildSettings() {
+  buildSettings(pane, sections) {
     const ctl = r => {
       if (r.type === 'seg') return `<div class="seg" role="radiogroup" aria-label="${escapeHTML(r.label)}">${r.options.map(([v, l]) => `<button type="button" role="radio" data-seg="${v}">${l}</button>`).join('')}</div>`;
       if (r.type === 'switch') return `<button type="button" class="switch" role="switch" aria-label="${escapeHTML(r.label)}"><span class="knob"></span></button>`;
@@ -144,7 +167,7 @@ export class Menu {
       if (r.type === 'buttons') return `<div class="btns">${r.buttons.map(([a, l]) => `<button type="button" class="btn small" data-action="${a}">${l}</button>`).join('')}</div>`;
       return '';
     };
-    this.panes.settings.innerHTML = `<div class="set-cols">${SECTIONS.map(s => `
+    pane.innerHTML = `<div class="set-cols">${sections.map(s => `
       <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
         <div class="set-row${r.label ? '' : ' bare'}" data-key="${r.key}">
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
@@ -178,9 +201,9 @@ export class Menu {
     const k = (l, cls = '') => `<kbd class="cap${cls}">${l}</kbd>`;
     const n = this.api.locations.length;
     const items = dev === 'pad'
-      ? [[k('D-pad', ' pad'), 'Move'], tab === 'settings' && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
+      ? [[k('D-pad', ' pad'), 'Move'], (tab === 'settings' || tab === 'graphics') && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
         [k('LB', ' pad') + k('RB', ' pad'), 'Tabs'], [k('B', ' pad pad-b'), 'Resume']]
-      : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], tab === 'settings' && [k('←') + k('→'), 'Change'],
+      : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], (tab === 'settings' || tab === 'graphics') && [k('←') + k('→'), 'Change'],
         tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(Math.min(9, n))), 'Quick pick'],
         [k('Q') + k('E'), 'Tabs'], [k('Esc'), 'Resume']];
     this.root.querySelector('#m-foot').innerHTML = items.filter(Boolean).map(([c, t]) => `<span>${c} ${t}</span>`).join('');
@@ -191,7 +214,7 @@ export class Menu {
     const api = this.api;
     const here = api.get('here');
     this.panes.locations.querySelectorAll('.loc-here').forEach((el, i) => { el.hidden = i !== here; });
-    for (const rowEl of this.panes.settings.querySelectorAll('.set-row')) {
+    for (const rowEl of [...this.panes.settings.querySelectorAll('.set-row'), ...this.panes.graphics.querySelectorAll('.set-row')]) {
       const key = rowEl.dataset.key, def = this.rowDef(key);
       if (def.type === 'seg') {
         const cur = String(api.get(key));
@@ -214,7 +237,7 @@ export class Menu {
     const fs = this.panes.settings.querySelector('[data-action="fullscreen"]');
     if (fs) fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
     // graphics: say which preset Auto chose
-    const qn = this.panes.settings.querySelector('[data-key="quality"] .set-n');
+    const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
     if (qn && qt && qn.textContent !== qt) qn.textContent = qt;
     // auto-clutch only matters with the manual gearbox
