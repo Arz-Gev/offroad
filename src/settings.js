@@ -7,7 +7,7 @@ const INTRO_KEY = 'offroad.introSeen.v1';
 export const DEFAULTS = {
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
-  handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (sets itself at a stop)
+  handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
   camera: 'chase',
   time: 'day',
   muted: false,

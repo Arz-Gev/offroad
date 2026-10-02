@@ -140,8 +140,7 @@ Things that are not obvious from reading the code: conventions, measured baselin
 - **Not done / ideas**: screen-space AO (only baked cavity/canopy AO), cloud shadows, terrain and trees in water reflections (sky only), undergrowth shadow casting, a drivable ramp into the quarry, interior detail for the hut, snow on the near mountains.
 
 ## 2026-10-02: quick fixes batch
-- Handbrake: rear-axle brake as before, plus a standstill hold on the transfer output (`brakes.handbrakeHold`, fades out by 2 m/s) so an open centre diff can't let the front pull away. Modes `hold | toggle | auto` (setting `handbrake`, logic in `Vehicle.handbrakeLogic`). Test: `node tools/hbtest.mjs [deg]`.
+- Handbrake: rear-axle brake as before, plus a standstill hold on the transfer output (`brakes.handbrakeHold`, fades out by 2 m/s) so an open centre diff can't let the front pull away. Modes `hold | toggle | auto` (auto: tap < 0.3 s toggles, long press holds) (setting `handbrake`, logic in `Vehicle.handbrakeLogic`). Test: `node tools/hbtest.mjs [deg]`.
 - 2WD (key F): `drivetrain.rwd` drives the rear axle only, HIGH range only, forces the centre lock off; `wheelMean()` follows the driven wheels.
 - ABS on/off (key B); HUD shows "ABS OFF".
 - Seat backs leaned forward (looked rear-facing): rotation sign fixed in `truckInterior.js`.
-- Cloud shadows: procedural, in `shaderPatches.js` (`atmoCloudShadow` on directional lights, driven by `ATMO.atmoCloud` from `sky.update`).

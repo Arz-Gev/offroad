@@ -110,10 +110,11 @@ export class Vehicle {
     this.brakeT = new Float64Array(4);
     this.absFactor = new Float64Array([1, 1, 1, 1]);
     this.abs = true;
-    this.hbMode = 'hold';    // handbrake key: 'hold' (while pressed) | 'toggle' (press on / press off) | 'auto' (sets itself at a stop)
+    this.hbMode = 'hold';    // handbrake key: 'hold' (while pressed) | 'toggle' (press on / press off) | 'auto' (tap toggles, long press holds)
     this.hbLatched = false;
     this._hbPrev = 0;
-    this._hbStill = 0;
+    this._hbPress = 0;
+    this._hbWas = false;
     this.absActive = 0;
     this.tc = true;          // electronic traction control (brakes a spinning wheel)
     this.tcActive = 0;
@@ -134,22 +135,17 @@ export class Vehicle {
     this.pressure = Math.max(t.minPressure, Math.min(t.maxPressure, psi));
   }
 
-  // Handbrake modes. 'auto' works like an electric parking brake: it sets itself after ~0.6 s stopped
-  // with no throttle, and releases when you drive off in gear. The key still works on top of it.
+  // Handbrake modes. 'auto': a short tap toggles the handbrake on / off, a long press works like 'hold'
+  // (applied while pressed, released with the key).
   handbrakeLogic(raw, h) {
-    const key = raw.handbrake > 0.5, edge = key && !this._hbPrev;
+    const key = raw.handbrake > 0.5, prev = this._hbPrev > 0;
     this._hbPrev = key ? 1 : 0;
     if (this.hbMode === 'hold') { this.hbLatched = false; return raw.handbrake; }
-    if (this.hbMode === 'toggle') { if (edge) this.hbLatched = !this.hbLatched; return this.hbLatched ? 1 : 0; }
-    const dt = this.drivetrain;
-    const inGear = dt.mode === 'auto' ? dt.selector === 'D' || dt.selector === 'R' : dt.manualGear !== 0;
-    const pedal = dt.mode === 'auto' && dt.selector === 'R' ? raw.brake : raw.throttle;
-    if (edge && this.hbLatched) { this.hbLatched = false; this._hbStill = -1; return 0; } // key releases a set brake
-    if (Math.abs(this.speed) < 0.3 && pedal < 0.05) this._hbStill += h; else this._hbStill = Math.min(this._hbStill, 0);
-    if (this._hbStill > 0.6) this.hbLatched = true;
-    if (this.hbLatched && inGear && pedal > 0.12 && dt.running) { this.hbLatched = false; this._hbStill = 0; }
-    if (!key && this._hbStill < 0 && Math.abs(this.speed) > 0.5) this._hbStill = 0;
-    return this.hbLatched || key ? 1 : 0;
+    if (this.hbMode === 'toggle') { if (key && !prev) this.hbLatched = !this.hbLatched; return this.hbLatched ? 1 : 0; }
+    if (key && !prev) { this._hbPress = 0; this._hbWas = this.hbLatched; }
+    if (key) { this._hbPress += h; return 1; }
+    if (prev) this.hbLatched = this._hbPress < 0.3 ? !this._hbWas : false;
+    return this.hbLatched ? 1 : 0;
   }
 
   applyInput(raw, h) {

@@ -221,7 +221,7 @@ async function main() {
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
     handbrake(v, o) {
       vehicle.hbMode = v; vehicle.hbLatched = false;
-      if (!o.silent) say('hb', { hold: 'Handbrake: hold the key', toggle: 'Handbrake: press on, press off', auto: 'Handbrake: automatic at a stop' }[v]);
+      if (!o.silent) say('hb', { hold: 'Handbrake: hold the key', toggle: 'Handbrake: press on, press off', auto: 'Handbrake: tap toggles, long press holds' }[v]);
     },
     camera(v, o) { rig.setMode(v); if (!o.silent) say('camera', CAM_NAMES[v]); },
     time(v, o) {
