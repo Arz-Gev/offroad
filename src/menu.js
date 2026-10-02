@@ -180,7 +180,7 @@ export class Menu {
       ? [[k('D-pad', ' pad'), 'Move'], tab === 'settings' && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
         [k('LB', ' pad') + k('RB', ' pad'), 'Tabs'], [k('B', ' pad pad-b'), 'Resume']]
       : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], tab === 'settings' && [k('←') + k('→'), 'Change'],
-        tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(n)), 'Quick pick'],
+        tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(Math.min(9, n))), 'Quick pick'],
         [k('Q') + k('E'), 'Tabs'], [k('Esc'), 'Resume']];
     this.root.querySelector('#m-foot').innerHTML = items.filter(Boolean).map(([c, t]) => `<span>${c} ${t}</span>`).join('');
   }

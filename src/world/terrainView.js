@@ -77,6 +77,32 @@ function boxBlur(src, n, ch, r) {
   return src;
 }
 
+// the same box blur on 8-bit data, in place, all channels per texel (cache-friendly), integer running sums
+function blurU8(data, n, ch, r) {
+  const tmp = new Uint8Array(data.length);
+  const w = 2 * r + 1, line = new Int32Array((n + 2 * r + 1) * ch);
+  for (let pass = 0; pass < 2; pass++) {
+    const a = pass === 0 ? data : tmp, b = pass === 0 ? tmp : data;
+    const step = pass === 0 ? ch : n * ch, lineStep = pass === 0 ? n * ch : ch;
+    for (let L = 0; L < n; L++) {
+      const base = L * lineStep;
+      for (let k = -r; k < n + r + 1; k++) {
+        const kk = k < 0 ? 0 : k >= n ? n - 1 : k, src = base + kk * step, dst = (k + r) * ch;
+        for (let c = 0; c < ch; c++) line[dst + c] = a[src + c];
+      }
+      for (let c = 0; c < ch; c++) {
+        let sum = 0;
+        for (let k = 0; k < w; k++) sum += line[k * ch + c];
+        for (let k = 0; k < n; k++) {
+          b[base + k * step + c] = (sum + (w >> 1)) / w;
+          sum += line[(k + w) * ch + c] - line[k * ch + c];
+        }
+      }
+    }
+  }
+  return data;
+}
+
 export function buildTerrainView(terrain, renderer, opts = {}) {
   const layers = bakeGroundLayers(renderer, opts.layerSize || 1024, opts.anisotropy || 8);
 
@@ -90,16 +116,14 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   const fnTex = bakeNormalTexture(renderer, fTex, FN, FAR_CELL);
 
   // ---- splat (dirt, mud, rock, sand), blurred; texel (ix, iz) natural orientation
-  const raw = new Float32Array(NN * NN * 4);
+  const splatData = new Uint8Array(NN * NN * 4);
   for (let ix = 0; ix < NN; ix++) for (let iz = 0; iz < NN; iz++) {
     const s = terrain.surface[ix * NN + iz];
     const o = (iz * NN + ix) * 4;
-    if (s === SURF.dirt) raw[o] = 1; else if (s === SURF.mud) raw[o + 1] = 1; else if (s === SURF.rock) raw[o + 2] = 1; else if (s === SURF.sand) raw[o + 3] = 1;
+    if (s === SURF.dirt) splatData[o] = 255; else if (s === SURF.mud) splatData[o + 1] = 255; else if (s === SURF.rock) splatData[o + 2] = 255; else if (s === SURF.sand) splatData[o + 3] = 255;
   }
-  boxBlur(raw, NN, 4, 2);
-  boxBlur(raw, NN, 4, 1);
-  const splatData = new Uint8Array(NN * NN * 4);
-  for (let i = 0; i < splatData.length; i++) splatData[i] = Math.round(Math.min(1, raw[i]) * 255);
+  blurU8(splatData, NN, 4, 2);
+  blurU8(splatData, NN, 4, 1);
   const splat = new THREE.DataTexture(splatData, NN, NN, THREE.RGBAFormat);
   splat.magFilter = THREE.LinearFilter; splat.minFilter = THREE.LinearMipmapLinearFilter; splat.generateMipmaps = true;
   splat.needsUpdate = true;
@@ -121,7 +145,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     for (let x = 0; x < DN; x++) for (let z = 0; z < DN; z++) {
       const ix = Math.min(N, x * 2), iz = Math.min(N, z * 2);
       const o = (iz * NN + ix) * 4;
-      const other = raw[o] + raw[o + 1] + raw[o + 2] + raw[o + 3];
+      const other = (splatData[o] + splatData[o + 1] + splatData[o + 2] + splatData[o + 3]) / 255;
       const h = (a, b) => hgt[Math.max(0, Math.min(DN - 1, b)) * DN + Math.max(0, Math.min(DN - 1, a))];
       const slope = Math.hypot(h(x + 1, z) - h(x - 1, z), h(x, z + 1) - h(x, z - 1)) / 2;
       const wx = -HALF + x, wz = -HALF + z;
@@ -138,7 +162,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
       groundData[o] = Math.max(groundData[o], Math.round(255 * Math.min(1, Math.max(0, 1 - (h - wl) / 0.8))));
     };
     for (const w of terrain.water) {
-      if (w.type === 'lake') {
+      if (w.type !== 'stream') {
         for (let x = Math.floor(w.x - w.rx * 1.3 + HALF); x <= w.x + w.rx * 1.3 + HALF; x++)
           for (let z = Math.floor(w.z - w.rz * 1.3 + HALF); z <= w.z + w.rz * 1.3 + HALF; z++) wetAt(x, z, w.level);
       } else {
@@ -342,9 +366,9 @@ vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
   float track = inMap ? texture2D(uTrack, tuv).r : 0.0;
   c *= 1.0 - track * 0.3;
   // wetness: shore, mud, rain
-  gWet = clamp(max(gd.b * 0.9, uWet) + track * wMud * 0.5, 0.0, 1.0);
+  gWet = clamp(max(gd.b * 0.9, uWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
   c *= 1.0 - gWet * 0.35;
-  gRough = mix(nn.b, 0.3, gWet);
+  gRough = mix(nn.b, 0.55, gWet);
   // ambient occlusion: hollows, canopy, texture cavities
   gAO = gd.r * mix(1.0, nn.a, 0.8) * clamp(1.15 - curv * 0.3, 0.6, 1.0);
   // normal: detail (tangent space x/z) on top of the heightfield normal

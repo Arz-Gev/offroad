@@ -27,6 +27,9 @@ function bladeGeometry(segments = 3) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('aBlade', new THREE.Float32BufferAttribute(v, 3));
   g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(v.length), 3));
+  // a normal attribute (values unused, the shader computes them): without one three compiles the
+  // material FLAT_SHADED and ignores the vertex normals
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(v.length), 3));
   g.setIndex(idx);
   return g;
 }
@@ -44,6 +47,7 @@ uniform vec4 uTrackP;   // origin x, z, size
 attribute vec3 aBlade;
 attribute vec2 aTile;
 varying vec3 vGCol;
+varying vec3 vGFace;
 varying float vGAO;
 vec2 gHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float gHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
@@ -76,7 +80,7 @@ export function buildGrass(terrainView, opts = {}) {
       uRad: { value: new THREE.Vector4(radius * 0.72, radius, fadeIn[0], fadeIn[1]) },
       uShape: { value: new THREE.Vector4(...shape) },
     };
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
     if (terrainView.floatLinear) mat.defines = { FLOAT_LINEAR: '' };
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uniforms);
@@ -95,7 +99,7 @@ float dens = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).a * u
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
-vGCol = vec3(0.0); vGAO = 1.0;
+vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0);
 if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
   vec2 hC = gHash22(cellIdx + 41.3);
   vec4 nz = textureLod(tNoise, bxz / 61.0, 0.0);
@@ -134,8 +138,11 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
   vec3 side = vec3(-facing.y, 0.0, facing.x);
   gPos = vec3(bxz.x, gy - 0.02, bxz.y) + side * aBlade.x * wd * 0.5 * (1.0 - tb * 0.85)
     + vec3(bend.x, 0.0, bend.y) * ht * tb * tb * 0.7 + vec3(0.0, ht * tb * (1.0 - 0.25 * min(dot(bend, bend), 1.0)), 0.0);
-  // lighting normal: mostly up (reads like a lawn), a little of the blade's facing
-  objectNormal = normalize(vec3(facing.x, 0.0, facing.y) * 0.35 * sign(aBlade.x + 0.001) + vec3(bend.x, 0.0, bend.y) * 0.3 + vec3(0.0, 1.0, 0.0));
+  // lighting normal: mostly up (reads like a lawn) for both faces of the blade; the blade's own facing is
+  // added in the fragment shader with the face's sign (flipping the whole normal on back faces, as
+  // three does for DoubleSide, pointed it down: half the blades came out black)
+  objectNormal = normalize(vec3(bend.x, 0.0, bend.y) * 0.3 + side * 0.25 * sign(aBlade.x + 0.001) + vec3(0.0, 1.0, 0.0));
+  vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
   // colour: patch tint, per-blade variation, darker roots, lighter dry tips; flowers get a coloured head
   vec3 lush = vec3(0.115, 0.175, 0.04), dry = vec3(0.30, 0.27, 0.10), deep = vec3(0.07, 0.125, 0.03);
   vec3 col = mix(lush, deep, nz.a * 0.8);
@@ -151,9 +158,13 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
 }`)
         .replace('#include <begin_vertex>', 'vec3 transformed = gPos;');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying float vGAO;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
+        .replace('#include <normal_fragment_begin>', `
+float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
+vec3 normal = normalize(normalize(vNormal) + vGFace * faceDirection);
+vec3 nonPerturbedNormal = normal;`)
         .replace('#include <map_fragment>', 'diffuseColor.rgb = vGCol;')
-        .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO;');
+        .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;');
     };
     mat.customProgramCacheKey = () => 'grass-v1-' + name;
     const tiles = [];
@@ -161,6 +172,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
       const g = new THREE.InstancedBufferGeometry();
       g.setAttribute('aBlade', geoBase.getAttribute('aBlade'));
       g.setAttribute('position', geoBase.getAttribute('position'));
+      g.setAttribute('normal', geoBase.getAttribute('normal'));
       g.setIndex(geoBase.getIndex());
       g.setAttribute('aTile', new THREE.InstancedBufferAttribute(new Float32Array([tx, tz]), 2, false, 1 << 30));
       g.instanceCount = k * k;
@@ -200,9 +212,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
       near.uniforms.uRad.value.set(Math.min(22, r * 0.45) * 0.72, Math.min(22, r * 0.45), -1, 0);
     },
     update(dt, camera, focus) {
-      if (!enabled) return;
       time += dt;
-      shared.uWind.value.w = time;
+      shared.uWind.value.w = time;   // shared with the trees and the undergrowth: runs with the grass off too
+      if (!enabled) return;
       pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(pv);
       const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;

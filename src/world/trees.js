@@ -4,6 +4,7 @@ import { SURFACES } from '../vehicle/tire.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
 import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
 import { makeBarkTexture } from './textures.js';
+import { ColliderStream } from './colliderStream.js';
 
 // Trees and undergrowth.
 // - ~12k trees in forests (spruce, pine, birch, dead snags), every one with a trunk collider.
@@ -36,6 +37,8 @@ vec3 windOffset(vec3 objPos, float w) {
 }
 `;
 
+export const NO_FLIP_NORMAL = THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '');
+
 const FADE_GLSL = /* glsl */`
 uniform vec2 uFade;   // near-mesh / impostor cross-fade band (distance from the camera, m)
 uniform vec3 uViewPos; // the view camera (also in the shadow pass, where cameraPosition is the light's)
@@ -56,6 +59,9 @@ vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);`);
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
     if (opts.translucent) {
+      // foliage cards: both faces keep the outward (crown-volume) normal; three's DoubleSide flip made
+      // every back-facing card shade as if it faced into the crown
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
       // foliage: a touch of light through the leaves when backlit
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
@@ -75,7 +81,7 @@ varying vec2 vUv; varying vec3 vN;
 void main() {
   vec4 c = texture2D(tMap, vUv);
   if (c.a < uAlphaTest) discard;
-  vec3 n = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
+  vec3 n = normalize(vN);
   gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
 }`;
 
@@ -184,6 +190,49 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     else vi = rnd() < 0.55 ? 0 : 1;
     const s = 0.75 + rnd() * 0.5;
     trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi });
+  }
+
+  // ---- fallen logs on the forest floor (instanced, three lengths), with streamed colliders
+  const logStream = new ColliderStream(RAPIER, world, colliderSurface);
+  const LOG_LEN = [4.2, 6.5, 9.0];
+  const logs = [];
+  for (let tries = 0; tries < 20000 && logs.length < 260; tries++) {
+    const t = trees[Math.floor(rnd() * trees.length)];
+    if (!t || t.v === 4) continue;   // not under birches (they stand in the open)
+    const a = rnd() * Math.PI * 2, d = 2.5 + rnd() * 4;
+    const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
+    const L = LOG_LEN[Math.floor(rnd() * 3)], yaw = rnd() * Math.PI * 2;
+    const dx = Math.sin(yaw) * L / 2, dz = Math.cos(yaw) * L / 2;
+    let ok = true;
+    for (const f of [-1, 0, 1]) { const px = x + dx * f, pz = z + dz * f; if (terrain.isTrail(px, pz, 6) || terrain.waterLevelAt(px, pz) > -1e8 || Math.abs(px) > HALF - 20 || Math.abs(pz) > HALF - 20) ok = false; }
+    if (!ok || (x > PAD.x0 - 10 && x < PAD.x1 + 10 && z > PAD.z0 - 10 && z < PAD.z1 + 10) || Math.hypot(x - POI.hut.x, z - POI.hut.z) < 14) continue;
+    const r = 0.14 + rnd() * 0.16 * (L / 6);
+    const h0 = terrain.surfaceHeight(x - dx, z - dz), h1 = terrain.surfaceHeight(x + dx, z + dz), hm = terrain.surfaceHeight(x, z);
+    if (Math.abs(h1 - h0) > L * 0.45) continue;
+    logs.push({ x, z, y: Math.max((h0 + h1) / 2, hm) + r * 0.8, yaw, pitch: Math.atan2(h1 - h0, L), r, k: LOG_LEN.indexOf(L) });
+  }
+  const logMat = new THREE.MeshStandardMaterial({ map: barkC, roughness: 0.95, metalness: 0, color: 0x9a8a7a });
+  const logMeshes = LOG_LEN.map((L) => {
+    // along +z, unit radius; bark uv: u around, v along (metres / 1.2)
+    const g = new THREE.CylinderGeometry(1, 1.06, L, 10, 1, false).rotateX(Math.PI / 2);
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * L / 1.2);
+    const m = new THREE.InstancedMesh(g, logMat, logs.length);
+    m.count = 0; m.castShadow = true; m.receiveShadow = true;
+    group.add(m);
+    return m;
+  });
+  {
+    const e = new THREE.Euler(), qq2 = new THREE.Quaternion(), M = new THREE.Matrix4(), S = new THREE.Vector3(), P = new THREE.Vector3();
+    for (const lg of logs) {
+      e.set(-lg.pitch, lg.yaw, 0, 'YXZ'); qq2.setFromEuler(e);
+      M.compose(P.set(lg.x, lg.y, lg.z), qq2, S.set(lg.r, lg.r, 1));
+      const m = logMeshes[lg.k];
+      m.setMatrixAt(m.count++, M);
+      logStream.add(lg.x, lg.z, RAPIER.ColliderDesc.cylinder(LOG_LEN[lg.k] / 2, lg.r).setTranslation(lg.x, lg.y, lg.z)
+        .setRotation(new THREE.Quaternion().setFromEuler(e).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2))).setFriction(0.7), SURFACES.wood);
+    }
+    for (const m of logMeshes) { m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); }
   }
 
   // ---- colliders (trunks) are streamed in around the truck: Rapier's step cost grows with the number of
@@ -353,6 +402,7 @@ vec3 nonPerturbedNormal = normal;`);
 
   // stream trunk colliders around a point (the truck): chunks within 2 chunk rings stay loaded
   const updatePhysics = (x, z) => {
+    logStream.update(x, z);
     const cx = Math.floor((x + HALF) / CHUNK), cz = Math.floor((z + HALF) / CHUNK);
     const ci = cz * CN + cx;
     if (ci === physChunk) return;
@@ -369,7 +419,7 @@ vec3 nonPerturbedNormal = normal;`);
   let lastX = 1e9, lastZ = 1e9, nearR = 82;
   const counts = new Int32Array(variants.length);
   const api = {
-    group, trees, variants, near, impMesh, atlas, fade, updatePhysics,
+    group, trees, logs, variants, near, impMesh, atlas, fade, updatePhysics,
     get colliderCount() { let n = 0; for (const l of activeChunks.values()) n += l.length; return n; },
     configure(q) {
       const r = q.treeNear || 80;

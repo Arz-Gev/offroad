@@ -28,7 +28,7 @@ const PRESETS = {
   night: {
     elev: -16, azim: 250, sunE: 5.0, moonElev: 38, moonAzim: 70, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
     cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.0,
-    exposure: 2.4, auto: 1, key: 0.07, minEx: 1.5, maxEx: 4.0, bloom: 0.07, bloomThr: 1.1,
+    exposure: 2.0, auto: 1, key: 0.06, minEx: 1.0, maxEx: 3.2, bloom: 0.06, bloomThr: 1.4,
     sat: 0.86, contrast: 0.1, vignette: 0.32, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006], night: true,
   },
 };

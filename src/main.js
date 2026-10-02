@@ -4,10 +4,13 @@ import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 import { QUALITY, autoQuality } from './render/quality.js';
 
-import { Terrain, SPAWN, LANES, HILL } from './world/terrain.js';
+import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
+import { buildWater } from './world/water.js';
+import { buildUndergrowth } from './world/undergrowth.js';
+import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, TIME_ORDER } from './world/environment.js';
 import { makeDefenderParams } from './vehicle/params.js';
@@ -92,15 +95,21 @@ async function main() {
   const grass = buildGrass(terrainView);
   scene.add(grass.group);
   scenery.parts.push(grass);
+  const water = buildWater(terrain, terrainView, renderer);
+  scene.add(water.group);
+  scenery.parts.push(water);
 
   setLoading('Placing rocks and trees…', 0.5); await frame();
   const colliderSurface = new Map();
-  const props = buildProps(RAPIER, world, terrain, colliderSurface, null);
+  const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }));
   scene.add(props);
   setLoading('Growing the forest…', 0.58); await frame();
   const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
   scene.add(trees.group);
   scenery.parts.push(trees);
+  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
+  scene.add(undergrowth.group);
+  scenery.parts.push(undergrowth);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
@@ -121,6 +130,7 @@ async function main() {
   const audio = new GameAudio();
   const settings = new Settings();
   const dust = new Dust(scene);
+  dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const tracks = new Tracks(terrainView.material);
 
 
@@ -129,6 +139,17 @@ async function main() {
   const prevQ = new THREE.Quaternion().copy(vehicle.quat), curQ = new THREE.Quaternion().copy(vehicle.quat);
   const rPos = new THREE.Vector3(), rQ = new THREE.Quaternion();
 
+  // a spot on the nearest trail, `back` metres before the point, facing along the trail
+  function trailSpot(x, z, back = 0) {
+    let best = null, bd = Infinity;
+    for (const c of terrain.trailCurves) {
+      const n = Math.round(c.getLength() / 2), pts = c.getSpacedPoints(n);
+      for (let k = 0; k <= n; k++) { const d = (pts[k].x - x) ** 2 + (pts[k].z - z) ** 2; if (d < bd) { bd = d; best = { pts, k, n }; } }
+    }
+    const { pts, k } = best, k0 = Math.max(0, k - Math.round(back / 2)), k1 = Math.min(pts.length - 1, k0 + 3);
+    const p = pts[k0], q = pts[k1];
+    return { x: p.x, z: p.z, yaw: Math.atan2(-(q.x - p.x), -(q.z - p.z)) };
+  }
   // teleport targets, shown in the menu's Locations tab (x, z, yaw are also used by tools/browser-snippets.js)
   const teleports = [
     { name: 'Spawn', tag: 'Trail', title: 'Spawn', desc: 'Start of the trail loop: ruts, a mud hole and a branch towards the hills.', x: SPAWN.x, z: SPAWN.z, yaw: 0 },
@@ -138,11 +159,18 @@ async function main() {
     { name: 'Ramps', tag: 'Proving ground · lane D', title: 'Ramps 20° / 30° / 35°', desc: 'Climbs in low range. The steepest needs the centre diff locked.', x: LANES.D, z: 47, yaw: 0 },
     { name: 'Mud and off-camber', tag: 'Proving ground · lane E', title: 'Mud and off-camber', desc: 'A deep mud hole and a side slope. Air down and keep momentum.', x: LANES.E, z: 47, yaw: 0 },
     { name: 'The big hill', tag: 'Hill', title: 'The big hill', desc: 'A long climb with views over the whole map.', x: HILL.x - 52, z: HILL.z + 8, yaw: -Math.PI / 2 },
+    { name: 'Lake shore', tag: 'Outer loop · east', title: 'Lake shore', desc: 'A sandy beach on the lake. The shallows are drivable; the middle is not.', x: 386, z: 44, yaw: Math.atan2(-(POI.lake.x - 386), -(POI.lake.z - 44)) },
+    { name: 'The ford', tag: 'Outer loop · north-east', title: 'The ford', desc: 'The trail crosses the stream: 30 cm of water over gravel. Keep it slow and steady.', ...trailSpot(POI.ford.x, POI.ford.z, 35) },
+    { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
+    { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
+    { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
+    { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
   ];
   const placeVehicle = (x, z, yaw, lift = 0.5) => {
     let y = terrain.heightAt(x, z);
     for (const dx of [-1.5, 1.5]) for (const dz of [-2.2, 2.2]) y = Math.max(y, terrain.heightAt(x + dx, z + dz));
     trees.updatePhysics(x, z);
+    props.userData.stream.update(x, z);
     world.step();   // scene queries see the streamed colliders only after a step
     vehicle.reset({ x, y: y + lift, z }, yaw);
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
@@ -150,7 +178,7 @@ async function main() {
     game.redraw = 3;
   };
 
-  const game = { scenery, grass, trees, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
+  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
   window.game = game;
 
   // ---------------------------------------------------------------- graphics quality
@@ -379,6 +407,7 @@ async function main() {
         const t = vehicle.body.translation(), q = vehicle.body.rotation();
         curPos.set(t.x, t.y, t.z); curQ.set(q.x, q.y, q.z, q.w);
         trees.updatePhysics(t.x, t.z);
+        props.userData.stream.update(t.x, t.z);
         tracks.stamp(vehicle, H);
         acc -= H;
         steps++;
@@ -428,12 +457,31 @@ async function main() {
   settings.applyAll({ startup: true });
   refreshSound();
 
+  // compile for the pipeline's HDR target: the program variant depends on the output colour space
+  // (compiling for the canvas gave sRGB-output programs that are never used)
+  const compileScene = () => {
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(pipeline.hdr);
+    const p = renderer.compileAsync(scene, camera);
+    renderer.setRenderTarget(prev);
+    return p;
+  };
   setLoading('Compiling shaders…', 0.86); await frame();
-  // one frame without drawing first: the lamps' shadow flags and the time of day set the lights hash
-  // the programs are compiled for (compiling with another light setup would compile everything twice)
-  tick(1 / 60, false);
+  // Warm-up behind the loading screen. The lamps change the lights hash (shadow-casting head spot, lamp
+  // visibility at night), so first a frame with every lamp on (compile + one real draw, which also builds
+  // the GPU pipeline states and the lamp shadow map: switching on the lamps at night stalled ~200 ms
+  // without it), then the real state. One frame without drawing comes first, so the compile sees the
+  // lights as they are.
   try {
-    await Promise.race([renderer.compileAsync(scene, camera), new Promise(r => setTimeout(r, 6000))]);
+    const ls = view.lights, head = ls.head, bar = ls.bar;
+    ls.head = 1; ls.bar = true;
+    tick(1 / 60, false);
+    view.update(rPos, rQ, 0, { night: true, shadows: true });
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    pipeline.render(1 / 60);
+    ls.head = head; ls.bar = bar;
+    tick(1 / 60, false);
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
   } catch (e) { console.warn('shader warm-up', e); }
   tick(1 / 60);
 

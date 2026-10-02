@@ -13,7 +13,7 @@ export const LAYER_COUNT = 6;
 // world size (m) covered by one tile of each layer
 export const LAYER_TILE = [2.6, 3.2, 5.0, 3.4, 2.2, 2.8];
 
-const NOISE_GLSL = /* glsl */`
+export const NOISE_GLSL = /* glsl */`
 // ---- periodic noise toolkit (period in cells, integer)
 vec2 hash22(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
@@ -154,11 +154,11 @@ void main() {
     // sand / gravel: dense small stones on pale sand
     float m = pfbm(uv, 3.0, 4);
     vec2 a = pebbles(uv, 34.0, 0.42), b = pebbles(uv + 0.5, 70.0, 0.45), c = pebbles(uv + 0.21, 14.0, 0.3);
-    vec3 sand = mix(srgb(vec3(0.55, 0.49, 0.38)), srgb(vec3(0.70, 0.64, 0.52)), m);
+    vec3 sand = mix(srgb(vec3(0.47, 0.42, 0.33)), srgb(vec3(0.60, 0.54, 0.44)), m);
     col = sand;
-    col = mix(col, mix(srgb(vec3(0.40, 0.38, 0.35)), srgb(vec3(0.66, 0.62, 0.56)), b.y), smoothstep(0.0, 0.2, b.x) * 0.9);
-    col = mix(col, mix(srgb(vec3(0.38, 0.34, 0.30)), srgb(vec3(0.60, 0.55, 0.48)), a.y), smoothstep(0.0, 0.15, a.x));
-    col = mix(col, mix(srgb(vec3(0.45, 0.43, 0.40)), srgb(vec3(0.68, 0.65, 0.60)), c.y), smoothstep(0.0, 0.1, c.x));
+    col = mix(col, mix(srgb(vec3(0.34, 0.32, 0.30)), srgb(vec3(0.56, 0.53, 0.48)), b.y), smoothstep(0.0, 0.2, b.x) * 0.9);
+    col = mix(col, mix(srgb(vec3(0.32, 0.29, 0.26)), srgb(vec3(0.52, 0.47, 0.41)), a.y), smoothstep(0.0, 0.15, a.x));
+    col = mix(col, mix(srgb(vec3(0.38, 0.36, 0.34)), srgb(vec3(0.58, 0.55, 0.51)), c.y), smoothstep(0.0, 0.1, c.x));
     h = 0.25 + 0.1 * m + 0.35 * b.x + 0.45 * a.x + 0.6 * c.x;
   } else {
     // forest floor: humus, needles, twigs, moss

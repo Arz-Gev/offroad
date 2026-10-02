@@ -28,7 +28,7 @@ export const HILL = { x: 72, z: -30, r: 52, h: 24 };
 export const POI = {
   lake: { x: 300, z: 70, rx: 82, rz: 58 },
   ford: { x: 268, z: -238 },
-  hut: { x: 176, z: 318 },
+  hut: { x: 168, z: 341, yaw: -2.68 },
   quarry: { x: -286, z: 262, rx: 46, rz: 32, depth: 11 },
   peak: { x: -318, z: -250, r: 150, h: 66 },
   lookout: { x: -318, z: -250 },
@@ -41,7 +41,7 @@ export const TRAILS = [
   { closed: false, pts: [[0, -20], [-40, -62], [-100, -84], [-134, -30], [-132, 60], [-100, 112], [-40, 126], [15, 92]] },
   // outer loop: from the core loop's north-east corner, round the map clockwise, back in through the forest
   { closed: false, maxGrade: 16, pts: [[112, -100], [168, -160], [222, -214], [268, -238], [322, -214], [372, -150], [404, -60], [412, 40], [396, 140], [338, 198],
-    [262, 238], [196, 300], [120, 338], [30, 352], [-70, 340], [-170, 318], [-236, 300], [-300, 316], [-352, 262], [-372, 170],
+    [262, 238], [196, 300], [120, 338], [30, 352], [-70, 340], [-170, 318], [-236, 300], [-286, 314], [-324, 302], [-354, 258], [-372, 170],
     [-390, 60], [-388, -40], [-356, -128], [-282, -146], [-220, -196], [-160, -268], [-80, -312], [0, -296], [56, -246], [92, -180], [112, -100]] },
   // link from the core branch west to the outer loop
   { closed: false, maxGrade: 16, pts: [[-134, -30], [-190, -24], [-250, -10], [-310, 10], [-389, 30]] },
@@ -239,6 +239,12 @@ export class Terrain {
     // ---- lake: flatten the basin below the water level (shallow shelf, then deeper middle)
     this.carveLake();
 
+    // ---- level ground for the ruined hut
+    {
+      const hu = POI.hut, hh = this.heightAt(hu.x, hu.z);
+      this.stampEllipse(hu.x, hu.z, 11, 11, (x, z, i, e) => { H[i] = lerp(H[i], hh, smoothstep(1.45, 0.8, e)); });
+    }
+
     // ---- proving ground pad + spawn clearing (flattened)
     const coreH = (x, z) => this.coarse(x, z) + this.mid(x, z) + this.fine(x, z);
     const padH = coreH((PAD.x0 + PAD.x1) / 2, (PAD.z0 + PAD.z1) / 2);
@@ -273,6 +279,17 @@ export class Terrain {
       H[i] -= m.depth * w * (0.8 + 0.2 * this.n1(x * 0.3, z * 0.3));
       if (e < 1.0) this.surface[i] = SURF.mud;
     }, 4);
+
+    this.smoothTrailBeds();
+
+    // muddy pools in the bottom of the mud holes (visual water, the bed stays mud)
+    for (const m of muds) {
+      let lo = 1e9, rim = 1e9;
+      this.stampEllipse(m.x, m.z, m.rx, m.rz, (x, z, i, e) => { if (e < 0.7) lo = Math.min(lo, H[i]); });
+      for (let a = 0; a < 32; a++) { const t = a / 32 * Math.PI * 2; rim = Math.min(rim, this.heightAt(m.x + Math.cos(t) * m.rx * 0.8, m.z + Math.sin(t) * m.rz * 0.8)); }
+      const level = Math.min(lo + 0.12, rim - 0.03);
+      if (level > lo + 0.03) this.water.push({ type: 'pool', x: m.x, z: m.z, rx: m.rx * 0.95, rz: m.rz * 0.95, level, muddy: true });
+    }
 
     this.buildLanes();
 
@@ -453,6 +470,18 @@ export class Terrain {
           hs[0] = e0; hs[hs.length - 1] = e1;
         }
       }
+      // round off the kinks the grade limit leaves where a cut starts or ends (they are crests)
+      if (maxG) {
+        for (let pass = 0; pass < 3; pass++) {
+          const o = hs.slice();
+          for (let k = 1; k < hs.length - 1; k++) {
+            let sum = 0, c = 0;
+            for (let j = -12; j <= 12; j++) { const kk = Math.max(0, Math.min(hs.length - 1, k + j)); sum += hs[kk]; c++; }
+            o[k] = sum / c;
+          }
+          hs = o;
+        }
+      }
       trailSamples.push({ sp, hs });
       // rasterise this trail's distance field into the band around it
       const R = 6, touched = [];
@@ -488,18 +517,68 @@ export class Terrain {
         dist[i] = 1e9;
       }
     }
-    for (const i of touchedAll) {
+    // the band's detail (ruts, crown, noise) is kept apart so smoothTrailBeds() can low-pass the bed under it
+    const detail = new Float32Array(touchedAll.length), weight = new Float32Array(touchedAll.length);
+    touchedAll.forEach((i, k) => {
       const ix = Math.floor(i / NN), iz = i - ix * NN;
       const x = -half + ix * CELL, z = -half + iz * CELL;
       const dmin = this.trailDist[i], wm = wmax[i];
-      let h = lerp(H[i], hsum[i] / wsum[i], wm);
+      H[i] = lerp(H[i], hsum[i] / wsum[i], wm);
       // twin ruts worn by traffic, slightly crowned middle, a little noise
       // (wide enough for the 0.5 m grid: narrower ruts alias into a washboard on diagonal trails)
       const rut = Math.exp(-(((dmin - 0.8) / 0.34) ** 2));
-      h += wm * (-0.055 * rut + 0.02 * Math.exp(-((dmin / 0.5) ** 2)) + fbm(this.n2, x * 0.25, z * 0.25, 2) * 0.03);
-      H[i] = h;
+      detail[k] = wm * (-0.055 * rut + 0.02 * Math.exp(-((dmin / 0.5) ** 2)) + fbm(this.n2, x * 0.25, z * 0.25, 2) * 0.03);
+      weight[k] = wm;
+      H[i] += detail[k];
       if (dmin < 2.7) this.surface[i] = SURF.dirt;
+    });
+    this.trailBand = { list: Int32Array.from(touchedAll), detail, weight };
+  }
+
+  // Ride quality: blending trails into each other (junctions) and stamping features onto them (the mud
+  // hole) leaves short crests that throw the truck off the ground at 40-50 km/h. The bed under the trail
+  // band (without its rut / crown detail) gets a Gaussian low-pass (sigma 2 m) that only averages the
+  // driven bed itself (normalised convolution with a mask of the cells within ~2.7 m of a centreline), so
+  // cut walls and banks next to the trail don't leak in; the detail is added back on top.
+  smoothTrailBeds(sigma = 2.0) {
+    const { list, detail, weight } = this.trailBand;
+    const H = this.heights, NN = this.NN, td = this.trailDist;
+    const sc = sigma / CELL, R = Math.ceil(sc * 3);
+    const ker = new Float32Array(2 * R + 1);
+    for (let k = -R; k <= R; k++) ker[k + R] = Math.exp(-0.5 * (k / sc) ** 2);
+    for (let k = 0; k < list.length; k++) H[list[k]] -= detail[k];
+    const mw = (i) => smoothstep(3.2, 2.2, td[i]);
+    // pass 1 (along x) on the band dilated along z, pass 2 (along z) on the band
+    const num = new Float32Array(NN * NN), den = new Float32Array(NN * NN);
+    const need = new Uint8Array(NN * NN);
+    for (let k = 0; k < list.length; k++) {
+      const i = list[k], iz = i % NN;
+      for (let d = -R; d <= R; d++) if (iz + d >= 0 && iz + d < NN) need[i + d] = 1;
     }
+    for (let i = 0; i < need.length; i++) {
+      if (!need[i]) continue;
+      const ix = (i / NN) | 0;
+      let sn = 0, sd = 0;
+      for (let d = -R; d <= R; d++) {
+        const jx = ix + d;
+        if (jx < 0 || jx >= NN) continue;
+        const j = i + d * NN, w = td[j] < 3.2 ? ker[d + R] * mw(j) : 0;
+        sn += w * H[j]; sd += w;
+      }
+      num[i] = sn; den[i] = sd;
+    }
+    const out = new Float32Array(list.length);
+    for (let k = 0; k < list.length; k++) {
+      const i = list[k], iz = i % NN;
+      let sn = 0, sd = 0;
+      for (let d = -R; d <= R; d++) {
+        const jz = iz + d;
+        if (jz < 0 || jz >= NN) continue;
+        sn += ker[d + R] * num[i + d]; sd += ker[d + R] * den[i + d];
+      }
+      out[k] = sd > 1e-3 ? sn / sd : H[i];
+    }
+    for (let k = 0; k < list.length; k++) { const i = list[k]; H[i] = lerp(H[i], out[k], weight[k]) + detail[k]; }
   }
 
   buildLanes() {
@@ -626,8 +705,8 @@ export class Terrain {
   waterLevelAt(x, z) {
     let best = -Infinity;
     for (const w of this.water) {
-      if (w.type === 'lake') {
-        if (Math.hypot((x - w.x) / w.rx, (z - w.z) / w.rz) < 1) best = Math.max(best, w.level);
+      if (w.type !== 'stream') {
+        if (Math.hypot((x - w.x) / w.rx, (z - w.z) / w.rz) < 1 && this.heightAt(x, z) < w.level) best = Math.max(best, w.level);
       } else {
         // nearest stream sample (coarse search on a 1 m spaced polyline)
         const pts = w.pts;
