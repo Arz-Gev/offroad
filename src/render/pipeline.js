@@ -106,18 +106,26 @@ uniform vec2 uTexel;
 uniform float uProjScale, uRadius, uIntensity, uMaxPx, uFadeFar;
 varying vec2 vUv;
 vec3 viewPos(vec2 uv) {
+  // snap to a full-res depth texel centre and unproject that same point: the half-res pixel centres fall
+  // between depth texels, and fetching one texel but unprojecting another made banded normals on flat ground
+  uv = (floor(uv / uTexel) + 0.5) * uTexel;
   float d = texture2D(tDepth, uv).r;
   vec4 p = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
   return p.xyz / p.w;
 }
+float z0v(vec3 p) { return -p.z; }
 void main() {
   float d0 = texture2D(tDepth, vUv).r;
   if (d0 >= 0.999999) { gl_FragColor = vec4(1.0, 1e5, 0.0, 1.0); return; }
   vec3 P = viewPos(vUv);
   vec3 pr = viewPos(vUv + vec2(uTexel.x, 0.0)), pl = viewPos(vUv - vec2(uTexel.x, 0.0));
   vec3 pu = viewPos(vUv + vec2(0.0, uTexel.y)), pd = viewPos(vUv - vec2(0.0, uTexel.y));
-  vec3 dx = abs(pr.z - P.z) < abs(P.z - pl.z) ? pr - P : P - pl;
-  vec3 dy = abs(pu.z - P.z) < abs(P.z - pd.z) ? pu - P : P - pd;
+  // central differences on smooth surfaces (stable at grazing angles); the side with the smaller step
+  // only across a depth edge, so silhouettes don't smear
+  bool ex = abs(pr.z + pl.z - 2.0 * P.z) > 0.02 * z0v(P);
+  bool ey = abs(pu.z + pd.z - 2.0 * P.z) > 0.02 * z0v(P);
+  vec3 dx = ex ? (abs(pr.z - P.z) < abs(P.z - pl.z) ? pr - P : P - pl) : (pr - pl) * 0.5;
+  vec3 dy = ey ? (abs(pu.z - P.z) < abs(P.z - pd.z) ? pu - P : P - pd) : (pu - pd) * 0.5;
   vec3 N = normalize(cross(dx, dy));
   if (dot(N, P) > 0.0) N = -N;
   float z = -P.z;
@@ -138,8 +146,10 @@ void main() {
     vec3 S = viewPos(vUv + vec2(cos(a), sin(a)) * (t * t * rpx + 1.0) * uTexel);
     vec3 v = S - P;
     float vv = dot(v, v);
-    float cosA = dot(v, N) * inversesqrt(vv + 1e-6);
-    occ += max(0.0, cosA - 0.12) * max(0.0, 1.0 - vv / r2);
+    // only occluders clearly above the tangent plane count: the terrain mesh's small kinks between
+    // vertices (a few cm) otherwise showed up as a grid of dark dots on flat ground
+    float h = dot(v, N) - (0.04 + 0.006 * z);
+    occ += max(0.0, h * inversesqrt(vv + 1e-6) - 0.15) * max(0.0, 1.0 - vv / r2);
   }
   float ao = clamp(1.0 - uIntensity * occ / float(AO_SAMPLES), 0.0, 1.0);
   gl_FragColor = vec4(mix(1.0, ao, fade), z, 0.0, 1.0);
@@ -230,7 +240,7 @@ export class RenderPipeline {
     this.resetExposure = true;
     const hf = { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false };
     this.hdr = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.msaa, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
-    this.hdr.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    this.hdr.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
     // SSAO: 'off' | 'low' | 'high'
     this.ssao = 'off';
     this.ao = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { ...hf }));
@@ -254,7 +264,7 @@ export class RenderPipeline {
     });
     this.aoMat = mat(AO_FRAG, {
       tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
-      uProjScale: { value: 1 }, uRadius: { value: 1 }, uIntensity: { value: 1.25 }, uMaxPx: { value: 80 }, uFadeFar: { value: 160 },
+      uProjScale: { value: 1 }, uRadius: { value: 1 }, uIntensity: { value: 1.8 }, uMaxPx: { value: 80 }, uFadeFar: { value: 160 },
     });
     this.aoMat.defines = { AO_SAMPLES: 8 };
     this.aoBlurMat = mat(AO_BLUR_FRAG, { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } });
