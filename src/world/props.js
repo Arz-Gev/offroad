@@ -126,59 +126,5 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, texRock) {
     group.add(st);
   }
 
-  // ---------------- trees (instanced)
-  const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 2.4, 7).translate(0, 1.2, 0);
-  const crown = [];
-  for (let k = 0; k < 4; k++) {
-    const r = 1.6 - k * 0.32, h = 2.2 - k * 0.25;
-    const c = new THREE.ConeGeometry(r, h, 9, 1).translate(0, 1.9 + k * 1.15 + h / 2, 0);
-    const p = c.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const a = Math.atan2(p.getZ(i), p.getX(i));
-      const j = 1 + 0.12 * Math.sin(a * 5 + k * 1.7);
-      p.setX(i, p.getX(i) * j); p.setZ(i, p.getZ(i) * j);
-    }
-    crown.push(c.toNonIndexed());
-  }
-  const crownGeo = mergeGeometries(crown);
-  crownGeo.computeVertexNormals();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6a5240, map: bark, roughness: 0.95 });
-  const crownMat = new THREE.MeshStandardMaterial({ color: 0x2e4a2a, roughness: 0.9, flatShading: true });
-  const trees = [];
-  const nTreeNoise = makeSimplex2D(5);
-  for (let tries = 0; tries < 30000 && trees.length < 1100; tries++) {
-    const x = (rnd() - 0.5) * (MAP_SIZE - 12), z = (rnd() - 0.5) * (MAP_SIZE - 12);
-    const forest = fbm(nTreeNoise, x * 0.012, z * 0.012, 3);
-    if (forest < 0.05 && rnd() > 0.08) continue;
-    if (terrain.isTrail(x, z, 7)) continue;
-    if (x > PAD.x0 - 10 && x < PAD.x1 + 10 && z > PAD.z0 - 10 && z < PAD.z1 + 10) continue;
-    if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 30) continue;
-    const s = terrain.surfaceAt(x, z);
-    if (s === SURFACES.mud) continue;
-    const h = terrain.heightAt(x, z);
-    const gx = terrain.heightAt(x + 1, z) - terrain.heightAt(x - 1, z), gz = terrain.heightAt(x, z + 1) - terrain.heightAt(x, z - 1);
-    if (Math.hypot(gx, gz) / 2 > 0.7) continue;
-    trees.push({ x, z, y: h, s: 0.7 + rnd() * 0.75, r: rnd() * Math.PI * 2 });
-  }
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
-  const crowns = new THREE.InstancedMesh(crownGeo, crownMat, trees.length);
-  const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
-  const col = new THREE.Color();
-  trees.forEach((t, i) => {
-    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.r);
-    sc.set(t.s, t.s * (0.9 + rnd() * 0.3), t.s);
-    ps.set(t.x, t.y - 0.1, t.z);
-    mtx.compose(ps, q, sc);
-    trunks.setMatrixAt(i, mtx);
-    crowns.setMatrixAt(i, mtx);
-    col.setHSL(0.27 + rnd() * 0.06, 0.35 + rnd() * 0.15, 0.17 + rnd() * 0.08);
-    crowns.setColorAt(i, col);
-    const c = world.createCollider(RAPIER.ColliderDesc.cylinder(1.5, 0.2 * t.s).setTranslation(t.x, t.y + 1.4, t.z).setFriction(0.6));
-    colliderSurface.set(c.handle, SURFACES.wood);
-  });
-  trunks.castShadow = crowns.castShadow = true;
-  trunks.receiveShadow = crowns.receiveShadow = true;
-  group.add(trunks, crowns);
-  group.userData.treeCount = trees.length;
   return group;
 }

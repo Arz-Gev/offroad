@@ -20,6 +20,8 @@ export const DEFAULTS = {
   telemetry: false,
   fps: false,
   autoPause: true,          // open the menu when the window loses focus
+  quality: 'auto',          // graphics preset: 'auto' | 'low' | 'medium' | 'high' | 'ultra'
+  renderScale: 1,           // resolution scale on top of the preset's pixel-ratio cap (0.5..1)
 };
 
 const CHOICES = {
@@ -29,8 +31,9 @@ const CHOICES = {
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
+  quality: ['auto', 'low', 'medium', 'high', 'ultra'],
 };
-const RANGES = { volume: [0, 1], hudScale: [0.7, 1.5] };
+const RANGES = { volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1] };
 
 export const storage = {
   get(k) { try { return window.localStorage.getItem(k); } catch { return null; } },
