@@ -124,11 +124,16 @@ void main() {
   float rpx = min(uRadius * uProjScale / z, uMaxPx);
   float fade = 1.0 - smoothstep(uFadeFar * 0.5, uFadeFar, z);
   if (rpx < 1.5 || fade <= 0.0) { gl_FragColor = vec4(1.0, z, 0.0, 1.0); return; }
-  // interleaved gradient noise rotates the spiral per pixel; the blur removes the pattern
-  float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  // a 4x4 ordered pattern rotates the spiral per pixel; the 4x4 blur averages exactly one period of it,
+  // so no residual pattern is left to beat against the upsampling (it showed at some pixel densities)
+  vec2 q = mod(floor(gl_FragCoord.xy), 4.0);
+  vec2 lo = mod(q, 2.0), hi = floor(q * 0.5);
+  float b = 4.0 * mod(2.0 * lo.x + 3.0 * lo.y, 4.0) + mod(2.0 * hi.x + 3.0 * hi.y, 4.0);   // 4x4 Bayer index 0..15
+  float ang = 6.2831853 * (b + 0.5) / 16.0;
+  float jit = fract(b * 0.618034);
   float occ = 0.0, r2 = uRadius * uRadius;
   for (int i = 0; i < AO_SAMPLES; i++) {
-    float t = (float(i) + 0.5) / float(AO_SAMPLES);
+    float t = (float(i) + jit) / float(AO_SAMPLES);
     float a = ang + float(i) * 2.3999632;
     vec3 S = viewPos(vUv + vec2(cos(a), sin(a)) * (t * t * rpx + 1.0) * uTexel);
     vec3 v = S - P;
@@ -140,21 +145,20 @@ void main() {
   gl_FragColor = vec4(mix(1.0, ao, fade), z, 0.0, 1.0);
 }`;
 
-// separable depth-aware blur of the AO
+// depth-aware 4x4 box blur: covers one period of the AO rotation pattern
 const AO_BLUR_FRAG = /* glsl */`
 uniform sampler2D tSrc;
 uniform vec2 uDir;
 varying vec2 vUv;
 void main() {
   vec2 c = texture2D(tSrc, vUv).rg;
-  float sum = c.r, wsum = 1.0;
-  for (int i = -4; i <= 4; i++) {
-    if (i == 0) continue;
-    vec2 s = texture2D(tSrc, vUv + uDir * float(i)).rg;
-    float w = exp(-float(i * i) / 12.0) * max(0.0, 1.0 - abs(s.g - c.g) / (0.04 * c.g + 0.05));
+  float sum = 0.0, wsum = 0.0;
+  for (int j = -2; j <= 1; j++) for (int i = -2; i <= 1; i++) {
+    vec2 s = texture2D(tSrc, vUv + uDir * vec2(float(i), float(j))).rg;
+    float w = max(0.0, 1.0 - abs(s.g - c.g) / (0.04 * c.g + 0.05));
     sum += s.r * w; wsum += w;
   }
-  gl_FragColor = vec4(sum / wsum, c.g, 0.0, 1.0);
+  gl_FragColor = vec4(wsum > 0.0 ? sum / wsum : 1.0, c.g, 0.0, 1.0);
 }`;
 
 const COMPOSITE_FRAG = /* glsl */`
@@ -254,7 +258,7 @@ export class RenderPipeline {
     });
     this.aoMat.defines = { AO_SAMPLES: 8 };
     this.aoBlurMat = mat(AO_BLUR_FRAG, { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } });
-    this.compMat.uniforms.tAO = { value: this.ao[0].texture };
+    this.compMat.uniforms.tAO = { value: this.ao[1].texture };
     this.compMat.uniforms.uAOOn = { value: 0 };
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
@@ -283,7 +287,7 @@ export class RenderPipeline {
     this.ldr.setSize(w, h);
     let mw = w, mh = h;
     for (const m of this.mips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
-    for (const t of this.ao) t.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+    for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
   }
@@ -312,11 +316,9 @@ export class RenderPipeline {
       au.uProjScale.value = cam.projectionMatrix.elements[5] * 0.5 * this.height;
       au.uMaxPx.value = this.height * 0.08;
       this.pass(this.aoMat, this.ao[0]);
-      const bm = this.aoBlurMat.uniforms, aw = this.ao[0].width, ah = this.ao[0].height;
-      bm.tSrc.value = this.ao[0].texture; bm.uDir.value.set(1 / aw, 0);
+      const bm = this.aoBlurMat.uniforms;
+      bm.tSrc.value = this.ao[0].texture; bm.uDir.value.set(1 / this.ao[0].width, 1 / this.ao[0].height);
       this.pass(this.aoBlurMat, this.ao[1]);
-      bm.tSrc.value = this.ao[1].texture; bm.uDir.value.set(0, 1 / ah);
-      this.pass(this.aoBlurMat, this.ao[0]);
     }
 
     // ---- eye adaptation (or a fixed exposure written to the same 1x1 target)
