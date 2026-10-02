@@ -73,9 +73,9 @@ const GFX_SECTIONS = [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
     row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
-    row('gGrass', 'Grass density', 'range', { min: 0, max: 135, step: 5, scale: 100, unit: '%', note: '0% turns the grass off. Grass is the most expensive part of the world.' }),
-    row('gGrassDist', 'Grass distance', 'range', { min: 20, max: 70, step: 2, scale: 1, unit: ' m' }),
-    row('gBushes', 'Bushes and plants', 'range', { min: 0, max: 100, step: 10, scale: 100, unit: '%' }),
+    row('gGrass', 'Grass density', 'range', { min: 0, max: 300, step: 5, scale: 100, unit: '%', note: '0% turns the grass off. Grass is the most expensive part of the world.' }),
+    row('gGrassDist', 'Grass distance', 'range', { min: 20, max: 150, step: 2, scale: 1, unit: ' m' }),
+    row('gBushes', 'Bushes and plants', 'range', { min: 0, max: 250, step: 10, scale: 100, unit: '%' }),
   ] },
 ];
 

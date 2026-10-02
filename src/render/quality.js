@@ -17,13 +17,13 @@ export const QUALITY = {
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadows: 'high', ssao: 'low',
-    grass: 1.0, grassRadius: 46, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, bushes: 1,
+    grass: 1.6, grassRadius: 75, impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.0, bloom: true, bushes: 1.5,
   },
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 4, fxaa: false, shadows: 'ultra', ssao: 'high',
-    grass: 1.35, grassRadius: 64, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, bushes: 1,
+    grass: 2.6, grassRadius: 125, impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.3, bloom: true, bushes: 2.2,
   },
 };
 

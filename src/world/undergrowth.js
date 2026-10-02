@@ -116,7 +116,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       group.add(m);
       tiles.push(m);
     }
-    return { name, mat, uniforms, tiles, spacing, radius, baseRadius: radius, k };
+    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, radius, baseRadius: radius, k };
   };
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
@@ -136,10 +136,15 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       enabled = s > 0;
       group.visible = enabled;
       for (const K of kinds) {
-        // the grid is sized for the base radius: scale the radius down only
-        const r = K.baseRadius * Math.min(1, s);
+        // below 100% the radius shrinks; above it plants get denser (closer cells) and the radius grows
+        const r = K.baseRadius * (s <= 1 ? s : 1 + (s - 1) * 0.5);
         K.radius = r;
+        K.spacing = K.baseSpacing / Math.sqrt(Math.max(1, s));
+        K.k = Math.ceil(r * 2 / K.spacing / TILES);
+        K.uniforms.uGrid.value.z = K.spacing;
+        K.uniforms.uGrid.value.w = K.k;
         K.uniforms.uRad.value.set(r * 0.7, r, 0, 0);
+        for (const m of K.tiles) m.geometry.instanceCount = K.k * K.k;
       }
     },
     update(dt, camera) {
