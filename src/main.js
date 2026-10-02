@@ -211,9 +211,15 @@ async function main() {
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;
     env.sun.castShadow = !!S;
     if (S) {
-      if (sh.mapSize.x !== S.map) { sh.mapSize.set(S.map, S.map); if (sh.map) { sh.map.dispose(); sh.map = null; } }
+      // a new map size or atlas layout: drop the old depth atlas (a new one is made on the next frame)
+      const ext = sh.getFrameExtents(), ex = ext.x, ey = ext.y;
+      if (sh.configure) sh.configure(S.cascades, S.splits);
+      if (sh.mapSize.x !== S.map || ext.x !== ex || ext.y !== ey) {
+        sh.mapSize.set(S.map, S.map);
+        if (sh.map) { sh.map.depthTexture?.dispose(); sh.map.dispose(); sh.map = null; }
+      }
       sh.camera.far = S.far;
-      sh.radius = S.radius;
+      sh.radius = sh.configure ? S.soft : 1.4;
     }
     scenery.configure(q);
     game.redraw = 3;

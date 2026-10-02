@@ -3,6 +3,7 @@ import { SunLight } from 'three/examples/jsm/lights/SunLight.js';
 import { Sky } from './sky.js';
 import { scatter, transmittance } from './atmosphere.js';
 import { ATMO, setVec4 } from '../render/shaderPatches.js';
+import { CascadedSunShadow, installCascadeShadowChunks } from '../render/cascadeShadow.js';
 
 // Time of day: sun / moon light (cascaded shadows), physically based sky + clouds + stars, height fog and
 // aerial perspective matched to the sky, image-based ambient light from the sky, and the post-processing
@@ -49,15 +50,23 @@ export class Environment {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
 
-    // sun by day, moon by night: one cascaded-shadow light
+    // sun by day, moon by night: one cascaded-shadow light (2-4 cascades, see render/cascadeShadow.js)
     this.sun = new SunLight(0xffffff, 3);
     this.sun.castShadow = true;
+    if (installCascadeShadowChunks()) {
+      this.sun.shadow = new CascadedSunShadow();
+      this.sun.shadow.attach(renderer);
+      this.sun.shadow.bias = 1.0;         // texels of the cascade
+      this.sun.shadow.normalBias = 1.5;   // texels of the cascade
+      this.sun.shadow.radius = 0.04;      // filter blur (m)
+    } else {                                // three's own two cascades, bias in depth units
+      this.sun.shadow.bias = -0.0004;
+      this.sun.shadow.normalBias = 0.05;
+      this.sun.shadow.radius = 1.6;
+    }
     this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.camera.far = 170;   // shadow range (m); split into two cascades
+    this.sun.shadow.camera.far = 170;   // shadow range (m)
     this.sun.shadow.camera.near = 20;   // caster ceiling above the view slice
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.05;
-    this.sun.shadow.radius = 1.6;
     scene.add(this.sun);
     // faint ground bounce for surfaces facing down (the sky probe covers the upper hemisphere)
     this.hemi = new THREE.HemisphereLight(0x000000, 0x5d4d36, 0);

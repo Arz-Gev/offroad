@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { installCascadeShadowChunks } from './cascadeShadow.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
 //
@@ -112,6 +113,7 @@ export function installShaderPatches() {
   C.fog_vertex = FOG_VERTEX;
   C.fog_pars_fragment = FOG_PARS_FRAGMENT;
   C.fog_fragment = FOG_FRAGMENT;
+  installCascadeShadowChunks();   // sun shadow: four cascade slots, texel-scaled bias (see cascadeShadow.js)
   // every built-in material with fog gets the shared atmosphere uniforms
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;
