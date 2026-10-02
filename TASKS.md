@@ -12,7 +12,8 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ Truck creeps / accelerates with the handbrake on | At a stop the handbrake now also holds the transfer output, so the front can't pull through an open centre diff. Holds at full throttle, also on a 20° slope. |
 | ✅ Handbrake modes | Menu → Settings → Driving: **Hold**, **Toggle**, **Auto** (short tap toggles, long press holds). |
 | ✅ Rear-wheel-drive mode | Key **F**: 2WD ⇄ 4WD, HIGH range only, below 30 km/h. |
-| ✅ Wide graphics settings | Menu → **Graphics** tab: preset, resolution, pixel density cap, shadows, SSAO, anti-aliasing, bloom, terrain distance and shading, tree detail distance, distant tree shadows, grass density and distance, bushes. Changing any option switches the preset to Custom. |
+| ✅ Wide graphics settings | Menu → **Graphics** tab: preset, resolution, pixel density cap, shadows, SSAO, anti-aliasing, bloom, terrain distance and shading, distant tree shadows. Changing any option switches the preset to Custom. The full-detail tree distance is no longer a setting: 40 m on Low and Medium, 50 m on High, Ultra and Custom. |
+| ✅ Grass and bushes: taller, denser, much further | Own section in Graphics with exact-value sliders (density, height, blade width, distance, dense-layer radius, far-layer width and spacing; bush density, size, distance) and an on / off switch that also hides the sliders. The four presets use the player's hand-tuned values; slider ranges are ±20 % around the presets. Density now sets the cell spacing, so a low density is really cheaper. Ultra's grass and bushes cost about 20 ms. |
 | ✅ SSAO | Graphics → Ambient occlusion: Off / Low / High. On by default on High (Low) and Ultra (High) presets. |
 | ✅ Fullscreen switch in Graphics, Welcome card button removed | |
 | ✅ SSAO pattern on some displays | Banding / dot grid on flat ground on the Mac and in 1440p fullscreen. Fixed in the AO depth reconstruction; confirmed gone by the player. |
