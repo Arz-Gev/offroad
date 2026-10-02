@@ -82,22 +82,23 @@ export class CameraRig {
         this.headVel.addScaledVector(acc, Math.min(dt, 0.033));
         this.head.addScaledVector(this.headVel, Math.min(dt, 0.033));
         eye = model.driverEye.clone().add(this.head);
-        near = 0.04; fov = 74;
+        near = 0.03; fov = 62;
       } else {
-        eye = new THREE.Vector3(0, 1.42, -1.7);
-        near = 0.1; fov = 68;
+        // on the bonnet, just behind the raised centre section
+        eye = new THREE.Vector3(0, 1.8, -1.0);
+        near = 0.08; fov = 60;
       }
       cam.position.copy(eye).applyQuaternion(quat).add(pos);
-      _e.set(this.lookPitch - (this.mode === 'hood' ? 0.06 : 0.1), this.lookYaw, 0, 'YXZ');
+      _e.set(this.lookPitch - (this.mode === 'hood' ? 0.06 : 0.14), this.lookYaw, 0, 'YXZ');
       cam.quaternion.copy(quat).multiply(_q.setFromEuler(_e));
     } else if (this.mode === 'wheel') {
       this.orbitYaw -= m.dx * 0.004;
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + m.dy * 0.003, -0.4, 0.8);
       this.dist = THREE.MathUtils.clamp(this.dist * (1 + m.wheel * 0.08), 3.5, 24);
-      const hub = new THREE.Vector3(-0.78, 0.4, -1.4);
-      const yaw = -0.9 + this.orbitYaw, pitch = 0.08 + this.orbitPitch, d = 1.9;
+      const hub = new THREE.Vector3(-0.78, 0.42, -1.4);
+      const yaw = -0.95 + this.orbitYaw, pitch = 0.1 + this.orbitPitch, d = 1.85;
       const local = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d).add(hub);
-      local.x = Math.min(local.x, -0.98);
+      local.x = Math.min(local.x, -1.08);
       cam.position.copy(local).applyQuaternion(quat).add(pos);
       const look = hub.clone().add(new THREE.Vector3(0.1, 0.05, 0.25)).applyQuaternion(quat).add(pos);
       cam.up.set(0, 1, 0).applyQuaternion(quat);

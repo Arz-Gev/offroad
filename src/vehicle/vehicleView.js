@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RPM } from './drivetrain.js';
+import { shared } from './truckMaterials.js';
 
 // Drives the procedural model from the physics state: body pose (interpolated), axle heave/roll,
 // steering, wheel spin, tyre squash, springs, dampers, links, prop shafts, lights and gauges.
@@ -7,6 +7,7 @@ import { RPM } from './drivetrain.js';
 const _m = new THREE.Matrix4();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _c = new THREE.Color();
 const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
 
 const reversingNow = d => (d.mode === 'manual' ? d.manualGear < 0 : d.selector === 'R');
@@ -19,6 +20,7 @@ export class VehicleView {
     this.propAngle = [0, 0];
     this.lights = { head: 0, bar: false, hazard: false }; // head: 0 off, 1 low, 2 high
     this.blink = 0;
+    this.temp = 0.2;
   }
 
   axleToBody(ai, local, out) {
@@ -115,9 +117,15 @@ export class VehicleView {
     // cockpit
     m.steeringWheel.rotation.z = -v.steerAngle * P.steer.ratio;
     const kmh = Math.abs(v.speed) * 3.6;
-    m.needles.speed.rotation.z = -(Math.PI * 0.75 + Math.PI * 1.5 * Math.min(kmh, 165) / 160) - Math.PI / 2;
+    const dialRot = f => Math.PI * 0.75 - Math.PI * 1.5 * Math.min(Math.max(f, 0), 1.03);
+    m.needles.speed.rotation.z = dialRot(kmh / 160);
     const rpm = Math.max(0, dt_.rpm);
-    m.needles.rpm.rotation.z = -(Math.PI * 0.75 + Math.PI * 1.5 * Math.min(rpm, 6200) / 6000) - Math.PI / 2;
+    m.needles.rpm.rotation.z = dialRot(rpm / 6000);
+    if (m.needles.fuel) m.needles.fuel.rotation.z = dialRot(0.72);
+    if (m.needles.temp) {
+      this.temp += ((dt_.running ? 0.52 : 0.2) - this.temp) * Math.min(1, dt * 0.05);
+      m.needles.temp.rotation.z = dialRot(this.temp);
+    }
     // gear lever position (rough H-pattern)
     const gl = dt_.mode === 'manual' ? dt_.manualGear : ({ P: -2, R: -1, N: 0, D: 1 })[dt_.selector] ?? 0;
     const col = gl === 0 ? 0 : gl < 0 ? -1 : Math.ceil(gl / 2) - 1;
@@ -125,32 +133,82 @@ export class VehicleView {
     m.gearLever.rotation.set(row * 0.25, 0, -col * 0.18);
     m.transferLever.rotation.x = dt_.range === 'low' ? 0.35 : -0.15;
 
-    // lights
-    const mt = m.mats, L = m.lights, ls = this.lights;
-    const night = env.night;
+    this.updateLights(dt, env, quat);
+  }
+
+  // Ambient light level of the scene (sun/moon + sky), used to scale the lamps: the scene is not
+  // photometric, so a headlamp tuned for the night would paint a visible pool on the ground at noon.
+  ambientLevel() {
+    const scene = this.m.root.parent;
+    if (!scene) return 0.4;
+    if (!this._sky) {
+      this._sky = { sun: null, hemi: null };
+      scene.traverse(o => {
+        if (o.isDirectionalLight && !this._sky.sun) this._sky.sun = o;
+        if (o.isHemisphereLight && !this._sky.hemi) this._sky.hemi = o;
+      });
+    }
+    const { sun, hemi } = this._sky;
+    let a = hemi ? hemi.intensity : 0.3;
+    if (sun) {
+      const dy = sun.position.y - sun.target.position.y;
+      const len = sun.position.distanceTo(sun.target.position) || 1;
+      a += sun.intensity * Math.max(0, dy / len);
+    }
+    return a;
+  }
+
+  updateLights(dt, env, quat) {
+    const m = this.m, v = this.v, mt = m.mats, L = m.lights, ls = this.lights;
+    const dt_ = v.drivetrain;
     const head = ls.head;
-    L.headL.intensity = L.headR.intensity = head === 0 ? 0 : head === 1 ? L.headL.userData.on : L.headL.userData.on * 2.6;
-    L.headL.angle = L.headR.angle = head === 2 ? 0.42 : 0.55;
-    const tgtY = head === 2 ? 0.6 : -0.6;
-    L.headL.target.position.y = L.headR.target.position.y = tgtY;
-    L.headL.castShadow = L.headR.castShadow = head > 0 && env.shadows;
-    mt.headLens.emissiveIntensity = head === 0 ? 0 : head === 1 ? 6 : 14;
-    L.bar.intensity = ls.bar ? L.bar.userData.on : 0;
-    L.bar.castShadow = ls.bar && env.shadows;
-    mt.barLens.emissiveIntensity = ls.bar ? 16 : 0;
-    mt.workLens.emissiveIntensity = ls.bar && reversingNow(dt_) ? 10 : 0;
     const braking = v.ctl.brake > 0.05;
-    const reversing = dt_.mode === 'manual' ? dt_.manualGear < 0 : dt_.selector === 'R';
+    const reversing = reversingNow(dt_);
     const tailOn = head > 0;
-    mt.tail.emissiveIntensity = tailOn ? 2.2 : 0;
-    mt.brake.emissiveIntensity = braking ? 9 : tailOn ? 1.6 : 0;
-    L.tailL.intensity = L.tailR.intensity = (braking ? 1.4 : 0) + (tailOn ? 0.5 : 0);
-    mt.reverse.emissiveIntensity = reversing ? 8 : 0;
-    L.reverse.intensity = reversing ? L.reverse.userData.on : 0;
+    // lights only exist in the scene at night or when something is switched on (no cost in the day);
+    // at night they stay in the scene with zero intensity, so switching lamps never recompiles shaders
+    const live = env.night || head > 0 || ls.bar;
+    for (const l of [L.head, L.bar, L.rear]) l.visible = live;
+    const amb = this.ambientLevel();
+    const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
+
+    // head: one beam between the lamps, cookie switches low / high
+    const hp = L.head.userData.peak;
+    L.head.map = head === 2 ? L.cookies.high : L.cookies.low;
+    L.head.intensity = head === 0 ? 0 : (head === 1 ? hp.low : hp.high) * k;
+    L.head.distance = head === 2 ? 260 : 150;
+    L.head.shadow.autoUpdate = live && head > 0 && env.shadows !== false;
+    // keep the cookie level with the truck, not with the world, when it rolls
+    L.head.shadow.camera.up.set(0, 1, 0).applyQuaternion(quat);
+    L.bar.shadow.camera.up.copy(L.head.shadow.camera.up);
+    L.bar.intensity = ls.bar ? L.bar.userData.peak * k : 0;
+
+    // lens glow: modest, the beams do the lighting
+    mt.headLens.emissiveIntensity = head === 0 ? 0 : head === 1 ? 2.6 : 5.0;
+    mt.sideLens.emissiveIntensity = tailOn ? 1.2 : 0;
+    mt.barLens.emissiveIntensity = ls.bar ? 6.0 : 0;
+    mt.workLens.emissiveIntensity = ls.bar && reversing ? 4.0 : 0;
+    mt.tail.emissiveIntensity = tailOn ? 1.6 : 0;
+    mt.brake.emissiveIntensity = braking ? 3.2 : tailOn ? 1.0 : 0;
+    mt.reverse.emissiveIntensity = reversing ? 4.0 : 0;
     this.blink += dt;
     const blinkOn = ls.hazard && (this.blink % 0.8) < 0.4;
-    mt.amber.emissiveIntensity = blinkOn ? 8 : 0;
-    m.gaugeMat.emissiveIntensity = tailOn ? 0.55 : 0.0;
-    L.dash.intensity = tailOn ? 0.05 : 0;
+    mt.amber.emissiveIntensity = blinkOn ? 5.0 : 0;
+    mt.beacon.emissiveIntensity = 0;
+
+    // rear: tail / brake glow on the ground behind + the reversing lamps (one small spot)
+    const red = (braking ? 0.5 : 0) + (tailOn ? 0.08 : 0);
+    const white = reversing ? 9 : 0;
+    L.rear.intensity = (red + white) * k;
+    if (red + white > 0) L.rear.color.setRGB(1, 0.16, 0.06).multiplyScalar(red / (red + white)).add(_c.setRGB(1, 0.97, 0.92).multiplyScalar(white / (red + white)));
+
+    // instrument backlight (night / lights on) and warning lamps
+    const back = tailOn || env.night ? 1 : 0;
+    m.gaugeMat.emissiveIntensity = back ? 0.85 : 0.45;
+    if (m.needleMat) m.needleMat.emissiveIntensity = back ? 1.0 : 0.35;
+    if (m.warnMat) m.warnMat.emissiveIntensity = dt_.running ? 0 : 1.2;
+
+    // reflections: scale the (deliberately dim) scene environment up for paint and glass
+    shared.uEnvSpec.value = env.night ? 1.6 : 1.0;
   }
 }
