@@ -50,17 +50,24 @@ export function tireGeometry(R = 0.42) {
   return _tireGeo;
 }
 
+const _barrelMats = new WeakMap();
+function barrelMat(m) {
+  if (!_barrelMats.has(m)) { const c = m.clone(); c.side = THREE.DoubleSide; c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; _barrelMats.set(m, c); }
+  return _barrelMats.get(m);
+}
+
 // black modular steel wheel: barrel, dished centre with round holes, hub, nuts
 function rimGroup(mats) {
   const g = new THREE.Group();
-  const barrel = mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.2, 36, 1, true), mats.steel);
+  // the barrel is an open tube: seen from outside you look at its inner (back) faces, so draw both sides
+  const barrel = mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.2, 36, 1, true), barrelMat(mats.steel));
   barrel.rotation.z = Math.PI / 2;
   g.add(barrel);
   const lip = mesh(new THREE.TorusGeometry(0.203, 0.009, 8, 40), mats.steel, 0.1, 0, 0);
   lip.rotation.y = Math.PI / 2;
   g.add(lip);
   const face = new THREE.Shape();
-  face.absarc(0, 0, 0.19, 0, Math.PI * 2, false);
+  face.absarc(0, 0, 0.2, 0, Math.PI * 2, false);   // reaches the barrel: no see-through ring around the face
   for (let k = 0; k < 8; k++) {
     const a = (k + 0.5) / 8 * Math.PI * 2;
     const h = new THREE.Path();
@@ -73,7 +80,7 @@ function rimGroup(mats) {
   // pressed centre dome
   const dome = mesh(new THREE.CylinderGeometry(0.1, 0.115, 0.03, 28).rotateZ(Math.PI / 2), mats.steel, 0.06, 0, 0);
   g.add(dome);
-  const back = mesh(new THREE.CylinderGeometry(0.188, 0.188, 0.01, 28), mats.chassis, 0.0, 0, 0);
+  const back = mesh(new THREE.CylinderGeometry(0.203, 0.203, 0.01, 36), mats.chassis, 0.0, 0, 0);
   back.rotation.z = Math.PI / 2;
   g.add(back);
   const cap = mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.035, 18), mats.blackMetal, 0.085, 0, 0);

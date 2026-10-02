@@ -60,7 +60,7 @@ const GFX_SECTIONS = [
     row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
     row('fullscreen', 'Fullscreen', 'switch'),
-    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'Limit for Retina / 4K screens (200% = full Retina). The biggest cost of all.' }),
+    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'For high-density screens (Retina, 4K laptops, Windows scaling above 100%): how many of the screen\'s extra pixels to render. The biggest cost of all.' }),
   ] },
   { title: 'Lighting and effects', rows: [
     row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
@@ -236,6 +236,8 @@ export class Menu {
       }
     }
     // graphics: say which preset Auto chose
+    // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
+    this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
     const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
     if (qn && qt && qn.textContent !== qt) qn.textContent = qt;

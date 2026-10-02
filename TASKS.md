@@ -16,6 +16,8 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ SSAO | Graphics → Ambient occlusion: Off / Low / High. On by default on High (Low) and Ultra (High) presets. |
 | ✅ Fullscreen switch in Graphics, Welcome card button removed | |
 | ✅ SSAO pattern on some displays | Banding / dot grid on flat ground on the Mac and in 1440p fullscreen. Fixed in the AO depth reconstruction; confirmed gone by the player. |
+| ✅ Gap between rim and tyre | The rim face was smaller than the barrel and the barrel was one-sided, so you could see through a ring around the face. |
+| ✅ Pixel density cap hidden where it does nothing | Shown only on screens with a device pixel ratio above 1. |
 | ✅ Cloud shadows | Tried, then removed at the player's request. |
 | ✅ Night road too dark from the cockpit | Checked by the player: fine. |
 
