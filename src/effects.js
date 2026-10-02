@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { MAP_SIZE } from './world/terrain.js';
 
-// Dust / mud particles kicked up by the tyres + persistent tyre tracks painted into a map-wide texture.
+// Dust / mud particles and water splashes kicked up by the tyres + persistent tyre tracks painted into a
+// map-wide texture.
 
 export class Dust {
   constructor(scene, max = 2400) {
@@ -15,6 +16,7 @@ export class Dust {
     this.color = new Float32Array(max * 3);
     this.heavy = new Uint8Array(max);
     this.next = 0;
+    this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
@@ -29,6 +31,8 @@ export class Dust {
         void main() {
           vA = alpha; vC = color;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          // fade out right in front of the camera (a big soft blob over the view otherwise)
+          vA *= smoothstep(0.4, 2.5, -mv.z);
           gl_PointSize = size * uScale / max(0.5, -mv.z);
           gl_Position = projectionMatrix * mv;
         }`,
@@ -58,10 +62,44 @@ export class Dust {
     this.heavy[i] = heavy ? 1 : 0;
   }
 
+  // water: droplets thrown up and back by the tread plus a bow wave to the sides, more with speed and depth
+  splash(v, w, depth, dt, rnd) {
+    const s = w.surf, muddy = !!s.mud;
+    const sp = Math.abs(w.vcx), slip = w.slipVel || 0;
+    const d = Math.min(depth, 0.6);
+    let n = (sp * 2.2 + slip * 1.5) * (0.4 + d * 2.2) * dt * 9;
+    const P = w.P, back = w.fc, side = w.sc;
+    const base = muddy ? [0.30, 0.23, 0.15] : [0.62, 0.68, 0.70];
+    const wl = P.y + depth;
+    while (n > 0) {
+      if (n < 1 && rnd() > n) break;
+      n -= 1;
+      const k = 0.85 + rnd() * 0.3;
+      const col = [base[0] * k, base[1] * k, base[2] * k];
+      const sgn = rnd() < 0.5 ? -1 : 1;
+      if (rnd() < 0.65) {
+        // droplets: up and back off the tread, some sideways
+        const up = 1.2 + rnd() * 2.0 + sp * 0.12, out = (rnd() - 0.3) * 1.5 + sp * 0.08;
+        this.emit(P.x + (rnd() - 0.5) * 0.35, wl + 0.02, P.z + (rnd() - 0.5) * 0.35,
+          -back.x * sp * (0.15 + rnd() * 0.35) + side.x * out * sgn + v.vel.x * 0.5, up, -back.z * sp * (0.15 + rnd() * 0.35) + side.z * out * sgn + v.vel.z * 0.5,
+          0.05 + rnd() * 0.07, 0.7 + rnd() * 0.5, col, true);
+      } else {
+        // bow wave / spray: fine mist that hangs a moment
+        this.emit(P.x + side.x * sgn * 0.3, wl + 0.05, P.z + side.z * sgn * 0.3,
+          side.x * sgn * (0.8 + sp * 0.15) + v.vel.x * 0.6, 0.5 + rnd() * 0.8, side.z * sgn * (0.8 + sp * 0.15) + v.vel.z * 0.6,
+          0.25 + rnd() * 0.35 + sp * 0.02, 0.5 + rnd() * 0.5, col.map(c => Math.min(1, c * 1.25)), false);
+      }
+    }
+  }
+
   spawnFromVehicle(v, dt, rnd = Math.random) {
     for (let i = 0; i < 4; i++) {
       const w = v.wheels[i];
       if (!w.contact || w.FnAvg < 300) continue;
+      if (this.waterAt) {
+        const depth = this.waterAt(w.P.x, w.P.z) - w.P.y;
+        if (depth > 0.03) { this.splash(v, w, depth, dt, rnd); continue; }
+      }
       const s = w.surf;
       const roll = Math.abs(w.vcx);
       const slip = w.slipVel || 0;

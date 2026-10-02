@@ -25,6 +25,10 @@ const SECTIONS = [
     row('camera', 'Camera', 'seg', { hot: 'camera', options: [['chase', 'Chase'], ['cockpit', 'Cockpit'], ['hood', 'Hood'], ['wheel', 'Wheel'], ['orbit', 'Orbit']] }),
     row('time', 'Time of day', 'seg', { hot: 'time', options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
   ] },
+  { title: 'Graphics', rows: [
+    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Auto picks a preset for your graphics chip.' }),
+    row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
+  ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),
     row('volume', 'Volume', 'range', { min: 0, max: 100, step: 5, scale: 100, unit: '%' }),
@@ -176,7 +180,7 @@ export class Menu {
       ? [[k('D-pad', ' pad'), 'Move'], tab === 'settings' && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
         [k('LB', ' pad') + k('RB', ' pad'), 'Tabs'], [k('B', ' pad pad-b'), 'Resume']]
       : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], tab === 'settings' && [k('←') + k('→'), 'Change'],
-        tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(n)), 'Quick pick'],
+        tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(Math.min(9, n))), 'Quick pick'],
         [k('Q') + k('E'), 'Tabs'], [k('Esc'), 'Resume']];
     this.root.querySelector('#m-foot').innerHTML = items.filter(Boolean).map(([c, t]) => `<span>${c} ${t}</span>`).join('');
   }
@@ -208,6 +212,10 @@ export class Menu {
     }
     const fs = this.panes.settings.querySelector('[data-action="fullscreen"]');
     if (fs) fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+    // graphics: say which preset Auto chose
+    const qn = this.panes.settings.querySelector('[data-key="quality"] .set-n');
+    const qt = api.get('qualityNote');
+    if (qn && qt && qn.textContent !== qt) qn.textContent = qt;
     // auto-clutch only matters with the manual gearbox
     this.panes.settings.querySelector('[data-key="autoClutch"]').classList.toggle('dim', api.get('gearbox') !== 'manual');
   }

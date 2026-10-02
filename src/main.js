@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { installShaderPatches } from './render/shaderPatches.js';
+import { RenderPipeline } from './render/pipeline.js';
+import { QUALITY, autoQuality } from './render/quality.js';
 
-import { Terrain, SPAWN, LANES, HILL } from './world/terrain.js';
+import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
+import { buildGrass } from './world/grass.js';
+import { buildTrees } from './world/trees.js';
+import { buildWater } from './world/water.js';
+import { buildUndergrowth } from './world/undergrowth.js';
+import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, TIME_ORDER } from './world/environment.js';
 import { makeDefenderParams } from './vehicle/params.js';
@@ -22,12 +26,16 @@ import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
 import './ui.css';
 
+installShaderPatches();     // before any material compiles: atmosphere fog, light skipping
+
 const H = 1 / 240;          // physics step
 const MAX_STEPS = 16;
 
 // ---------------------------------------------------------------- loading screen
 const loading = document.getElementById('loading');
+const loadLog = [];   // [stage, ms since navigation]: game.loadLog, for tuning the start-up time
 const setLoading = (text, p) => {
+  loadLog.push([text, Math.round(performance.now())]);
   loading.querySelector('.ld-t').textContent = text;
   if (p !== undefined) loading.style.setProperty('--p', p);
 };
@@ -59,29 +67,50 @@ async function main() {
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  // the scene renders into the pipeline's HDR target (MSAA there); the canvas only gets the final pass
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMapping = THREE.NoToneMapping;     // tone mapping happens in the pipeline's composite pass
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 3000);
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 6000);
+  const pipeline = new RenderPipeline(renderer, scene, camera);
 
   setLoading('Generating terrain…', 0.2); await frame();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = H;
   const terrain = new Terrain(7);
   terrain.createCollider(RAPIER, world);
-  const terrainView = buildTerrainView(terrain);
-  scene.add(terrainView);
+  // world visuals that follow the camera or depend on the quality preset (grass, tree LOD, terrain LOD)
+  const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
+  const env = new Environment(renderer, scene, pipeline);
+  setLoading('Painting the ground…', 0.4); await frame();
+  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
+  scene.add(terrainView.mesh);
+  scenery.parts.push(terrainView);
+  const grass = buildGrass(terrainView);
+  scene.add(grass.group);
+  scenery.parts.push(grass);
+  const water = buildWater(terrain, terrainView, renderer);
+  scene.add(water.group);
+  scenery.parts.push(water);
 
   setLoading('Placing rocks and trees…', 0.5); await frame();
   const colliderSurface = new Map();
-  const props = buildProps(RAPIER, world, terrain, colliderSurface, terrainView.userData.material.userData.uniforms.uRock.value);
+  const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }));
   scene.add(props);
+  setLoading('Growing the forest…', 0.58); await frame();
+  const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
+  scene.add(trees.group);
+  scenery.parts.push(trees);
+  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
+  scene.add(undergrowth.group);
+  scenery.parts.push(undergrowth);
+  trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
   const P = makeDefenderParams();
@@ -94,26 +123,33 @@ async function main() {
   const view = new VehicleView(model, vehicle);
   const d = vehicle.drivetrain;
 
-  const env = new Environment(renderer, scene);
+
   const rig = new CameraRig(camera, terrain);
   const input = new Input(canvas);
   const hud = new HUD();
   const audio = new GameAudio();
   const settings = new Settings();
   const dust = new Dust(scene);
-  const tracks = new Tracks(terrainView.userData.material);
+  dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
+  const tracks = new Tracks(terrainView.material);
 
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.5, 0.4, 2.2);
-  composer.addPass(bloom);
-  composer.addPass(new OutputPass());
 
   // interpolated body pose
   const prevPos = new THREE.Vector3().copy(vehicle.pos), curPos = new THREE.Vector3().copy(vehicle.pos);
   const prevQ = new THREE.Quaternion().copy(vehicle.quat), curQ = new THREE.Quaternion().copy(vehicle.quat);
   const rPos = new THREE.Vector3(), rQ = new THREE.Quaternion();
 
+  // a spot on the nearest trail, `back` metres before the point, facing along the trail
+  function trailSpot(x, z, back = 0) {
+    let best = null, bd = Infinity;
+    for (const c of terrain.trailCurves) {
+      const n = Math.round(c.getLength() / 2), pts = c.getSpacedPoints(n);
+      for (let k = 0; k <= n; k++) { const d = (pts[k].x - x) ** 2 + (pts[k].z - z) ** 2; if (d < bd) { bd = d; best = { pts, k, n }; } }
+    }
+    const { pts, k } = best, k0 = Math.max(0, k - Math.round(back / 2)), k1 = Math.min(pts.length - 1, k0 + 3);
+    const p = pts[k0], q = pts[k1];
+    return { x: p.x, z: p.z, yaw: Math.atan2(-(q.x - p.x), -(q.z - p.z)) };
+  }
   // teleport targets, shown in the menu's Locations tab (x, z, yaw are also used by tools/browser-snippets.js)
   const teleports = [
     { name: 'Spawn', tag: 'Trail', title: 'Spawn', desc: 'Start of the trail loop: ruts, a mud hole and a branch towards the hills.', x: SPAWN.x, z: SPAWN.z, yaw: 0 },
@@ -123,18 +159,52 @@ async function main() {
     { name: 'Ramps', tag: 'Proving ground · lane D', title: 'Ramps 20° / 30° / 35°', desc: 'Climbs in low range. The steepest needs the centre diff locked.', x: LANES.D, z: 47, yaw: 0 },
     { name: 'Mud and off-camber', tag: 'Proving ground · lane E', title: 'Mud and off-camber', desc: 'A deep mud hole and a side slope. Air down and keep momentum.', x: LANES.E, z: 47, yaw: 0 },
     { name: 'The big hill', tag: 'Hill', title: 'The big hill', desc: 'A long climb with views over the whole map.', x: HILL.x - 52, z: HILL.z + 8, yaw: -Math.PI / 2 },
+    { name: 'Lake shore', tag: 'Outer loop · east', title: 'Lake shore', desc: 'A sandy beach on the lake. Splash through the shallows along the shore.', x: 386, z: 44, yaw: Math.atan2(-(POI.lake.x - 386), -(POI.lake.z - 44)) },
+    { name: 'The ford', tag: 'Outer loop · north-east', title: 'The ford', desc: 'The trail crosses the stream: 30 cm of water over gravel. Keep it slow and steady.', ...trailSpot(POI.ford.x, POI.ford.z, 35) },
+    { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
+    { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
+    { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
+    { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
   ];
   const placeVehicle = (x, z, yaw, lift = 0.5) => {
     let y = terrain.heightAt(x, z);
     for (const dx of [-1.5, 1.5]) for (const dz of [-2.2, 2.2]) y = Math.max(y, terrain.heightAt(x + dx, z + dz));
+    trees.updatePhysics(x, z);
+    props.userData.stream.update(x, z);
+    world.step();   // scene queries see the streamed colliders only after a step
     vehicle.reset({ x, y: y + lift, z }, yaw);
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
     game.redraw = 3;
   };
 
-  const game = { composer, bloom, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null };
+  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
   window.game = game;
+
+  // ---------------------------------------------------------------- graphics quality
+  // preset (auto picks one from the GPU) + resolution scale; everything is applied live
+  const gfx = { auto: autoQuality(renderer), preset: null, q: null };
+  const _db = new THREE.Vector2();
+  function applyGraphics() {
+    const sel = settings.get('quality');
+    const name = sel === 'auto' ? gfx.auto.preset : sel;
+    const q = QUALITY[name] || QUALITY.high;
+    gfx.preset = name; gfx.q = q;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * settings.get('renderScale'));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.getDrawingBufferSize(_db);
+    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa });
+    pipeline.params.bloom = q.bloom !== false;
+    pipeline.setSize(_db.x, _db.y);
+    const sh = env.sun.shadow;
+    if (sh.mapSize.x !== q.shadowMap) { sh.mapSize.set(q.shadowMap, q.shadowMap); if (sh.map) { sh.map.dispose(); sh.map = null; } }
+    sh.camera.far = q.shadowFar;
+    sh.radius = q.shadowRadius;
+    scenery.configure(q);
+    game.redraw = 3;
+  }
+  game.gfx = gfx;
+  game.applyGraphics = applyGraphics;
 
   // ---------------------------------------------------------------- settings -> game
   // Every persisted setting is applied here, whether it came from a key, the menu or startup.
@@ -158,6 +228,8 @@ async function main() {
     },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
+    quality: () => applyGraphics(),
+    renderScale: () => applyGraphics(),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
   };
   function hudOpt(v, o, key) { hud.configure({ [key]: v }); }
@@ -250,6 +322,7 @@ async function main() {
         case 'lightBar': return view.lights.bar;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
+        case 'qualityNote': return settings.get('quality') === 'auto' ? `Auto: ${QUALITY[gfx.auto.preset].label} for this graphics chip.` : `Auto would pick ${QUALITY[gfx.auto.preset].label} here.`;
         default: return settings.get(key);
       }
     },
@@ -312,15 +385,13 @@ async function main() {
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
-    game.redraw = 3;
+    applyGraphics();
   });
 
   // ---------------------------------------------------------------- frame
   let acc = 0;
   // one frame of the game; also callable from the console for testing (game.tick(1/60))
-  function tick(dt) {
+  function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
     const mark = key => { const n = performance.now(); T[key] = (T[key] || 0) * 0.9 + (n - tm) * 0.1; tm = n; };
@@ -337,6 +408,8 @@ async function main() {
         world.step();
         const t = vehicle.body.translation(), q = vehicle.body.rotation();
         curPos.set(t.x, t.y, t.z); curQ.set(q.x, q.y, q.z, q.w);
+        trees.updatePhysics(t.x, t.z);
+        props.userData.stream.update(t.x, t.z);
         tracks.stamp(vehicle, H);
         acc -= H;
         steps++;
@@ -356,7 +429,12 @@ async function main() {
       rQ.slerpQuaternions(prevQ, curQ, alpha);
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, shadows: true });
       rig.update(dt, input, rPos, rQ, vehicle, model);
-      env.update(dt, rPos);
+      env.update(dt, rPos, camera);
+      // the wheels and the body push the grass aside
+      const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
+      pushers.push({ x: rPos.x, y: rPos.y, z: rPos.z, r: 1.7 });
+      grass.setPushers(pushers);
+      scenery.update(dt, camera, rPos);
     }
     mark('view');
     if (!paused) {
@@ -371,11 +449,7 @@ async function main() {
       telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.mode}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
     });
     mark('hud');
-    if (draw) {
-      bloom.enabled = env.mode !== 'day';
-      bloom.strength = env.night ? 0.7 : 0.35;
-      composer.render();
-    }
+    if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');
     input.endFrame();
   }
@@ -385,9 +459,31 @@ async function main() {
   settings.applyAll({ startup: true });
   refreshSound();
 
+  // compile for the pipeline's HDR target: the program variant depends on the output colour space
+  // (compiling for the canvas gave sRGB-output programs that are never used)
+  const compileScene = () => {
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(pipeline.hdr);
+    const p = renderer.compileAsync(scene, camera);
+    renderer.setRenderTarget(prev);
+    return p;
+  };
   setLoading('Compiling shaders…', 0.86); await frame();
+  // Warm-up behind the loading screen. The lamps change the lights hash (shadow-casting head spot, lamp
+  // visibility at night), so first a frame with every lamp on (compile + one real draw, which also builds
+  // the GPU pipeline states and the lamp shadow map: switching on the lamps at night stalled ~200 ms
+  // without it), then the real state. One frame without drawing comes first, so the compile sees the
+  // lights as they are.
   try {
-    await Promise.race([renderer.compileAsync(scene, camera), new Promise(r => setTimeout(r, 6000))]);
+    const ls = view.lights, head = ls.head, bar = ls.bar;
+    ls.head = 1; ls.bar = true;
+    tick(1 / 60, false);
+    view.update(rPos, rQ, 0, { night: true, shadows: true });
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    pipeline.render(1 / 60);
+    ls.head = head; ls.bar = bar;
+    tick(1 / 60, false);
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
   } catch (e) { console.warn('shader warm-up', e); }
   tick(1 / 60);
 
