@@ -32,7 +32,6 @@ export const DEFAULTS = {
   gBloom: true,
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
-  gTrees: 80,               // full-detail tree radius (m)
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gGrass: 1,                // grass density (0 = off)
   gGrassDist: 46,           // grass radius (m)
@@ -55,7 +54,7 @@ const CHOICES = {
 };
 const RANGES = {
   volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
-  gDpr: [1, 2], gViewDist: [0.6, 1.5], gTrees: [40, 120], gGrass: [0, 1.35], gGrassDist: [20, 70], gBushes: [0, 1],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 1.35], gGrassDist: [20, 70], gBushes: [0, 1],
 };
 
 export const storage = {

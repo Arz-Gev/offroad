@@ -7,22 +7,22 @@ export const QUALITY_ORDER = ['low', 'medium', 'high', 'ultra'];
 export const QUALITY = {
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: true, shadows: 'low', ssao: 'off',
-    grass: 0.0, grassRadius: 30, treeNear: 45, impostorShadows: false,
+    grass: 0.0, grassRadius: 30, treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, bushes: 0.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: true, shadows: 'medium', ssao: 'off',
-    grass: 0.55, grassRadius: 34, treeNear: 60, impostorShadows: false,
+    grass: 0.55, grassRadius: 34, treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, bushes: 0.8,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadows: 'high', ssao: 'low',
-    grass: 1.0, grassRadius: 46, treeNear: 80, impostorShadows: true,
+    grass: 1.0, grassRadius: 46, impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, bushes: 1,
   },
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 4, fxaa: false, shadows: 'ultra', ssao: 'high',
-    grass: 1.35, grassRadius: 64, treeNear: 110, impostorShadows: true,
+    grass: 1.35, grassRadius: 64, impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, bushes: 1,
   },
 };
@@ -41,7 +41,7 @@ export const SHADOWS = {
 export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
-    gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTrees: q.treeNear, gTreeShadows: !!q.impostorShadows,
+    gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gGrass: q.grass, gGrassDist: q.grassRadius, gBushes: q.bushes,
   };
 }
@@ -49,7 +49,7 @@ export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
-    grass: g.gGrass, grassRadius: g.gGrassDist, treeNear: g.gTrees, impostorShadows: g.gTreeShadows,
+    grass: g.gGrass, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
     terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes,
   };
 }

@@ -280,7 +280,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   terrainView.groundDataChanged();
 
   // ---- near meshes (per variant: trunk + crown instanced)
-  const fade = { value: new THREE.Vector2(70, 82) };
+  const fade = { value: new THREE.Vector2(43, 50) };
   const viewPos = { value: new THREE.Vector3() };
   const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos };
   const near = variants.map((v, i) => {
@@ -416,13 +416,13 @@ vec3 nonPerturbedNormal = normal;`);
     for (const k of want) if (!activeChunks.has(k)) addChunk(k);
   };
 
-  let lastX = 1e9, lastZ = 1e9, nearR = 82;
+  let lastX = 1e9, lastZ = 1e9, nearR = 50; // full-detail tree radius (m); beyond it trees are impostors
   const counts = new Int32Array(variants.length);
   const api = {
     group, trees, logs, variants, near, impMesh, atlas, fade, updatePhysics,
     get colliderCount() { let n = 0; for (const l of activeChunks.values()) n += l.length; return n; },
     configure(q) {
-      const r = q.treeNear || 80;
+      const r = q.treeNear || 50; // presets: 40 m low/medium, 50 m otherwise
       fade.value.set(r * 0.86, r);
       nearR = r;
       impMesh.castShadow = !!q.impostorShadows;
