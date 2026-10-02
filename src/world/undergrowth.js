@@ -134,7 +134,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
     configure(q) {
       // density: closer / further apart cells (the per-kind probability stays), distance and height are multipliers
       const dens = q.bushes ?? 1, dist = q.bushDist ?? 1, hs = q.bushHeight ?? 1;
-      enabled = dens > 0 && dist > 0;
+      enabled = q.vegetation !== false && dens > 0 && dist > 0;
       group.visible = enabled;
       if (!enabled) return;
       for (const K of kinds) {

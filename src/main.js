@@ -21,7 +21,6 @@ import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
-import { buildTuner } from './tuner.js';
 import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
@@ -201,6 +200,7 @@ async function main() {
       const g = presetToGfx(q);
       for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
     }
+    q = { ...q, vegetation: settings.get('vegetation') };   // not part of the presets
     gfx.q = q;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * settings.get('renderScale'));
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -263,6 +263,7 @@ async function main() {
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     renderScale: () => applyGraphics(),
+    vegetation: () => applyGraphics(),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
   };
   function hudOpt(v, o, key) { hud.configure({ [key]: v }); }
@@ -386,7 +387,6 @@ async function main() {
     introDone: () => { settings.introSeen = true; },
   });
   game.menu = menu;
-  buildTuner(settings, game);   // temporary grass / undergrowth experiment panel
   game.setPaused = setPaused;
   hud.onMenu = () => menu.open();
 

@@ -33,18 +33,19 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
-  gGrass: 1,                // grass density (0 = off)
-  // grass / undergrowth experiment (src/tuner.js): exact values, wide ranges
-  gGrassHeight: 1.5,        // grass blade height (1 = the original height)
-  gGrassWidth: 1,           // grass blade width multiplier
-  gGrassNear: 0,            // radius of the dense near grass layer (m, 0 = automatic)
-  gGrassFarWidth: 1,        // far grass layer: blade width multiplier
-  gGrassFarSpacing: 1,      // far grass layer: cell spacing multiplier
-  gGrassFarGrow: 1,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
-  gGrassDist: 46,           // grass radius (m)
-  gBushes: 1,               // undergrowth density multiplier (0 = off)
-  gBushHeight: 1,           // undergrowth size multiplier
-  gBushDist: 1,             // undergrowth distance multiplier
+  // grass and undergrowth (the High preset's values; render/quality.js has the preset table)
+  gGrass: 0.15,             // grass density multiplier (cell spacing; 1 = one blade per 0.1 m cell)
+  gGrassHeight: 3.25,       // blade height multiplier (1 = 0.34 m near blades)
+  gGrassWidth: 2,           // blade width multiplier
+  gGrassNear: 60,           // radius of the dense near grass layer (m)
+  gGrassDist: 239,          // grass radius (m)
+  gGrassFarWidth: 1.65,     // far grass layer: blade width multiplier
+  gGrassFarSpacing: 1.1,    // far grass layer: cell spacing multiplier
+  gGrassFarGrow: 0,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
+  gBushes: 0.65,            // undergrowth density multiplier
+  gBushHeight: 1.6,         // undergrowth size multiplier
+  gBushDist: 1.55,          // undergrowth distance multiplier
+  vegetation: true,         // grass and undergrowth on / off (not part of the presets)
 };
 
 const CHOICES = {
@@ -63,8 +64,11 @@ const CHOICES = {
 };
 const RANGES = {
   volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
-  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 8], gGrassHeight: [0.1, 10], gGrassWidth: [0.2, 6], gGrassNear: [0, 80], gGrassFarWidth: [0.1, 3], gGrassFarSpacing: [0.3, 4], gGrassFarGrow: [0, 1.5], gGrassDist: [10, 500],
-  gBushes: [0, 8], gBushHeight: [0.2, 6], gBushDist: [0.2, 6],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5],
+  // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
+  gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [119, 287],
+  gGrassFarWidth: [1.3, 3.6], gGrassFarSpacing: [0.85, 1.6], gGrassFarGrow: [0, 1.5],
+  gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 2.25],
 };
 
 export const storage = {

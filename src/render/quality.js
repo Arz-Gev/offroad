@@ -7,23 +7,35 @@ export const QUALITY_ORDER = ['low', 'medium', 'high', 'ultra'];
 export const QUALITY = {
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: true, shadows: 'low', ssao: 'off',
-    grass: 0.0, grassRadius: 30, treeNear: 40, impostorShadows: false,
-    terrainDetail: 0, lodScale: 0.7, bloom: true, bushes: 1, bushDist: 0.5,
+    treeNear: 40, impostorShadows: false,
+    terrainDetail: 0, lodScale: 0.7, bloom: true,
+    grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
+    grassFarWidth: 1.85, grassFarSpacing: 1.3, grassFarGrow: 0,
+    bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: true, shadows: 'medium', ssao: 'off',
-    grass: 0.55, grassRadius: 34, treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.85, bloom: true, bushes: 1, bushDist: 0.8,
+    treeNear: 40, impostorShadows: false,
+    terrainDetail: 1, lodScale: 0.85, bloom: true,
+    grass: 0.1, grassHeight: 3.25, grassWidth: 1.3, grassRadius: 239, grassNear: 58,
+    grassFarWidth: 2.4, grassFarSpacing: 1.3, grassFarGrow: 0,
+    bushes: 0.2, bushHeight: 2.1, bushDist: 1.25,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadows: 'high', ssao: 'low',
-    grass: 1.6, grassRadius: 75, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, bushes: 1.5, bushDist: 1.25,
+    impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.0, bloom: true,
+    grass: 0.15, grassHeight: 3.25, grassWidth: 2, grassRadius: 239, grassNear: 60,
+    grassFarWidth: 1.65, grassFarSpacing: 1.1, grassFarGrow: 0,
+    bushes: 0.65, bushHeight: 1.6, bushDist: 1.55,
   },
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 4, fxaa: false, shadows: 'ultra', ssao: 'high',
-    grass: 2.6, grassRadius: 125, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, bushes: 2.2, bushDist: 1.6,
+    impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.3, bloom: true,
+    grass: 0.8, grassHeight: 2.35, grassWidth: 1.05, grassRadius: 239, grassNear: 60,
+    grassFarWidth: 3, grassFarSpacing: 1.1, grassFarGrow: 0,
+    bushes: 1.8, bushHeight: 1.4, bushDist: 1.85,
   },
 };
 
@@ -46,8 +58,9 @@ export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
-    gGrass: q.grass, gGrassHeight: q.grassHeight ?? 1.5, gGrassWidth: 1, gGrassNear: q.grassNear ?? 0, gGrassFarWidth: 1, gGrassFarSpacing: 1, gGrassFarGrow: 1, gGrassDist: q.grassRadius,
-    gBushes: q.bushes, gBushHeight: 1, gBushDist: q.bushDist ?? 1,
+    gGrass: q.grass, gGrassHeight: q.grassHeight, gGrassWidth: q.grassWidth, gGrassNear: q.grassNear, gGrassDist: q.grassRadius,
+    gGrassFarWidth: q.grassFarWidth, gGrassFarSpacing: q.grassFarSpacing, gGrassFarGrow: q.grassFarGrow,
+    gBushes: q.bushes, gBushHeight: q.bushHeight, gBushDist: q.bushDist,
   };
 }
 export function gfxToQuality(g) {

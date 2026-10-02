@@ -203,16 +203,18 @@ vec3 nonPerturbedNormal = normal;`)
   const api = {
     group, layers, shared,
     configure(q) {
-      enabled = q.grass > 0;
+      enabled = q.vegetation !== false && q.grass > 0;
       group.visible = enabled;
       scale = q.grass;
       // fewer, wider blades on lower presets; shorter radius
       const r = q.grassRadius || 48;
       const near = layers[0], far = layers[1];
-      // above 100% the probability can't rise any more: the cells get closer together instead
-      const dens = Math.max(1, scale), fine = 1 / Math.sqrt(dens);
-      near.uniforms.uShape.value.z = Math.min(1, scale);
-      far.uniforms.uShape.value.z = Math.min(1, scale * 1.1);
+      // density is the cell spacing (1 = a blade in every cell, above 1 closer together, below 1 further apart:
+      // thinning by probability instead would still draw, and discard, every cell)
+      const dens = Math.max(scale, 0.01), fine = 1 / Math.sqrt(dens);
+      const fineFar = 1 / Math.sqrt(scale <= 1 ? Math.max(scale * 1.1, 0.01) : scale);
+      near.uniforms.uShape.value.z = 1;
+      far.uniforms.uShape.value.z = 1;
       // the near layer's 2-segment blades cost most per square metre (vertex bound): keep it short
       const rn = q.grassNear > 0 ? Math.min(q.grassNear, r) : Math.min(17 + Math.max(0, r - 46) * 0.12, r * 0.34);
       far.uniforms.uRad.value.set(r * 0.72, r, rn * 0.66, rn * 0.97);
@@ -222,7 +224,7 @@ vec3 nonPerturbedNormal = normal;`)
       const coarse = Math.max(1, r / 52) ** (q.grassFarGrow ?? 1);
       const hs = q.grassHeight ?? 1.5, ws = q.grassWidth ?? 1;
       const fw = q.grassFarWidth ?? 1, fsp = q.grassFarSpacing ?? 1;
-      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fine * coarse * fsp, coarse * fw]]) {
+      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fineFar * coarse * fsp, coarse * fw]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;
