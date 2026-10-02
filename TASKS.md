@@ -14,6 +14,8 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ Rear-wheel-drive mode | Key **F**: 2WD ⇄ 4WD, HIGH range only, below 30 km/h. |
 | ✅ Wide graphics settings | Menu → **Graphics** tab: preset, resolution, pixel density cap, shadows, SSAO, anti-aliasing, bloom, terrain distance and shading, tree detail distance, distant tree shadows, grass density and distance, bushes. Changing any option switches the preset to Custom. |
 | ✅ SSAO | Graphics → Ambient occlusion: Off / Low / High. On by default on High (Low) and Ultra (High) presets. |
+| ✅ Fullscreen switch in Graphics, Welcome card button removed | |
+| ✅ SSAO pattern on some displays | Banding / dot grid on flat ground on the Mac and in 1440p fullscreen. Fixed in the AO depth reconstruction; confirmed gone by the player. |
 | ✅ Cloud shadows | Tried, then removed at the player's request. |
 | ✅ Night road too dark from the cockpit | Checked by the player: fine. |
 
