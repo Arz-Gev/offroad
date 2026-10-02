@@ -189,7 +189,7 @@ vec3 nonPerturbedNormal = normal;`)
       tiles.push(m);
     }
     // spacing / cells per tile / blade width are re-laid out by configure() (density and distance settings)
-    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, baseWidth: shape[1], radius, k, density: shape[2] };
+    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, baseWidth: shape[1], baseHeight: shape[0], radius, k, density: shape[2] };
   };
 
   // dense near blades, then wider ones further out (cross-faded)
@@ -220,11 +220,13 @@ vec3 nonPerturbedNormal = normal;`)
       // far blades past ~52 m get coarser (wider and further apart) so the blade count grows with the
       // radius, not its square
       const coarse = Math.max(1, r / 52);
+      const hs = q.grassHeight ?? 1.5;
       for (const [L, R, mul] of [[near, rn, fine], [far, r, fine * coarse]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;
         L.uniforms.uGrid.value.w = L.k;
+        L.uniforms.uShape.value.x = L.baseHeight * hs;
         L.uniforms.uShape.value.y = L.baseWidth * Math.max(1, mul / fine);
         for (const m of L.tiles) m.geometry.instanceCount = L.k * L.k;
       }

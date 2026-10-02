@@ -34,6 +34,7 @@ export const DEFAULTS = {
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gGrass: 1,                // grass density (0 = off)
+  gGrassHeight: 1.5,        // grass blade height (1 = the original height)
   gGrassDist: 46,           // grass radius (m)
   gBushes: 1,               // undergrowth density (0 = off)
 };
@@ -54,7 +55,7 @@ const CHOICES = {
 };
 const RANGES = {
   volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
-  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 3], gGrassDist: [20, 150], gBushes: [0, 2.5],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 3], gGrassHeight: [0.3, 4], gGrassDist: [20, 150], gBushes: [0, 2.5],
 };
 
 export const storage = {
