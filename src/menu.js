@@ -50,7 +50,7 @@ const SECTIONS = [
   ] },
   { title: 'Game', rows: [
     row('autoPause', 'Pause when the window loses focus', 'switch'),
-    row('_game', '', 'buttons', { buttons: [['fullscreen', 'Fullscreen'], ['intro', 'Welcome card'], ['resetSettings', 'Reset settings']] }),
+    row('_game', '', 'buttons', { buttons: [['resetSettings', 'Reset settings']] }),
   ] },
 ];
 
@@ -59,6 +59,7 @@ const GFX_SECTIONS = [
   { title: 'Preset', rows: [
     row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
+    row('fullscreen', 'Fullscreen', 'switch'),
     row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'Limit for Retina / 4K screens (200% = full Retina). The biggest cost of all.' }),
   ] },
   { title: 'Lighting and effects', rows: [
@@ -224,7 +225,7 @@ export class Menu {
           b.tabIndex = on ? 0 : -1;
         }
       } else if (def.type === 'switch') {
-        rowEl.querySelector('.switch').setAttribute('aria-checked', !!api.get(key));
+        rowEl.querySelector('.switch').setAttribute('aria-checked', key === 'fullscreen' ? !!document.fullscreenElement : !!api.get(key));
       } else if (def.type === 'range') {
         const v = Math.round(api.get(key) * def.scale);
         const inp = rowEl.querySelector('input');
@@ -234,8 +235,6 @@ export class Menu {
         rowEl.querySelector('output').textContent = api.get('pressureText');
       }
     }
-    const fs = this.panes.settings.querySelector('[data-action="fullscreen"]');
-    if (fs) fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
     // graphics: say which preset Auto chose
     const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
@@ -245,6 +244,7 @@ export class Menu {
   }
 
   setValue(key, v) {
+    if (key === 'fullscreen') { this.runAction('fullscreen'); return; }
     const def = this.rowDef(key);
     if (def && def.type === 'seg' && typeof def.options[0][0] === 'number') v = +v;
     this.api.set(key, v);
