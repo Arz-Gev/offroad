@@ -15,6 +15,7 @@ const TABS = [
   { id: 'controls', label: 'Controls', hot: 'controls' },
 ];
 
+const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
@@ -26,7 +27,8 @@ const SECTIONS = [
   ] },
   { title: 'View', rows: [
     row('camera', 'Camera', 'seg', { hot: 'camera', options: [['chase', 'Chase'], ['cockpit', 'Cockpit'], ['hood', 'Hood'], ['wheel', 'Wheel'], ['orbit', 'Orbit']] }),
-    row('time', 'Time of day', 'seg', { hot: 'time', options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
+    row('time', 'Time of day', 'range', { hot: 'time', min: 0, max: 1435, step: 5, scale: 60, fmt: fmtClock, note: 'The picture follows the slider at once. Day 13:00, dusk 19:30, night 23:00.' }),
+    row('timeQuick', '', 'seg', { quick: true, options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
   ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),
@@ -180,7 +182,7 @@ export class Menu {
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
       <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
-        <div class="set-row${r.label ? '' : ' bare'}" data-key="${r.key}">
+        <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}">
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
         </div>`).join('')}</div>`).join('')}</div>`;
@@ -229,10 +231,11 @@ export class Menu {
       const key = rowEl.dataset.key, def = this.rowDef(key);
       if (def.type === 'seg') {
         const cur = String(api.get(key));
-        for (const b of rowEl.querySelectorAll('[data-seg]')) {
+        const bs = [...rowEl.querySelectorAll('[data-seg]')], any = bs.some(b => b.dataset.seg === cur);
+        for (const b of bs) {
           const on = b.dataset.seg === cur;
           b.setAttribute('aria-checked', on);
-          b.tabIndex = on ? 0 : -1;
+          b.tabIndex = on || (!any && b === bs[0]) ? 0 : -1;       // a group with nothing selected stays reachable
         }
       } else if (def.type === 'switch') {
         rowEl.querySelector('.switch').setAttribute('aria-checked', key === 'fullscreen' ? !!document.fullscreenElement : !!api.get(key));
@@ -240,7 +243,7 @@ export class Menu {
         const v = Math.round(api.get(key) * def.scale);
         const inp = rowEl.querySelector('input');
         if (+inp.value !== v) inp.value = v;
-        rowEl.querySelector('output').textContent = (def.dp != null ? (v / def.scale).toFixed(def.dp) : v) + def.unit;
+        rowEl.querySelector('output').textContent = def.fmt ? def.fmt(v) : (def.dp != null ? (v / def.scale).toFixed(def.dp) : v) + def.unit;
       } else if (def.type === 'stepper') {
         rowEl.querySelector('output').textContent = api.get('pressureText');
       }

@@ -22,6 +22,7 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ Pixel density cap hidden where it does nothing | Shown only on screens with a device pixel ratio above 1. |
 | ✅ Cloud shadows | Tried, then removed at the player's request. |
 | ✅ Night road too dark from the cockpit | Checked by the player: fine. |
+| ✅ Time-of-day slider | Menu → Settings → Time of day: a slider (HH:MM, 5-minute steps) that the picture follows at once, plus Day / Dusk / Night buttons (13:00, 19:30, 23:00, which look exactly as the old presets). The sun and moon travel on arcs, dawn and dusk are continuous, exposure and lamps have no jumps. **N** still jumps day → dusk → night with a 2.5 s sweep. Headlights come on once when it gets dark. Old saved settings (`night`, ...) are migrated. |
 
 ## Next (waiting for answers)
 
@@ -36,7 +37,6 @@ Technical notes live in `DEVNOTES.md`.
 |---|---|---|
 | 📋 Can't climb steep slopes although nothing touches the wheel | Medium | Probably the chassis rails and the front bumper/winch colliders sit lower and further forward than the visible model: an invisible nose hits the slope first. |
 | 📋 Body bounces off when the roof or side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
-| 📋 Time-of-day slider | Medium | Instead of the three presets: blend lamps, fog and exposure smoothly. |
 | 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
 | 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Best as a separate agent together with the bigger wheels. |
 | 📋 Vehicle tuning settings | Large | Tyre pressure, springs, dampers, travel, gear ratios, power. Some need rebuilding the physics body live. |

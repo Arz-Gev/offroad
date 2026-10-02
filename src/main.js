@@ -12,7 +12,7 @@ import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
 import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
-import { Environment, TIME_ORDER } from './world/environment.js';
+import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
 import { makeDefenderParams } from './vehicle/params.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildTruck } from './vehicle/truckModel.js';
@@ -237,6 +237,10 @@ async function main() {
     view.lights.head = h;
     if (!silent) say('head', ['Headlights off', 'Low beam', 'High beam'][h]);
   };
+  // automatic headlights when it gets dark (env.night has hysteresis, so this fires once per crossing)
+  env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
+  const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
+  const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   const APPLY = {
     gearbox(v, o) { if (d.mode !== v) { d.toggleMode(); if (o.silent) d.message = null; } },
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
@@ -249,11 +253,11 @@ async function main() {
       if (!o.silent) say('hb', { hold: 'Handbrake: hold the key', toggle: 'Handbrake: press on, press off', auto: 'Handbrake: tap toggles, long press holds' }[v]);
     },
     camera(v, o) { rig.setMode(v); if (!o.silent) say('camera', CAM_NAMES[v]); },
+    // the hour follows at once (menu slider, startup); the N key asks for the 2.5 s sweep
     time(v, o) {
-      env.setMode(v);
-      if (o.startup) { env.blend = 1; env.apply(1); }
-      if (!o.silent) say('time', { day: 'Day', dusk: 'Dusk', night: 'Night' }[v]);
-      if (v === 'night' && view.lights.head === 0) setHeadlights(1, true);
+      env.setHour(v, { instant: !o.animate });
+      if (o.startup) env.flush();
+      if (!o.silent) say('time', TIME_NAMES[quickTime(v)] || env.hourText);
     },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
@@ -322,7 +326,12 @@ async function main() {
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
     camera: () => settings.set('camera', next(CAM_MODES, rig.mode)),
-    time: () => settings.set('time', next(TIME_ORDER, env.mode)),
+    time: () => {
+      // day -> dusk -> night -> day, from wherever the slider is: the next quick hour after the current one
+      const h = settings.get('time');
+      const q = QUICK_ORDER.find(n => QUICK_HOURS[n] > h + 0.01) || QUICK_ORDER[0];
+      settings.set('time', QUICK_HOURS[q], { animate: true });
+    },
     menu: () => menu.open(),
     locations: () => menu.open('locations'),
     controls: () => menu.open('controls'),
@@ -352,7 +361,7 @@ async function main() {
         case 'autoClutch': return d.clutchAssist;
         case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
-        case 'time': return env.mode;
+        case 'timeQuick': return quickTime(settings.get('time')) || '';
         case 'sound': return !settings.get('muted');
         case 'pressureText': return fmtPressure(vehicle.pressure, settings.get('pressureUnit'));
         case 'headlights': return view.lights.head;
@@ -372,6 +381,7 @@ async function main() {
       else if (key === 'headlights') setHeadlights(v, true);
       else if (key === 'lightBar') view.lights.bar = !!v;
       else if (key === 'hazards') view.lights.hazard = !!v;
+      else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
       else settings.set(key, v, silent);
       game.redraw = 3;
@@ -461,13 +471,13 @@ async function main() {
     }
     mark('physics');
     // paused: render only when something changed (setting, resize, time-of-day blend), the menu covers the view
-    const draw = !paused || game.redraw > 0 || env.blend < 1;
+    const draw = !paused || game.redraw > 0 || env.active;
     if (game.redraw > 0) game.redraw--;
     if (draw) {
       const alpha = acc / H;
       rPos.lerpVectors(prevPos, curPos, alpha);
       rQ.slerpQuaternions(prevQ, curQ, alpha);
-      view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, shadows: true });
+      view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       rig.update(dt, input, rPos, rQ, vehicle, model);
       env.update(dt, rPos, camera);
       // the wheels and the body push the grass aside
@@ -479,14 +489,14 @@ async function main() {
     mark('view');
     if (!paused) {
       dust.spawnFromVehicle(vehicle, dt);
-      dust.update(dt, env.night ? 0.12 : env.mode === 'dusk' ? 0.7 : 1.0);
+      dust.update(dt, 1 - 0.88 * env.darkness);
     }
     mark('dust');
     audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit' });
     mark('audio');
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
-      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.mode}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
+      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
     });
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
@@ -520,7 +530,12 @@ async function main() {
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    // the eye-adaptation pass only runs at dusk and night: compile it here too, not at the first sunset
+    const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
+    pp.autoExposure = true; pp.auto = 0.5;
     pipeline.render(1 / 60);
+    pp.autoExposure = ae; pp.auto = au;
+    pipeline.resetExposure = true;
     ls.head = head; ls.bar = bar;
     tick(1 / 60, false);
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);

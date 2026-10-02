@@ -39,7 +39,7 @@ export const BINDINGS = [
 
   { id: 'camera', group: 'Camera & world', label: 'Next camera: chase, cockpit, hood, wheel, orbit', codes: ['KeyC'], keys: ['C'], pad: 'Y', button: PAD.Y },
   { id: 'look', group: 'Camera & world', label: 'Look around · zoom', keys: ['Drag mouse', 'Wheel'], pad: 'R stick' },
-  { id: 'time', group: 'Camera & world', label: 'Time of day: day, dusk, night', codes: ['KeyN'], keys: ['N'] },
+  { id: 'time', group: 'Camera & world', label: 'Time of day: jump to day, dusk, night', codes: ['KeyN'], keys: ['N'] },
 
   { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU },
   { id: 'locations', group: 'Game', label: 'Locations: teleport to the proving ground lanes', codes: ['KeyP'], keys: ['P'] },

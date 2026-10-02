@@ -85,12 +85,15 @@ void main() {
 // exposure = key / average luminance, clamped to the time-of-day range, adapted over time (log space)
 const ADAPT_FRAG = /* glsl */`
 uniform sampler2D tLum, tPrev;
-uniform float uKey, uMin, uMax, uRate, uLevel, uReset, uBias;
+uniform float uKey, uMin, uMax, uRate, uLevel, uReset, uBias, uExp, uAuto;
 varying vec2 vUv;
 void main() {
   vec2 s = textureLod(tLum, vec2(0.5), uLevel).rg;
   float avgLog = s.x / max(s.y, 1e-5);
-  float target = clamp(log2(uKey) - avgLog + uBias, log2(uMin), log2(uMax));
+  // uAuto 0 = the fixed exposure uExp, 1 = eye adaptation; in between they cross-fade in log space, so the
+  // exposure doesn't jump when the time of day passes through the adaptive range
+  float target = log2(uExp);
+  if (uAuto > 0.0) target = mix(target, clamp(log2(uKey) - avgLog + uBias, log2(uMin), log2(uMax)), uAuto);
   float prev = texture2D(tPrev, vec2(0.5)).g;
   float v = uReset > 0.5 ? target : mix(prev, target, uRate);
   gl_FragColor = vec4(exp2(v), v, 0.0, 1.0);
@@ -233,7 +236,7 @@ export class RenderPipeline {
     this.bloomLevels = 6;
     this.params = {
       bloom: true, bloomStrength: 0.06, bloomThreshold: 1.6, bloomKnee: 0.6, bloomRadius: 1.0,
-      exposure: 0.72, autoExposure: false, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
+      exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
       vignette: 0.25, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
     };
     this.time = 0;
@@ -256,7 +259,7 @@ export class RenderPipeline {
     this.upMat = mat(UP_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uRadius: { value: 1 } },
       { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, transparent: true });
     this.lumMat = mat(LUM_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
-    this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 } });
+    this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 }, uExp: { value: 1 }, uAuto: { value: 0 } });
     this.compMat = mat(COMPOSITE_FRAG, {
       tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null },
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
@@ -340,9 +343,12 @@ export class RenderPipeline {
       this.lumMat.uniforms.uTexel.value.set(1 / 128, 1 / 128);
       this.pass(this.lumMat, this.lum);
       am.uMin.value = P.minExposure; am.uMax.value = P.maxExposure; am.uKey.value = P.key; am.uBias.value = P.exposureBias;
+      am.uAuto.value = P.auto;
     } else {
       am.uMin.value = am.uMax.value = P.exposure; am.uBias.value = 0;
+      am.uAuto.value = 0;
     }
+    am.uExp.value = P.exposure;
     am.tPrev.value = prev.texture;
     am.uRate.value = 1 - Math.exp(-dt * P.adaptRate);
     am.uReset.value = this.resetExposure ? 1 : 0;

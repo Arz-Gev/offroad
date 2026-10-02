@@ -10,7 +10,7 @@ export const DEFAULTS = {
   arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
   handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
   camera: 'chase',
-  time: 'day',
+  time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
   volume: 1,                // 0..1 (1 = the original mix level)
   speedUnit: 'kmh',         // 'kmh' | 'mph'
@@ -48,11 +48,13 @@ export const DEFAULTS = {
   vegetation: true,         // grass and undergrowth on / off (not part of the presets)
 };
 
+// the time of day used to be one of three presets; saved games still hold those names
+const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
+
 const CHOICES = {
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit'],
-  time: ['day', 'dusk', 'night'],
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
@@ -63,7 +65,7 @@ const CHOICES = {
   gTerrain: [0, 1, 2],
 };
 const RANGES = {
-  volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
+  time: [0, 24], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
   // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
   gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [119, 287],
@@ -89,6 +91,7 @@ export class Settings {
     this.v = { ...DEFAULTS };
     try {
       const saved = JSON.parse(storage.get(KEY) || '{}');
+      if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];
     } catch { /* corrupt entry: keep defaults */ }
     this.subs = [];

@@ -203,12 +203,13 @@ export class VehicleView {
     if (red + white > 0) L.rear.color.setRGB(1, 0.16, 0.06).multiplyScalar(red / (red + white)).add(_c.setRGB(1, 0.97, 0.92).multiplyScalar(white / (red + white)));
 
     // instrument backlight (night / lights on) and warning lamps
-    const back = tailOn || env.night ? 1 : 0;
-    m.gaugeMat.emissiveIntensity = back ? 0.85 : 0.45;
-    if (m.needleMat) m.needleMat.emissiveIntensity = back ? 1.0 : 0.35;
+    const dark = env.darkness ?? (env.night ? 1 : 0);
+    const back = tailOn ? 1 : dark;
+    m.gaugeMat.emissiveIntensity = 0.45 + 0.4 * back;
+    if (m.needleMat) m.needleMat.emissiveIntensity = 0.35 + 0.65 * back;
     if (m.warnMat) m.warnMat.emissiveIntensity = dt_.running ? 0 : 1.2;
 
     // reflections: scale the (deliberately dim) scene environment up for paint and glass
-    shared.uEnvSpec.value = env.night ? 1.6 : 1.0;
+    shared.uEnvSpec.value = 1.0 + 0.6 * dark;
   }
 }
