@@ -38,6 +38,9 @@ export const DEFAULTS = {
   gGrassHeight: 1.5,        // grass blade height (1 = the original height)
   gGrassWidth: 1,           // grass blade width multiplier
   gGrassNear: 0,            // radius of the dense near grass layer (m, 0 = automatic)
+  gGrassFarWidth: 1,        // far grass layer: blade width multiplier
+  gGrassFarSpacing: 1,      // far grass layer: cell spacing multiplier
+  gGrassFarGrow: 1,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
   gGrassDist: 46,           // grass radius (m)
   gBushes: 1,               // undergrowth density multiplier (0 = off)
   gBushHeight: 1,           // undergrowth size multiplier
@@ -60,7 +63,7 @@ const CHOICES = {
 };
 const RANGES = {
   volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
-  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 8], gGrassHeight: [0.1, 10], gGrassWidth: [0.2, 6], gGrassNear: [0, 80], gGrassDist: [10, 500],
+  gDpr: [1, 2], gViewDist: [0.6, 1.5], gGrass: [0, 8], gGrassHeight: [0.1, 10], gGrassWidth: [0.2, 6], gGrassNear: [0, 80], gGrassFarWidth: [0.1, 3], gGrassFarSpacing: [0.3, 4], gGrassFarGrow: [0, 1.5], gGrassDist: [10, 500],
   gBushes: [0, 8], gBushHeight: [0.2, 6], gBushDist: [0.2, 6],
 };
 

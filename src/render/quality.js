@@ -46,7 +46,7 @@ export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
-    gGrass: q.grass, gGrassHeight: q.grassHeight ?? 1.5, gGrassWidth: 1, gGrassNear: q.grassNear ?? 0, gGrassDist: q.grassRadius,
+    gGrass: q.grass, gGrassHeight: q.grassHeight ?? 1.5, gGrassWidth: 1, gGrassNear: q.grassNear ?? 0, gGrassFarWidth: 1, gGrassFarSpacing: 1, gGrassFarGrow: 1, gGrassDist: q.grassRadius,
     gBushes: q.bushes, gBushHeight: 1, gBushDist: q.bushDist ?? 1,
   };
 }
@@ -54,7 +54,7 @@ export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
-    grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassNear: g.gGrassNear, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
+    grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassNear: g.gGrassNear, grassFarWidth: g.gGrassFarWidth, grassFarSpacing: g.gGrassFarSpacing, grassFarGrow: g.gGrassFarGrow, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
     terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes, bushDist: g.gBushDist, bushHeight: g.gBushHeight,
   };
 }

@@ -218,16 +218,17 @@ vec3 nonPerturbedNormal = normal;`)
       far.uniforms.uRad.value.set(r * 0.72, r, rn * 0.66, rn * 0.97);
       near.uniforms.uRad.value.set(rn * 0.7, rn, -1, 0);
       // far blades past ~52 m get coarser (wider and further apart) so the blade count grows with the
-      // radius, not its square
-      const coarse = Math.max(1, r / 52);
+      // radius, not its square; grassFarGrow is the share of that growth that is applied (0 = none)
+      const coarse = Math.max(1, r / 52) ** (q.grassFarGrow ?? 1);
       const hs = q.grassHeight ?? 1.5, ws = q.grassWidth ?? 1;
-      for (const [L, R, mul] of [[near, rn, fine], [far, r, fine * coarse]]) {
+      const fw = q.grassFarWidth ?? 1, fsp = q.grassFarSpacing ?? 1;
+      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fine * coarse * fsp, coarse * fw]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;
         L.uniforms.uGrid.value.w = L.k;
         L.uniforms.uShape.value.x = L.baseHeight * hs;
-        L.uniforms.uShape.value.y = L.baseWidth * ws * Math.max(1, mul / fine);
+        L.uniforms.uShape.value.y = L.baseWidth * ws * wmul;
         for (const m of L.tiles) m.geometry.instanceCount = L.k * L.k;
       }
     },
