@@ -46,7 +46,7 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
       const vx = _v.x * rad, vy = _v.y * rad, vz = _v.z * rad;
       const n = 1 + 0.16 * fbm(noise, vx * 1.3 + seed, vz * 1.3 + vy * 0.7 + seed, 3) + 0.05 * noise(vx * 5 + seed, vy * 5 - vz * 5);
       pos.setXYZ(i, vx * sx * n, vy * sy * n, vz * sz * n);
-      const c = tint * (0.82 + 0.18 * (vy * 0.5 + 0.5));
+      const c = tint * (0.98 + 0.27 * (vy * 0.5 + 0.5));
       colors[i * 3] = c; colors[i * 3 + 1] = c * 0.97; colors[i * 3 + 2] = c * 0.92;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));

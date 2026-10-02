@@ -21,7 +21,7 @@ const PRESETS = {
   },
   dusk: {
     elev: 4.5, azim: 250, sunE: 5.0, moonElev: -30, moonAzim: 70, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-    cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0011, fogFall: 0.016, haze: 0.00014, fogMax: 1, env: 1.0,
+    cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0006, fogFall: 0.016, haze: 0.0001, fogMax: 0.92, env: 1.0,
     exposure: 1.25, auto: 0, key: 0.16, minEx: 1.25, maxEx: 1.25, bloom: 0.06, bloomThr: 1.6,
     sat: 1.08, contrast: 0.16, vignette: 0.28, tint: [1.0, 0.98, 0.95], lift: [0, 0, 0.0004], night: false,
   },
@@ -140,7 +140,10 @@ export class Environment {
     const az = Math.atan2(L[0], L[2]);
     const hz = (da, el = 0.03) => { const e = el, q = az + da; return [Math.cos(e) * Math.sin(q), Math.sin(e), Math.cos(e) * Math.cos(q)]; };
     const fogCol = (da) => scatter(hz(da), L, 16).map((v, i) => v * lE * tintL[i] + c.nightBase[i] * 0.9);
-    const toward = fogCol(0), side = fogCol(Math.PI / 2), away = fogCol(Math.PI);
+    const side = fogCol(Math.PI / 2), away = fogCol(Math.PI);
+    // towards a low sun the horizon is many times brighter than elsewhere (Mie forward scattering): in
+    // the fog that turned every hill between the camera and a dusk sun into a flat orange wall
+    const toward = fogCol(0).map((v, i) => Math.min(v, side[i] * 2.2 + 1e-4));
     // fog is slightly darker than the sky right at the horizon (it is lit, but also shadowed by terrain)
     const k = 0.92;
     setVec4(ATMO.atmoSun, L[0], L[1], L[2], c.fogFall);

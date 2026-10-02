@@ -45,7 +45,6 @@ uniform vec4 uWind;     // dir x, dir z, strength, time
 uniform vec4 uPush[5];  // xyz, radius
 uniform vec4 uTrackP;   // origin x, z, size
 attribute vec3 aBlade;
-attribute vec2 aTile;
 varying vec3 vGCol;
 varying vec3 vGFace;
 varying float vGAO;
@@ -89,6 +88,7 @@ export function buildGrass(terrainView, opts = {}) {
         .replace('#include <beginnormal_vertex>', `
 float gk = uGrid.w;
 float gid = float(gl_InstanceID);
+vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
 vec2 cellIdx = uGrid.xy + aTile * gk + vec2(mod(gid, gk), floor(gid / gk));
 vec2 hA = gHash22(cellIdx), hB = gHash22(cellIdx + 17.17);
 vec2 bxz = (cellIdx + hA) * uGrid.z;
@@ -156,7 +156,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
   vGCol = col;
   vGAO = mix(0.6, 1.0, tb);
 }`)
-        .replace('#include <begin_vertex>', 'vec3 transformed = gPos;');
+        .replace('#include <begin_vertex>', 'vec3 transformed = gPos;')
+        .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
+        .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
         .replace('#include <normal_fragment_begin>', `
@@ -174,7 +176,6 @@ vec3 nonPerturbedNormal = normal;`)
       g.setAttribute('position', geoBase.getAttribute('position'));
       g.setAttribute('normal', geoBase.getAttribute('normal'));
       g.setIndex(geoBase.getIndex());
-      g.setAttribute('aTile', new THREE.InstancedBufferAttribute(new Float32Array([tx, tz]), 2, false, 1 << 30));
       g.instanceCount = k * k;
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
       const m = new THREE.Mesh(g, mat);
@@ -183,6 +184,7 @@ vec3 nonPerturbedNormal = normal;`)
       m.castShadow = false;
       m.matrixAutoUpdate = false;
       m.userData.tile = [tx, tz];
+      m.position.set(tx, 0, tz); m.updateMatrix(); m.matrixWorldAutoUpdate = false; m.matrixWorld.copy(m.matrix);
       group.add(m);
       tiles.push(m);
     }
@@ -191,8 +193,8 @@ vec3 nonPerturbedNormal = normal;`)
 
   // dense near blades, then wider ones further out (cross-faded)
   const layers = [
-    makeLayer('near', geo0, 0.085, 22, [-1, 0], [0.34, 0.055, 1.0, 0.0]),
-    makeLayer('far', geo1, 0.21, 52, [15, 21], [0.32, 0.12, 1.0, 0.035]),
+    makeLayer('near', geo0, 0.1, 17, [-1, 0], [0.34, 0.065, 1.0, 0.0]),
+    makeLayer('far', geo1, 0.24, 52, [10, 14.5], [0.32, 0.14, 1.0, 0.035]),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();
@@ -208,8 +210,10 @@ vec3 nonPerturbedNormal = normal;`)
       const near = layers[0], far = layers[1];
       near.uniforms.uShape.value.z = Math.min(1, scale);
       far.uniforms.uShape.value.z = Math.min(1, scale * 1.1);
-      far.uniforms.uRad.value.set(r * 0.72, r, Math.min(15, r * 0.3), Math.min(21, r * 0.42));
-      near.uniforms.uRad.value.set(Math.min(22, r * 0.45) * 0.72, Math.min(22, r * 0.45), -1, 0);
+      // the near layer's 2-segment blades cost most per square metre (vertex bound): keep it short
+      const rn = Math.min(17, r * 0.34);
+      far.uniforms.uRad.value.set(r * 0.72, r, rn * 0.66, rn * 0.97);
+      near.uniforms.uRad.value.set(rn * 0.7, rn, -1, 0);
     },
     update(dt, camera, focus) {
       time += dt;

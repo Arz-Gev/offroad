@@ -52,6 +52,7 @@ uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
 uniform float uTime, uAbsorb, uRipple, uFoam;
+uniform vec4 uEdge;   // elliptic fade-out of a disc (centre xz, 1/rx, 1/rz); zero radii: no fade
 uniform vec3 uScatter;
 varying vec3 vFlow;
 varying vec2 vDir;
@@ -77,6 +78,7 @@ export function buildWater(terrain, terrainView, renderer) {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: opts.rough ?? 0.06, metalness: 0, transparent: true, premultipliedAlpha: true });
     const uniforms = {
       tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time,
+      uEdge: { value: new THREE.Vector4(0, 0, 0, 0) },
       uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
     };
     m.onBeforeCompile = (sh) => {
@@ -121,6 +123,8 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   float a = 1.0 - T * (1.0 - Fr);
   col = mix(col, irr * 0.8, wFoam); a = mix(a, 1.0, wFoam);
   float edge = smoothstep(-0.03, 0.05, wDepth);
+  // the disc's rim: stray hollows near the shore inside it are not part of the lake
+  if (uEdge.z > 0.0) edge *= smoothstep(1.0, 0.97, length((vWPos.xz - uEdge.xy) * uEdge.zw));
   gl_FragColor = vec4(col * edge, a * edge);
 }`)
         .replace('#include <premultiplied_alpha_fragment>', '')
@@ -180,7 +184,7 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
     return m;
   };
   for (const w of terrain.water) {
-    if (w.type === 'lake') add(disc(w.x, w.z, w.rx, w.rz, w.level), lakeMat);
+    if (w.type === 'lake') { add(disc(w.x, w.z, w.rx, w.rz, w.level), lakeMat); lakeMat.userData.uniforms.uEdge.value.set(w.x, w.z, 1 / w.rx, 1 / w.rz); }
     else if (w.type === 'pool') add(disc(w.x, w.z, w.rx, w.rz, w.level, 4, 40), mudMat);
     else if (w.type === 'stream') {
       // ribbon along the stream, wider than the water so the waterline comes from the bed

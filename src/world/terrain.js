@@ -338,7 +338,7 @@ export class Terrain {
       H[i] = lerp(H[i], Math.min(H[i], bed), w);
       if (e + n < 1.12) this.surface[i] = H[i] < level + 0.05 ? (e + n < 0.8 ? SURF.mud : SURF.sand) : SURF.sand;
     }, 0);
-    this.water.push({ type: 'lake', x: lk.x, z: lk.z, rx: lk.rx * 1.25, rz: lk.rz * 1.25, level });
+    this.water.push({ type: 'lake', x: lk.x, z: lk.z, rx: lk.rx * 1.1, rz: lk.rz * 1.1, level });
   }
 
   carveStream() {

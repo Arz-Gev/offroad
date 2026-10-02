@@ -22,7 +22,6 @@ uniform vec4 uRad;      // shrink start, end
 uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
 uniform vec4 uWind;     // dir x, dir z, strength, time
-attribute vec2 aTile;
 attribute float aWind;
 vec2 uHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float uHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
@@ -57,6 +56,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
         .replace('#include <beginnormal_vertex>', `
 float gk = uGrid.w;
 float gid = float(gl_InstanceID);
+vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
 vec2 cellIdx = uGrid.xy + aTile * gk + vec2(mod(gid, gk), floor(gid / gk));
 vec2 hA = uHash22(cellIdx + uShape.w), hB = uHash22(cellIdx + uShape.w + 17.17);
 vec2 pxz = (cellIdx + hA) * uGrid.z;
@@ -94,7 +94,9 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
   float gy = uGround(pxz);
   uPos = vec3(pxz.x, gy - 0.03, pxz.y) + lp;
 }`)
-        .replace('#include <begin_vertex>', 'vec3 transformed = uPos;');
+        .replace('#include <begin_vertex>', 'vec3 transformed = uPos;')
+        .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
+        .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL).replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
 #include <opaque_fragment>`);
@@ -105,12 +107,12 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       const g = new THREE.InstancedBufferGeometry();
       for (const a of ['position', 'normal', 'uv', 'aWind']) g.setAttribute(a, geoBase.getAttribute(a));
       g.setIndex(geoBase.getIndex());
-      g.setAttribute('aTile', new THREE.InstancedBufferAttribute(new Float32Array([tx, tz]), 2, false, 1 << 30));
       g.instanceCount = k * k;
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
       const m = new THREE.Mesh(g, mat);
       m.frustumCulled = false; m.receiveShadow = true; m.castShadow = false; m.matrixAutoUpdate = false;
       m.userData.tile = [tx, tz];
+      m.position.set(tx, 0, tz); m.updateMatrix(); m.matrixWorldAutoUpdate = false; m.matrixWorld.copy(m.matrix);
       group.add(m);
       tiles.push(m);
     }

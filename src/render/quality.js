@@ -15,8 +15,8 @@ export const QUALITY = {
     terrainDetail: 1, lodScale: 0.85, bloom: true, anisotropy: 4, bushes: 0.8,
   },
   high: {
-    label: 'High', dpr: 1.5, msaa: 4, fxaa: false, shadowMap: 2048, shadowFar: 170, shadowRadius: 1.6,
-    grass: 1.0, grassRadius: 48, flowers: true, treeNear: 80, treeFar: 1400, impostorShadows: true,
+    label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadowMap: 2048, shadowFar: 170, shadowRadius: 1.6,
+    grass: 1.0, grassRadius: 46, flowers: true, treeNear: 80, treeFar: 1400, impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, anisotropy: 8, bushes: 1,
   },
   ultra: {

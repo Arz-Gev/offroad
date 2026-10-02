@@ -301,18 +301,24 @@ vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
   bool inMap = max(abs(p.x), abs(p.z)) < uMap.x;
   // heightfield normal + curvature, surface splat, ground data (sampled unconditionally: mip selection needs uniform flow)
   vec2 uvN = ((p.xz + uMap.x) / uMap.y + 0.5) / uMap.z;
-  vec2 uvF = ((p.xz + uFar.x) / uFar.y + 0.5) / uFar.z;
-  vec4 ntN = texture2D(tNrm, uvN), ntF = texture2D(tFarNrm, uvF);
+  vec4 ntN = texture2D(tNrm, uvN);
   vec4 sp = texture2D(tSplat, uvN);
   vec4 gd = texture2D(tData, (p.xz + uMap.x + 0.5) / (uMap.w + 1.0));
-  vec4 nt = inMap ? ntN : ntF;
-  if (!inMap) { sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0); }
+  vec4 nt = ntN;
+  if (!inMap) {
+    // vista: its own normal map (explicit gradients: this is non-uniform control flow) plus procedural
+    // detail normals (its heightmap is only 16 m)
+    vec2 uvF = ((p.xz + uFar.x) / uFar.y + 0.5) / uFar.z;
+    nt = textureGrad(tFarNrm, uvF, gDx / (uFar.y * uFar.z), gDy / (uFar.y * uFar.z));
+    sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0);
+  }
   vec3 nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
   nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
   float curv = nt.b;
-  // vista: procedural detail normals (its heightmap is only 16 m)
-  vec4 dz1 = texture2D(tNoise, p.xz / 41.0), dz2 = texture2D(tNoise, p.xz / 13.0 + 0.5);
-  if (!inMap) nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
+  if (!inMap) {
+    vec4 dz1 = textureGrad(tNoise, p.xz / 41.0, gDx / 41.0, gDy / 41.0), dz2 = textureGrad(tNoise, p.xz / 13.0 + 0.5, gDx / 13.0, gDy / 13.0);
+    nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
+  }
   // macro variation (large scale) to break everything up
   float mac = texture2D(tNoise, p.xz / 420.0).r;
   float mac2 = texture2D(tNoise, p.xz / 97.0 + 0.3).g;
