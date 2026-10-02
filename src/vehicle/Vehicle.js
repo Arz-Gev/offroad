@@ -32,7 +32,9 @@ export class Vehicle {
     this.P = P;
     this.surfaceAt = opts.surfaceAt || (() => SURFACES.dirt);
     this.substeps = opts.substeps || 4;
-    this.pressure = P.tire.pressure;
+    this.pressures = [P.tire.pressure, P.tire.pressure];   // front, rear (psi)
+    // geometry the physics uses right now; retune() eases it towards P (tyre radius, axle droop height)
+    this.R = P.tire.radius;
 
     const unsprung = P.axles[0].mass + P.axles[1].mass;
     this.totalMass = P.bodyMass + unsprung;
@@ -47,12 +49,8 @@ export class Vehicle {
       .setCcdEnabled(true)
       .setAngularDamping(0.02);
     this.body = world.createRigidBody(desc);
-    for (const c of P.colliders) {
-      const [cx, cy, cz, hx, hy, hz, r] = c;
-      const cd = RAPIER.ColliderDesc.roundCuboid(hx - r, hy - r, hz - r, r)
-        .setTranslation(cx, cy, cz).setDensity(0).setFriction(0.55).setRestitution(0.05);
-      world.createCollider(cd, this.body);
-    }
+    this.chassisColliders = [];
+    this.setColliders(P.colliders);
 
     this.drivetrain = new Drivetrain(P);
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
@@ -63,7 +61,7 @@ export class Vehicle {
     this.axles = P.axles.map((p, i) => {
       const load = P.bodyMass * G * (i === 0 ? frontFrac : 1 - frontFrac) / 2;
       return {
-        p, i,
+        p, i, droopY: p.droopY, k: p.k,
         c: Math.min(p.travel * 0.9, load / p.k - p.preload),
         vz: 0, phi: 0, Om: 0,
         A: new V3(), q: new THREE.Quaternion(), mount: new V3(), vMountU: 0, rollRateBody: 0,
@@ -94,12 +92,7 @@ export class Vehicle {
     world.forEachCollider(c => {
       if (c.shape.type === RAPIER.ShapeType.HeightField) c.setCollisionGroups(GROUP_GROUND);
     });
-    for (const w of this.wheels) {
-      const cd = RAPIER.ColliderDesc.cylinder(P.tire.width * 0.42, P.tire.radius - 0.12)
-        .setDensity(0).setFriction(0.35).setRestitution(0.0)
-        .setCollisionGroups(GROUP_WHEEL_SIDE);
-      w.sideCollider = world.createCollider(cd, this.body);
-    }
+    this.makeWheelColliders();
 
     this.ctl = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };
     this.steerAngle = 0;
@@ -130,10 +123,108 @@ export class Vehicle {
     this.updateGeometry();
   }
 
+  // ------------------------------------------------------------------ colliders and tuning
+  // chassis collision boxes [cx, cy, cz, hx, hy, hz, rounding] on this body (density 0: mass is set apart)
+  setColliders(list) {
+    const { RAPIER, world } = this;
+    for (const c of this.chassisColliders) world.removeCollider(c, false);
+    this.chassisColliders = list.map(([cx, cy, cz, hx, hy, hz, r]) => {
+      r = Math.max(0, Math.min(r, hx - 0.002, hy - 0.002, hz - 0.002));
+      const cd = RAPIER.ColliderDesc.roundCuboid(hx - r, hy - r, hz - r, r)
+        .setTranslation(cx, cy, cz).setDensity(0).setFriction(0.55).setRestitution(0.05);
+      return world.createCollider(cd, this.body);
+    });
+  }
+
+  // Side-impact cylinders for the wheels. Ground contact is handled by the ray fan; these only stop
+  // rocks, logs and walls from passing through the sidewall. They must never touch the terrain
+  // heightfield: they are teleported to the hub every step, so a contact there turns into a huge
+  // impulse on the whole truck (that was the "pogo stick" ride). Radius sits near the rim-bottoming
+  // depth for the same reason.
+  makeWheelColliders() {
+    const { RAPIER, world, P } = this;
+    this.wheelColR = this.R;
+    this.wheelColW = P.tire.width * 0.42;
+    for (const w of this.wheels) {
+      if (w.sideCollider) world.removeCollider(w.sideCollider, false);
+      const cd = RAPIER.ColliderDesc.cylinder(P.tire.width * 0.42, this.R - 0.12 * this.R / 0.42)
+        .setDensity(0).setFriction(0.35).setRestitution(0.0)
+        .setCollisionGroups(GROUP_WHEEL_SIDE);
+      w.sideCollider = world.createCollider(cd, this.body);
+    }
+    if (this.quat) this.updateGeometry();
+  }
+
+  // Mass, centre of mass and inertia from P (cargo, roof load, wheel mass) on the live body. They blend
+  // over ~0.5 s (morphGeometry): dropping 850 kg of load in one step would throw the body off its springs.
+  updateMass(snap = false) {
+    const P = this.P;
+    this.massTarget = [P.bodyMass + P.axles[0].mass + P.axles[1].mass, ...P.com, ...P.bodyInertia];
+    if (snap || !this.massNow) this.massNow = [...this.massTarget];
+    this.applyMass();
+  }
+  applyMass() {
+    const m = this.massNow;
+    this.totalMass = m[0];
+    this.body.setAdditionalMassProperties(m[0], { x: m[1], y: m[2], z: m[3] }, { x: m[4], y: m[5], z: m[6] }, { x: 0, y: 0, z: 0, w: 1 }, true);
+  }
+
+  // Called after tuning.applySetup changed P. Everything the step reads from P is already live; this
+  // applies what lives elsewhere: mass properties, colliders, drivetrain inertias. Tyre radius and axle
+  // droop (lift) ease towards P in step(), unless snap (teleports, load).
+  retune({ colliders = true, snap = false } = {}) {
+    this.updateMass(snap);
+    if (colliders) this.setColliders(this.P.colliders);
+    this.drivetrain.updateInertia();
+    if (snap) this.snapGeometry();
+    else if (Math.abs(this.P.tire.width * 0.42 - this.wheelColW) > 1e-4) this.makeWheelColliders();
+  }
+
+  snapGeometry() {
+    this.R = this.P.tire.radius;
+    for (const ax of this.axles) { ax.droopY = ax.p.droopY; ax.k = ax.p.k; }
+    if (this.massTarget && this.massNow.some((x, i) => x !== this.massTarget[i])) { this.massNow = [...this.massTarget]; this.applyMass(); }
+    if (Math.abs(this.R - this.wheelColR) > 1e-4 || Math.abs(this.P.tire.width * 0.42 - this.wheelColW) > 1e-4) this.makeWheelColliders();
+  }
+
+  // ease the geometry towards P: the body rises / settles on its springs, no wheels teleported into the ground
+  // (raising 0.15 m/s; lowering slower, 0.05 m/s, so the body follows on its springs instead of dropping)
+  morphGeometry(h) {
+    const up = 0.15 * h, down = 0.05 * h;
+    const R = this.P.tire.radius;
+    if (this.R !== R) {
+      this.R += Math.max(-down, Math.min(up, R - this.R));
+      if (Math.abs(this.R - this.wheelColR) > 0.004 || this.R === R) this.makeWheelColliders();
+    }
+    // droop: a lower droopY = axle further below the body = the body sits higher
+    for (const ax of this.axles) if (ax.droopY !== ax.p.droopY) ax.droopY += Math.max(-up, Math.min(down, ax.p.droopY - ax.droopY));
+    // spring rates and mass blend in over ~0.5 s (a stiffer spring on a deeply compressed axle, or a load
+    // taken off at once, would launch the body)
+    const b = Math.min(1, h * 5);
+    for (const ax of this.axles) if (ax.k !== ax.p.k) ax.k = Math.abs(ax.p.k - ax.k) < 50 ? ax.p.k : ax.k + (ax.p.k - ax.k) * b;
+    const mt = this.massTarget, mn = this.massNow;
+    if (mt && mn.some((x, i) => x !== mt[i])) {
+      let close = true;
+      for (let i = 0; i < 7; i++) { mn[i] += (mt[i] - mn[i]) * b; if (Math.abs(mt[i] - mn[i]) > 1e-3 * (1 + Math.abs(mt[i]))) close = false; }
+      if (close) for (let i = 0; i < 7; i++) mn[i] = mt[i];
+      this.applyMass();
+    }
+  }
+
+  // ground height in the body frame at static ride, relative to stock: bigger tyres and lift raise the body
+  get rideRaise() {
+    const base = 0.42;
+    return (this.P.tire.radius - base) + (0.275 - this.P.axles[0].droopY);
+  }
+
   // ------------------------------------------------------------------ driver input
-  setPressure(psi) {
-    const t = this.P.tire;
-    this.pressure = Math.max(t.minPressure, Math.min(t.maxPressure, psi));
+  // one number for the HUD and the keys: the mean of the axles; setting it keeps the front / rear split
+  get pressure() { return (this.pressures[0] + this.pressures[1]) / 2; }
+  setPressure(psi, axle) {
+    const t = this.P.tire, lim = p => Math.max(t.minPressure, Math.min(t.maxPressure, p));
+    if (axle === 0 || axle === 1) { this.pressures[axle] = lim(psi); return; }
+    const d = psi - this.pressure;
+    this.pressures = this.pressures.map(p => lim(p + d));
   }
 
   // Handbrake modes. 'auto': a short tap toggles the handbrake on / off, a long press works like 'hold'
@@ -176,7 +267,7 @@ export class Vehicle {
     if (raw.analogSteer) lim = 1 / (1 + Math.max(0, v - 8) / 30);
     else lim = Math.min(1, (Math.atan(this.P.wheelbase * 0.75 * G / Math.max(v * v, 1e-3)) + 0.09) / maxA);
     const target = raw.steer * maxA * lim;
-    const rate = 1.35; // rad/s at the road wheel (hydraulic rack speed)
+    const rate = 1.35 * 17 / this.P.steer.ratio; // rad/s at the road wheel (hydraulic rack; stock 17:1)
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));
     c.steer = this.steerAngle;
   }
@@ -216,7 +307,7 @@ export class Vehicle {
     const [sl, sr] = this.steerAngles();
     for (const ax of this.axles) {
       const p = ax.p;
-      ax.A.set(0, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
+      ax.A.set(0, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
       _q.setFromAxisAngle(Z, ax.phi);
       ax.q.copy(this.quat).multiply(_q);
     }
@@ -234,7 +325,7 @@ export class Vehicle {
         const ap = ax.p;
         _q2.setFromAxisAngle(Z, ax.phi);
         _v.set(w.side * P.track / 2, 0, 0).applyQuaternion(_q2);
-        _v.y += ap.droopY + ax.c; _v.z += ap.z;
+        _v.y += ax.droopY + ax.c; _v.z += ap.z;
         w.sideCollider.setTranslationWrtParent({ x: _v.x, y: _v.y, z: _v.z });
         _q2.multiply(_q.setFromAxisAngle(Y, -w.steer)).multiply(_q.setFromAxisAngle(Z, -Math.PI / 2));
         w.sideCollider.setRotationWrtParent({ x: _q2.x, y: _q2.y, z: _q2.z, w: _q2.w });
@@ -244,7 +335,7 @@ export class Vehicle {
 
   castContact(w) {
     const T = this.P.tire;
-    const R = T.radius, margin = 0.06;
+    const R = this.R, margin = 0.06;
     const ray = this.ray;
     let maxPen = -1e9, sumW = 0, nx = 0, ny = 0, nz = 0, lat = 0, snLat = 0;
     let deep = null, deepX = 0, deepY = 0, deepZ = 0;
@@ -292,6 +383,7 @@ export class Vehicle {
   step(h, raw) {
     const P = this.P, dt = this.drivetrain, T = P.tire;
     this.time += h;
+    this.morphGeometry(h);
     this.readBody();
     this.accel.subVectors(this.vel, this._lastVel).divideScalar(h);
     this._lastVel.copy(this.vel);
@@ -305,7 +397,7 @@ export class Vehicle {
 
     for (const ax of this.axles) {
       const p = ax.p;
-      ax.mount.set(0, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
+      ax.mount.set(0, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
       this.pointVel(ax.mount, _v);
       ax.vMountU = _v.dot(up);
       ax.rollRateBody = this.angVel.dot(this.back);
@@ -313,10 +405,10 @@ export class Vehicle {
     }
     this.updateGeometry();
 
-    const R0 = T.radius;
+    const R0 = this.R;
     for (const w of this.wheels) {
       this.castContact(w);
-      tireCoefs(T, this.pressure, w.surf, w.co);
+      tireCoefs(T, this.pressures[w.i < 2 ? 0 : 1], w.surf, w.co);
       w.Re = R0 - Math.max(0, w.pen) * 0.33;
       if (w.contact) {
         const n = w.n;
@@ -378,7 +470,7 @@ export class Vehicle {
         this.hubPenDot(w);
         if (w.contact && w.pen > 0) {
           let Fn = w.co.kt * w.pen + T.damping * w.penDot;
-          const rimLim = (T.radius - T.rimRadius) * 0.62;
+          const rimLim = (this.R - T.rimRadius * this.R / T.radius) * 0.62;
           if (w.pen > rimLim) Fn += 2.5e6 * (w.pen - rimLim) + 3000 * Math.max(0, w.penDot);
           w.Fn = Math.max(0, Fn);
         } else w.Fn = 0;
@@ -432,10 +524,10 @@ export class Vehicle {
       const p = ax.p;
       for (let s = 0; s < 2; s++) {
         const side = s === 0 ? -1 : 1;
-        _v2.set(side * p.springTrack / 2, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
+        _v2.set(side * p.springTrack / 2, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
         _v.copy(up).multiplyScalar(ax.accS[s] * inv);
         b.addForceAtPoint(_v, _v2, true);
-        _v2.set(side * p.damperTrack / 2, p.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
+        _v2.set(side * p.damperTrack / 2, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
         _v.copy(up).multiplyScalar(ax.accD[s] * inv);
         b.addForceAtPoint(_v, _v2, true);
       }
@@ -468,8 +560,8 @@ export class Vehicle {
   }
 
   // Coil spring + bump stop + droop limit, at the spring seat. x = compression, xd = compression rate.
-  springForce(p, x, xd) {
-    let F = Math.max(0, p.k * (x + p.preload));
+  springForce(p, x, xd, k = p.k) {
+    let F = Math.max(0, k * (x + p.preload));
     const bs = x - (p.travel - 0.05);
     if (bs > 0) {
       // progressive rubber bump stop with hysteresis: it gives back less than it took (no pogo off the stops)
@@ -513,8 +605,8 @@ export class Vehicle {
     const sn = Math.sin(ax.phi), cs = Math.cos(ax.phi);
     const cd = ax.vz - ax.vMountU;
     const pd = ax.Om - ax.rollRateBody;
-    const SL = this.springForce(p, ax.c - s2 * sn, cd - s2 * cs * pd);
-    const SR = this.springForce(p, ax.c + s2 * sn, cd + s2 * cs * pd);
+    const SL = this.springForce(p, ax.c - s2 * sn, cd - s2 * cs * pd, ax.k);
+    const SR = this.springForce(p, ax.c + s2 * sn, cd + s2 * cs * pd, ax.k);
     const d2 = p.damperTrack / 2;
     const DL = this.damperForce(p, cd - d2 * cs * pd);
     const DR = this.damperForce(p, cd + d2 * cs * pd);
@@ -541,7 +633,14 @@ export class Vehicle {
     b.setAngvel({ x: 0, y: 0, z: 0 }, true);
     for (const ax of this.axles) { ax.vz = 0; ax.Om = 0; ax.phi = 0; }
     for (const w of this.wheels) { w.ux = w.uy = 0; }
-    for (let i = 2; i < 6; i++) this.drivetrain.w[i] = 0;
+    const d = this.drivetrain;
+    for (let i = 2; i < 6; i++) d.w[i] = 0;
+    // the wheels stop dead: drop the converter lock-up and let the engine ride it out (a teleport at
+    // speed in a locked-up gear used to stall it)
+    d.lockup = 0;
+    if (d.mode === 'auto') d.w[1] = 0;
+    if (d.running) d.startGrace = Math.max(d.startGrace, 0.6);
+    this.snapGeometry();
     this.readBody();
     this._lastVel.set(0, 0, 0);
     this.updateGeometry();

@@ -23,23 +23,22 @@ Technical notes live in `DEVNOTES.md`.
 | ✅ Cloud shadows | Tried, then removed at the player's request. |
 | ✅ Night road too dark from the cockpit | Checked by the player: fine. |
 | ✅ Time-of-day slider | Menu → Settings → Time of day: a slider (HH:MM, 5-minute steps) that the picture follows at once, plus Day / Dusk / Night buttons (13:00, 19:30, 23:00, which look exactly as the old presets). The sun and moon travel on arcs, dawn and dusk are continuous, exposure and lamps have no jumps. **N** still jumps day → dusk → night with a 2.5 s sweep. Headlights come on once when it gets dark. Old saved settings (`night`, ...) are migrated. |
+| ✅ In-game vehicle tuning (was four tasks: too fast and powerful, bigger wheels and higher suspension, can't climb steep slopes, tuning settings) | **Tab** opens a panel over the running game (no pause; the mouse works the panel, the keys still drive). Engine: 4.6 V8 (stock), 5.0 Works V8, 3.5 V8, 300Tdi, Td5, 2.4 TDCi, plus torque and rev limiter. Gearbox ratios, final drive, transfer high / low, driveline switches. Tyres 31–37″, width, pressure front / rear, grip. Lift 0–15 cm, springs, bump / rebound, anti-roll bars, bump travel per axle. Brakes (force, front share, handbrake). Cargo, roof load, centre of mass height. Steering lock and ratio. Readouts show consequences: power, 0–100 estimate, top speed, km/h per gear, ride frequency and damping (softer / stiffer than stock), clearance, approach / departure / breakover, room in the arches, axle loads, rollover limit, which axle locks first, turning circle. **Measure 0–100** runs the real physics on a flat pad (stock V8 8.7 s, Td5 17.5 s, 5.0 V8 5.5 s, 300Tdi 21.4 s, auto). Stock button, per-section reset, saved setups, Export / Import JSON. **Show physics** draws the collision boxes (red where they touch), wheel cylinders, tyres against the arches, suspension travel and contact patches; a box editor moves and resizes them live. The steep-slope problem was the invisible nose: the front bumper box sat 10 cm lower and 11 cm further forward than the visible bumper. Colliders now fit the model: approach 32° → 43°, the truck climbs 40–42° ramps it used to stop at. |
 
 ## Next (waiting for answers)
 
 | Task | Difficulty | Notes |
 |---|---|---|
-| ⏳ Truck too fast and powerful | Easy | Now 0–100 km/h in 8.7 s. Pick the engine: Td5 diesel (~15 s), V8 (~10–11 s), or keep as is. |
-| ⏳ Bigger wheels, higher suspension | Medium | Tyre size? 33" or 35". Wheel arches, colliders and balance need adjusting too. |
+| ⏳ Tuning: the player's favourite setup | Easy | Try engines, tyres and lift in the Tab panel. A setup you like goes through Export into `DEFAULT_SETUP` in `src/vehicle/tuning.js` and becomes the truck's stock. |
 
 ## To do
 
 | Task | Difficulty | Notes |
 |---|---|---|
-| 📋 Can't climb steep slopes although nothing touches the wheel | Medium | Probably the chassis rails and the front bumper/winch colliders sit lower and further forward than the visible model: an invisible nose hits the slope first. |
 | 📋 Body bounces off when the roof or side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
 | 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
-| 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Best as a separate agent together with the bigger wheels. |
-| 📋 Vehicle tuning settings | Large | Tyre pressure, springs, dampers, travel, gear ratios, power. Some need rebuilding the physics body live. |
+| 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Tyre size and lift now come from the tuning panel (the springs stretch with the lift, the wheels scale); the arches and links are still the stock model. |
+| 📋 Tuning: what's left | Medium | The engine sound is the V8 for every engine (diesels need their own sound). Tyres rubbing the arches are shown (red tyre outline), not simulated as a stop. Tyre width changes the look, the contact rays and the side cylinders, not the grip. The model's long rear overhang limits the departure angle to 31° (the rear bumper scrapes at the foot of 30°+ ramps); lift and bigger tyres fix that, as on the real truck. |
 | 📋 River is badly built | Medium | Must be fixed, but later. Most of its length floats in the air, and from below it isn't even visible: the water surface doesn't follow the terrain / the riverbed isn't carved into it. |
 | 📋 Phones and tablets | Large | Touch controls, a mobile performance preset, HUD layout. Last. |
 

@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeDefenderParams } from '../src/vehicle/params.js';
 import { RPM } from '../src/vehicle/drivetrain.js';
+import { sanitize, applySetup } from '../src/vehicle/tuning.js';
 await RAPIER.init();
 
 const H = 1 / 240;
@@ -48,7 +49,9 @@ function status(t, v) {
 }
 
 const test = process.argv[2] || 'all';
-const P = makeDefenderParams();
+// TUNE='{"engine":{"preset":"td5"},"tyres":{"size":35}}' npm run simtest accel: a tuning setup (missing parts stay stock)
+const P = process.env.TUNE ? applySetup(makeDefenderParams(), sanitize(JSON.parse(process.env.TUNE))) : makeDefenderParams();
+if (process.env.TUNE) console.log('setup', process.env.TUNE);
 
 if (test === 'settle' || test === 'all') {
   console.log('--- settle on flat ground');
@@ -134,7 +137,7 @@ if (test === 'manual' || test === 'all') {
   d.requestShift(1);
   run(v, world, 0.5, raw());
   run(v, world, 20, (t, veh) => {
-    if (d.rpm > 4600 && !d.shift && d.manualGear < 5) d.requestShift(1);
+    if (d.rpm > (P.engine.shiftRpm || 4800) - 200 && !d.shift && d.manualGear < 5) d.requestShift(1);
     return raw({ throttle: 1 });
   }, 0.5, (t, veh) => { status(t, veh); console.log('   clutch', d.clutchPedal.toFixed(2), 'slip', d.clutchSlip.toFixed(1)); });
 }

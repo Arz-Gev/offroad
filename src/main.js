@@ -14,6 +14,9 @@ import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
 import { makeDefenderParams } from './vehicle/params.js';
+import { applySetup, rideRaise } from './vehicle/tuning.js';
+import { ColliderView } from './vehicle/colliderView.js';
+import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildTruck } from './vehicle/truckModel.js';
 import { VehicleView } from './vehicle/vehicleView.js';
@@ -113,14 +116,19 @@ async function main() {
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
-  const P = makeDefenderParams();
+  // the player's tuning setup (saved) goes into the params before the truck is built
+  const tuningApi = {};
+  const tuning = new TuningPanel(tuningApi);
+  const P = applySetup(makeDefenderParams(), tuning.setup);
   const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
-  const spawnY = terrain.heightAt(SPAWN.x, SPAWN.z) + 0.12;
+  const spawnY = terrain.heightAt(SPAWN.x, SPAWN.z) + 0.12 + rideRaise(P);
   const vehicle = new Vehicle(RAPIER, world, P, { position: { x: SPAWN.x, y: spawnY, z: SPAWN.z }, yaw: SPAWN.yaw, surfaceAt });
+  vehicle.pressures = [tuning.setup.tyres.pressF, tuning.setup.tyres.pressR];
   world.step();
-  const model = buildTruck(P);
+  const model = buildTruck(makeDefenderParams());   // modelled stock; the view scales the wheels and follows the lift
   scene.add(model.root);
   const view = new VehicleView(model, vehicle);
+  const colliderView = new ColliderView(scene, model, vehicle);
   const d = vehicle.drivetrain;
 
 
@@ -172,13 +180,13 @@ async function main() {
     trees.updatePhysics(x, z);
     props.userData.stream.update(x, z);
     world.step();   // scene queries see the streamed colliders only after a step
-    vehicle.reset({ x, y: y + lift, z }, yaw);
+    vehicle.reset({ x, y: y + lift + rideRaise(vehicle.P), z }, yaw);
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
     game.redraw = 3;
   };
 
-  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
+  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
   window.game = game;
 
   // ---------------------------------------------------------------- graphics quality
@@ -273,6 +281,7 @@ async function main() {
   function hudOpt(v, o, key) { hud.configure({ [key]: v }); }
   settings.onChange((key, v, o) => {
     if (APPLY[key]) APPLY[key](v, o, key);
+    tuning.dirty = true;
     game.redraw = 3;
   });
 
@@ -338,6 +347,7 @@ async function main() {
     mute: () => toggle('muted'),
     suspension: () => toggle('suspension'),
     telemetry: () => toggle('telemetry'),
+    tuning: () => tuning.toggle(),
   };
   input.onAction = id => { if (ACTIONS[id]) ACTIONS[id](); };
   game.action = id => input.onAction(id);
@@ -397,6 +407,8 @@ async function main() {
     introDone: () => { settings.introSeen = true; },
   });
   game.menu = menu;
+  Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
+  colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;
   hud.onMenu = () => menu.open();
 
@@ -478,6 +490,7 @@ async function main() {
       rPos.lerpVectors(prevPos, curPos, alpha);
       rQ.slerpQuaternions(prevQ, curQ, alpha);
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
+      colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
       env.update(dt, rPos, camera);
       // the wheels and the body push the grass aside
@@ -498,6 +511,7 @@ async function main() {
       cam: rig.mode, paused, raw,
       telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
     });
+    tuning.update(dt, vehicle, raw);
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');

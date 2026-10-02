@@ -165,7 +165,7 @@ export class HUD {
     this.e.menuKey.innerHTML = k('menu');
     this.e.hints.innerHTML = d === 'pad'
       ? `<span>${k('camera')} Camera</span><span>${k('recover')} Recover</span><span>${k('shiftUp')}${k('shiftDown')} Shift</span>`
-      : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('recover')} Recover</span>`;
+      : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('tuning')} Tuning</span><span>${k('recover')} Recover</span>`;
     this.e.suspKey.innerHTML = capsHTML('suspension', 'kb');
     this.tipState.key = null;           // re-render the tip with the new prompts
     this.setSound(this.soundState, true);

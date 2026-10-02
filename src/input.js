@@ -47,6 +47,7 @@ export const BINDINGS = [
   { id: 'mute', group: 'Game', label: 'Sound on / off', codes: ['KeyV'], keys: ['V'] },
   { id: 'suspension', group: 'Game', label: 'Suspension and tyre load panel', codes: ['KeyU'], keys: ['U'] },
   { id: 'telemetry', group: 'Game', label: 'Telemetry readout', codes: ['F3', 'Backquote'], keys: ['F3', '`'] },
+  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'] },
 ];
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));
@@ -91,6 +92,8 @@ export class Input {
     this.padRepeat = {};
 
     window.addEventListener('keydown', e => {
+      // typing in a text field (tuning panel: setup name, import box) is not driving
+      if (e.target?.matches?.('input[type=text], textarea, select')) return;
       // let browser / OS shortcuts through untouched (Cmd+R, Ctrl+W, Cmd+L, ...).
       // On macOS no keyup arrives for keys held while Cmd is down, so drop held keys to avoid stuck pedals.
       if (e.metaKey || e.ctrlKey || e.altKey) { if (e.key === 'Meta') this.keys.clear(); return; }

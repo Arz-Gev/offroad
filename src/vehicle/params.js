@@ -57,6 +57,7 @@ export function makeDefenderParams() {
     engine: {
       name: '4.6 V8',
       idleRpm: 720, limiterRpm: 5350, redlineRpm: 5000, stallRpm: 280,
+      shiftRpm: 4800,           // automatic: upshift at full throttle (lighter throttle shifts earlier)
       inertia: 0.22,
       // gross torque (Nm) at full throttle; friction and pumping losses are subtracted separately
       torque: [[0, 0], [400, 150], [800, 300], [1200, 365], [1600, 405], [2000, 435], [2500, 455], [3000, 462],
@@ -82,15 +83,19 @@ export function makeDefenderParams() {
     transfer: { high: 1.211, low: 3.32 },
     finalDrive: 3.54,
 
-    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding]
+    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (truckBody.js)
+    // on Oct 3: the old front bumper box sat 10 cm lower and 11 cm further forward than the bumper you see
+    // (an invisible nose: approach 32° instead of 38°). Names in tuning.js (COLLIDER_NAMES), same order.
     colliders: [
-      [0, 1.30, 0.78, 0.89, 0.66, 1.62, 0.06],    // cabin / rear body
-      [0, 0.985, -1.42, 0.87, 0.395, 0.70, 0.06], // engine bay / bonnet (bottom unchanged, top 1.38 = raised bonnet centre)
-      [0, 0.62, -2.21, 0.96, 0.16, 0.13, 0.03],   // front bumper
-      [0, 0.66, 2.44, 0.93, 0.14, 0.09, 0.03],    // rear bumper
-      [0, 0.52, 0.05, 0.42, 0.09, 2.15, 0.03],    // chassis rails
-      [0, 2.20, 0.70, 0.84, 0.13, 1.58, 0.03],    // roof rack (top 2.33)
-      [0, 1.18, 2.62, 0.36, 0.38, 0.15, 0.06],    // spare wheel
+      [0, 1.33, 0.745, 0.89, 0.67, 1.585, 0.06],    // cabin / rear body: sill 0.66 to roof 2.0, bulkhead to rear face 2.33
+      [0, 1.00, -1.36, 0.87, 0.38, 0.64, 0.06],     // engine bay / wings: 0.62 to the raised bonnet centre 1.38, wing face -2.0
+      [0, 0.6775, -2.0875, 0.985, 0.1225, 0.1375, 0.03], // winch bumper plate 0.555-0.80, face at -2.225 (D-ring shackles hang below: soft)
+      [0, 0.63, 2.4025, 0.955, 0.095, 0.0925, 0.03],  // rear bumper 0.535-0.725, face 2.495
+      [0, 0.54, 0.205, 0.48, 0.08, 2.145, 0.03],     // chassis rails + crossmembers 0.46-0.62, -1.94 to 2.35
+      [0, 2.20, 0.70, 0.84, 0.13, 1.58, 0.03],       // roof rack (top 2.33)
+      [0, 1.18, 2.62, 0.36, 0.38, 0.15, 0.06],       // spare wheel
+      [0, 0.51, -0.625, 0.30, 0.09, 1.125, 0.04],    // belly: sump, gearbox, transfer case (lowest, 0.42)
+      [0.58, 0.56, 1.91, 0.22, 0.08, 0.29, 0.03],    // fuel tank, right of the rear rails
     ],
   };
 }

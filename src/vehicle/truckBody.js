@@ -10,7 +10,7 @@ import {
 // winch bumper, tumblehome greenhouse with alpine windows, full-length expedition rack with a light
 // bar, snorkel on the right A-pillar, rear door with the spare, vertical rear lamp clusters.
 
-const AH = 0.56, AT = 0.34, ATOP = 1.03;
+const AH = 0.56, AT = 0.34, ATOP = D.ARCH_TOP;
 // squared Defender arch, traversed from the rear base to the front base (z decreasing)
 const arch = (zc, yRear, yFront, hb = AH) => [
   [zc + hb, yRear], [zc + hb - 0.035, ATOP - 0.17], [zc + AT, ATOP], [zc - AT, ATOP], [zc - hb + 0.035, ATOP - 0.17], [zc - hb, yFront],

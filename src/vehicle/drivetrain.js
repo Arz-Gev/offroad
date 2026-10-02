@@ -315,12 +315,14 @@ export class Drivetrain {
       const rpmAt = g => wm * Math.abs(this.ratioFor('auto', g)) * RPM;
       const t = ctl.throttle;
       const lowR = this.range === 'low' ? 250 : 0;
-      const up = 1650 + lowR + 3150 * Math.pow(t, 1.3);
-      const down = 1050 + 1950 * Math.pow(t, 1.6);
+      // shift points follow the engine (shiftRpm = full-throttle upshift; 4800 for the stock V8)
+      const sr = P.engine.shiftRpm || 4800;
+      const up = 1650 + lowR + (sr - 1650) * Math.pow(t, 1.3);
+      const down = 1050 + (0.625 * sr - 1050) * Math.pow(t, 1.6);
       const g = this.autoGear;
       if (g < P.auto.ratios.length && rpmAt(g) > up && rpmAt(g + 1) > 1150) {
         this.autoGear = g + 1; this.shift = { t: 0 }; this.sinceShift = 0;
-      } else if (g > 1 && rpmAt(g) < down && rpmAt(g - 1) < 4700) {
+      } else if (g > 1 && rpmAt(g) < down && rpmAt(g - 1) < sr - 100) {
         this.autoGear = g - 1; this.shift = { t: 0 }; this.sinceShift = 0;
       }
     }

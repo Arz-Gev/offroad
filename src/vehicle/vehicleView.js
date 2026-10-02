@@ -4,7 +4,7 @@ import { shared } from './truckMaterials.js';
 // Drives the procedural model from the physics state: body pose (interpolated), axle heave/roll,
 // steering, wheel spin, tyre squash, springs, dampers, links, prop shafts, lights and gauges.
 
-const _m = new THREE.Matrix4();
+const _m = new THREE.Matrix4(), _n3 = new THREE.Matrix3();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _c = new THREE.Color();
@@ -36,15 +36,19 @@ export class VehicleView {
     // axles
     for (let ai = 0; ai < 2; ai++) {
       const a = v.axles[ai], g = m.axles[ai];
-      g.position.set(0, a.p.droopY + a.c, a.p.z);
+      g.position.set(0, a.droopY + a.c, a.p.z);
       g.rotation.set(0, 0, a.phi);
     }
-    // wheels
+    // wheels; the model is built for 33x10.5 (R 0.42, width 0.27): tuning scales the whole wheel
+    const ws = v.R / 0.42, wx = P.tire.width / 0.27;
     for (let i = 0; i < 4; i++) {
       const w = v.wheels[i], mw = m.wheels[i];
       mw.steer.rotation.y = -w.steer;
       mw.spin.rotation.x = -w.spin;
+      if (mw.spin.scale.y !== ws || mw.spin.scale.x !== wx) mw.spin.scale.set(wx, ws, ws);
     }
+    const sp = m.spare.steer, spS = P.tire.radius / 0.42;
+    if (sp.scale.y !== spS || sp.scale.x !== wx) { sp.scale.set(wx, spS, spS); sp.position.z = 2.33 + 0.11 + 0.135 * wx; }
     // suspension pieces (body frame)
     for (const s of m.suspension) {
       const ap = P.axles[s.ai];
@@ -95,7 +99,7 @@ export class VehicleView {
     m.root.updateMatrixWorld(true);
 
     // tyre squash: contact plane into each tyre's object space
-    const R = P.tire.radius;
+    const R = v.R;
     for (let i = 0; i < 4; i++) {
       const w = v.wheels[i], mw = m.wheels[i];
       const u = mw.tireMat.userData.uniforms;
@@ -105,8 +109,9 @@ export class VehicleView {
         const n = _v2.copy(w.nLocal).applyQuaternion(quat);
         const p = hub.addScaledVector(n, -(R - w.pen));
         u.uPlaneP.value.copy(p).applyMatrix4(_m);
-        u.uPlaneN.value.copy(n).transformDirection(_m);
-        u.uDefl.value = Math.max(0, w.pen);
+        // a plane normal maps with the transpose of the object matrix (the wheel may be scaled unevenly)
+        u.uPlaneN.value.copy(n).applyMatrix3(_n3.setFromMatrix4(mw.tire.matrixWorld).transpose()).normalize();
+        u.uDefl.value = Math.max(0, w.pen) / ws;
       } else {
         u.uPlaneP.value.set(0, -5, 0);
         u.uPlaneN.value.set(0, 1, 0);

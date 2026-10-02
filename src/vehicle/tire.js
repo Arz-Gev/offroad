@@ -28,7 +28,7 @@ export function tireCoefs(tire, psi, surf, out) {
   const low = Math.max(0, Math.min(1, (30 - psi) / 24)); // 0 at 30 psi, 1 at 6 psi
   // aired-down tyres grip better on loose / soft ground and on rock (they wrap around it)
   const gripGain = 1 + low * (0.10 + 0.14 * surf.soft) + (surf === SURFACES.rock ? low * 0.08 : 0);
-  out.mu = surf.mu * gripGain;
+  out.mu = surf.mu * gripGain * (tire.grip ?? 1);
   // rolling resistance: soft ground prefers low pressure (float), hard ground prefers high pressure
   const hard = 1 - surf.soft;
   out.crr = surf.crr * (hard * Math.sqrt(28 / Math.max(psi, 4)) + surf.soft * Math.pow(Math.max(psi, 4) / 28, 0.6));
