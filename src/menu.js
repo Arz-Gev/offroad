@@ -19,6 +19,7 @@ const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${Stri
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
+    row('car', 'Vehicle', 'seg', { options: [['defender', 'Defender 110'], ['gclass', 'G-Class']], note: 'Same engine, gearbox, axles and tuning; the body, wheelbase and collision boxes change. Switching reloads the game. G-Class model: ItsDiyor on Sketchfab (CC BY 4.0).' }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),

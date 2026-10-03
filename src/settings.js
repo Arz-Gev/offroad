@@ -5,6 +5,7 @@ const KEY = 'offroad.settings.v1';
 const INTRO_KEY = 'offroad.introSeen.v1';
 
 export const DEFAULTS = {
+  car: 'defender',          // vehicle/cars.js; changing it reloads the game
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
   arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
@@ -54,6 +55,7 @@ export const DEFAULTS = {
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
+  car: ['defender', 'gclass'],
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],

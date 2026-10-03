@@ -19,6 +19,7 @@ import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildTruck } from './vehicle/truckModel.js';
+import { applyCar, fitCarBody } from './vehicle/cars.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
@@ -119,13 +120,16 @@ async function main() {
   // the player's tuning setup (saved) goes into the params before the truck is built
   const tuningApi = {};
   const tuning = new TuningPanel(tuningApi);
-  const P = applySetup(makeDefenderParams(), tuning.setup);
+  const settings = new Settings();
+  const car = settings.get('car');
+  const P = applySetup(applyCar(makeDefenderParams(), car), tuning.setup);
   const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
   const spawnY = terrain.heightAt(SPAWN.x, SPAWN.z) + 0.12 + rideRaise(P);
   const vehicle = new Vehicle(RAPIER, world, P, { position: { x: SPAWN.x, y: spawnY, z: SPAWN.z }, yaw: SPAWN.yaw, surfaceAt });
   vehicle.pressures = [tuning.setup.tyres.pressF, tuning.setup.tyres.pressR];
   world.step();
-  const model = buildTruck(makeDefenderParams());   // modelled stock; the view scales the wheels and follows the lift
+  const model = buildTruck(applyCar(makeDefenderParams(), car));   // modelled stock; the view scales the wheels and follows the lift
+  await fitCarBody(model, car);
   scene.add(model.root);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
@@ -136,7 +140,6 @@ async function main() {
   const input = new Input(canvas);
   const hud = new HUD();
   const audio = new GameAudio();
-  const settings = new Settings();
   const dust = new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const tracks = new Tracks(terrainView.material);
@@ -250,6 +253,7 @@ async function main() {
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   const APPLY = {
+    car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.mode !== v) { d.toggleMode(); if (o.silent) d.message = null; } },
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
     arcadeAuto(v, o) {

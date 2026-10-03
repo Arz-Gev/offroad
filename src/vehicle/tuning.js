@@ -200,7 +200,7 @@ export function applySetup(P, s) {
     idleRpm: E.idleRpm, inertia: E.inertia,
     limiterRpm: E.limiterRpm + dr, redlineRpm: E.redlineRpm + dr, shiftRpm: E.shiftRpm + dr,
   });
-  P.name = s.engine.preset === 'v8' ? B.name : 'Defender 110 ' + E.label;
+  if (!P.car) P.name = s.engine.preset === 'v8' ? B.name : 'Defender 110 ' + E.label;
   // a stronger engine gets a clutch and a lock-up clutch that hold it (stock parts hold the stock V8)
   const peak = Math.max(...P.engine.torque.map(x => x[1]));
   P.clutch.capacity = Math.max(B.clutch.capacity, peak * 1.45);
@@ -268,9 +268,11 @@ export function applySetup(P, s) {
     P.axles.forEach((a, i) => add(a.mass - B.axles[i].mass, [0, axY(a), a.z]));
   }
   P.bodyInertia = I;
-  // colliders
-  P.colliders = s.colliders.map(c => [...c.box]);
-  P.colliderNames = s.colliders.map(c => c.name);
+  // colliders (a car with its own body keeps its boxes: cars.js)
+  if (!P.ownColliders) {
+    P.colliders = s.colliders.map(c => [...c.box]);
+    P.colliderNames = s.colliders.map(c => c.name);
+  }
   return P;
 }
 

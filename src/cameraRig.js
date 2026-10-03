@@ -86,7 +86,7 @@ export class CameraRig {
         near = 0.03;
       } else {
         // on the bonnet, just behind the raised centre section
-        eye = new THREE.Vector3(0, 1.8, -1.0);
+        eye = model.hoodEye ? model.hoodEye.clone() : new THREE.Vector3(0, 1.8, -1.0);
         near = 0.08; fov = this.fov - 2;
       }
       cam.position.copy(eye).applyQuaternion(quat).add(pos);
