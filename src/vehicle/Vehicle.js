@@ -25,6 +25,10 @@ const GROUND_BIT = 0x0001, WHEEL_BIT = 0x0002;
 export const GROUP_GROUND = (GROUND_BIT << 16) | 0xffff;
 const GROUP_WHEEL_SIDE = (WHEEL_BIT << 16) | (0xffff & ~GROUND_BIT);
 
+// Keyboard steering assist (Settings): a held key asks for the angle that corners at k x the current grip
+// limit plus c x the front tyres' peak slip angle. 'off' = full lock at any speed.
+export const STEER_ASSIST = { strong: { k: 1.2, c: 0.5 }, light: { k: 1.6, c: 0.6 } };
+
 export class Vehicle {
   constructor(RAPIER, world, P, opts = {}) {
     this.RAPIER = RAPIER;
@@ -98,6 +102,7 @@ export class Vehicle {
     this.steerAngle = 0;
     this.steerComp = 0;      // compliance steer of the front wheels (aligning moment against the steering)
     this.revTimer = 0;
+    this.gripG = 0.63; this.gripSlip = 0.16;  // grip estimate for the keyboard steering limit (dirt)
     this.steerAssist = 'strong'; // keyboard steering limit at speed: 'strong' | 'light' | 'off' (Settings)
     this.arcadeAuto = false; // automatic gearbox: pedals pick R / D by themselves (Settings: Arcade automatic)
     this.speed = 0;          // forward speed m/s
@@ -262,18 +267,38 @@ export class Vehicle {
     c.brake = brake;
     c.clutch = raw.clutch;
     c.handbrake = this.handbrakeLogic(raw, h);
-    // steering: speed sensitive limit. Keyboard full lock asks for the angle that corners at ~0.75 g plus
-    // a little slip angle; more than that only scrubs the front tyres and rocks the truck onto two wheels.
+    // steering: speed sensitive limit (an input filter: what the "driver" asks for; the physics is the same
+    // in every mode). A held key can't be dosed like a wheel, so at speed it asks for the angle that corners
+    // at k x the grip under the truck right now (surface, pressure, tyre grip), plus c x the front tyres'
+    // peak slip angle. Strong stays just past the limit, light goes well past it (tap and release to dose).
     const v = Math.abs(this.speed), maxA = this.P.steer.maxAngle;
-    // (an input filter: what the "driver" asks for, the physics is the same in every mode)
-    const assist = raw.analogSteer ? 'light' : this.steerAssist;
+    this.updateGripEstimate(h);
     let lim = 1;
-    if (assist === 'light') lim = 1 / (1 + Math.max(0, v - 8) / 30);
-    else if (assist === 'strong') lim = Math.min(1, (Math.atan(this.P.wheelbase * 0.75 * G / Math.max(v * v, 1e-3)) + 0.09) / maxA);
+    if (raw.analogSteer) lim = 1 / (1 + Math.max(0, v - 8) / 30);
+    else {
+      const a = STEER_ASSIST[this.steerAssist];
+      if (a) lim = Math.min(1, (Math.atan(this.P.wheelbase * a.k * this.gripG * G / Math.max(v * v, 1e-3)) + a.c * this.gripSlip) / maxA);
+    }
     const target = raw.steer * maxA * lim;
     const rate = 1.35 * 17 / this.P.steer.ratio; // rad/s at the road wheel (hydraulic rack; stock 17:1)
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));
     c.steer = this.steerAngle;
+  }
+
+  // What the truck can corner at right now, from the tyres in contact (last step's coefficients): lateral
+  // limit in g (0.80 x mean mu: load transfer and load sensitivity, measured with tools/handling.mjs) and
+  // the front tyres' peak slip angle. Smoothed over ~0.3 s so a patch of grass doesn't twitch the wheel.
+  updateGripEstimate(h) {
+    let mu = 0, n = 0, ap = 0, nf = 0;
+    for (const w of this.wheels) {
+      if (!w.contact || !(w.Fn > 0) || !w.co.mu) continue;
+      mu += w.co.mu; n++;
+      if (w.i < 2) { ap += w.aPk || w.surf.aPeak; nf++; }
+    }
+    if (!n) return;
+    const k = Math.min(1, h / 0.3);
+    this.gripG += (0.80 * mu / n - this.gripG) * k;
+    if (nf) this.gripSlip += (ap / nf - this.gripSlip) * k;
   }
 
   // ------------------------------------------------------------------ geometry
