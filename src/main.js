@@ -28,6 +28,7 @@ import { Menu } from './menu.js';
 import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
+import { Multiplayer, roomFromURL } from './multiplayer.js';
 import './ui.css';
 
 installShaderPatches();     // before any material compiles: atmosphere fog, light skipping
@@ -192,6 +193,15 @@ async function main() {
   const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
   window.game = game;
 
+  // drive with friends (invite links, peer to peer); the menu's Friends tab
+  const mp = new Multiplayer({
+    RAPIER, world, scene, vehicle, view, settings,
+    say: (key, html, kind) => hud.toast(html, { kind, key }),
+    placeNear: (x, z, yaw) => placeVehicle(x, z, yaw),
+    changed: () => { if (menu.isOpen) menu.refresh(); },
+  });
+  game.mp = mp;
+
   // ---------------------------------------------------------------- graphics quality
   // preset (auto picks one from the GPU) or 'custom' (the g* settings) + resolution scale; applied live
   const gfx = { auto: autoQuality(renderer), preset: null, q: null };
@@ -285,6 +295,7 @@ async function main() {
     }])),
     renderScale: () => applyGraphics(),
     vegetation: () => applyGraphics(),
+    solidTrucks: () => mp.setSolid(),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
   };
   function hudOpt(v, o, key) { hud.configure({ [key]: v }); }
@@ -387,6 +398,8 @@ async function main() {
         case 'lightBar': return view.lights.bar;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
+        case 'mpNote': return mp.note;
+        case 'name': return mp.name;
         case 'qualityNote': {
           const sel = settings.get('quality'), auto = QUALITY[gfx.auto.preset].label;
           return sel === 'auto' ? `Auto: ${auto} for this graphics chip.` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`;
@@ -408,6 +421,10 @@ async function main() {
     action(id) {
       // menu buttons: the menu shows the result itself, so no toasts
       if (id === 'pressureDown' || id === 'pressureUp') vehicle.setPressure(vehicle.pressure + (id === 'pressureDown' ? -2 : 2));
+      else if (id === 'mpInvite') mp.invite().then(() => menu.isOpen && menu.refresh());
+      else if (id === 'mpGoto') { if (mp.count) menu.close(); mp.gotoFriend(); }
+      else if (id === 'mpLeave') mp.leave();
+      else if (id === 'mpName') mp.rename();
       game.redraw = 3;
     },
     teleport,
@@ -469,12 +486,14 @@ async function main() {
     input.update(dt);
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
     const paused = game.paused;
+    const now = performance.now() / 1000;
 
     if (!paused) {
       acc += dt;
       let steps = 0;
       while (acc >= H && steps < MAX_STEPS) {
         prevPos.copy(curPos); prevQ.copy(curQ);
+        mp.stepBodies(now - (acc - H), H);   // friends' solid trucks at this step's instant
         vehicle.step(H, raw);
         world.step();
         const t = vehicle.body.translation(), q = vehicle.body.rotation();
@@ -491,6 +510,7 @@ async function main() {
       if (curPos.y < -60) { placeVehicle(SPAWN.x, SPAWN.z, 0); say('place', 'Fell off the map: back at the spawn', 'warn'); }
     }
     mark('physics');
+    mp.update(paused ? 0 : dt, now - acc, { night: env.night, darkness: env.darkness, shadows: true });
     // paused: render only when something changed (setting, resize, time-of-day blend), the menu covers the view
     const draw = !paused || game.redraw > 0 || env.active;
     if (game.redraw > 0) game.redraw--;
@@ -501,6 +521,7 @@ async function main() {
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
+      mp.updateTags(camera);
       env.update(dt, rPos, camera);
       // the wheels and the body push the grass aside
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
@@ -569,6 +590,10 @@ async function main() {
   loading.classList.add('done');
   setTimeout(() => loading.remove(), 600);
   started = true;
+
+  // opened from an invite link: join the room and drive next to the first friend we hear from
+  const inviteRoom = roomFromURL();
+  if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
   if (!settings.introSeen) menu.openIntro();
   else say('welcome', `Defender 110 V8 · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${k('menu')} menu · ${k('controls')} controls`, '', 5);

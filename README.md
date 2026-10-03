@@ -11,7 +11,7 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
 
 ## Controls
-**Esc** (gamepad **Menu**) pauses and opens the menu: **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. The first start shows a short controls card. Settings are saved in the browser.
+**Esc** (gamepad **Menu**) pauses and opens the menu: **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
 
 | Keyboard | Gamepad | Action |
 |---|---|---|
@@ -53,4 +53,5 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 1 km procedural terrain inside mountain ranges that run on to the horizon. The original core: trail loop + branch with ruts and a mud hole, a big hill, and a proving ground: A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber. Around it: a 2.5 km outer trail loop past a lake, a stream with a ford, meadows with a ruined hut, an old quarry, a pine forest, and a spiral track up a lookout peak. P opens the location picker. Graphics quality (Auto/Low/Medium/High/Ultra) and resolution scale are in Settings.
 
 ## Credits
+- Multiplayer: [Trystero](https://github.com/dmotz/trystero) (MIT).
 - Mercedes-Benz G-Class 2021 model: [ItsDiyor on Sketchfab](https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d), CC BY 4.0. Wheels removed, compressed and re-framed for the game (`public/models/gclass2021.glb`).

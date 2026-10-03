@@ -389,3 +389,13 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
   .sound-pill.locked, .tt.blink { animation: none; }
 }
 
+
+/* multiplayer: name tags over friends' trucks (multiplayer.js moves them with transform) */
+#mp-tags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+.mp-tag {
+  position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform;
+  padding: 3px 9px; border-radius: 999px; background: rgba(12, 14, 16, 0.62); color: #fff;
+  font: 600 13px/1.2 system-ui, -apple-system, sans-serif; letter-spacing: 0.01em;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+body.paused #mp-tags { display: none; }

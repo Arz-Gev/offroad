@@ -12,6 +12,7 @@ const TABS = [
   { id: 'locations', label: 'Locations', hot: 'locations' },
   { id: 'settings', label: 'Settings' },
   { id: 'graphics', label: 'Graphics' },
+  { id: 'friends', label: 'Friends' },
   { id: 'controls', label: 'Controls', hot: 'controls' },
 ];
 
@@ -57,6 +58,15 @@ const SECTIONS = [
   { title: 'Game', rows: [
     row('autoPause', 'Pause when the window loses focus', 'switch'),
     row('_game', '', 'buttons', { buttons: [['resetSettings', 'Reset settings']] }),
+  ] },
+];
+
+// Friends tab (multiplayer.js): the notes are filled in by refresh()
+const MP_SECTIONS = [
+  { title: 'Drive with friends', rows: [
+    row('mpRoom', 'Room', 'buttons', { buttons: [['mpInvite', 'Invite'], ['mpGoto', 'Go to friend'], ['mpLeave', 'Leave']], note: ' ' }),
+    row('mpName', 'Your name', 'buttons', { buttons: [['mpName', 'Change']], note: ' ' }),
+    row('solidTrucks', 'Solid trucks', 'switch', { note: 'Off: friends\' trucks are ghosts you drive through. On: they are as heavy as real trucks, so a bump shoves both of you. Each game works out the hit on its own side, so the two views can differ a little.' }),
   ] },
 ];
 
@@ -127,6 +137,7 @@ export class Menu {
         <section class="pane" role="tabpanel" id="pane-locations" data-pane="locations"></section>
         <section class="pane" role="tabpanel" id="pane-settings" data-pane="settings" hidden></section>
         <section class="pane" role="tabpanel" id="pane-graphics" data-pane="graphics" hidden></section>
+        <section class="pane" role="tabpanel" id="pane-friends" data-pane="friends" hidden></section>
         <section class="pane" role="tabpanel" id="pane-controls" data-pane="controls" hidden></section>
         <footer class="sheet-foot" id="m-foot"></footer>
       </div>`;
@@ -135,6 +146,7 @@ export class Menu {
     this.buildLocations();
     this.buildSettings(this.panes.settings, SECTIONS);
     this.buildSettings(this.panes.graphics, GFX_SECTIONS);
+    this.buildSettings(this.panes.friends, MP_SECTIONS);
     this.buildControls();
     this.renderDevice();
 
@@ -172,7 +184,7 @@ export class Menu {
       </div>`;
   }
 
-  rowDef(key) { for (const s of [...SECTIONS, ...GFX_SECTIONS]) for (const r of s.rows) if (r.key === key) return r; return null; }
+  rowDef(key) { for (const s of [...SECTIONS, ...GFX_SECTIONS, ...MP_SECTIONS]) for (const r of s.rows) if (r.key === key) return r; return null; }
 
   buildSettings(pane, sections) {
     const ctl = r => {
@@ -217,9 +229,9 @@ export class Menu {
     const k = (l, cls = '') => `<kbd class="cap${cls}">${l}</kbd>`;
     const n = this.api.locations.length;
     const items = dev === 'pad'
-      ? [[k('D-pad', ' pad'), 'Move'], (tab === 'settings' || tab === 'graphics') && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
+      ? [[k('D-pad', ' pad'), 'Move'], (tab === 'settings' || tab === 'graphics' || tab === 'friends') && [k('←', ' pad') + k('→', ' pad'), 'Change'], [k('A', ' pad pad-a'), tab === 'locations' ? 'Teleport' : 'Select'],
         [k('LB', ' pad') + k('RB', ' pad'), 'Tabs'], [k('B', ' pad pad-b'), 'Resume']]
-      : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], (tab === 'settings' || tab === 'graphics') && [k('←') + k('→'), 'Change'],
+      : [[k('↑') + k('↓'), tab === 'controls' ? 'Scroll' : 'Move'], (tab === 'settings' || tab === 'graphics' || tab === 'friends') && [k('←') + k('→'), 'Change'],
         tab !== 'controls' && [k('Enter'), tab === 'locations' ? 'Teleport' : 'Select'], tab === 'locations' && [k('1') + '–' + k(String(Math.min(9, n))), 'Quick pick'],
         [k('Q') + k('E'), 'Tabs'], [k('Esc'), 'Resume']];
     this.root.querySelector('#m-foot').innerHTML = items.filter(Boolean).map(([c, t]) => `<span>${c} ${t}</span>`).join('');
@@ -230,7 +242,7 @@ export class Menu {
     const api = this.api;
     const here = api.get('here');
     this.panes.locations.querySelectorAll('.loc-here').forEach((el, i) => { el.hidden = i !== here; });
-    for (const rowEl of [...this.panes.settings.querySelectorAll('.set-row'), ...this.panes.graphics.querySelectorAll('.set-row')]) {
+    for (const rowEl of [...this.panes.settings.querySelectorAll('.set-row'), ...this.panes.graphics.querySelectorAll('.set-row'), ...this.panes.friends.querySelectorAll('.set-row')]) {
       const key = rowEl.dataset.key, def = this.rowDef(key);
       if (def.type === 'seg') {
         const cur = String(api.get(key));
@@ -257,6 +269,10 @@ export class Menu {
     const veg = !!api.get('vegetation');
     for (const r of this.panes.graphics.querySelectorAll('.set-row')) if (this.rowDef(r.dataset.key)?.veg) r.hidden = !veg;
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
+    for (const [key, src] of [['mpRoom', 'mpNote'], ['mpName', 'name']]) {
+      const el = this.panes.friends.querySelector(`[data-key="${key}"] .set-n`), t = api.get(src);
+      if (el && el.textContent !== t) el.textContent = t;
+    }
     const qn = this.panes.graphics.querySelector('[data-key="quality"] .set-n');
     const qt = api.get('qualityNote');
     if (qn && qt && qn.textContent !== qt) qn.textContent = qt;

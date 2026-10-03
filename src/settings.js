@@ -49,6 +49,8 @@ export const DEFAULTS = {
   gBushHeight: 1.6,         // undergrowth size multiplier
   gBushDist: 1.55,          // undergrowth distance multiplier
   vegetation: true,         // grass and undergrowth on / off (not part of the presets)
+  name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
+  solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
 
 // the time of day used to be one of three presets; saved games still hold those names
