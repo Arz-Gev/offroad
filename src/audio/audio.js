@@ -60,7 +60,7 @@ export class GameAudio {
     this.skid = chain('bandpass', 1100, 5);
     this.wind = chain('lowpass', 600, 0.5);
     this.mud = chain('bandpass', 260, 1.2);
-    this.grind = chain('bandpass', 2400, 3);
+    this.grind = chain('bandpass', 1400, 4);
 
     // transfer case / gear whine
     this.whine = ctx.createOscillator();
@@ -129,10 +129,15 @@ export class GameAudio {
     const tq = Math.min(1, (Math.abs(d.propTorque[0]) + Math.abs(d.propTorque[1])) / 3000);
     this.whine.frequency.setTargetAtTime(Math.max(20, prop * 9 / (2 * Math.PI) * 4), t, 0.03);
     this.whineGain.gain.setTargetAtTime(m * (d.range === 'low' ? 0.025 : 0.008) * Math.min(1, prop / 40) * (0.3 + tq), t, 0.05);
-    // gear grind
-    if (d.grind > 0 && this.lastGrind <= 0) this.grind.g.gain.setTargetAtTime(m * 0.4, t, 0.01);
-    if (d.grind <= 0 && this.lastGrind > 0) this.grind.g.gain.setTargetAtTime(0, t, 0.03);
-    if (d.grind > 0) this.grind.f.frequency.setValueAtTime(1800 + Math.random() * 1600, t);
+    // gear grind (a clutchless shift that didn't match revs). Was 0.4 at 1.8-3.4 kHz with a hard attack and
+    // the band jumping every frame: too loud and harsh (player). Now quieter, lower, softer edges, and the
+    // band wanders instead of jumping; it still rasps (the level flutters like teeth clashing).
+    if (d.grind > 0 && this.lastGrind <= 0) this.grind.g.gain.setTargetAtTime(m * 0.16, t, 0.025);
+    if (d.grind <= 0 && this.lastGrind > 0) this.grind.g.gain.setTargetAtTime(0, t, 0.06);
+    if (d.grind > 0) {
+      this.grind.f.frequency.setTargetAtTime(1150 + Math.random() * 550, t, 0.02);
+      this.grind.g.gain.setTargetAtTime(m * 0.16 * (0.6 + 0.4 * Math.random()) * Math.min(1, d.grind / 0.15), t, 0.015);
+    }
     this.lastGrind = d.grind;
     // bump stops / landing knocks
     this.knockCooldown -= dt;
