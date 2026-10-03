@@ -15,16 +15,34 @@ export { createMaterials };
 
 // ---------------------------------------------------------------- wheel
 let _tireGeo = null;
+// planar UVs per box face (the lug boxes are flat-shaded, one normal per face), 4 texture tiles per metre,
+// with a different offset per box so neighbouring blocks don't repeat the same grain
+let _boxN = 0;
+function boxUV(g) {
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const ou = (_boxN * 0.618034) % 1 * 8, ov = (_boxN * 0.414214) % 1 * 8;
+  _boxN++;
+  for (let i = 0; i < pos.count; i++) {
+    const ax = Math.abs(nor.getX(i)), ay = Math.abs(nor.getY(i));
+    const [a, b] = ax > 0.5 ? [pos.getZ(i), pos.getY(i)] : ay > 0.5 ? [pos.getX(i), pos.getZ(i)] : [pos.getX(i), pos.getY(i)];
+    uv.setXY(i, a * 4 + ou, b * 4 + ov);
+  }
+}
+
 export function tireGeometry(R = 0.42) {
   if (_tireGeo) return _tireGeo;
   const prof = [[0.205, -0.112], [0.235, -0.125], [0.29, -0.133], [0.345, -0.134], [0.378, -0.128], [0.392, -0.116],
     [0.398, -0.095], [0.399, 0.0], [0.398, 0.095], [0.392, 0.116], [0.378, 0.128], [0.345, 0.134], [0.29, 0.133], [0.235, 0.125], [0.205, 0.112]];
   const carcass = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 72);
   carcass.rotateZ(-Math.PI / 2); // axis along x
+  // rubber texture: one tile per 0.25 m; the lathe's u wraps once round the tyre, so it gets a whole number of tiles
+  const uv = carcass.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 8, uv.getY(i) * 3.6);
   const parts = [carcass];
   const NP = 22;
   const lug = (axial, radial0, radial1, circ, ax, angle, skew = 0) => {
     const g = new THREE.BoxGeometry(axial, radial1 - radial0, circ);
+    boxUV(g);
     g.translate(0, (radial0 + radial1) / 2, 0);
     if (skew) g.rotateY(skew);
     g.translate(ax, 0, 0);
@@ -43,7 +61,7 @@ export function tireGeometry(R = 0.42) {
     parts.push(lug(0.055, 0.395, R - 0.002, 0.05, -0.022, b + 0.05, 0.4));
     parts.push(lug(0.055, 0.395, R - 0.002, 0.05, 0.022, a + 0.05, -0.4));
   }
-  const nonIndexed = parts.map(g => { const ng = g.index ? g.toNonIndexed() : g; ng.deleteAttribute('uv'); return ng; });
+  const nonIndexed = parts.map(g => { const ng = g.index ? g.toNonIndexed() : g; return ng; });
   _tireGeo = mergeGeometries(nonIndexed);
   _tireGeo.computeVertexNormals();
   _tireGeo.computeBoundingSphere();
@@ -100,7 +118,7 @@ function buildWheel(mats, side, deformable) {
   const steer = new THREE.Group();
   const spin = new THREE.Group();
   steer.add(spin);
-  const tireMat = deformable ? createTireMaterial(mats.rubberTex) : new THREE.MeshStandardMaterial({ color: 0xffffff, map: mats.rubberTex, roughness: 0.88 });
+  const tireMat = deformable ? createTireMaterial(mats.rubberTex) : new THREE.MeshStandardMaterial({ color: 0xffffff, map: mats.rubberTex, bumpMap: mats.rubberTex, bumpScale: 2.5, roughness: 0.88 });
   const tire = mesh(tireGeometry(), tireMat);
   spin.add(tire);
   const rim = rimGroup(mats);

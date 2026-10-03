@@ -6,7 +6,7 @@ import * as THREE from 'three';
 // outward in proportion to the radial deflection, like a real aired-down tyre.
 
 export function createTireMaterial(map) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, map, roughness: 0.86, metalness: 0.0 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, map, bumpMap: map, bumpScale: 2.5, roughness: 0.86, metalness: 0.0 });
   const uniforms = {
     uPlaneP: { value: new THREE.Vector3(0, -10, 0) },
     uPlaneN: { value: new THREE.Vector3(0, 1, 0) },

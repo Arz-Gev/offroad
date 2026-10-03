@@ -167,29 +167,38 @@ export function createMaterials() {
   return m;
 }
 
-// Tileable rubber texture for the tyres (no dependency on the world textures)
+// Tileable rubber texture for the tyres (no dependency on the world textures). Used as colour and as
+// bump map: coarse mottling, fine moulded grain, a few pale scuffs and dust-grey specks.
 export function makeRubberTexture() {
-  const S = 128;
+  const S = 256;
   const data = new Uint8Array(S * S * 4);
   let seed = 1234567;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-  const grid = 16, g = new Float32Array(grid * grid);
-  for (let i = 0; i < g.length; i++) g[i] = rnd();
-  const vn = (x, y) => {
+  // periodic value noise: lattice of `grid` cells that wraps, so the texture tiles
+  const lattice = grid => { const g = new Float32Array(grid * grid); for (let i = 0; i < g.length; i++) g[i] = rnd(); return g; };
+  const noise = (g, grid, x, y) => {
     const xi = Math.floor(x), yi = Math.floor(y), tx = x - xi, ty = y - yi;
     const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
-    const a = g[(yi % grid) * grid + (xi % grid)], b = g[(yi % grid) * grid + ((xi + 1) % grid)];
-    const c = g[((yi + 1) % grid) * grid + (xi % grid)], d = g[((yi + 1) % grid) * grid + ((xi + 1) % grid)];
+    const x0 = xi % grid, x1 = (xi + 1) % grid, y0 = yi % grid, y1 = (yi + 1) % grid;
+    const a = g[y0 * grid + x0], b = g[y0 * grid + x1], c = g[y1 * grid + x0], d = g[y1 * grid + x1];
     return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
   };
+  const oct = [[8, lattice(8)], [16, lattice(16)], [32, lattice(32)], [64, lattice(64)]];
+  const scuff = lattice(6);
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const u = x / S * grid, v = y / S * grid;
-    const n = vn(u, v) * 0.6 + vn((u * 2) % grid, (v * 2) % grid) * 0.4;
-    const c = 40 + n * 26 + (rnd() - 0.5) * 6;
+    const u = x / S, v = y / S;
+    let n = 0, amp = 0.5, tot = 0;
+    for (const [grid, g] of oct) { n += noise(g, grid, u * grid, v * grid) * amp; tot += amp; amp *= 0.62; }
+    n /= tot;
+    // stretched noise gives a few pale streaks where the tyre has been dragged over dust
+    const sc = Math.max(0, noise(scuff, 6, u * 6, v * 6 * 0.5) - 0.62) * 2.2;
+    const speck = rnd() < 0.012 ? 18 + rnd() * 22 : 0;
+    const c = 30 + n * 46 + sc * 22 + speck + (rnd() - 0.5) * 12;
     const i = (y * S + x) * 4;
     data[i] = c; data[i + 1] = c; data[i + 2] = c + 1; data[i + 3] = 255;
   }
   const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  t.anisotropy = 4;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.LinearFilter;
