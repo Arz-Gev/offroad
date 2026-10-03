@@ -7,7 +7,7 @@ const INTRO_KEY = 'offroad.introSeen.v1';
 export const DEFAULTS = {
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
-  arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
+  arcadeAuto: true,         // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
   handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
   steerAssist: 'strong',    // keyboard steering at speed: 'strong' (~0.75 g) | 'light' (gamepad curve) | 'off' (full lock)
   camera: 'chase',
