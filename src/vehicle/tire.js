@@ -18,6 +18,14 @@ for (const s of Object.values(SURFACES)) s.B = Math.tan(Math.PI / (2 * s.C)); //
 
 const FN_REF = 5200;
 
+// Lateral load sensitivity. A real tyre's cornering stiffness grows much slower than its load (roughly
+// Fz^0.6-0.7), so the slip angle at the force peak grows with load. This is what makes lateral load
+// transfer cost grip: the axle that takes more of it (stiffer roll, more weight) slides first. With a
+// constant peak slip angle the cornering stiffness was almost proportional to load (exponent 0.86) and the
+// truck came out nearly neutral whatever its weight split and anti-roll bars.
+const LAT_LOAD_EXP = 0.35;
+export const latPeak = (surf, Fn) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / FN_REF)), LAT_LOAD_EXP);
+
 // Radial stiffness (N/m) as a function of pressure (psi): carcass + air.
 export function tireRadialStiffness(psi) {
   return 46000 + 6300 * psi;
@@ -45,7 +53,8 @@ export function tireForces(w, Fn, vsx, vsy, speed, surf, co) {
   const loadFactor = Math.max(0.75, Math.min(1.12, 1 - 0.14 * (Fn / FN_REF - 1)));
   const mu = co.mu * loadFactor;
   const sx = w.ux / (co.Lx * surf.kPeak);
-  const sy = w.uy / (co.Ly * surf.aPeak);
+  w.aPk = latPeak(surf, Fn);
+  const sy = w.uy / (co.Ly * w.aPk);
   const s = Math.hypot(sx, sy);
   let Fx = 0, Fy = 0;
   if (s > 1e-9) {
@@ -72,10 +81,11 @@ export function tireRelax(w, h, vsx, vsy, avx, surf, co) {
   w.ux = (w.ux + h * vsx) / (1 + h * avx / co.Lx);
   w.uy = (w.uy + h * vsy) / (1 + h * avx / co.Ly);
   const sx = w.ux / (co.Lx * surf.kPeak);
-  const sy = w.uy / (co.Ly * surf.aPeak);
+  const aPk = w.aPk || surf.aPeak;  // set by tireForces this substep (load dependent)
+  const sy = w.uy / (co.Ly * aPk);
   const s = Math.hypot(sx, sy);
   const vref = Math.max(avx, 0.6);
-  const ss = Math.hypot((vsx / vref) / surf.kPeak, (vsy / vref) / surf.aPeak);
+  const ss = Math.hypot((vsx / vref) / surf.kPeak, (vsy / vref) / aPk);
   const smax = Math.max(1, ss);
   if (s > smax) { const k = smax / s; w.ux *= k; w.uy *= k; }
   w.slipSteady = ss;

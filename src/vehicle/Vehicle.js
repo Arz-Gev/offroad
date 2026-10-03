@@ -96,6 +96,7 @@ export class Vehicle {
 
     this.ctl = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };
     this.steerAngle = 0;
+    this.steerComp = 0;      // compliance steer of the front wheels (aligning moment against the steering)
     this.revTimer = 0;
     this.arcadeAuto = false; // automatic gearbox: pedals pick R / D by themselves (Settings: Arcade automatic)
     this.speed = 0;          // forward speed m/s
@@ -292,7 +293,7 @@ export class Vehicle {
   }
 
   steerAngles() {
-    const d = this.steerAngle;
+    const d = this.steerAngle + this.steerComp;
     if (Math.abs(d) < 1e-4) return [d, d];
     const L = this.P.wheelbase, T = this.P.steer.kingpinTrack;
     const Rt = L / Math.tan(Math.abs(d));
@@ -313,7 +314,9 @@ export class Vehicle {
     }
     for (const w of this.wheels) {
       const ax = w.axle;
-      w.steer = ax.p.steered ? (w.side < 0 ? sl : sr) : 0;
+      // roll steer: the axle's links swing it about a vertical axis as the body rolls on it.
+      // rollSteer > 0 = roll understeer (rear axle turns into the bend, front axle out of it)
+      w.steer = (ax.p.steered ? (w.side < 0 ? sl : sr) : 0) + Math.sign(ax.p.z) * -(ax.p.rollSteer || 0) * ax.phi;
       w.hub.set(w.side * P.track / 2, 0, 0).applyQuaternion(ax.q).add(ax.A);
       _q.setFromAxisAngle(Y, -w.steer);
       w.q.copy(ax.q).multiply(_q);
@@ -549,6 +552,25 @@ export class Vehicle {
     }
 
     for (let i = 0; i < 4; i++) this.wheels[i].spin += dt.w[2 + i] * h;
+    this.steerCompliance(h);
+  }
+
+  // Steering compliance. The front tyres' side force acts behind the kingpins (caster trail + pneumatic
+  // trail), and the box, drag link and track rod are not rigid, so the wheels yield a little towards
+  // smaller slip angles. That is a big part of a real truck's understeer. The pneumatic trail shrinks as
+  // the tyre slides (s -> 1), which is why the steering goes light at the limit.
+  steerCompliance(h) {
+    const S = this.P.steer;
+    if (!S.stiffness) { this.steerComp = 0; return; }
+    let M = 0;
+    for (let i = 0; i < 2; i++) {
+      const w = this.wheels[i];
+      if (w.Fn <= 0) continue;
+      const tp = S.pneuTrail * Math.max(0, 1 - w.slipNorm);
+      M += w.Fy * (S.casterTrail + tp);
+    }
+    const target = Math.max(-0.06, Math.min(0.06, -M / S.stiffness));
+    this.steerComp += (target - this.steerComp) * Math.min(1, h * 60); // steering system lag (~25 Hz)
   }
 
   hubPenDot(w) {

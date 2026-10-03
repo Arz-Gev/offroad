@@ -21,6 +21,7 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - The deflection is clamped by the steady-state slip, so a spinning wheel can't wind up.
   - A low-speed damper (`2.6 * Fn * fade`) stops parked trucks oscillating.
   - Stability of these terms relies on the 960 Hz substep. Raise substeps if you add stiffness.
+  - Lateral load sensitivity: the peak slip angle grows as `Fn^0.35` (`latPeak`), so cornering stiffness grows ~`Fn^0.65` as on a real tyre. Before (Oct 3) it was almost proportional to load, lateral load transfer cost no grip, and weight split and anti-roll bars hardly changed the balance.
 - **Drivetrain** (`drivetrain.js`):
   - Bodies: engine, input shaft, 4 wheels.
   - Equality rows: gear, centre/axle lockers, park pawl.
@@ -28,6 +29,7 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - Warm start, 24 PGS iterations.
   - Open diffs need no special code: the gear row with `-G/4` per wheel already gives an equal torque split.
 - **Torque reactions**: the body gets `-(Ie*αe + Tprop_f + Tprop_r)` about `+z`, and each axle gets `+Tprop`. That's where the launch body roll and axle wrap come from. The sign follows a crank turning clockwise seen from the front.
+- **Handling balance** (Oct 3, `tools/yawtest.mjs`): ~1.9°/g understeer at the road wheels on dirt; lifting off at the limit tucks the nose in a little and settles. It comes from real parts, not a stability aid: tyre load sensitivity (above), 51 % front weight, ~53 % front roll stiffness (ARB 11000 / 4000), steering compliance (`steer.stiffness`: side force × caster + pneumatic trail about the kingpins, `Vehicle.steerCompliance`) and rear roll understeer (`rollSteer` 0.06 rad/rad, trailing links + A-frame). Yaw inertia includes the axles (4400).
 - **Suspension**: coil springs at `springTrack` with progressive bump stops (with hysteresis), dampers at `damperTrack` (outboard, digressive above `damperKnee`). Roll damping matters most: it was ζ≈0.2 and the truck rocked itself onto two wheels.
 - **Traction control** (`vehicle.tc`, key Y): brakes any wheel whose surface speed exceeds the ground speed under it, so open diffs send torque to the wheels with grip. Full authority below ~30 km/h, fading with speed.
 - **Auto upshift** uses `min(wheel speed, ground speed)`. Without that it upshifted while the wheels were spinning in the rock garden.
@@ -54,7 +56,8 @@ Things that are not obvious from reading the code: conventions, measured baselin
 | 80→0 km/h braking | 34 m, ~0.75 g on dirt (μ 0.72), stable with ABS (without ABS the rear locks and it spins) |
 | 30° slope, P + handbrake | holds, ~2 cm settle |
 | 30° climb, low range | open diffs + traction control: climbs; centre locked: climbs faster; TC off + open centre: can't (correct) |
-| Steady cornering (`tools/handling.mjs`) | dirt ~0.59 g, grass ~0.50 g, ~8° roll, no wheel lift in steady turns or keyboard slalom up to 70 km/h |
+| Steady cornering (`tools/handling.mjs`) | dirt ~0.59 g, grass ~0.50 g, ~8.5° roll, no wheel lift in steady turns; keyboard slalom 40–70 km/h lifts a wheel for ≤ 0.17 s. Concrete (μ 0.98): steady 0.79 g, but the keyboard slalom rolls it over (it did before Oct 3 too; static stability factor t/2h ≈ 0.87) |
+| High-speed yaw (`tools/yawtest.mjs dirt 90 3`) | fixed road-wheel angle, then lift off: body slip stays under ~8° and shrinks, no spin at 1–5° and 60–110 km/h on dirt, grass, concrete (before Oct 3: 2–3° at 90 km/h spun after the lift, slip 3° → 28°) |
 | Proving ground | steps up to 45 cm OK, logs OK, 35° ramp OK, twister ±11° axle roll; rock garden needs lockers + a line |
 | Trail lap (`tools/traillap.mjs 60 0.45 90`) | 53 km/h mean, wheel off ground 5.8 %, vertical accel rms 2.65 m/s², max roll 9°, no rollovers (before the Oct 2 ride fix: 12 %, 4.0 m/s², 27°) |
 | Browser cost | physics ≈ 0.45 ms/step (≈1.8 ms/frame), render ≈ 1 ms, truck = 78 meshes after `mergeStatic` |
@@ -65,6 +68,8 @@ Things that are not obvious from reading the code: conventions, measured baselin
 ## Traps already hit
 
 - **Wheel side cylinders must never touch the terrain heightfield.** They are teleported to the hub every step, so any contact with the ground becomes a huge impulse on the whole truck (10–37 g spikes, the "pogo stick" ride). Collision groups: heightfields are `GROUP_GROUND` (set in the Vehicle constructor), the cylinders filter it out and only hit rocks, logs and trees.
+- **Don't fix understeer with rear roll stiffness.** On Oct 2 the bars went from 11000 / 4000 to 8000 / 8500 (rear-biased) to cure keyboard understeer; with the rear-biased weight that made the truck nearly neutral, and on Oct 3 it spun when you lifted off at speed. The understeer was the keyboard asking for 4× the angle (next trap). Old saved setups with exactly 8000 / 8500 are migrated to the stock bars (`fill` in `tuning.js`, setup `v` 2).
+- With no one steering the truck wanders slowly under full power (axle wrap tilts the axles ~0.3–0.9°, the rear roll steer turns that into ~0.2°/s of yaw). Real, but headless runs need room: the dyno pad is 160 m wide.
 - Keyboard steering at speed must be limited by lateral acceleration (`applyInput`): full lock at 45 km/h used to ask for 4× the angle the bend needed, which rocked the truck onto two wheels.
 
 - `flat` is a reserved GLSL word (the tyre shader failed to compile).

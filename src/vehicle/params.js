@@ -10,8 +10,12 @@ export function makeDefenderParams() {
   return {
     name: 'Defender 110 V8',
     bodyMass: 1880,                       // sprung mass incl. roof rack, winch, spare
-    bodyInertia: [3300, 3700, 950],       // principal inertia about COM: pitch (x), yaw (y), roll (z)
-    com: [0, 0.90, 0.08],                 // centre of mass (local)
+    // principal inertia about the COM: pitch (x), yaw (y), roll (z). The axles' mass sits in this body, so
+    // yaw includes them at +-1.4 m (they swing sideways with the body); pitch and roll only their small
+    // horizontal part (their vertical motion is the axle DOF).
+    bodyInertia: [3400, 4400, 1040],
+    // centre of mass (local): 51 % on the front axle (engine, winch and bumper ahead of it)
+    com: [0, 0.90, -0.04],
     aero: { cdA: 2.15, rho: 1.2 },
     wheelbase,
     track,
@@ -25,7 +29,8 @@ export function makeDefenderParams() {
         springTrack: 1.0, k: 43000, preload: 0.0,
         // dampers sit outboard, close to the wheels; digressive above the knee (m/s)
         damperTrack: 1.24, bump: 3800, rebound: 6000, damperKnee: 0.22, damperHigh: 0.55,
-        arb: 8000,
+        // roll stiffness ~53 % front, a little over its weight share: a stable, mildly understeering truck
+        arb: 11000,
         steered: true,
       },
       {
@@ -33,7 +38,9 @@ export function makeDefenderParams() {
         mass: 175, rollInertia: 72,
         springTrack: 1.04, k: 47000, preload: 0.0,
         damperTrack: 1.24, bump: 4000, rebound: 6300, damperKnee: 0.22, damperHigh: 0.55,
-        arb: 8500,
+        arb: 4000,
+        // trailing links + A-frame: the axle turns slightly into the bend as the body rolls (rad / rad)
+        rollSteer: 0.06,
         steered: false,
       },
     ],
@@ -50,7 +57,12 @@ export function makeDefenderParams() {
       relaxY: 0.55,            // lateral relaxation length (m)
     },
 
-    steer: { maxAngle: 0.62, kingpinTrack: 1.38, ratio: 17 },
+    steer: {
+      maxAngle: 0.62, kingpinTrack: 1.38, ratio: 17,
+      // compliance: side force x (caster trail + pneumatic trail) about the kingpins over the stiffness of
+      // the steering box, drag link and track rod (N·m/rad at the road wheels, both wheels together)
+      casterTrail: 0.022, pneuTrail: 0.035, stiffness: 50000,
+    },
 
     brakes: { front: 2700, rear: 1350, handbrake: 3200, handbrakeHold: 24000 }, // max torque per wheel (handbrake: at rear axle; hold: whole transfer output at a stop)
 

@@ -83,7 +83,7 @@ function stockSetup() {
   const P = BASE, [f, r] = P.axles;
   const axle = a => ({ k: a.k, bump: a.bump, rebound: a.rebound, arb: a.arb, travel: a.travel });
   return {
-    v: 1,
+    v: 2,
     engine: { preset: 'v8', torque: 1, revs: 0 },
     gearbox: {
       auto: [...P.auto.ratios], autoRev: P.auto.reverse,
@@ -141,7 +141,10 @@ function fill(base, s) {
   out.tyres.pressF = num(t.pressF, 'tyres.press', out.tyres.pressF);
   out.tyres.pressR = num(t.pressR, 'tyres.press', out.tyres.pressR);
   out.tyres.grip = num(t.grip, 'tyres.grip', out.tyres.grip);
-  const su = s.suspension || {};
+  const su = clone(s.suspension || {});
+  // v1 setups carry the Oct 2 anti-roll bars (8000 / 8500, rear-biased: the truck spun out when you lifted
+  // off at speed). Untouched stock values there take the current stock bars.
+  if (!(s.v >= 2) && su.front?.arb === 8000 && su.rear?.arb === 8500) { delete su.front.arb; delete su.rear.arb; }
   out.suspension.lift = num(su.lift, 'suspension.lift', out.suspension.lift);
   for (const ax of ['front', 'rear']) for (const k of ['k', 'bump', 'rebound', 'arb', 'travel']) out.suspension[ax][k] = num(su[ax]?.[k], 'suspension.' + k, out.suspension[ax][k]);
   const b = s.brakes || {};
