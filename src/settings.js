@@ -57,7 +57,7 @@ export const DEFAULTS = {
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
-  car: ['defender', 'gclass'],
+  car: ['defender', 'gclass', 'lancia'],
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],

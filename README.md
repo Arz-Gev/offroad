@@ -54,4 +54,5 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 
 ## Credits
 - Multiplayer: [Trystero](https://github.com/dmotz/trystero) (MIT).
-- Mercedes-Benz G-Class 2021 model: [ItsDiyor on Sketchfab](https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d), CC BY 4.0. Wheels removed, compressed and re-framed for the game (`public/models/gclass2021.glb`).
+- Mercedes-Benz G-Class 2021 model: [ItsDiyor on Sketchfab](https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d), CC BY 4.0. Wheels split off, compressed and re-framed for the game (`public/models/gclass2021.glb`).
+- Lancia Delta HF Integrale Evo 2 model: [TARANTULA on Sketchfab](https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7), CC BY 4.0. Same treatment (`public/models/lancia-delta.glb`).

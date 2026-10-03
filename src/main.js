@@ -13,13 +13,13 @@ import { buildUndergrowth } from './world/undergrowth.js';
 import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
-import { makeDefenderParams } from './vehicle/params.js';
-import { applySetup, rideRaise } from './vehicle/tuning.js';
+import { applySetup, rideRaise, useCar } from './vehicle/tuning.js';
 import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildTruck } from './vehicle/truckModel.js';
-import { applyCar, fitCarBody } from './vehicle/cars.js';
+import { fitCarBody } from './vehicle/cars.js';
+import { makeCarParams } from './vehicle/carSpecs.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
@@ -119,17 +119,18 @@ async function main() {
 
   setLoading('Building the truck…', 0.68); await frame();
   // the player's tuning setup (saved) goes into the params before the truck is built
-  const tuningApi = {};
-  const tuning = new TuningPanel(tuningApi);
   const settings = new Settings();
   const car = settings.get('car');
-  const P = applySetup(applyCar(makeDefenderParams(), car), tuning.setup);
+  useCar(car);   // the tuning stock, ranges and saved setups are the car's own (before the panel is built)
+  const tuningApi = {};
+  const tuning = new TuningPanel(tuningApi);
+  const P = applySetup(makeCarParams(), tuning.setup);
   const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
   const spawnY = terrain.heightAt(SPAWN.x, SPAWN.z) + 0.12 + rideRaise(P);
   const vehicle = new Vehicle(RAPIER, world, P, { position: { x: SPAWN.x, y: spawnY, z: SPAWN.z }, yaw: SPAWN.yaw, surfaceAt });
   vehicle.pressures = [tuning.setup.tyres.pressF, tuning.setup.tyres.pressR];
   world.step();
-  const model = buildTruck(applyCar(makeDefenderParams(), car));   // modelled stock; the view scales the wheels and follows the lift
+  const model = buildTruck(makeCarParams());   // modelled stock; the view scales the wheels and follows the lift
   await fitCarBody(model, car);
   scene.add(model.root);
   const view = new VehicleView(model, vehicle);

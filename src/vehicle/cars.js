@@ -1,62 +1,44 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { makeDefenderParams } from './params.js';
+import { makeCarParams } from './carSpecs.js';
 import { staticRide } from './tuning.js';
 
-// Drivable bodies. Every car runs the Defender's physics (engine, gearbox, solid axles, tyres and the
-// tuning setup); a car only brings its own wheelbase, track and collision boxes. Imported cars swap the
-// Defender's body for a downloaded shell; our wheels, axles and suspension stay and sit in its arches.
+// What each drivable car looks like. Physics numbers: carSpecs.js. Imported cars swap the Defender's
+// body for a downloaded shell and its own wheels; our axles, springs, steering and lamps stay.
 //
-// Imported shells are prepared with tools/cutcar.mjs (DEVNOTES.md, "Imported cars"): wheels cut out,
-// frame baked in (+x right, -z forward, hub centre at y 0, mid-wheelbase at z 0), compressed (meshopt +
-// WebP). Placed in the body frame at the static hub height, so lift and bigger tyres move the wheels away
-// from the arches as on the Defender.
+// Shells are prepared with tools/prepcar.mjs (DEVNOTES.md, "Imported cars"): frame baked in (+x right,
+// -z forward, hub centre at y 0, mid-wheelbase at z 0), wheels split into wheel_<FL|FR|RL|RR> (spin) and
+// hub_<corner> (calipers: steer only), compressed (meshopt + WebP). The shell sits in the body frame at
+// the static hub height, so lift and bigger tyres move the wheels away from the arches as on the Defender.
 export const CARS = {
   defender: { label: 'Defender 110' },
   gclass: {
     label: 'G-Class',
     url: 'models/gclass2021.glb',
     credit: 'Mercedes-Benz G-Class 2021 by ItsDiyor, CC BY 4.0, https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d',
-    wheelbase: 2.907, track: 1.635,
+    wheel: { R: 0.4015, width: 0.285 },   // its own tyre (the wheel nodes scale from this to the tuned size)
     eye: [-0.40, 1.62, 0.10],           // left-hand drive
     hoodEye: [0, 1.68, -1.05],
     lamps: { head: [0, 0.95, -2.42], bar: [0, 2.02, -0.55], rear: [0, 0.80, 2.62] },
-    // [cx, cy, cz, hx, hy, hz, rounding], body frame at static ride (ground y 0), measured off the shell
-    colliders: [
-      ['Cabin and rear body', [0, 1.30, 0.825, 0.90, 0.68, 1.325, 0.06]],      // sill 0.62 to roof 1.98, windscreen top to rear face 2.15
-      ['Bonnet and wings', [0, 0.96, -1.325, 0.90, 0.34, 0.825, 0.06]],        // 0.62 to bonnet 1.30, bumper back to the windscreen
-      ['Front bumper', [0, 0.70, -2.24, 0.80, 0.25, 0.14, 0.03]],             // 0.45-0.95, face at -2.38
-      ['Rear bumper', [0, 0.585, 2.175, 0.85, 0.165, 0.125, 0.03]],           // 0.42-0.75, face 2.30
-      ['Chassis rails', [0, 0.52, 0.05, 0.45, 0.10, 2.05, 0.03]],             // 0.42-0.62
-      ['Spare wheel', [0, 1.19, 2.375, 0.42, 0.39, 0.175, 0.06]],             // on the rear door, to 2.55
-      ['Belly', [0, 0.51, -0.625, 0.30, 0.09, 1.125, 0.04]],                  // sump, gearbox, transfer case (lowest 0.42)
-    ],
+  },
+  lancia: {
+    label: 'Lancia Delta',
+    url: 'models/lancia-delta.glb',
+    credit: 'Lancia Delta HF Integrale Evo 2 by TARANTULA, CC BY 4.0, https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7',
+    wheel: { R: 0.2965, width: 0.241 },
+    eye: [-0.38, 1.10, 0.15],
+    hoodEye: [0, 1.02, -1.05],
+    lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
   },
 };
 
-export const carId = id => (CARS[id] ? id : 'defender');
+const CORNERS = ['FL', 'FR', 'RL', 'RR'];   // truckModel.buildTruck wheel order: front left, front right, rear ...
 
-// write the car's geometry into params (after tuning.applySetup, which leaves these alone)
-export function applyCar(P, id) {
-  const c = CARS[carId(id)];
-  if (!c.wheelbase) return P;
-  P.name = c.label;
-  P.car = carId(id);
-  P.wheelbase = c.wheelbase;
-  P.track = c.track;
-  P.axles[0].z = -c.wheelbase / 2;
-  P.axles[1].z = c.wheelbase / 2;
-  P.colliders = c.colliders.map(x => [...x[1]]);
-  P.colliderNames = c.colliders.map(x => x[0]);
-  P.ownColliders = true;
-  return P;
-}
-
-// swap the Defender body of a built truck model (truckModel.buildTruck) for the car's shell
+// swap the Defender body and wheels of a built truck model (truckModel.buildTruck) for the car's own
 export async function fitCarBody(model, id) {
-  const c = CARS[carId(id)];
-  if (!c.url) return;
+  const c = CARS[id];
+  if (!c?.url) return;
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const gltf = await loader.loadAsync(import.meta.env.BASE_URL + c.url);
   const shell = gltf.scene;
@@ -66,12 +48,41 @@ export async function fitCarBody(model, id) {
     o.castShadow = true;
     o.receiveShadow = true;
     const m = o.material;
+    // glass: plain alpha blending (transmission would add a second scene render every frame)
+    if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); }
     if (m.transparent) { o.castShadow = false; m.depthWrite = false; }
   });
+  shell.updateMatrixWorld(true);
+  // the wheels: out of the shell, onto our wheel groups (spin: rolls and steers; steer: calipers)
+  const P = makeCarParams(id);
+  const s = { x: 0.27 / c.wheel.width, r: 0.42 / c.wheel.R };   // VehicleView scales spin by (width / 0.27, R / 0.42)
+  CORNERS.forEach((k, i) => {
+    const mw = model.wheels[i];
+    const hub = new THREE.Vector3((k[1] === 'L' ? -1 : 1) * P.track / 2, 0, (k[0] === 'F' ? -1 : 1) * P.wheelbase / 2);
+    const toHub = new THREE.Matrix4().makeTranslation(-hub.x, -hub.y, -hub.z);
+    for (const [name, parent, scaled] of [['wheel_' + k, mw.spin, true], ['hub_' + k, mw.steer, false]]) {
+      const node = shell.getObjectByName(name);
+      if (!node) continue;
+      const g = new THREE.Group();
+      if (scaled) g.scale.set(s.x, s.r, s.r);
+      node.traverse(o => {
+        if (!o.isMesh) return;
+        const m = new THREE.Mesh(o.geometry, o.material);
+        m.matrixAutoUpdate = false;
+        m.matrix.multiplyMatrices(toHub, o.matrixWorld);
+        m.castShadow = o.castShadow; m.receiveShadow = o.receiveShadow;
+        g.add(m);
+      });
+      node.removeFromParent();
+      parent.add(g);
+    }
+    mw.tire.visible = false;
+    mw.rim.visible = false;
+  });
   // hubs at the stock static ride height (front and rear differ a little: tilt to match both)
-  const [f, r] = staticRide(applyCar(makeDefenderParams(), id)).map(s => s.hubY);
+  const [f, r] = staticRide(P).map(x => x.hubY);
   shell.position.y = (f + r) / 2;
-  shell.rotation.x = Math.asin((f - r) / c.wheelbase);
+  shell.rotation.x = Math.asin((f - r) / P.wheelbase);
   model.root.add(shell);
   model.body.visible = false;     // exterior + cockpit
   model.spare.steer.visible = false;

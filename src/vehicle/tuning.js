@@ -14,7 +14,7 @@
 // - colliders (chassis boxes, wheel side cylinders): rebuilt on the same rigid body in a few microseconds.
 // Nothing needs a new rigid body, so the truck keeps its position and speed through every change.
 
-import { makeDefenderParams } from './params.js';
+import { makeCarParams, setCar } from './carSpecs.js';
 import { tireRadialStiffness } from './tire.js';
 import { D } from './truckDims.js';
 
@@ -72,30 +72,45 @@ export const ENGINES = {
       [3500, 250], [4000, 170], [4300, 60]]),
     idleRpm: 780, limiterRpm: 4200, redlineRpm: 4000, shiftRpm: 3800, inertia: 0.3,
   },
+  g500: {
+    label: '4.0 V8 biturbo', name: 'Mercedes 4.0 V8 biturbo petrol', fuel: 'petrol', note: 'G 500 (2018+): 422 PS, 610 Nm from 2000 to 4750.',
+    torque: gross([[0, 0], [400, 150], [800, 330], [1200, 450], [1600, 560], [2000, 610], [3000, 610], [4000, 610], [4750, 610],
+      [5250, 565], [5750, 515], [6200, 440], [6600, 200]]),
+    idleRpm: 650, limiterRpm: 6300, redlineRpm: 6000, shiftRpm: 5800, inertia: 0.2,
+  },
+  lancia: {
+    label: '2.0 turbo', name: 'Lancia 2.0 16v turbo petrol', fuel: 'petrol', note: 'Delta Integrale Evo 2: 215 PS at 5750, 314 Nm at 2500.',
+    torque: gross([[0, 0], [500, 60], [1000, 120], [1500, 180], [2000, 260], [2500, 314], [3000, 310], [3500, 300], [4000, 295],
+      [4500, 288], [5000, 280], [5750, 262], [6250, 230], [6800, 150], [7200, 40]]),
+    idleRpm: 900, limiterRpm: 6800, redlineRpm: 6500, shiftRpm: 6300, inertia: 0.14,
+  },
 };
-export const ENGINE_ORDER = ['v8', 'works', 'v35', 'tdi300', 'td5', 'puma'];
+export const ENGINE_ORDER = ['v8', 'works', 'v35', 'tdi300', 'td5', 'puma', 'g500', 'lancia'];
 
 // ---------------------------------------------------------------- the stock setup
-const BASE = makeDefenderParams();
+// the current car's stock params (carSpecs.js); useCar() switches it before anything is built
+let BASE = makeCarParams('defender');
+const stockSize = () => BASE.tire.size ?? 33, stockWidth = () => BASE.tire.widthIn ?? 10.5;
 const COLLIDER_NAMES = ['Cabin / rear body', 'Engine bay', 'Front bumper', 'Rear bumper', 'Chassis rails', 'Roof rack', 'Spare wheel', 'Belly', 'Fuel tank'];
 
 function stockSetup() {
   const P = BASE, [f, r] = P.axles;
+  const names = P.colliderNames || COLLIDER_NAMES;
   const axle = a => ({ k: a.k, bump: a.bump, rebound: a.rebound, arb: a.arb, travel: a.travel });
   return {
     v: 2,
-    engine: { preset: 'v8', torque: 1, revs: 0 },
+    engine: { preset: P.engine.preset || 'v8', torque: 1, revs: 0 },
     gearbox: {
       auto: [...P.auto.ratios], autoRev: P.auto.reverse,
       manual: [...P.manual.ratios], manualRev: P.manual.reverse,
       final: P.finalDrive, high: P.transfer.high, low: P.transfer.low,
     },
-    tyres: { size: 33, width: 10.5, pressF: P.tire.pressure, pressR: P.tire.pressure, grip: 1 },
+    tyres: { size: stockSize(), width: stockWidth(), pressF: P.tire.pressure, pressR: P.tire.pressure, grip: 1 },
     suspension: { lift: 0, front: axle(f), rear: axle(r) },
     brakes: { force: 1, bias: P.brakes.front / (P.brakes.front + P.brakes.rear), handbrake: 1 },
     mass: { cargo: 0, roof: 0, comY: 0 },
     steering: { lock: P.steer.maxAngle / DEG, ratio: P.steer.ratio },
-    colliders: P.colliders.map((box, i) => ({ name: COLLIDER_NAMES[i] || `Box ${i + 1}`, box: [...box] })),
+    colliders: P.colliders.map((box, i) => ({ name: names[i] || `Box ${i + 1}`, box: [...box] })),
   };
 }
 // Slider ranges (also used to sanitise imported / saved setups). [min, max, step]
@@ -116,7 +131,25 @@ export const clone = o => JSON.parse(JSON.stringify(o));
 // The truck's stock setup. Paste an exported setup (panel: Export) here to make it the new stock: the
 // Stock button, new players and the panel's "stock" marks all use it. null = params.js as it is.
 const DEFAULT_SETUP = null;
-export const STOCK = DEFAULT_SETUP ? fill(stockSetup(), DEFAULT_SETUP) : stockSetup();
+export let STOCK = DEFAULT_SETUP ? fill(stockSetup(), DEFAULT_SETUP) : stockSetup();
+// tyre choices in the panel (inches), around the car's stock size
+export let TYRE_SIZES = [31, 32, 33, 34, 35, 37], TYRE_WIDTHS = [9.5, 10.5, 11.5, 12.5, 13.5];
+
+// switch the tuning base to another car (carSpecs.js): stock setup, ranges, tyre choices. Called once at
+// startup, before the panel or the vehicle are built (changing the car reloads the game).
+export function useCar(id) {
+  setCar(id);
+  BASE = makeCarParams();
+  SPRUNG_COM = sprungCom();
+  STOCK = stockSetup();
+  if (BASE.car) {
+    const s0 = stockSize(), w0 = stockWidth();
+    RANGES['tyres.size'] = [s0 - 4, s0 + 5, 0.5];
+    RANGES['tyres.width'] = [w0 - 1.5, w0 + 3, 0.5];
+    TYRE_SIZES = [s0 - 2, s0 - 1, s0, s0 + 1, s0 + 2, s0 + 4];
+    TYRE_WIDTHS = [w0 - 1, w0, w0 + 1, w0 + 2];
+  }
+}
 export const sanitize = s => fill(STOCK, s);
 
 // Fill a (possibly partial or foreign) setup from a base setup and clamp every number to its range.
@@ -136,7 +169,7 @@ function fill(base, s) {
   for (const k of ['autoRev', 'manualRev']) out.gearbox[k] = num(g[k], 'gearbox.ratio', out.gearbox[k]);
   for (const k of ['final', 'high', 'low']) out.gearbox[k] = num(g[k], 'gearbox.' + k, out.gearbox[k]);
   const t = s.tyres || {};
-  out.tyres.size = Math.round(num(t.size, 'tyres.size', out.tyres.size));
+  out.tyres.size = Math.round(2 * num(t.size, 'tyres.size', out.tyres.size)) / 2;
   out.tyres.width = num(t.width, 'tyres.width', out.tyres.width);
   out.tyres.pressF = num(t.pressF, 'tyres.press', out.tyres.pressF);
   out.tyres.pressR = num(t.pressR, 'tyres.press', out.tyres.pressR);
@@ -167,11 +200,12 @@ function fill(base, s) {
 
 // ---------------------------------------------------------------- setup -> params
 // tyre radius from the nominal size in inches (stock 33" = 0.42 m, the params.js value)
-export const tyreRadius = inches => BASE.tire.radius * inches / 33;
+export const tyreRadius = inches => 0.42 * inches / 33;
 // wheel + tyre mass (kg): steel rim + hub part plus a tyre that grows with diameter and width; 42 kg stock
 export const wheelMass = (inches, width) => 20 + 22 * Math.pow(inches / 33, 2.2) * (width / 10.5);
 // Unsprung axle mass position and the sprung COM implied by the stock total COM (params.js).
-const SPRUNG_COM = (() => {
+let SPRUNG_COM = sprungCom();
+function sprungCom() {
   const P = BASE, ms = P.bodyMass, m = ms + P.axles[0].mass + P.axles[1].mass;
   const ay = a => a.droopY + staticCompression(P, a);
   return [
@@ -179,7 +213,7 @@ const SPRUNG_COM = (() => {
     (m * P.com[1] - P.axles.reduce((s, a) => s + a.mass * ay(a), 0)) / ms,
     (m * P.com[2] - P.axles.reduce((s, a) => s + a.mass * a.z, 0)) / ms,
   ];
-})();
+}
 // static spring compression of an axle (m), from the sprung load it carries
 function staticCompression(P, a) {
   const L = P.wheelbase, i = P.axles.indexOf(a);
@@ -213,11 +247,11 @@ export function applySetup(P, s) {
   P.finalDrive = g.final; P.transfer.high = g.high; P.transfer.low = g.low;
   // tyres: size scales the whole wheel (rim too, so the sidewall keeps its proportion)
   const t = s.tyres, R = tyreRadius(t.size), sc = R / B.tire.radius;
-  const wm = wheelMass(t.size, t.width), wm0 = wheelMass(33, 10.5);
+  const wm = wheelMass(t.size, t.width), wm0 = wheelMass(stockSize(), stockWidth());
   P.tire.size = t.size; P.tire.widthIn = t.width;
   P.tire.radius = R;
   P.tire.rimRadius = B.tire.rimRadius * sc;
-  P.tire.width = B.tire.width * t.width / 10.5;
+  P.tire.width = 0.27 * t.width / 10.5;
   P.tire.inertia = B.tire.inertia * (wm / wm0) * sc * sc;
   P.tire.grip = t.grip;
   P.tire.pressure = t.pressF;
@@ -251,7 +285,7 @@ export function applySetup(P, s) {
     (P.bodyMass * sprung[2] + P.axles.reduce((x, a) => x + a.mass * a.z, 0)) / mt,
   ];
   // stock: exactly the params.js numbers (no rounding drift in the baselines)
-  const isStockMass = m.cargo === 0 && m.roof === 0 && m.comY === 0 && su.lift === 0 && t.size === 33 && t.width === 10.5;
+  const isStockMass = m.cargo === 0 && m.roof === 0 && m.comY === 0 && su.lift === 0 && t.size === stockSize() && t.width === stockWidth();
   P.com = isStockMass ? [...B.com] : com;
   // inertia: stock body + parallel-axis terms of the added masses about the new COM + the COM shift
   const I = [...B.bodyInertia];
@@ -268,18 +302,16 @@ export function applySetup(P, s) {
     P.axles.forEach((a, i) => add(a.mass - B.axles[i].mass, [0, axY(a), a.z]));
   }
   P.bodyInertia = I;
-  // colliders (a car with its own body keeps its boxes: cars.js)
-  if (!P.ownColliders) {
-    P.colliders = s.colliders.map(c => [...c.box]);
-    P.colliderNames = s.colliders.map(c => c.name);
-  }
+  // colliders
+  P.colliders = s.colliders.map(c => [...c.box]);
+  P.colliderNames = s.colliders.map(c => c.name);
   return P;
 }
 
 // how much higher the body sits than stock at static ride (bigger tyres + lift); spawn / teleport height
 export const rideRaise = P => (P.tire.radius - BASE.tire.radius) + (BASE.axles[0].droopY - P.axles[0].droopY);
 
-export function makeTunedParams(setup) { return applySetup(makeDefenderParams(), setup); }
+export function makeTunedParams(setup) { return applySetup(makeCarParams(), setup); }
 
 // ---------------------------------------------------------------- consequences (panel readouts)
 const peakOf = (P, f) => {

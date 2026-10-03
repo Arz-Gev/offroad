@@ -1,5 +1,5 @@
-import { STOCK, ENGINES, ENGINE_ORDER, RANGES, sanitize, clone, applySetup, analyze, exportJSON, netTorque, tyreRadius, wheelMass } from './vehicle/tuning.js';
-import { makeDefenderParams } from './vehicle/params.js';
+import { STOCK, ENGINES, ENGINE_ORDER, RANGES, TYRE_SIZES, TYRE_WIDTHS, sanitize, clone, applySetup, analyze, exportJSON, netTorque, tyreRadius, wheelMass } from './vehicle/tuning.js';
+import { makeCarParams, getCar } from './vehicle/carSpecs.js';
 import { storage } from './settings.js';
 import { escapeHTML, fmtPressure } from './hud.js';
 import './tuning.css';
@@ -10,7 +10,9 @@ import './tuning.css';
 //
 // The setup, the saved setups and the panel state live in localStorage (offroad.tuning.v1).
 
-const KEY = 'offroad.tuning.v1';
+const KEY_BASE = 'offroad.tuning.v1';
+// each car keeps its own setup and saved setups (the Defender keeps the original key)
+const carKey = () => getCar() === 'defender' ? KEY_BASE : KEY_BASE + '.' + getCar();
 const DEG = Math.PI / 180;
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const set = (o, path, v) => { const ks = path.split('.'), last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
@@ -32,14 +34,14 @@ export class TuningPanel {
     this.open = false;
     this.state = { setup: clone(STOCK), setups: {}, ui: { sections: { engine: true }, overlay: false, sel: -1 } };
     try {
-      const s = JSON.parse(storage.get(KEY) || 'null');
+      const s = JSON.parse(storage.get(carKey()) || 'null');
       if (s) {
         this.state.setup = sanitize(s.setup);
         if (s.setups && typeof s.setups === 'object') for (const [n, x] of Object.entries(s.setups).slice(0, 40)) this.state.setups[String(n).slice(0, 40)] = sanitize(x);
         if (s.ui) Object.assign(this.state.ui, s.ui);
       }
     } catch { /* corrupt: stock */ }
-    this.stockP = makeDefenderParams();
+    this.stockP = makeCarParams();
     this.runs = [];            // dyno results this session
     this.dirty = true;
     this.liveT = 0;
@@ -49,7 +51,7 @@ export class TuningPanel {
 
   get v() { return this.api.vehicle; }
   get setup() { return this.state.setup; }
-  save() { storage.set(KEY, JSON.stringify(this.state)); }
+  save() { storage.set(carKey(), JSON.stringify(this.state)); }
 
   // apply the current setup to the physics. colliders: rebuild the chassis boxes too.
   apply({ snap = false, colliders = true } = {}) {
@@ -131,8 +133,8 @@ export class TuningPanel {
         { type: 'live' },
       ] },
       { id: 'tyres', title: 'Wheels and tyres', rows: [
-        { type: 'chips', path: 'tyres.size', label: 'Tyre size', options: [31, 32, 33, 34, 35, 37].map(x => [x, x + '″']), hint: 'Taller tyres lift the whole truck and the axles, and gear it taller. Watch the arches.' },
-        { type: 'chips', path: 'tyres.width', label: 'Width', options: [9.5, 10.5, 11.5, 12.5, 13.5].map(x => [x, String(x)]) },
+        { type: 'chips', path: 'tyres.size', label: 'Tyre size', options: TYRE_SIZES.map(x => [x, x + '″']), hint: 'Taller tyres lift the whole truck and the axles, and gear it taller. Watch the arches.' },
+        { type: 'chips', path: 'tyres.width', label: 'Width', options: TYRE_WIDTHS.map(x => [x, String(x)]) },
         sl('tyres.pressF', 'Pressure front', 'tyres.press', v => fmtPressure(v, this.api.settings.get('pressureUnit')), 'Lower: bigger footprint, more grip off-road, softer ride. [ ] change both.'),
         sl('tyres.pressR', 'Pressure rear', 'tyres.press', v => fmtPressure(v, this.api.settings.get('pressureUnit')), ''),
         sl('tyres.grip', 'Compound grip', 'tyres.grip', v => `×${f2(v)}`, 'Grip on every surface. Mud terrain = 1.'),
@@ -425,7 +427,7 @@ export class TuningPanel {
     // the gearbox decides which ratio sliders exist (M switches it with the panel open)
     if (this._gb !== gearbox) { const first = this._gb === undefined; this._gb = gearbox; if (!first) { const y = this.scroll.scrollTop; this.buildSections(); this.scroll.scrollTop = y; } }
     const A = this.an = analyze(P, s, gearbox);
-    if (!this.stockAn || this.stockAn.gb !== gearbox) { this.stockAn = analyze(applySetup(makeDefenderParams(), clone(STOCK)), STOCK, gearbox); this.stockAn.gb = gearbox; }
+    if (!this.stockAn || this.stockAn.gb !== gearbox) { this.stockAn = analyze(applySetup(makeCarParams(), clone(STOCK)), STOCK, gearbox); this.stockAn.gb = gearbox; }
     const S = this.stockAn;
     // sliders, chips, outputs
     for (const r of el.querySelectorAll('input[type=range][data-path]')) {
@@ -474,7 +476,7 @@ export class TuningPanel {
     ss('tyres', `${s.tyres.size}×${s.tyres.width} · ${fmtPressure(v.pressure, this.api.settings.get('pressureUnit'))}`);
     ro('tyres', kv([
       ['Axle clearance', `${cm(geo.diffClear)}${vs(geo.diffClear * 100, S.geo.diffClear * 100, 0)}`],
-      ['Gearing', s.tyres.size === 33 ? 'stock' : `${pct(tyreRadius(s.tyres.size), tyreRadius(33))} taller`],
+      ['Gearing', s.tyres.size === STOCK.tyres.size ? 'stock' : `${pct(tyreRadius(s.tyres.size), tyreRadius(STOCK.tyres.size))} taller`],
       ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[1])],
     ]));
     ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[1].f)} Hz`);
