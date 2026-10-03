@@ -11,6 +11,7 @@ export const DEFAULTS = {
   handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
   steerAssist: 'strong',    // keyboard steering at speed: 'strong' (~0.75 g) | 'light' (gamepad curve) | 'off' (full lock)
   camera: 'chase',
+  fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
   volume: 1,                // 0..1 (1 = the original mix level)
@@ -67,7 +68,7 @@ const CHOICES = {
   gTerrain: [0, 1, 2],
 };
 const RANGES = {
-  time: [0, 24], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
+  time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
   // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
   gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [119, 287],

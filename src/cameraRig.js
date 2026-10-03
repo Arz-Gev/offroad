@@ -20,6 +20,7 @@ export class CameraRig {
     this.headVel = new THREE.Vector3();
     this.smoothPos = new THREE.Vector3();
     this.first = true;
+    this.fov = 62;
   }
 
   get label() { return CAM_NAMES[this.mode]; }
@@ -42,7 +43,7 @@ export class CameraRig {
     const idle = performance.now() - m.lastMove > 1600 && !m.down;
     const fwd = _v.set(0, 0, -1).applyQuaternion(quat);
     const vehYaw = Math.atan2(-fwd.x, -fwd.z);
-    let near = 0.1, fov = 62;
+    let near = 0.1, fov = this.fov;
 
     if (this.mode === 'chase') {
       if (this.first) { this.camYaw = vehYaw; }
@@ -82,11 +83,11 @@ export class CameraRig {
         this.headVel.addScaledVector(acc, Math.min(dt, 0.033));
         this.head.addScaledVector(this.headVel, Math.min(dt, 0.033));
         eye = model.driverEye.clone().add(this.head);
-        near = 0.03; fov = 62;
+        near = 0.03;
       } else {
         // on the bonnet, just behind the raised centre section
         eye = new THREE.Vector3(0, 1.8, -1.0);
-        near = 0.08; fov = 60;
+        near = 0.08; fov = this.fov - 2;
       }
       cam.position.copy(eye).applyQuaternion(quat).add(pos);
       _e.set(this.lookPitch - (this.mode === 'hood' ? 0.06 : 0.14), this.lookYaw, 0, 'YXZ');
@@ -104,7 +105,7 @@ export class CameraRig {
       cam.up.set(0, 1, 0).applyQuaternion(quat);
       cam.lookAt(look);
       cam.up.set(0, 1, 0);
-      fov = 60;
+      fov = this.fov - 2;
     } else {
       this.freeYaw -= m.dx * 0.005;
       this.freePitch = THREE.MathUtils.clamp(this.freePitch + m.dy * 0.004, -0.1, 1.45);

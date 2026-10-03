@@ -28,6 +28,7 @@ const SECTIONS = [
   ] },
   { title: 'View', rows: [
     row('camera', 'Camera', 'seg', { hot: 'camera', options: [['chase', 'Chase'], ['cockpit', 'Cockpit'], ['hood', 'Hood'], ['wheel', 'Wheel'], ['orbit', 'Orbit']] }),
+    row('fov', 'Field of view', 'range', { min: 45, max: 110, step: 1, scale: 1, unit: '°', note: 'Vertical angle of the camera. Wider shows more around the truck and feels faster; narrower is closer and flatter. Default 62°.' }),
     row('time', 'Time of day', 'range', { hot: 'time', min: 0, max: 1435, step: 5, scale: 60, fmt: fmtClock, note: 'The picture follows the slider at once. Day 13:00, dusk 19:30, night 23:00.' }),
     row('timeQuick', '', 'seg', { quick: true, options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
   ] },

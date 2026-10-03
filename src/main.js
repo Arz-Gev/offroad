@@ -264,6 +264,7 @@ async function main() {
       vehicle.steerAssist = v;
       if (!o.silent) say('steerAssist', { strong: 'Keyboard steering: strong assist', light: 'Keyboard steering: light assist', off: 'Keyboard steering: no assist, full lock at any speed' }[v]);
     },
+    fov(v) { rig.fov = v; game.redraw = 3; },
     camera(v, o) { rig.setMode(v); if (!o.silent) say('camera', CAM_NAMES[v]); },
     // the hour follows at once (menu slider, startup); the N key asks for the 2.5 s sweep
     time(v, o) {
