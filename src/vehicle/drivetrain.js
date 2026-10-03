@@ -173,8 +173,8 @@ export class Drivetrain {
       this.say('In gear: hold the clutch (Shift) or select neutral, then press I');
       return;
     }
-    // a warm V8 cranks ~0.8-1.3 s (6-10 compression strokes per cylinder bank) before it fires
-    this.starterTime = 3; this.crankTime = 0; this.catchAt = (E0.catchMin ?? 0.8) + (E0.catchSpread ?? 0.5) * Math.random();
+    // cranking time before it fires: catchMin + random catchSpread (player-tuned: 0.35-0.5 s)
+    this.starterTime = 3; this.crankTime = 0; this.catchAt = (E0.catchMin ?? 0.35) + (E0.catchSpread ?? 0.15) * Math.random();
     this.say('Starting...');
   }
   stopEngine() { this.running = false; }
@@ -230,7 +230,7 @@ export class Drivetrain {
       if (this.running && rpm > 600 && this.fire > 0.95) { this.starterTime = 0; this.cranking = false; }
       if (this.starterTime <= 0 && !this.running) { this.cranking = false; this.say('Engine did not start: select N/P or press the clutch'); }
     } else this.cranking = false;
-    this.fire = this.running ? Math.min(1, this.fire + h / (E.fireRamp ?? 0.35)) : 0;
+    this.fire = this.running ? Math.min(1, this.fire + h / (E.fireRamp ?? 0.2)) : 0;
     this.sinceCatch += h;
     this.startGrace = Math.max(0, this.startGrace - h);
     if (this.running && rpm < E.stallRpm && !this.cranking && this.startGrace <= 0) {
@@ -249,9 +249,9 @@ export class Drivetrain {
     // ---- idle governor + throttle lag
     let idleThr = 0;
     if (this.running) {
-      // start flare: the idle valve opens wide for the start, the engine runs up to ~1350 rpm and settles
-      // to idle over ~2-3 s (measured on V8 start recordings: ~1500 for ~0.5 s, then tau ~0.9 s)
-      const sc = this.sinceCatch, flare = (E.startFlare ?? 550) * (sc < 1.1 ? 1 : Math.exp(-(sc - 1.1) / 0.9));
+      // start flare: the idle valve opens wide for the start, the engine runs up (startFlare 1000: peak ~2100
+      // rpm, player-tuned; recordings showed ~1500) and settles to idle over ~3 s (hold 1.1 s, then tau 0.9 s)
+      const sc = this.sinceCatch, flare = (E.startFlare ?? 1000) * (sc < 1.1 ? 1 : Math.exp(-(sc - 1.1) / 0.9));
       const err = E.idleRpm + flare - rpm;
       // (no integral while the cylinders are still catching: it would wind up and overshoot the flare)
       if (rpm < E.idleRpm + flare + 500 && this.fire >= 1) this.idleInt = clamp(this.idleInt + err * h, -150, 500);

@@ -24,7 +24,6 @@ import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
-import { buildStartTuner } from './startTuner.js';
 import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
@@ -412,7 +411,6 @@ async function main() {
     introDone: () => { settings.introSeen = true; },
   });
   game.menu = menu;
-  buildStartTuner(game);   // temporary engine start / starter sound experiment panel
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;

@@ -31,20 +31,20 @@ class Biquad {
   }
 }
 
-// Start / starter sound: the values the temporary tuner panel (src/tuner.js) adjusts.
-const STARTER_DEFAULTS = {
-  unevenness: 0.45,  // crank speed swing per compression stroke while cranking (the "rrr" rhythm)
+// Start / starter sound knobs (audio.setStarterTune can change them live through the port).
+const STARTER_DEFAULTS = {   // tuned by ear by the player (Oct 3)
+  unevenness: 0.65,  // crank speed swing per compression stroke while cranking (the "rrr" rhythm)
   puff: 0.06,        // air pumped through the exhaust on each compression (the chug)
-  pops: 1.4,         // loudness of the first firings while the engine catches (x a normal firing)
-  level: 0.12,       // starter whirr level
-  pitch: 1,          // starter pitch (1 = the pinion mesh on a 130-tooth ring gear)
-  mesh: 0.5,         // level of the mesh tone (~550 Hz at 250 rpm)
-  mesh2: 1,          // level of the tone at twice the mesh (~1.1 kHz)
-  q1: 5, q2: 7,      // sharpness of the two tones (higher = purer, lower = noisier)
-  wobble: 0.06,      // how much the starter pitch follows the crank's unevenness
+  pops: 3,           // loudness of the first firings while the engine catches (x a normal firing)
+  level: 0.015,      // starter whirr level
+  pitch: 1.1,        // starter pitch (1 = the pinion mesh on a 130-tooth ring gear)
+  mesh: 1.83,        // level of the mesh tone (~600 Hz at 250 rpm)
+  mesh2: 0,          // level of the tone at twice the mesh
+  q1: 10, q2: 30,    // sharpness of the two tones (higher = purer, lower = noisier)
+  wobble: 0.045,     // how much the starter pitch follows the crank's unevenness
   labour: 1,         // how much louder it gets while pushing through a compression stroke
-  noise: 0.03,       // brush / motor noise level
-  noiseHz: 900,      // centre of that noise
+  noise: 0.012,      // brush / motor noise level
+  noiseHz: 850,      // centre of that noise
 };
 
 class EngineProcessor extends AudioWorkletProcessor {
@@ -83,7 +83,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.shelf = new Biquad(); this.shelf.lowshelf(130, 3, this.sr); // a little more low end
     this.wander = 0; this.wanderT = 0;
     this.tick = 0;
-    // start / starter sound knobs (the temporary tuner panel sends changes: port message { starter: {...} })
+    // start / starter sound knobs (live changes: port message { starter: {...} })
     this.st = { ...STARTER_DEFAULTS };
     if (this.port) this.port.onmessage = e => { if (e.data && e.data.starter) Object.assign(this.st, e.data.starter); };
   }

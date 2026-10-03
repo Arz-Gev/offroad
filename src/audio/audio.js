@@ -12,7 +12,7 @@ export class GameAudio {
     this.lastGrind = 0;
   }
 
-  // start / starter sound knobs (engine-worklet.js STARTER_DEFAULTS), from the temporary tuner panel
+  // start / starter sound knobs (engine-worklet.js STARTER_DEFAULTS), changed live
   setStarterTune(t) {
     this.starterTune = { ...t };
     this.engine?.port.postMessage({ starter: this.starterTune });

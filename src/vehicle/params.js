@@ -74,8 +74,9 @@ export function makeDefenderParams() {
       // gross torque (Nm) at full throttle; friction and pumping losses are subtracted separately
       torque: [[0, 0], [400, 150], [800, 300], [1200, 365], [1600, 405], [2000, 435], [2500, 455], [3000, 462],
                [3500, 458], [4000, 445], [4500, 420], [5000, 385], [5500, 330], [6000, 250], [6500, 120]],
-      starterTorque: 260, starterRpm: 300,  // starter at the crank: stall torque (Nm) and no-load speed (rpm); cranks at ~200 rpm
-      compressionTorque: 120, startFlare: 550, // compression strokes (Nm peak) when not firing; idle flare on start (rpm)
+      starterTorque: 260, starterRpm: 265,  // starter at the crank: stall torque (Nm) and no-load speed (rpm); cranks at ~200 rpm
+      compressionTorque: 120, startFlare: 1000, // compression strokes (Nm peak) when not firing; idle flare on start (rpm)
+      catchMin: 0.35, catchSpread: 0.15, fireRamp: 0.2, // cranking before it fires (s, + random), all cylinders firing after (s)
     },
 
     clutch: { capacity: 680, inputInertia: 0.035 },
