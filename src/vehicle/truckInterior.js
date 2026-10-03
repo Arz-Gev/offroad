@@ -6,7 +6,7 @@ import { mesh, rbox, span, bar, pipe, extrudeProfile, plate, frame } from './geo
 // the dash top sits at the windscreen base (~25° below the eye line), the instrument pod looks over the
 // steering-wheel rim, the bonnet shows over the dash, the header with visors and mirror closes the view.
 
-export const EYE = new THREE.Vector3(D.DX, 1.76, 0.10);
+export const EYE = new THREE.Vector3(D.DX, 1.71, 0.03);
 
 // ---------------------------------------------------------------- gauges
 // 1024² canvas: speedo (top left), tacho (top right), fuel (bottom left), temp (bottom right)
