@@ -62,8 +62,8 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.delay = new Float32Array(256); this.dp = 0;
     this.k = 0;
     this.crackle = 0;
-    this.starterPh = 0;
-    this.starterBp = new Biquad(); this.starterN = 0;
+    this.starterBp = new Biquad(); this.starterR1 = new Biquad(); this.starterR2 = new Biquad();
+    this.starterR1.bandpass(450, 5, this.sr); this.starterR2.bandpass(900, 7, this.sr); this.starterBp.bandpass(900, 0.9, this.sr);
     this.shelf = new Biquad(); this.shelf.lowshelf(130, 3, this.sr); // a little more low end
     this.wander = 0; this.wanderT = 0;
     this.tick = 0;
@@ -83,7 +83,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.lp2.lowpass(cut * 1.6, 0.7, sr);
     this.intake.bandpass(1300 + r * 0.25, 1.2, sr);
     this.mech.bandpass(2600 + r * 0.3, 2.5, sr);
-    this.starterBp.bandpass(1300 + r * 2, 1.0, sr);
+    this.starterBp.bandpass(900 + r * 1.5, 0.9, sr);
   }
 
   process(inputs, outputs, params) {
@@ -164,18 +164,19 @@ class EngineProcessor extends AudioWorkletProcessor {
       // valvetrain: a faint tick per firing event at low rpm, a hiss at high rpm
       this.tick *= 0.9965;
       s += this.mech.run(nz) * (0.006 + 0.02 * this.tick * (1 - rr * 0.6)) * Math.min(1, 0.4 + rpm / 3000);
-      // Starter motor: a metallic whine that follows the uneven crank speed, louder while it labours
-      // through a compression stroke, over some brush / gear noise. Recordings of V8 starts (P38 4.6 among
-      // them) show the whine at ~1-1.4 kHz with an overtone near 3 kHz: here 2x and 5.6x the pinion mesh
-      // on the 130-tooth ring gear (~550 Hz at 250 rpm), plus the mesh itself, a little rough.
+      // Starter motor: a gritty metallic whirr. Recordings of V8 starts show it at ~0.8-1.9 kHz; here noise
+      // through two narrow resonances at the pinion mesh on the 130-tooth ring gear (~550 Hz at 250 rpm)
+      // and twice that, plus some brush noise. Narrow-band noise, not sine waves: pure tones with the crank's
+      // wobble on them sounded like a toy ray gun. Louder while it labours through a compression stroke.
       if (starter > 0.5) {
         const labour = 0.5 - 0.5 * cyc * uneven;
-        this.starterN += (nz - this.starterN) * 0.08;
-        // the motor's own speed swings less than the crank's (the pinion and the motor's inertia smooth it)
-        this.starterPh += 2 * Math.PI * (Math.max(0, this.rpm) * (1 + 0.15 * uneven * cyc) / 60 * 130) / sr;
-        const ph = this.starterPh, rough = 0.75 + 0.25 * Math.max(-1, Math.min(1, this.starterN * 4));
-        const whine = (0.35 * Math.sin(ph) + Math.sin(2 * ph) + 0.3 * Math.sin(5.6 * ph)) * rough;
-        s += (0.022 * whine + 0.03 * this.starterBp.run(nz)) * (0.5 + 1.0 * labour);
+        if ((this.k & 31) === 0) {
+          // the motor's own speed swings much less than the crank's (pinion and motor inertia smooth it)
+          const fm = Math.max(60, this.rpm) * (1 + 0.06 * uneven * cyc) / 60 * 130;
+          this.starterR1.bandpass(fm, 5, sr); this.starterR2.bandpass(2 * fm, 7, sr);
+        }
+        const whirr = 0.5 * this.starterR1.run(nz) + this.starterR2.run(nz);
+        s += (0.12 * whirr + 0.03 * this.starterBp.run(nz)) * (0.5 + 1.0 * labour);
       }
       // cut the sub-bass flutter below the firing frequency, then soft clip
       s = this.hp2.run(this.hp.run(s));
