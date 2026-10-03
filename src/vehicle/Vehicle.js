@@ -98,6 +98,7 @@ export class Vehicle {
     this.steerAngle = 0;
     this.steerComp = 0;      // compliance steer of the front wheels (aligning moment against the steering)
     this.revTimer = 0;
+    this.steerAssist = 'strong'; // keyboard steering limit at speed: 'strong' | 'light' | 'off' (Settings)
     this.arcadeAuto = false; // automatic gearbox: pedals pick R / D by themselves (Settings: Arcade automatic)
     this.speed = 0;          // forward speed m/s
     this.tireT = new Float64Array(4);
@@ -264,9 +265,11 @@ export class Vehicle {
     // steering: speed sensitive limit. Keyboard full lock asks for the angle that corners at ~0.75 g plus
     // a little slip angle; more than that only scrubs the front tyres and rocks the truck onto two wheels.
     const v = Math.abs(this.speed), maxA = this.P.steer.maxAngle;
-    let lim;
-    if (raw.analogSteer) lim = 1 / (1 + Math.max(0, v - 8) / 30);
-    else lim = Math.min(1, (Math.atan(this.P.wheelbase * 0.75 * G / Math.max(v * v, 1e-3)) + 0.09) / maxA);
+    // (an input filter: what the "driver" asks for, the physics is the same in every mode)
+    const assist = raw.analogSteer ? 'light' : this.steerAssist;
+    let lim = 1;
+    if (assist === 'light') lim = 1 / (1 + Math.max(0, v - 8) / 30);
+    else if (assist === 'strong') lim = Math.min(1, (Math.atan(this.P.wheelbase * 0.75 * G / Math.max(v * v, 1e-3)) + 0.09) / maxA);
     const target = raw.steer * maxA * lim;
     const rate = 1.35 * 17 / this.P.steer.ratio; // rad/s at the road wheel (hydraulic rack; stock 17:1)
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));

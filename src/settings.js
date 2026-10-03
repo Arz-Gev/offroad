@@ -9,6 +9,7 @@ export const DEFAULTS = {
   autoClutch: true,
   arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
   handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
+  steerAssist: 'strong',    // keyboard steering at speed: 'strong' (~0.75 g) | 'light' (gamepad curve) | 'off' (full lock)
   camera: 'chase',
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
@@ -54,6 +55,7 @@ const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 const CHOICES = {
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
+  steerAssist: ['strong', 'light', 'off'],
   camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit'],
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
