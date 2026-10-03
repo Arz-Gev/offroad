@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { makeDefenderParams } from './vehicle/params.js';
-import { applyCar, fitCarBody, carId } from './vehicle/cars.js';
+import { fitCarBody } from './vehicle/cars.js';
+import { makeCarParams, CAR_SPECS } from './vehicle/carSpecs.js';
 import { buildTruck } from './vehicle/truckModel.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { escapeHTML } from './hud.js';
@@ -168,7 +168,7 @@ export class Multiplayer {
     if (p.tag) p.tag.textContent = p.name;
     if (isNew) this.api.say('mp-' + id, `${escapeHTML(p.name)} joined`, 'good');
     this.api.changed?.();
-    const car = carId(h.car);
+    const car = Object.hasOwn(CAR_SPECS, h.car) ? h.car : 'defender';
     p.lastHello = h;
     if (p.car !== car || !p.model) { p.car = car; this.build(p, h); }
     else if (p.proxy) { p.proxy.P.tire.width = +h.tw || p.proxy.P.tire.width; p.proxy.P.steer.ratio = +h.sr || p.proxy.P.steer.ratio; }
@@ -179,11 +179,11 @@ export class Multiplayer {
     p.building = true;
     const car = p.car;
     try {
-      const P = applyCar(makeDefenderParams(), car);
+      const P = makeCarParams(car);
       if (+h.tw) P.tire.width = +h.tw;
       if (+h.sr) P.steer.ratio = +h.sr;
       if (+h.tr) P.tire.radius = +h.tr;
-      const model = buildTruck(applyCar(makeDefenderParams(), car));
+      const model = buildTruck(makeCarParams(car));
       await fitCarBody(model, car);
       // no lamp beams for friends (see the header): only the lens glow
       for (const k of ['head', 'bar', 'rear']) { const L = model.lights[k]; L.parent?.remove(L); L.target.parent?.remove(L.target); }
