@@ -92,7 +92,7 @@ export class GameAudio {
     p.get('load').setTargetAtTime(Math.max(0, Math.min(1, d.load)), t, 0.03);
     p.get('throttle').setTargetAtTime(d.thr, t, 0.03);
     p.get('starter').setValueAtTime(d.cranking ? 1 : 0, t);
-    p.get('running').setValueAtTime(d.running ? 1 : 0, t);
+    p.get('running').setValueAtTime(d.running ? d.fire : 0, t);
     const inside = opts.cockpit;
     this.engineFilter.frequency.setTargetAtTime(inside ? 2600 : 9000, t, 0.05);
     this.engineGain.gain.setTargetAtTime(this.muted ? 0 : (inside ? 0.75 : 0.95), t, 0.05);

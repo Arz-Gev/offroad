@@ -58,6 +58,10 @@ export class Drivetrain {
     this.crankTime = 0;
     this.startGrace = 0;            // s after the engine catches with no stall check
     this.cranking = false;
+    this.fire = 1;                  // share of cylinders firing: ramps 0 -> 1 as the engine catches
+    this.catchAt = 1;               // cranking time before the first cylinders fire (s)
+    this.sinceCatch = 10;           // s since it caught (start flare of the idle speed)
+    this.crankAng = 0;              // crank angle (rad), for the compression strokes while cranking
     this.thr = 0.1;                 // effective (lagged) throttle
     this.driverThrottle = 0;
     this.idleInt = 0;
@@ -168,7 +172,8 @@ export class Drivetrain {
       this.say('In gear: hold the clutch (Shift) or select neutral, then press I');
       return;
     }
-    this.starterTime = 2.5; this.crankTime = 0;
+    // a warm V8 cranks ~0.8-1.3 s (6-10 compression strokes per cylinder bank) before it fires
+    this.starterTime = 3; this.crankTime = 0; this.catchAt = 0.8 + 0.5 * Math.random();
     this.say('Starting...');
   }
   stopEngine() { this.running = false; }
@@ -211,18 +216,21 @@ export class Drivetrain {
     const rpm = this.rpm;
 
     // ---- engine state
-    // The starter spins the engine at ~300 rpm; it fires after a few compression strokes,
-    // then the starter stays engaged until the engine pulls past it.
+    // The starter turns the engine at ~200 rpm, unevenly: it slows on every compression stroke (the
+    // "rrr-rrr"). After catchAt the first cylinders fire, more of them each revolution (fire ramps over
+    // ~0.35 s), the engine pulls away from the starter and flares (idle governor below), then settles.
     if (this.starterTime > 0) {
       this.starterTime -= h;
       this.crankTime += h;
       this.cranking = true;
-      if (!this.running && rpm > 200 && this.crankTime > 0.4) {
-        this.running = true; this.stalled = false; this.idleInt = 150; this.startGrace = 1.0;
+      if (!this.running && rpm > 120 && this.crankTime > this.catchAt) {
+        this.running = true; this.stalled = false; this.fire = 0; this.idleInt = 0; this.startGrace = 1.2; this.sinceCatch = 0;
       }
-      if (this.running && rpm > 550) { this.starterTime = 0; this.cranking = false; }
+      if (this.running && rpm > 600 && this.fire > 0.95) { this.starterTime = 0; this.cranking = false; }
       if (this.starterTime <= 0 && !this.running) { this.cranking = false; this.say('Engine did not start: select N/P or press the clutch'); }
     } else this.cranking = false;
+    this.fire = this.running ? Math.min(1, this.fire + h / 0.35) : 0;
+    this.sinceCatch += h;
     this.startGrace = Math.max(0, this.startGrace - h);
     if (this.running && rpm < E.stallRpm && !this.cranking && this.startGrace <= 0) {
       this.running = false; this.stalled = true;
@@ -240,8 +248,12 @@ export class Drivetrain {
     // ---- idle governor + throttle lag
     let idleThr = 0;
     if (this.running) {
-      const err = E.idleRpm - rpm;
-      if (rpm < E.idleRpm + 500) this.idleInt = clamp(this.idleInt + err * h, -150, 500);
+      // start flare: the idle valve opens wide for the start, the engine runs up to ~1350 rpm and settles
+      // to idle over ~2-3 s (measured on V8 start recordings: ~1500 for ~0.5 s, then tau ~0.9 s)
+      const sc = this.sinceCatch, flare = (E.startFlare ?? 550) * (sc < 1.1 ? 1 : Math.exp(-(sc - 1.1) / 0.9));
+      const err = E.idleRpm + flare - rpm;
+      // (no integral while the cylinders are still catching: it would wind up and overshoot the flare)
+      if (rpm < E.idleRpm + flare + 500 && this.fire >= 1) this.idleInt = clamp(this.idleInt + err * h, -150, 500);
       else this.idleInt *= Math.exp(-h * 2);
       idleThr = clamp(0.1 + 0.0011 * err + 0.0009 * this.idleInt, 0, 0.55);
     }
@@ -344,9 +356,13 @@ export class Drivetrain {
 
     // ---- explicit torques
     let Tc = 0;
-    if (this.running && !this.limiterCut) Tc = this.thr * table(E.torque, Math.max(rpm, 0));
-    if (this.cranking) Tc += E.starterTorque * clamp(1 - rpm / 600, 0, 1);
+    if (this.running && !this.limiterCut) Tc = this.thr * this.fire * table(E.torque, Math.max(rpm, 0));
     this.Tcomb = Tc;
+    // compression strokes (4 per revolution) of the cylinders that aren't firing: they brake the crank
+    // and give the energy back on the way down, so a cranking or stopping engine turns unevenly
+    this.crankAng = (this.crankAng + w[0] * h) % (4 * Math.PI);
+    if (this.fire < 1) Tc -= (E.compressionTorque ?? 120) * (1 - this.fire) * Math.sin(4 * this.crankAng) * clamp(1.5 - Math.abs(rpm) / 800, 0, 1);
+    if (this.cranking) Tc += E.starterTorque * clamp(1 - rpm / (E.starterRpm ?? 420), 0, 1);
     w[0] += h * Tc * inv[0];
 
     if (this.mode === 'auto') {

@@ -18,6 +18,12 @@ class Biquad {
     const w = 2 * Math.PI * Math.min(f, sr * 0.45) / sr, a = Math.sin(w) / (2 * q), c = Math.cos(w), n = 1 + a;
     this.b0 = (1 - c) / 2 / n; this.b1 = (1 - c) / n; this.b2 = this.b0; this.a1 = -2 * c / n; this.a2 = (1 - a) / n;
   }
+  lowshelf(f, gainDb, sr) { // RBJ shelf, slope 1
+    const A = Math.pow(10, gainDb / 40), w = 2 * Math.PI * f / sr, c = Math.cos(w), al = Math.sin(w) / 2 * Math.SQRT2, sa = 2 * Math.sqrt(A) * al;
+    const n = (A + 1) + (A - 1) * c + sa;
+    this.b0 = A * ((A + 1) - (A - 1) * c + sa) / n; this.b1 = 2 * A * ((A - 1) - (A + 1) * c) / n; this.b2 = A * ((A + 1) - (A - 1) * c - sa) / n;
+    this.a1 = -2 * ((A - 1) + (A + 1) * c) / n; this.a2 = ((A + 1) + (A - 1) * c - sa) / n;
+  }
   run(x) {
     const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
     this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y;
@@ -32,6 +38,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       { name: 'load', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
       { name: 'throttle', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
       { name: 'starter', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
+      // share of the cylinders firing: 0 off / cranking, ramps to 1 as the engine catches (misfires between)
       { name: 'running', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
     ];
   }
@@ -56,6 +63,8 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.k = 0;
     this.crackle = 0;
     this.starterPh = 0;
+    this.starterBp = new Biquad(); this.starterN = 0;
+    this.shelf = new Biquad(); this.shelf.lowshelf(130, 3, this.sr); // a little more low end
     this.wander = 0; this.wanderT = 0;
     this.tick = 0;
   }
@@ -74,6 +83,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.lp2.lowpass(cut * 1.6, 0.7, sr);
     this.intake.bandpass(1300 + r * 0.25, 1.2, sr);
     this.mech.bandpass(2600 + r * 0.3, 2.5, sr);
+    this.starterBp.bandpass(420 + r * 1.3, 0.8, sr);
   }
 
   process(inputs, outputs, params) {
@@ -89,7 +99,12 @@ class EngineProcessor extends AudioWorkletProcessor {
       if ((this.k++ & 63) === 0) this.updateFilters();
       if ((this.k & 1023) === 0) this.wanderT = (this.rand() * 2 - 1) * 22 * Math.max(0, 1 - this.load * 3);
       this.wander += (this.wanderT - this.wander) * 0.00004;
-      const rpm = Math.max(0, this.rpm + (running > 0.5 ? this.wander : 0));
+      // A cranking (or stopping) engine turns unevenly: it slows on each of the 8 compression strokes per
+      // cycle and speeds up after them. The game only sends rpm 60 times a second, so the worklet makes
+      // that ~15 Hz "rrr-rrr" itself from the crank phase.
+      const uneven = (1 - running) * Math.max(0, Math.min(1, 1.5 - this.rpm / 800));
+      const cyc = Math.sin(2 * Math.PI * 8 * this.phase);
+      const rpm = Math.max(0, (this.rpm + (running > 0.99 ? this.wander : 0)) * (1 + 0.45 * uneven * cyc));
       const prev = this.phase;
       this.phase += rpm / 120 / sr;
       if (this.phase >= 1) this.phase -= 1;
@@ -100,17 +115,21 @@ class EngineProcessor extends AudioWorkletProcessor {
         const crossed = prev <= this.phase ? (prev < o && this.phase >= o) : (prev < o || this.phase >= o);
         if (!crossed) continue;
         let a;
-        if (running > 0.5) {
+        const fired = running > 0.999 || (running > 0 && this.rand() < running);
+        if (fired) {
           a = 0.22 + 0.78 * this.load;
           // overrun: weak pulses, occasional crackle on the lift
           if (this.load < 0.08 && rpm > 1800) { a = 0.13 + 0.05 * this.rand(); if (this.rand() < 0.02 * Math.min(1, (rpm - 1800) / 2000)) this.crackle = 0.7 + this.rand() * 0.6; }
           // low rpm under load must not out-shout high rpm: scale the pulse with rpm
           a *= this.cylGain[c] * (0.94 + 0.12 * this.rand()) * (0.62 + 0.38 * Math.min(1, rpm / 3200));
+          // the first firings of a start are rich and uneven: louder, scattered pops between the misfires
+          if (running < 0.999) a *= 1.4 + 0.8 * this.rand();
         } else {
-          a = starter > 0.5 ? 0.06 * this.cylGain[c] : 0.0; // compression puffs while cranking
+          // no combustion: only the air pumped through on each compression (the chug of a cranking engine)
+          a = 0.1 * this.cylGain[c] * Math.min(1, rpm / 150);
         }
         this.env[this.bank[c]] += a;
-        if (running > 0.5) this.tick += 0.5 + 0.5 * this.rand();
+        if (fired) this.tick += 0.5 + 0.5 * this.rand();
       }
       // Each exhaust pulse lasts a fixed crank angle, so at low rpm it is long and soft (a burble),
       // at high rpm short and sharp. Pressure = env smoothed by a fast attack: no clicks.
@@ -145,14 +164,19 @@ class EngineProcessor extends AudioWorkletProcessor {
       // valvetrain: a faint tick per firing event at low rpm, a hiss at high rpm
       this.tick *= 0.9965;
       s += this.mech.run(nz) * (0.006 + 0.02 * this.tick * (1 - rr * 0.6)) * Math.min(1, 0.4 + rpm / 3000);
-      // starter motor whine
+      // Starter motor: a rough electric whirr (brushes, armature) with a faint pinion-on-ring-gear tone
+      // (130 teeth), both following the uneven crank speed and louder while it labours through a
+      // compression stroke. Real starters are noisy, not a clean tone (recordings: broadband < 1.5 kHz).
       if (starter > 0.5) {
-        this.starterPh += 2 * Math.PI * (180 + rpm * 0.4) / sr;
-        s += 0.05 * Math.sin(this.starterPh) + 0.03 * Math.sin(this.starterPh * 2.02) + 0.015 * nz;
+        const labour = 0.5 - 0.5 * cyc * uneven;
+        this.starterN += (nz - this.starterN) * 0.08;
+        this.starterPh += 2 * Math.PI * (rpm / 60 * 130) / sr;
+        const gear = Math.sin(this.starterPh) * (0.4 + 0.6 * Math.abs(this.starterN) * 3);
+        s += (0.006 * gear + 0.045 * this.starterBp.run(nz)) * (0.45 + 1.1 * labour);
       }
       // cut the sub-bass flutter below the firing frequency, then soft clip
       s = this.hp2.run(this.hp.run(s));
-      s = Math.tanh(s * 2.0) * 0.6;
+      s = this.shelf.run(Math.tanh(s * 2.0) * 0.6);
       ch0[i] = s;
       if (ch1) ch1[i] = s;
     }
