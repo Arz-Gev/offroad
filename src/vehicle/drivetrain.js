@@ -167,13 +167,14 @@ export class Drivetrain {
     else { this.rearLock = false; this.frontLock = false; this.say('Axle lockers off'); }
   }
   startEngine() {
+    const E0 = this.P.engine;
     if (this.running) { this.say('Engine is already running (O switches it off)'); return; }
     if (this.mode === 'manual' && !this.clutchAssist && this.manualGear !== 0 && this.clutchPedal < 0.6) {
       this.say('In gear: hold the clutch (Shift) or select neutral, then press I');
       return;
     }
     // a warm V8 cranks ~0.8-1.3 s (6-10 compression strokes per cylinder bank) before it fires
-    this.starterTime = 3; this.crankTime = 0; this.catchAt = 0.8 + 0.5 * Math.random();
+    this.starterTime = 3; this.crankTime = 0; this.catchAt = (E0.catchMin ?? 0.8) + (E0.catchSpread ?? 0.5) * Math.random();
     this.say('Starting...');
   }
   stopEngine() { this.running = false; }
@@ -229,7 +230,7 @@ export class Drivetrain {
       if (this.running && rpm > 600 && this.fire > 0.95) { this.starterTime = 0; this.cranking = false; }
       if (this.starterTime <= 0 && !this.running) { this.cranking = false; this.say('Engine did not start: select N/P or press the clutch'); }
     } else this.cranking = false;
-    this.fire = this.running ? Math.min(1, this.fire + h / 0.35) : 0;
+    this.fire = this.running ? Math.min(1, this.fire + h / (E.fireRamp ?? 0.35)) : 0;
     this.sinceCatch += h;
     this.startGrace = Math.max(0, this.startGrace - h);
     if (this.running && rpm < E.stallRpm && !this.cranking && this.startGrace <= 0) {

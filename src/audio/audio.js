@@ -12,6 +12,12 @@ export class GameAudio {
     this.lastGrind = 0;
   }
 
+  // start / starter sound knobs (engine-worklet.js STARTER_DEFAULTS), from the temporary tuner panel
+  setStarterTune(t) {
+    this.starterTune = { ...t };
+    this.engine?.port.postMessage({ starter: this.starterTune });
+  }
+
   async start() {
     if (this.ctx) { if (this.ctx.state !== 'running') await this.ctx.resume(); return; }
     const ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -25,6 +31,7 @@ export class GameAudio {
     this.master = master;
 
     this.engine = new AudioWorkletNode(ctx, 'engine-v8', { outputChannelCount: [2] });
+    if (this.starterTune) this.engine.port.postMessage({ starter: this.starterTune });
     this.engineGain = ctx.createGain();
     this.engineGain.gain.value = 0.9;
     // cabin vs outside filtering

@@ -38,6 +38,7 @@ Technical notes live in `DEVNOTES.md`.
 
 | Task | Difficulty | Notes |
 |---|---|---|
+| 🔄 Engine start: fine-tune by ear | Easy | Temporary **Engine start tuner** panel on the game screen (top left): starter sound, cranking rhythm, start physics; **Restart engine** to hear it, **Copy values** to send them over. The chosen values go into `STARTER_DEFAULTS` (`audio/engine-worklet.js`) and the engine in `vehicle/params.js`, then the panel is removed. |
 | 📋 Body bounces off when the roof or side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
 | 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
 | 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Tyre size and lift now come from the tuning panel (the springs stretch with the lift, the wheels scale); the arches and links are still the stock model. |

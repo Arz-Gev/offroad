@@ -31,6 +31,22 @@ class Biquad {
   }
 }
 
+// Start / starter sound: the values the temporary tuner panel (src/tuner.js) adjusts.
+const STARTER_DEFAULTS = {
+  unevenness: 0.45,  // crank speed swing per compression stroke while cranking (the "rrr" rhythm)
+  puff: 0.06,        // air pumped through the exhaust on each compression (the chug)
+  pops: 1.4,         // loudness of the first firings while the engine catches (x a normal firing)
+  level: 0.12,       // starter whirr level
+  pitch: 1,          // starter pitch (1 = the pinion mesh on a 130-tooth ring gear)
+  mesh: 0.5,         // level of the mesh tone (~550 Hz at 250 rpm)
+  mesh2: 1,          // level of the tone at twice the mesh (~1.1 kHz)
+  q1: 5, q2: 7,      // sharpness of the two tones (higher = purer, lower = noisier)
+  wobble: 0.06,      // how much the starter pitch follows the crank's unevenness
+  labour: 1,         // how much louder it gets while pushing through a compression stroke
+  noise: 0.03,       // brush / motor noise level
+  noiseHz: 900,      // centre of that noise
+};
+
 class EngineProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -67,6 +83,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.shelf = new Biquad(); this.shelf.lowshelf(130, 3, this.sr); // a little more low end
     this.wander = 0; this.wanderT = 0;
     this.tick = 0;
+    // start / starter sound knobs (the temporary tuner panel sends changes: port message { starter: {...} })
+    this.st = { ...STARTER_DEFAULTS };
+    if (this.port) this.port.onmessage = e => { if (e.data && e.data.starter) Object.assign(this.st, e.data.starter); };
   }
   rand() { this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff; return this.seed / 0x7fffffff; }
 
@@ -83,7 +102,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.lp2.lowpass(cut * 1.6, 0.7, sr);
     this.intake.bandpass(1300 + r * 0.25, 1.2, sr);
     this.mech.bandpass(2600 + r * 0.3, 2.5, sr);
-    this.starterBp.bandpass(900 + r * 1.5, 0.9, sr);
+    this.starterBp.bandpass(this.st.noiseHz + r * 1.5, 0.9, sr);
   }
 
   process(inputs, outputs, params) {
@@ -104,7 +123,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       // that ~15 Hz "rrr-rrr" itself from the crank phase.
       const uneven = (1 - running) * Math.max(0, Math.min(1, 1.5 - this.rpm / 800));
       const cyc = Math.sin(2 * Math.PI * 8 * this.phase);
-      const rpm = Math.max(0, (this.rpm + (running > 0.99 ? this.wander : 0)) * (1 + 0.45 * uneven * cyc));
+      const rpm = Math.max(0, (this.rpm + (running > 0.99 ? this.wander : 0)) * (1 + this.st.unevenness * uneven * cyc));
       const prev = this.phase;
       this.phase += rpm / 120 / sr;
       if (this.phase >= 1) this.phase -= 1;
@@ -123,10 +142,10 @@ class EngineProcessor extends AudioWorkletProcessor {
           // low rpm under load must not out-shout high rpm: scale the pulse with rpm
           a *= this.cylGain[c] * (0.94 + 0.12 * this.rand()) * (0.62 + 0.38 * Math.min(1, rpm / 3200));
           // the first firings of a start are rich and uneven: louder, scattered pops between the misfires
-          if (running < 0.999) a *= 1.4 + 0.8 * this.rand();
+          if (running < 0.999) a *= this.st.pops + 0.8 * this.rand();
         } else {
           // no combustion: only the air pumped through on each compression (the chug of a cranking engine)
-          a = 0.06 * this.cylGain[c] * Math.min(1, rpm / 150);
+          a = this.st.puff * this.cylGain[c] * Math.min(1, rpm / 150);
         }
         this.env[this.bank[c]] += a;
         if (fired) this.tick += 0.5 + 0.5 * this.rand();
@@ -169,14 +188,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       // and twice that, plus some brush noise. Narrow-band noise, not sine waves: pure tones with the crank's
       // wobble on them sounded like a toy ray gun. Louder while it labours through a compression stroke.
       if (starter > 0.5) {
-        const labour = 0.5 - 0.5 * cyc * uneven;
+        const st = this.st, labour = 0.5 - 0.5 * cyc * uneven;
         if ((this.k & 31) === 0) {
           // the motor's own speed swings much less than the crank's (pinion and motor inertia smooth it)
-          const fm = Math.max(60, this.rpm) * (1 + 0.06 * uneven * cyc) / 60 * 130;
-          this.starterR1.bandpass(fm, 5, sr); this.starterR2.bandpass(2 * fm, 7, sr);
+          const fm = Math.max(60, this.rpm) * (1 + st.wobble * uneven * cyc) / 60 * 130 * st.pitch;
+          this.starterR1.bandpass(fm, st.q1, sr); this.starterR2.bandpass(2 * fm, st.q2, sr);
         }
-        const whirr = 0.5 * this.starterR1.run(nz) + this.starterR2.run(nz);
-        s += (0.12 * whirr + 0.03 * this.starterBp.run(nz)) * (0.5 + 1.0 * labour);
+        const whirr = st.mesh * this.starterR1.run(nz) + st.mesh2 * this.starterR2.run(nz);
+        s += (st.level * whirr + st.noise * this.starterBp.run(nz)) * (1 - 0.5 * st.labour + st.labour * labour);
       }
       // cut the sub-bass flutter below the firing frequency, then soft clip
       s = this.hp2.run(this.hp.run(s));
