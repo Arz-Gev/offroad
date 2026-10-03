@@ -141,9 +141,9 @@ The player's task list with status is in `TASKS.md`; keep it current.
   1. `npx @gltf-transform/cli inspect car.glb`: bbox in metres? Sketchfab merges by material, so wheels are not separate meshes, but tyres, rims and brakes are separate connected parts.
   2. Find each tyre (a round part ~2R tall in a corner), the front (the lower end is the bonnet), the wheelbase and track. A component dump like the one in `tools/cutcar.mjs` (union-find over triangles, bbox per part) does it.
   3. `node tools/cutcar.mjs` (deps in a scratch dir, see its header): removes the wheel parts, bakes the frame, prints the body outline per 10 cm for the collision boxes.
-  4. `npx @gltf-transform/cli optimize cut.glb public/models/<id>.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify-error 0.0004`.
+  4. `npx @gltf-transform/cli optimize cut.glb public/models/<id>.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify false` (keep the full mesh: the simplified 40k version looked too coarse to the player).
   5. Add the entry to `CARS` (wheelbase, track, eye, hoodEye, lamps, colliders), the id to `CHOICES.car` in `settings.js` and the menu row, a credit line (CC BY needs one) in README and the menu note. One screenshot from the side on the Spawn trail to check the arches.
-- **G-Class 2021** (ItsDiyor, CC BY 4.0): 209k tris / 17.3 MB → wheels cut (55k tris) → 40k tris, 855 KB. Source faces +z; tyres R 0.4015, hub y 0.3955, centres z +1.5165 / -1.3905 (mid 0.063), track 1.635. Our 33" tyres are 2 cm bigger in radius than its own, so the body sits ~2 cm high; fine.
+- **G-Class 2021** (ItsDiyor, CC BY 4.0): 209k tris / 17.3 MB → wheels cut (55k tris) → 154k tris, 1.63 MB (full detail; a simplified 40k / 855 KB version was too coarse). Source faces +z; tyres R 0.4015, hub y 0.3955, centres z +1.5165 / -1.3905 (mid 0.063), track 1.635. Our 33" tyres are 2 cm bigger in radius than its own, so the body sits ~2 cm high; fine.
 
 ## World and rendering
 
