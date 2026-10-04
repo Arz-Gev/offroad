@@ -139,6 +139,7 @@ async function main() {
 
 
   const rig = new CameraRig(camera, terrain);
+  if (model.chaseDist) rig.dist = model.chaseDist;
   const input = new Input(canvas);
   const hud = new HUD();
   const audio = new GameAudio();

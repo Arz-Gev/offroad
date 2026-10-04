@@ -27,6 +27,7 @@ export const CARS = {
     url: 'models/lancia-delta.glb',
     credit: 'Lancia Delta HF Integrale Evo 2 by TARANTULA, CC BY 4.0, https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7',
     wheel: { R: 0.2965, width: 0.241 },
+    chase: { dist: 5.6, target: 0.85 },   // 0.7 m shorter and 0.6 m lower than the Defender: the camera comes closer
     eye: [-0.38, 1.10, 0.15],
     hoodEye: [0, 1.02, -1.05],
     lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
@@ -89,6 +90,7 @@ export async function fitCarBody(model, id) {
   model.shell = shell;
   model.driverEye = new THREE.Vector3(...c.eye);
   model.hoodEye = new THREE.Vector3(...c.hoodEye);
+  if (c.chase) { model.chaseDist = c.chase.dist; model.chaseTarget = c.chase.target; }
   for (const k of ['head', 'bar', 'rear']) {
     const L = model.lights[k], p = c.lamps[k];
     const d = L.target.position.clone().sub(L.position);

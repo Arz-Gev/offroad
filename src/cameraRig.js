@@ -53,7 +53,7 @@ export class CameraRig {
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + m.dy * 0.004, -0.25, 1.1);
       if (idle) { this.orbitYaw *= Math.exp(-dt * 1.8); this.orbitPitch *= Math.exp(-dt * 1.8); }
       this.dist = THREE.MathUtils.clamp(this.dist * (1 + m.wheel * 0.08), 3.5, 24);
-      const target = _v2.set(0, 1.25, 0).applyQuaternion(quat).add(pos);
+      const target = _v2.set(0, model.chaseTarget ?? 1.25, 0).applyQuaternion(quat).add(pos);   // look-at height: per car (cars.js)
       const yaw = this.camYaw + this.orbitYaw, pitch = 0.27 + this.orbitPitch;
       const d = this.dist;
       const desired = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d).add(target);
