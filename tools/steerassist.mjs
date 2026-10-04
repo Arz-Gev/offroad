@@ -5,6 +5,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
+// CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
+const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 import { SURFACES } from '../src/vehicle/tire.js';
 await RAPIER.init();
 const H = 1 / 240;
@@ -21,7 +25,7 @@ for (const surf of surfs) for (const mode of modes) for (const kmh of speeds) {
   const n = 200, N = n + 1;
   world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, new Float32Array(N * N), { x: 3000, y: 1, z: 3000 }));
   world.step();
-  const v = new Vehicle(RAPIER, world, makeDefenderParams(), { position: { x: 0, y: 0.12, z: 1300 }, surfaceAt: () => SURFACES[surf] });
+  const v = new Vehicle(RAPIER, world, carParams(), { position: { x: 0, y: 0.12, z: 1300 }, surfaceAt: () => SURFACES[surf] });
   v.steerAssist = mode;
   const st = { s: 0 };
   let ay = 0, cnt = 0, maxBeta = 0, rolled = false, lift = 0, betaEnd = 0, ang = 0;

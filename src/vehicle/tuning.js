@@ -105,7 +105,7 @@ function stockSetup() {
       manual: [...P.manual.ratios], manualRev: P.manual.reverse,
       final: P.finalDrive, high: P.transfer.high, low: P.transfer.low,
     },
-    tyres: { size: stockSize(), width: stockWidth(), pressF: P.tire.pressure, pressR: P.tire.pressure, grip: 1 },
+    tyres: { size: stockSize(), width: stockWidth(), pressF: P.tire.pressure, pressR: P.tire.pressure, grip: P.tire.grip ?? 1 },
     suspension: { lift: 0, front: axle(f), rear: axle(r) },
     brakes: { force: 1, bias: P.brakes.front / (P.brakes.front + P.brakes.rear), handbrake: 1 },
     mass: { cargo: 0, roof: 0, comY: 0 },

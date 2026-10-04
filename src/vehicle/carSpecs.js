@@ -18,10 +18,12 @@ export const CAR_SPECS = {
     name: 'G-Class G 500', engine: 'g500',
     wheelbase: 2.907, track: 1.635,
     bodyMass: 2050, axleMass: [205, 195], inertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], cdA: 1.65,
-    tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 26 },
+    // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
+    // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60
+    tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 20 },
     axles: [
-      { k: 46000, bump: 3900, rebound: 6200, arb: 13000, travel: 0.22, springTrack: 1.05, damperTrack: 1.30 },
-      { k: 50000, bump: 4100, rebound: 6500, arb: 5000, travel: 0.24, springTrack: 1.08, damperTrack: 1.30 },
+      { k: 47000, bump: 4100, rebound: 6500, arb: 13000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
+      { k: 51000, bump: 4300, rebound: 6800, arb: 4500, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
     ],
     steer: { maxAngle: 0.58, ratio: 15.5, kingpinTrack: 1.45 },
     brakes: { front: 3600, rear: 1800, handbrake: 3400 },
@@ -43,12 +45,16 @@ export const CAR_SPECS = {
     name: 'Delta HF Integrale', engine: 'lancia',
     wheelbase: 2.477, track: 1.401,
     bodyMass: 1170, axleMass: [88, 82], inertia: [1450, 1900, 450], com: [0, 0.50, -0.22], cdA: 0.68,
-    tire: { size: 23.5, widthIn: 9.5, rimRadius: 0.203, inertia: 1.0, pressure: 30 },
+    // character: a gravel rally car: light, very quick steering, grippy rally tyres, a rear bar that helps it
+    // turn in. Soft, long travel and 6 cm higher than the road car (road springs and 17 cm of travel scraped
+    // and crashed over the trail bumps above 60)
+    raise: 0.06,
+    tire: { size: 23.5, widthIn: 9.5, rimRadius: 0.203, inertia: 1.0, pressure: 22, grip: 1.12 },
     axles: [
-      { k: 45000, bump: 2700, rebound: 4300, arb: 9000, travel: 0.17, springTrack: 0.92, damperTrack: 1.10 },
-      { k: 32000, bump: 1900, rebound: 3000, arb: 5000, travel: 0.16, springTrack: 0.92, damperTrack: 1.10 },
+      { k: 30000, bump: 2300, rebound: 3700, arb: 6000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
+      { k: 22000, bump: 1700, rebound: 2700, arb: 5000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
     ],
-    steer: { maxAngle: 0.56, ratio: 14, kingpinTrack: 1.27 },
+    steer: { maxAngle: 0.56, ratio: 12, kingpinTrack: 1.27 },
     brakes: { front: 2000, rear: 1000, handbrake: 1600 },
     gearbox: { auto: [3.50, 2.20, 1.52, 1.13, 0.93, 0.78], autoRev: 3.5, manual: [3.50, 2.18, 1.52, 1.13, 0.93], manualRev: 3.55,
       final: 3.11, high: 1.0, low: 1.8, stallK: 165 },   // looser converter: the small engine would stall in D at idle
@@ -76,7 +82,7 @@ export function makeCarParams(id = current) {
   P.bodyMass = c.bodyMass; P.bodyInertia = [...c.inertia]; P.com = [...c.com];
   P.aero.cdA = c.cdA;
   Object.assign(P.tire, { radius: c.tire.size * R_PER_INCH, width: c.tire.widthIn * W_PER_INCH, size: c.tire.size, widthIn: c.tire.widthIn,
-    rimRadius: c.tire.rimRadius, inertia: c.tire.inertia, pressure: c.tire.pressure });
+    rimRadius: c.tire.rimRadius, inertia: c.tire.inertia, pressure: c.tire.pressure, grip: c.tire.grip ?? 1 });
   Object.assign(P.steer, c.steer);
   Object.assign(P.brakes, c.brakes);
   const g = c.gearbox;
@@ -95,7 +101,7 @@ export function makeCarParams(id = current) {
     const frac = i === 0 ? (L / 2 - c.com[2]) / L : (L / 2 + c.com[2]) / L;
     const compression = c.bodyMass * G * frac / 2 / a.k;
     const squash = mt * G * frac / 2 / tireRadialStiffness(c.tire.pressure);
-    a.droopY = P.tire.radius - squash - compression;
+    a.droopY = P.tire.radius - squash - compression - (c.raise || 0);   // raise: the body sits higher on longer springs
   });
   return P;
 }

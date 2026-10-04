@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { makeCarParams } from './carSpecs.js';
+import { makeCarParams, CAR_SPECS } from './carSpecs.js';
 import { staticRide } from './tuning.js';
 
 // What each drivable car looks like. Physics numbers: carSpecs.js. Imported cars swap the Defender's
@@ -81,7 +81,7 @@ export async function fitCarBody(model, id) {
   });
   // hubs at the stock static ride height (front and rear differ a little: tilt to match both)
   const [f, r] = staticRide(P).map(x => x.hubY);
-  shell.position.y = (f + r) / 2;
+  shell.position.y = (f + r) / 2 + (CAR_SPECS[id].raise || 0);   // a raised car: the body goes up, the wheels stay
   shell.rotation.x = Math.asin((f - r) / P.wheelbase);
   model.root.add(shell);
   model.body.visible = false;     // exterior + cockpit

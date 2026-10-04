@@ -5,12 +5,16 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
+// CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
+const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 import { SURFACES } from '../src/vehicle/tire.js';
 await RAPIER.init();
 const H = 1 / 240;
 const surf = process.argv[2] || 'dirt', kmh = +(process.argv[3] || 90), deg = +(process.argv[4] || 3);
 const tweak = process.argv[5] ? JSON.parse(process.argv[5]) : null;
-const P = makeDefenderParams();
+const P = carParams();
 if (tweak) {
   if (tweak.arbF != null) P.axles[0].arb = tweak.arbF;
   if (tweak.arbR != null) P.axles[1].arb = tweak.arbR;

@@ -5,6 +5,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
+// CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
+const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 import { Terrain } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
 await RAPIER.init();
@@ -36,7 +40,7 @@ const curve = terrain.trailCurves[0];
 const NP = 2000, pts = curve.getSpacedPoints(NP), seg = curve.getLength() / NP;
 const start = pts[40], nxt = pts[48];
 const yaw0 = Math.atan2(-(nxt.x - start.x), -(nxt.z - start.z));
-const P = makeDefenderParams();
+const P = carParams();
 const v = new Vehicle(RAPIER, world, P, { position: { x: start.x, y: terrain.heightAt(start.x, start.z) + 0.15, z: start.z }, yaw: yaw0, surfaceAt });
 
 let best = 40, key = 0, kSteer = 0;

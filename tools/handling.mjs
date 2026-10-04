@@ -4,6 +4,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
+// CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
+const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 import { SURFACES } from '../src/vehicle/tire.js';
 await RAPIER.init();
 const H = 1 / 240;
@@ -13,7 +17,7 @@ function setup() {
   const n = 200, N = n + 1;
   world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, new Float32Array(N * N), { x: 2000, y: 1, z: 2000 }));
   world.step();
-  const v = new Vehicle(RAPIER, world, makeDefenderParams(), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES[surfName] });
+  const v = new Vehicle(RAPIER, world, carParams(), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES[surfName] });
   return { world, v };
 }
 function keyRamp(st, key) { // same ramp as src/input.js
