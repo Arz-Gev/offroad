@@ -16,6 +16,7 @@ export class Dust {
     this.color = new Float32Array(max * 3);
     this.heavy = new Uint8Array(max);
     this.next = 0;
+    this.enabled = true;   // setting 'dust' (Graphics)
     this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -23,17 +24,20 @@ export class Dust {
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.color, 3).setUsage(THREE.DynamicDrawUsage));
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 600 }, uLight: { value: 1 } },
+      // uHalfH: half the render target height in pixels (setViewport). With the projection's focal length it
+      // turns a size in metres into pixels, so a puff covers the same part of the view at any resolution,
+      // pixel density or field of view (a fixed 600 px scale made it huge on small screens, tiny on big ones).
+      uniforms: { uHalfH: { value: 360 }, uLight: { value: 1 } },
       vertexShader: `
         attribute float size; attribute float alpha; attribute vec3 color;
         varying float vA; varying vec3 vC;
-        uniform float uScale;
+        uniform float uHalfH;
         void main() {
           vA = alpha; vC = color;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           // fade out right in front of the camera (a big soft blob over the view otherwise)
           vA *= smoothstep(0.4, 2.5, -mv.z);
-          gl_PointSize = size * uScale / max(0.5, -mv.z);
+          gl_PointSize = size * projectionMatrix[1][1] * uHalfH / max(0.5, -mv.z);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
@@ -51,6 +55,14 @@ export class Dust {
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     scene.add(this.points);
+  }
+
+  setViewport(heightPx) { this.mat.uniforms.uHalfH.value = heightPx / 2; }
+
+  setEnabled(on) {
+    this.enabled = on;
+    this.points.visible = on;
+    if (!on) { this.life.fill(0); this.alpha.fill(0); this.points.geometry.attributes.alpha.needsUpdate = true; }
   }
 
   emit(x, y, z, vx, vy, vz, size, life, col, heavy) {
