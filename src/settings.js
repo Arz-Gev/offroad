@@ -1,3 +1,5 @@
+import { CAR_SPECS } from './vehicle/carSpecs.js';
+
 // Player settings, persisted in localStorage. Every storage access is wrapped: private windows,
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
 
@@ -60,7 +62,7 @@ export const DEFAULTS = {
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
-  car: ['defender', 'gclass', 'lancia'],
+  car: Object.keys(CAR_SPECS),
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],

@@ -7,6 +7,9 @@ import { staticRide } from './tuning.js';
 // What each drivable car looks like. Physics numbers: carSpecs.js. Imported cars swap the Defender's
 // body for a downloaded shell and its own wheels; our axles, springs, steering and lamps stay.
 //
+// CARS and CAR_SPECS together are the list of cars: the Settings choices, the menu's Vehicle row and its
+// credits are made from them. Both must have the same ids (checked below), in the order the menu shows them.
+//
 // Shells are prepared with tools/prepcar.mjs (DEVNOTES.md, "Imported cars"): frame baked in (+x right,
 // -z forward, hub centre at y 0, mid-wheelbase at z 0), wheels split into wheel_<FL|FR|RL|RR> (spin) and
 // hub_<corner> (calipers: steer only), compressed (meshopt + WebP). The shell sits in the body frame at
@@ -16,6 +19,7 @@ export const CARS = {
   gclass: {
     label: 'G-Class',
     url: 'models/gclass2021.glb',
+    author: 'ItsDiyor',
     credit: 'Mercedes-Benz G-Class 2021 by ItsDiyor, CC BY 4.0, https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d',
     wheel: { R: 0.4015, width: 0.285 },   // its own tyre (the wheel nodes scale from this to the tuned size)
     eye: [-0.40, 1.62, 0.10],           // left-hand drive
@@ -25,6 +29,7 @@ export const CARS = {
   lancia: {
     label: 'Lancia Delta',
     url: 'models/lancia-delta.glb',
+    author: 'TARANTULA',
     credit: 'Lancia Delta HF Integrale Evo 2 by TARANTULA, CC BY 4.0, https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7',
     wheel: { R: 0.2965, width: 0.241 },
     chase: { dist: 5.6, target: 0.85 },   // 0.7 m shorter and 0.6 m lower than the Defender: the camera comes closer
@@ -33,6 +38,12 @@ export const CARS = {
     lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
   },
 };
+
+// a car added to one list but not the other fails here, at start-up and in npm run simtest, not later in a menu
+{
+  const a = Object.keys(CARS).join(), b = Object.keys(CAR_SPECS).join();
+  if (a !== b) throw new Error(`cars.js CARS (${a}) and carSpecs.js CAR_SPECS (${b}) must list the same cars in the same order`);
+}
 
 const CORNERS = ['FL', 'FR', 'RL', 'RR'];   // truckModel.buildTruck wheel order: front left, front right, rear ...
 
