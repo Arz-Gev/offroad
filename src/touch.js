@@ -6,8 +6,8 @@ import { BINDING } from './input.js';
 //                the finger), or tilt the device like a steering wheel (setting touchSteer)
 //   right thumb  gas and brake pedals: analog, higher up the pedal = more; handbrake, clutch (manual
 //                without auto-clutch only), shift ▲ / ▼
-//   top left     next to the menu button: camera, recover, the 4×4 drawer (range, diff locks, engine,
-//                lights, tyres, tuning) and fullscreen
+//   top left     next to the menu button: camera, recover and the 4×4 drawer (range, diff locks, engine,
+//                lights, tyres, tuning); the fullscreen button there is the HUD's own
 //   the view     drag to look around, pinch to zoom (feeds Input.mouse, like the mouse and the right stick)
 //
 // Pedals and steering are written into Input.touch, which Input.update reads while the device is 'touch'.
@@ -23,7 +23,6 @@ const label = id => BINDING[id].touch;
 
 const ICON_CAM = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5h2.6l1.2-1.8h4.4l1.2 1.8H14v7H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const ICON_RECOVER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4.4 1.8v3h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const ICON_FULL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 export class TouchControls {
   // api: { input, canvas, hud, action(id), mode: 'auto' | 'on' | 'off', steer: 'stick' | 'tilt' }
@@ -47,7 +46,6 @@ export class TouchControls {
     // swallow the click on the button under the finger.
     window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') setTimeout(() => this.input.setDevice('touch'), 0); }, true);
     if (window.matchMedia?.('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches) this.input.device = 'touch';
-    document.addEventListener('fullscreenchange', () => this.refreshFullscreen());
   }
 
   // ------------------------------------------------------------------ build
@@ -80,15 +78,14 @@ export class TouchControls {
     hud.root.append(el);
     this.el = el;
 
-    // camera, recover, 4×4 drawer and fullscreen go next to the HUD's menu button
+    // camera, recover and the 4×4 drawer go next to the HUD's menu button
     const tools = document.createElement('div');
     tools.className = 'tc-tools';
     tools.hidden = true;
     tools.innerHTML = `
       ${btn('camera', 'tc-icon', ICON_CAM, 'Next camera')}
       ${btn('recover', 'tc-icon', ICON_RECOVER, 'Recover')}
-      <button type="button" class="tc-btn tc-icon tc-4x4" data-drawer aria-expanded="false" aria-label="4×4, engine and lights">4×4</button>
-      ${btn('fullscreen', 'tc-icon tc-full', ICON_FULL, 'Fullscreen')}`;
+      <button type="button" class="tc-btn tc-icon tc-4x4" data-drawer aria-expanded="false" aria-label="4×4, engine and lights">4×4</button>`;
     hud.$('h-menubtn').after(tools);
     const drawer = document.createElement('div');
     drawer.className = 'tc-drawer';
@@ -98,7 +95,6 @@ export class TouchControls {
     this.tools = tools;
     this.drawer = drawer;
     this.drawerBtn = tools.querySelector('[data-drawer]');
-    this.fullBtn = tools.querySelector('.tc-full');
     this.chips = Object.fromEntries([...drawer.children].map(b => [b.dataset.act, b]));
 
     this.steerEl = el.querySelector('.tc-steer');
@@ -116,7 +112,6 @@ export class TouchControls {
       root.addEventListener('contextmenu', e => e.preventDefault());
       root.addEventListener('click', e => e.preventDefault());
     }
-    this.refreshFullscreen();
   }
 
   // ------------------------------------------------------------------ settings
@@ -175,8 +170,7 @@ export class TouchControls {
       t.classList.add('on');
       setTimeout(() => t.classList.remove('on'), 140);
       buzz();
-      if (t.dataset.act === 'fullscreen') this.toggleFullscreen();
-      else this.api.action(t.dataset.act);
+      this.api.action(t.dataset.act);
       return;
     }
     try { t.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
@@ -313,20 +307,6 @@ export class TouchControls {
     const roll = -Math.atan2(sx, sy);                // turning the device clockwise steers right
     const a = Math.abs(roll) < TILT_DEAD ? 0 : Math.sign(roll) * (Math.abs(roll) - TILT_DEAD);
     this.tilt.v = clamp(a / TILT_FULL, -1, 1);
-  }
-
-  // ------------------------------------------------------------------ fullscreen
-  toggleFullscreen() {
-    const d = document;
-    if (d.fullscreenElement) { Promise.resolve(d.exitFullscreen?.()).catch(() => {}); return; }
-    Promise.resolve(d.documentElement.requestFullscreen?.({ navigationUI: 'hide' }))
-      .then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
-  }
-  refreshFullscreen() {
-    // iPhone Safari has no fullscreen for pages (Add to Home Screen runs the game full screen instead)
-    const standalone = window.matchMedia?.('(display-mode: fullscreen), (display-mode: standalone)').matches;
-    this.fullBtn.hidden = !document.fullscreenEnabled || standalone;
-    this.fullBtn.classList.toggle('on', !!document.fullscreenElement);
   }
 
   // ------------------------------------------------------------------ per frame

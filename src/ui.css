@@ -64,6 +64,7 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 }
 .menu-btn:hover { background: var(--panel-hi); border-color: var(--line-2); }
 .menu-btn svg { width: calc(16 * var(--u)); height: calc(16 * var(--u)); }
+.menu-btn.icon { padding: 0 calc(8 * var(--u)); }
 .hints {
   display: flex; flex-wrap: wrap; align-items: center; gap: calc(4 * var(--u)) calc(12 * var(--u));
   height: calc(32 * var(--u)); padding: 0 calc(12 * var(--u)); box-sizing: border-box;
@@ -455,8 +456,10 @@ body.paused #hud .tc-layer { visibility: hidden; }
 .tc-pedal.on { border-color: rgba(255, 255, 255, 0.5); }
 .tc-pedal.on b { color: #fff; }
 
-/* next to the menu button: camera, recover, 4×4 drawer, fullscreen */
+/* next to the menu button: camera, recover, 4×4 drawer (the fullscreen button is the HUD's) */
 body.touch-ui .menu-btn { height: calc(42 * var(--u)); padding: 0 calc(12 * var(--u)); border-radius: calc(12 * var(--u)); }
+body.touch-ui .menu-btn.icon { min-width: calc(46 * var(--u)); justify-content: center; padding: 0 calc(10 * var(--u)); }
+body.touch-ui .menu-btn.icon svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }
 .tc-tools { display: flex; gap: calc(8 * var(--u)); }
 .tc-icon { min-width: calc(46 * var(--u)); height: calc(42 * var(--u)); padding: 0 calc(10 * var(--u)); font-size: calc(13 * var(--u)); }
 .tc-icon svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }

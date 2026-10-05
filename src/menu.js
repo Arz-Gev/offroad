@@ -303,8 +303,9 @@ export class Menu {
       // Keyboard Lock (Chromium) keeps a short Esc press for the menu; holding Esc still leaves fullscreen
       const d = document, done = () => this.isOpen && this.refresh();
       if (d.fullscreenElement) Promise.resolve(d.exitFullscreen?.()).catch(() => {}).then(done);
-      else Promise.resolve(d.documentElement.requestFullscreen?.())
-        .then(() => navigator.keyboard?.lock?.(['Escape'])).catch(() => {}).then(done);
+      else Promise.resolve(d.documentElement.requestFullscreen?.({ navigationUI: 'hide' }))
+        .then(() => this.api.device() === 'touch' ? screen.orientation?.lock?.('landscape') : navigator.keyboard?.lock?.(['Escape']))
+        .catch(() => {}).then(done);
     } else if (a === 'intro') { this.close(); this.openIntro(); return; }
     else if (a === 'resetSettings') this.api.set('resetSettings', true);
     else this.api.action(a);

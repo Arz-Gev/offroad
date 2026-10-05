@@ -43,7 +43,7 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 
-**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **4×4** button next to the menu holds range, diff locks, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones get the Low graphics preset. Best in landscape; on Android the ⛶ button goes full screen, on iPhone use Share → Add to Home Screen (it then starts full screen).
+**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **4×4** button next to the menu holds range, diff locks, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones get the Low graphics preset. Best in landscape; the fullscreen button next to Menu goes full screen (Android, tablets, desktop), on iPhone use Share → Add to Home Screen (it then starts full screen).
 
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.

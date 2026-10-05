@@ -445,6 +445,7 @@ async function main() {
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;
   hud.onMenu = () => menu.open();
+  hud.onFullscreen = () => menu.runAction('fullscreen');
 
   // pause when the window loses focus (setting), so the truck doesn't roll away unattended
   let started = false;
