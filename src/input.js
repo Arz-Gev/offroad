@@ -23,14 +23,14 @@ export const BINDINGS = [
   { id: 'shiftDown', group: 'Gearbox & 4×4', label: 'Shift down · automatic: selector D → N → R → P', codes: ['KeyQ'], keys: ['Q'], pad: 'X', button: PAD.X, touch: '▼' },
   { id: 'gearbox', group: 'Gearbox & 4×4', label: 'Automatic ⇄ manual gearbox', codes: ['KeyM'], keys: ['M'], pad: 'View', button: PAD.VIEW },
   { id: 'autoClutch', group: 'Gearbox & 4×4', label: 'Manual: auto-clutch on / off · automatic: arcade reverse on / off', codes: ['KeyK'], keys: ['K'] },
-  { id: 'range', group: 'Gearbox & 4×4', label: 'Transfer case HIGH / LOW (stop first)', codes: ['KeyT'], keys: ['T'], pad: 'D-pad ↓', button: PAD.DOWN, touch: 'LO' },
-  { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT, touch: 'CDL' },
-  { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT, touch: 'LOCK' },
+  { id: 'range', group: 'Gearbox & 4×4', label: 'Transfer case HIGH / LOW (stop first)', codes: ['KeyT'], keys: ['T'], pad: 'D-pad ↓', button: PAD.DOWN, touch: 'Range' },
+  { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT, touch: 'Centre diff' },
+  { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT, touch: 'Lockers' },
   { id: 'traction', group: 'Gearbox & 4×4', label: 'Traction control on / off (brakes a spinning wheel)', codes: ['KeyY'], keys: ['Y'] },
   { id: 'abs', group: 'Gearbox & 4×4', label: 'ABS on / off (off: wheels can lock under braking)', codes: ['KeyB'], keys: ['B'] },
-  { id: 'rwd', group: 'Gearbox & 4×4', label: '2WD (rear-wheel drive) ⇄ 4WD · HIGH range only', codes: ['KeyF'], keys: ['F'], touch: '2WD' },
+  { id: 'rwd', group: 'Gearbox & 4×4', label: '2WD (rear-wheel drive) ⇄ 4WD · HIGH range only', codes: ['KeyF'], keys: ['F'], touch: 'Drive' },
 
-  { id: 'engineStart', group: 'Vehicle', label: 'Start engine', codes: ['KeyI'], keys: ['I'], pad: 'L stick click', button: PAD.LS, touch: 'Start' },
+  { id: 'engineStart', group: 'Vehicle', label: 'Start engine', codes: ['KeyI'], keys: ['I'], pad: 'L stick click', button: PAD.LS, touch: 'Engine' },
   { id: 'engineStop', group: 'Vehicle', label: 'Stop engine', codes: ['KeyO'], keys: ['O'] },
   { id: 'pressureDown', group: 'Vehicle', label: 'Tyre pressure down (air down for grip)', codes: ['BracketLeft'], keys: ['['], touch: 'Tyres −' },
   { id: 'pressureUp', group: 'Vehicle', label: 'Tyre pressure up', codes: ['BracketRight'], keys: [']'], touch: 'Tyres +' },
@@ -49,7 +49,7 @@ export const BINDINGS = [
   { id: 'mute', group: 'Game', label: 'Sound on / off', codes: ['KeyV'], keys: ['V'] },
   { id: 'suspension', group: 'Game', label: 'Suspension and tyre load panel', codes: ['KeyU'], keys: ['U'] },
   { id: 'telemetry', group: 'Game', label: 'Telemetry readout', codes: ['F3', 'Backquote'], keys: ['F3', '`'] },
-  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'], touch: 'Tune' },
+  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'], touch: 'Tuning' },
 ];
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));

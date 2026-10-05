@@ -65,6 +65,9 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 .menu-btn:hover { background: var(--panel-hi); border-color: var(--line-2); }
 .menu-btn svg { width: calc(16 * var(--u)); height: calc(16 * var(--u)); }
 .menu-btn.icon { padding: 0 calc(8 * var(--u)); }
+/* the fullscreen button calls attention to itself until it has been used once (hud.js) */
+.menu-btn.attn { border-color: var(--red); animation: attn 1.4s ease-in-out infinite; }
+@keyframes attn { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 69, 0.75); } 60% { box-shadow: 0 0 0 calc(7 * var(--u)) rgba(255, 90, 69, 0); } }
 .hints {
   display: flex; flex-wrap: wrap; align-items: center; gap: calc(4 * var(--u)) calc(12 * var(--u));
   height: calc(32 * var(--u)); padding: 0 calc(12 * var(--u)); box-sizing: border-box;
@@ -249,6 +252,11 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 .btn.primary kbd.cap { background: rgba(0, 0, 0, 0.12); border-color: rgba(0, 0, 0, 0.28); color: var(--amber-ink); }
 .btn.small { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 13px; }
 .btn.big { height: 44px; padding: 0 18px; font-size: 15px; }
+.btn:disabled, .btn:disabled:hover { opacity: 0.38; cursor: default; background: rgba(255, 255, 255, 0.06); border-color: var(--line-2); color: var(--txt); }
+.seg-apply { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.set-row.pending .seg { border-color: var(--amber); }
+.set-row.pending .seg-apply .btn { animation: attn-amber 1.4s ease-in-out infinite; }
+@keyframes attn-amber { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 179, 71, 0.7); } 60% { box-shadow: 0 0 0 6px rgba(255, 179, 71, 0); } }
 
 .tabs { flex: none; display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .tab {
@@ -388,6 +396,7 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .toast, .tip, .overlay, .sheet, .card { animation: none; }
   .sound-pill.locked, .tt.blink { animation: none; }
+  .menu-btn.attn { animation: none; box-shadow: 0 0 0 2px var(--red); }
 }
 
 
@@ -456,35 +465,45 @@ body.paused #hud .tc-layer { visibility: hidden; }
 .tc-pedal.on { border-color: rgba(255, 255, 255, 0.5); }
 .tc-pedal.on b { color: #fff; }
 
-/* next to the menu button: camera, recover, 4×4 drawer (the fullscreen button is the HUD's) */
+/* next to the menu button: camera, recover, the Vehicle drawer (the fullscreen button is the HUD's) */
 body.touch-ui .menu-btn { height: calc(42 * var(--u)); padding: 0 calc(12 * var(--u)); border-radius: calc(12 * var(--u)); }
 body.touch-ui .menu-btn.icon { min-width: calc(46 * var(--u)); justify-content: center; padding: 0 calc(10 * var(--u)); }
 body.touch-ui .menu-btn.icon svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }
 .tc-tools { display: flex; gap: calc(8 * var(--u)); }
 .tc-icon { min-width: calc(46 * var(--u)); height: calc(42 * var(--u)); padding: 0 calc(10 * var(--u)); font-size: calc(13 * var(--u)); }
 .tc-icon svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }
+.tc-veh { gap: calc(6 * var(--u)); }
+.tc-caret { width: 0; height: 0; margin-left: calc(1 * var(--u)); border: calc(4.5 * var(--u)) solid transparent; border-top-color: currentColor; border-bottom-width: 0; transition: transform 0.15s; }
+.tc-veh.on .tc-caret { transform: rotate(180deg); }
 .tc-drawer {
-  pointer-events: auto; display: flex; flex-wrap: wrap; gap: calc(6 * var(--u));
-  max-width: min(calc(100vw - 2 * var(--gap)), calc(400 * var(--u))); box-sizing: border-box; padding: calc(8 * var(--u));
+  pointer-events: auto; box-sizing: border-box; padding: calc(8 * var(--u)) calc(8 * var(--u)) calc(9 * var(--u));
   border: 1px solid var(--line); border-radius: calc(14 * var(--u)); background: var(--sheet);
   animation: toast-in 0.15s ease-out;
 }
-.tc-chip { height: calc(38 * var(--u)); padding: 0 calc(13 * var(--u)); font-size: calc(12.5 * var(--u)); white-space: nowrap; background: rgba(255, 255, 255, 0.07); }
-.tc-chip.warn { border-color: var(--red); color: #ffd2cb; }
+.tc-dh { padding: 0 calc(3 * var(--u)) calc(7 * var(--u)); font: 700 calc(10 * var(--u))/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.tc-grid { display: grid; grid-template-columns: repeat(3, calc(108 * var(--u))); gap: calc(6 * var(--u)); }
+.tc-chip { flex-direction: column; align-items: flex-start; gap: calc(4 * var(--u)); height: calc(50 * var(--u)); padding: 0 calc(11 * var(--u)); background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.tc-chip b { font: 750 calc(13 * var(--u))/1 var(--sans); white-space: nowrap; }
+.tc-chip small { font: 600 calc(11 * var(--u))/1 var(--sans); color: var(--dim); white-space: nowrap; }
+.tc-chip.on small { color: var(--amber-ink); opacity: 0.8; }
+.tc-chip.warn { border-color: var(--red); }
+.tc-chip.warn small { color: #ffb0a5; }
 
 /* where the HUD goes with the touch controls on screen */
 body.touch-ui .hints { display: none; }
 body.touch-ui .cluster { top: max(var(--gap), env(safe-area-inset-top)); bottom: auto; }
 body.touch-ui .tells { top: calc(100% + 6 * var(--u)); bottom: auto; flex-wrap: wrap; }
 body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); width: min(calc(100vw - 2 * var(--gap)), calc(440 * var(--u))); }
-body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 164 * var(--u)); }
-body.touch-ui .hud-fps { top: auto; bottom: var(--gap); right: 50%; transform: translateX(50%); }
+body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
+/* fps: bottom left corner, under the resting steering stick and clear of the pedals and handbrake */
+body.touch-ui .hud-fps { top: auto; right: auto; left: max(var(--gap), env(safe-area-inset-left)); bottom: max(calc(6 * var(--u)), env(safe-area-inset-bottom)); }
 body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
 /* narrow (portrait phone): the cluster goes under the button row, the open drawer covers it */
 @media (max-width: 600px) {
   body.touch-ui .hud-tl { z-index: 1; }
   body.touch-ui .cluster { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); }
-  body.touch-ui .hud-top, body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
+  body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
+  body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
 }
 body.touch-ui.tune-open .tc-right { right: calc(400px + 24px); }
 @media (max-width: 900px) { body.touch-ui.tune-open .tc-layer { visibility: hidden; } }

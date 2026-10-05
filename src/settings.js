@@ -27,7 +27,7 @@ export const DEFAULTS = {
   autoPause: true,          // open the menu when the window loses focus
   touchControls: 'auto',    // on-screen controls (touch.js): 'auto' (while you use the touch screen) | 'on' | 'off'
   touchSteer: 'stick',      // touch steering: 'stick' (left thumb slides) | 'tilt' (turn the device like a wheel)
-  quality: 'auto',          // graphics preset: 'auto' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
+  quality: 'auto',          // graphics preset: 'auto' | 'mobile' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
   renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
   // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
   gDpr: 1.5,                // device pixel ratio cap
@@ -50,7 +50,7 @@ export const DEFAULTS = {
   gBushes: 0.65,            // undergrowth density multiplier
   gBushHeight: 1.6,         // undergrowth size multiplier
   gBushDist: 1.55,          // undergrowth distance multiplier
-  vegetation: true,         // grass and undergrowth on / off (not part of the presets)
+  vegetation: true,         // grass and undergrowth on / off (not part of the presets, except Mobile turns it off)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
@@ -69,7 +69,7 @@ const CHOICES = {
   cluster: ['auto', 'full', 'compact'],
   touchControls: ['auto', 'on', 'off'],
   touchSteer: ['stick', 'tilt'],
-  quality: ['auto', 'low', 'medium', 'high', 'ultra', 'custom'],
+  quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],

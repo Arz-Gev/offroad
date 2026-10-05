@@ -1,4 +1,5 @@
 import { BINDING } from './input.js';
+import { fmtPressure } from './hud.js';
 
 // On-screen controls for phones and tablets.
 //
@@ -6,8 +7,8 @@ import { BINDING } from './input.js';
 //                the finger), or tilt the device like a steering wheel (setting touchSteer)
 //   right thumb  gas and brake pedals: analog, higher up the pedal = more; handbrake, clutch (manual
 //                without auto-clutch only), shift ▲ / ▼
-//   top left     next to the menu button: camera, recover and the 4×4 drawer (range, diff locks, engine,
-//                lights, tyres, tuning); the fullscreen button there is the HUD's own
+//   top left     next to the menu button: camera, recover and the Vehicle drawer (range, diff locks, drive,
+//                engine, lights, tyres, tuning); the fullscreen button there is the HUD's own
 //   the view     drag to look around, pinch to zoom (feeds Input.mouse, like the mouse and the right stick)
 //
 // Pedals and steering are written into Input.touch, which Input.update reads while the device is 'touch'.
@@ -20,6 +21,23 @@ const TILT_FULL = 28 * Math.PI / 180;   // device roll for full lock
 const TILT_DEAD = 1.5 * Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const label = id => BINDING[id].touch;
+// drawer chips: a fixed label and a state line under it, in a fixed grid, so nothing moves when a state changes
+const CHIP_STATE = {
+  range: d => d.range === 'low' ? 'LOW' : 'HIGH',
+  centreLock: d => d.centerLock ? 'Locked' : 'Open',
+  lockers: d => d.frontLock && d.rearLock ? 'Front + rear' : d.rearLock ? 'Rear' : 'Off',
+  rwd: d => d.rwd ? '2WD' : '4WD',
+  engineStart: d => d.running ? 'Running' : d.cranking ? 'Starting' : 'Off · tap',
+  headlights: (d, view) => ['Off', 'Low beam', 'High beam'][view.lights.head],
+  pressureDown: (d, view, v, unit) => fmtPressure(v.pressure, unit),
+  pressureUp: (d, view, v, unit) => fmtPressure(v.pressure, unit),
+  tuning: () => 'Panel',
+};
+const CHIP_ON = {
+  range: d => d.range === 'low', centreLock: d => d.centerLock, lockers: d => d.frontLock || d.rearLock,
+  rwd: d => d.rwd, headlights: (d, view) => view.lights.head > 0,
+};
+const ICON_VEHICLE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6" cy="4" r="1.7" fill="currentColor"/><circle cx="10.5" cy="8" r="1.7" fill="currentColor"/><circle cx="5" cy="12" r="1.7" fill="currentColor"/></svg>';
 
 const ICON_CAM = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5h2.6l1.2-1.8h4.4l1.2 1.8H14v7H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const ICON_RECOVER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4.4 1.8v3h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -78,24 +96,25 @@ export class TouchControls {
     hud.root.append(el);
     this.el = el;
 
-    // camera, recover and the 4×4 drawer go next to the HUD's menu button
+    // camera, recover and the Vehicle drawer go next to the HUD's menu button
     const tools = document.createElement('div');
     tools.className = 'tc-tools';
     tools.hidden = true;
     tools.innerHTML = `
       ${btn('camera', 'tc-icon', ICON_CAM, 'Next camera')}
       ${btn('recover', 'tc-icon', ICON_RECOVER, 'Recover')}
-      <button type="button" class="tc-btn tc-icon tc-4x4" data-drawer aria-expanded="false" aria-label="4×4, engine and lights">4×4</button>`;
+      <button type="button" class="tc-btn tc-icon tc-veh" data-drawer aria-expanded="false" aria-haspopup="true" aria-label="Vehicle controls: 4×4, engine, lights, tyres">${ICON_VEHICLE}<span>Vehicle</span><i class="tc-caret"></i></button>`;
     hud.$('h-menubtn').after(tools);
     const drawer = document.createElement('div');
     drawer.className = 'tc-drawer';
     drawer.hidden = true;
-    drawer.innerHTML = DRAWER.map(id => btn(id, 'tc-chip', label(id), BINDING[id].label)).join('');
+    drawer.innerHTML = `<div class="tc-dh">4×4 · engine · lights · tyres</div>
+      <div class="tc-grid">${DRAWER.map(id => btn(id, 'tc-chip', `<b>${label(id)}</b><small>&nbsp;</small>`, BINDING[id].label)).join('')}</div>`;
     hud.root.querySelector('.tl-row').after(drawer);
     this.tools = tools;
     this.drawer = drawer;
     this.drawerBtn = tools.querySelector('[data-drawer]');
-    this.chips = Object.fromEntries([...drawer.children].map(b => [b.dataset.act, b]));
+    this.chips = Object.fromEntries([...drawer.querySelectorAll('[data-act]')].map(b => [b.dataset.act, { el: b, state: b.querySelector('small') }]));
 
     this.steerEl = el.querySelector('.tc-steer');
     this.stickEl = el.querySelector('.tc-stick');
@@ -323,21 +342,15 @@ export class TouchControls {
     // the clutch pedal only exists in the manual box with auto-clutch off
     const clutch = d.mode === 'manual' && !d.clutchAssist;
     if (clutch !== c.clutch) { c.clutch = clutch; this.pedals.clutch.el.hidden = !clutch; if (!clutch) t.clutch = 0; }
-    // drawer chips light up when engaged
+    // drawer chips: state line + lit when engaged (only while the drawer is open)
     if (!this.drawer.hidden) {
-      const state = `${d.range}|${d.centerLock}|${d.frontLock}${d.rearLock}|${d.rwd}|${d.running || d.cranking}|${view.lights.head}`;
-      if (state !== c.chips) {
-        c.chips = state;
-        const ch = this.chips;
-        ch.range.classList.toggle('on', d.range === 'low');
-        ch.centreLock.classList.toggle('on', d.centerLock);
-        ch.lockers.classList.toggle('on', d.rearLock || d.frontLock);
-        ch.lockers.textContent = d.frontLock && d.rearLock ? 'LOCK F+R' : d.rearLock ? 'LOCK R' : 'LOCK';
-        ch.rwd.classList.toggle('on', d.rwd);
-        ch.engineStart.classList.toggle('warn', !(d.running || d.cranking));
-        ch.headlights.classList.toggle('on', view.lights.head > 0);
-        ch.headlights.textContent = ['Lights', 'Low beam', 'High beam'][view.lights.head];
+      for (const id of DRAWER) {
+        const ch = this.chips[id], txt = CHIP_STATE[id](d, view, v, this.api.hud.opts.pressureUnit), on = !!CHIP_ON[id]?.(d, view);
+        if (txt !== ch.txt) { ch.txt = txt; ch.state.textContent = txt; }
+        if (on !== ch.on) { ch.on = on; ch.el.classList.toggle('on', on); }
       }
+      const off = !(d.running || d.cranking);
+      if (off !== c.engOff) { c.engOff = off; this.chips.engineStart.el.classList.toggle('warn', off); }
     }
   }
 }

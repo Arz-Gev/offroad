@@ -13,7 +13,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icon-180.png" />
-  <title>Offroad Defender</title>
+  <title>Offroad</title>
   <style>
     /* only what the page needs before the JS (and src/ui.css) loads */
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #0d0f12; color: #eef1f4; font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -24,8 +24,7 @@
     #loading { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, #1a1e25 0%, #0d0f12 70%); transition: opacity .5s ease; }
     #loading.done { opacity: 0; pointer-events: none; }
     #loading .ld-box { width: min(340px, calc(100vw - 48px)); text-align: center; }
-    #loading .ld-eyebrow { font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ffb347; }
-    #loading .ld-title { margin-top: 8px; font: 800 28px/1.1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .01em; }
+    #loading .ld-title { font: 800 32px/1.1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .01em; }
     #loading .ld-bar { height: 3px; margin: 22px 0 10px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; }
     #loading .ld-bar i { display: block; height: 100%; background: #ffb347; transform-origin: 0 50%; transform: scaleX(var(--p, .04)); transition: transform .3s ease; }
     #loading .ld-t { color: rgba(238,241,244,.6); font-size: 13px; min-height: 1.4em; }
@@ -42,8 +41,7 @@
   <div id="intro" class="overlay" hidden></div>
   <div id="loading" role="status" aria-live="polite">
     <div class="ld-box">
-      <div class="ld-eyebrow">Offroad</div>
-      <div class="ld-title">Defender 110</div>
+      <div class="ld-title">Offroad</div>
       <div class="ld-bar"><i></i></div>
       <div class="ld-t">Loading…</div>
       <div class="ld-err" hidden></div>
