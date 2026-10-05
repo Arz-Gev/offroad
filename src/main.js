@@ -20,7 +20,9 @@ import { Vehicle } from './vehicle/Vehicle.js';
 import { buildCarModel, CARS } from './vehicle/cars.js';
 import { makeCarParams } from './vehicle/carSpecs.js';
 import { VehicleView } from './vehicle/vehicleView.js';
-import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
+import { CameraRig, CAM_NAMES, camModesFor } from './cameraRig.js';
+import { Turret } from './vehicle/turret.js';
+import { Gunnery } from './weapons.js';
 import { Input, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
@@ -132,6 +134,8 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
+  // a turret (BTR-80): its state lives on the vehicle (the view, the HUD and the network read it)
+  if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
   const d = vehicle.drivetrain;
@@ -146,6 +150,10 @@ async function main() {
   const audio = new GameAudio();
   const dust = new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
+  const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
+  const camModes = camModesFor(model);
+  // the sight: the pointer locks to the view, so the mouse turns the turret (the first click in the sight)
+  input.sightLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed: drag to aim, Enter fires */ } };
   const tracks = new Tracks(terrainView.material);
 
 
@@ -193,7 +201,7 @@ async function main() {
     game.redraw = 3;
   };
 
-  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   // drive with friends (invite links, peer to peer); the menu's Friends tab
@@ -201,6 +209,7 @@ async function main() {
     RAPIER, world, scene, vehicle, view, settings,
     say: (key, html, kind) => hud.toast(html, { kind, key }),
     placeNear: (x, z, yaw) => placeVehicle(x, z, yaw),
+    friendShots: (p, n) => gunnery?.friendShots(p.model, p.proxy, n),
     changed: () => { if (menu.isOpen) menu.refresh(); },
   });
   game.mp = mp;
@@ -255,6 +264,7 @@ async function main() {
     renderer.getDrawingBufferSize(_db);
     pipeline.setSize(_db.x, _db.y);
     dust.setViewport(_db.y);
+    gunnery?.setViewport(_db.y);
     game.redraw = 3;
   }
   // Dynamic resolution (presets with dynamicDpr: Mobile). It starts at 100 % pixel density so the first
@@ -316,7 +326,12 @@ async function main() {
       if (!o.silent) say('steerAssist', { strong: 'Keyboard steering: strong assist', light: 'Keyboard steering: light assist', off: 'Keyboard steering: no assist, full lock at any speed' }[v]);
     },
     fov(v) { rig.fov = v; game.redraw = 3; },
-    camera(v, o) { rig.setMode(v); if (!o.silent) say('camera', CAM_NAMES[v]); },
+    camera(v, o) {
+      if (!camModes.includes(v)) v = 'chase';   // the gunner's sight on a car without a turret
+      rig.setMode(v);
+      if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
+      if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
+    },
     // the hour follows at once (menu slider, startup); the N key asks for the 2.5 s sweep
     time(v, o) {
       env.setHour(v, { instant: !o.animate });
@@ -398,7 +413,19 @@ async function main() {
     lightBar: () => { view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Light bar on' : 'Light bar off'); },
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
-    camera: () => settings.set('camera', next(CAM_MODES, rig.mode)),
+    camera: () => settings.set('camera', next(camModes, rig.mode)),
+    // turret vehicles: the gunner's sight on / off (back to the last other camera), switch guns
+    gunner: () => {
+      if (!vehicle.turret) return;
+      if (rig.mode === 'gunner') settings.set('camera', rig.lastMode && rig.lastMode !== 'gunner' ? rig.lastMode : 'chase');
+      else { rig.lastMode = rig.mode; settings.set('camera', 'gunner'); }
+    },
+    weapon: () => {
+      const T = vehicle.turret;
+      if (!T) return;
+      T.select((T.weapon + 1) % T.spec.weapons.length);
+      say('weapon', T.w.name, 'good');
+    },
     time: () => {
       // day -> dusk -> night -> day, from wherever the slider is: the next quick hour after the current one
       const h = settings.get('time');
@@ -534,9 +561,16 @@ async function main() {
     const mark = key => { const n = performance.now(); T[key] = (T[key] || 0) * 0.9 + (n - tm) * 0.1; tm = n; };
     touch.update(dt, vehicle, view);
     input.update(dt);
+    const gunnerView = rig.mode === 'gunner' && !!vehicle.turret;
+    input.gunner = gunnerView;
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
     const paused = game.paused;
     const now = performance.now() / 1000;
+    // in the sight the mouse turns the turret like the gunner's hand wheels (px -> rad by the field of view)
+    if (gunnerView && !paused) {
+      const k = (rig.gunnerFov * Math.PI / 180) / window.innerHeight;
+      vehicle.turret.aim(input.mouse.dx * k, -input.mouse.dy * k, 0, 0, 0);
+    }
 
     if (!paused) {
       acc += dt;
@@ -544,6 +578,10 @@ async function main() {
       while (acc >= H && steps < MAX_STEPS) {
         prevPos.copy(curPos); prevQ.copy(curQ);
         mp.stepBodies(now - (acc - H), H);   // friends' solid trucks at this step's instant
+        if (gunnery) {
+          vehicle.turret.aim(0, 0, raw.aimX || 0, raw.aimY || 0, H);
+          gunnery.step(H, !!raw.fire);
+        }
         vehicle.step(H, raw);
         world.step();
         const t = vehicle.body.translation(), q = vehicle.body.rotation();
@@ -584,11 +622,14 @@ async function main() {
       dust.spawnFromVehicle(vehicle, dt);
       dust.update(dt, 1 - 0.88 * env.darkness);
     }
+    if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness);
+    audio.listener = camera.position;
     mark('dust');
     audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit' });
     mark('audio');
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
+      gun: gunnery ? { gunnery, sight: gunnerView, fov: rig.gunnerFov, locked: !!document.pointerLockElement } : null,
       telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
     });
     tuning.update(dt, vehicle, raw);

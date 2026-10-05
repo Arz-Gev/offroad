@@ -9,7 +9,9 @@ import { fmtPressure } from './hud.js';
 //                without auto-clutch only), shift ▲ / ▼
 //   top left     next to the menu button: camera, recover and the Vehicle drawer (range, diff locks, drive,
 //                engine, lights, tyres, tuning); the fullscreen button there is the HUD's own
-//   the view     drag to look around, pinch to zoom (feeds Input.mouse, like the mouse and the right stick)
+//   the view     drag to look around, pinch to zoom (feeds Input.mouse, like the mouse and the right stick);
+//                in the gunner's sight the same drag turns the turret
+//   turret       (turret vehicles) over the shift buttons: Sight, Gun, and Fire (hold)
 //
 // Pedals and steering are written into Input.touch, which Input.update reads while the device is 'touch'.
 // Buttons fire the same actions as the keys (api.action). Everything uses pointer events with pointer
@@ -79,6 +81,11 @@ export class TouchControls {
       </div>
       <div class="tc-tilt" hidden><i></i><span>Tilt to steer</span></div>
       <div class="tc-right">
+        <div class="tc-gun" hidden>
+          ${btn('gunner', 'tc-gear tc-small', label('gunner'), BINDING.gunner.label)}
+          ${btn('weapon', 'tc-gear tc-small', label('weapon'), BINDING.weapon.label)}
+          <button type="button" class="tc-btn tc-hold tc-fire" data-hold="fire" aria-label="Fire (hold)">${label('fire')}</button>
+        </div>
         <div class="tc-shift">
           ${btn('shiftDown', 'tc-gear', '▼', 'Shift down')}
           ${btn('shiftUp', 'tc-gear', '▲', 'Shift up')}
@@ -123,6 +130,8 @@ export class TouchControls {
     this.tiltBar = this.tiltEl.querySelector('i');
     for (const p of el.querySelectorAll('[data-pedal]')) this.pedals[p.dataset.pedal] = { el: p, fill: p.querySelector('i'), id: null };
     this.hb = el.querySelector('[data-hold="handbrake"]');
+    this.gunEl = el.querySelector('.tc-gun');
+    this.fireBtn = el.querySelector('[data-hold="fire"]');
 
     for (const root of [el, tools, drawer]) {
       root.addEventListener('pointerdown', e => this.onDown(e));
@@ -162,9 +171,10 @@ export class TouchControls {
     this.stick.id = null; this.stick.v = 0;
     this.stickEl?.classList.remove('on');
     this.hbId = null; this.hb?.classList.remove('on');
+    this.fireId = null; this.fireBtn?.classList.remove('on');
     this.looks.clear();
     const t = this.input.touch;
-    t.throttle = t.brake = t.clutch = t.handbrake = 0;
+    t.throttle = t.brake = t.clutch = t.handbrake = t.fire = 0;
     if (this.steerMode !== 'tilt') t.steer = 0;
     this.c.stickX = this.c.thr = this.c.brk = this.c.clu = undefined;
   }
@@ -195,6 +205,8 @@ export class TouchControls {
     try { t.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     if (t.dataset.hold === 'handbrake') {
       this.hbId = e.pointerId; t.classList.add('on'); this.input.touch.handbrake = 1; buzz();
+    } else if (t.dataset.hold === 'fire') {
+      this.fireId = e.pointerId; t.classList.add('on'); this.input.touch.fire = 1; buzz();
     } else if (t.dataset.pedal) {
       const p = this.pedals[t.dataset.pedal];
       p.id = e.pointerId;
@@ -219,6 +231,7 @@ export class TouchControls {
   onUp(e) {
     const t = this.input.touch;
     if (e.pointerId === this.hbId) { this.hbId = null; this.hb.classList.remove('on'); t.handbrake = 0; }
+    if (e.pointerId === this.fireId) { this.fireId = null; this.fireBtn.classList.remove('on'); t.fire = 0; }
     if (e.pointerId === this.stick.id) {
       this.stick.id = null; this.stick.v = 0;
       if (this.steerMode !== 'tilt') t.steer = 0;
@@ -339,6 +352,8 @@ export class TouchControls {
       if (q !== c.tilt) { c.tilt = q; this.tiltBar.style.transform = `translateX(${q * 1.2}px)`; }
     }
     const d = v.drivetrain;
+    const gun = !!v.turret;
+    if (gun !== c.gun) { c.gun = gun; this.gunEl.hidden = !gun; }
     // the clutch pedal only exists in the manual box with auto-clutch off
     const clutch = d.mode === 'manual' && !d.clutchAssist;
     if (clutch !== c.clutch) { c.clutch = clutch; this.pedals.clutch.el.hidden = !clutch; if (!clutch) t.clutch = 0; }

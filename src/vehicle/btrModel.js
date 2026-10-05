@@ -167,7 +167,9 @@ export async function buildBtr(id, c) {
   const muzzle = new THREE.Object3D(); muzzle.position.copy(hubFrame(MUZZLE)).sub(trunAt); recoil.add(muzzle);
   const pktMuzzle = new THREE.Object3D(); pktMuzzle.position.copy(hubFrame(PKT_MUZZLE)).sub(trunAt); pitch.add(pktMuzzle);
   const lampAt = new THREE.Object3D(); lampAt.position.copy(hubFrame(SEARCHLIGHT)).sub(trunAt); pitch.add(lampAt);
-  const sight = new THREE.Object3D(); sight.position.set(-0.32, 0.12, -0.05); pitch.add(sight);   // gunner's sight (PP-61AM), left of the gun
+  // gunner's sight (PP-61AM periscope): its head on the turret roof left of the cradle, fixed in the turret;
+  // its mirror follows the gun (the camera takes the gun's pitch, cameraRig.js)
+  const sight = new THREE.Object3D(); sight.position.set(-0.32, 0.77, -0.15); yaw.add(sight);
 
   // ---------------- lamps: our beams, the model's lenses glow
   const lights = buildLightRig(root, { head: c.lamps.head, bar: c.lamps.bar, rear: c.lamps.rear });

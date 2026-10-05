@@ -454,6 +454,12 @@ body.paused #hud .tc-layer { visibility: hidden; }
 .tc-right { position: absolute; right: max(var(--gap), env(safe-area-inset-right)); bottom: max(var(--gap), env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: flex-end; gap: calc(10 * var(--u)); }
 .tc-shift { display: flex; gap: calc(10 * var(--u)); }
 .tc-gear { width: calc(66 * var(--u)); height: calc(50 * var(--u)); font-size: calc(18 * var(--u)); }
+/* turret vehicles: Sight, Gun and a big Fire button over the shift buttons */
+.tc-gun { display: flex; align-items: center; gap: calc(10 * var(--u)); }
+.tc-gun[hidden] { display: none; }
+.tc-small { width: calc(56 * var(--u)); height: calc(40 * var(--u)); font-size: calc(12 * var(--u)); font-weight: 750; }
+.tc-fire { width: calc(74 * var(--u)); height: calc(74 * var(--u)); border-radius: 50%; font: 800 calc(14 * var(--u))/1 var(--sans); letter-spacing: 0.04em; border-color: rgba(255, 90, 69, 0.8); color: #ffd9d2; }
+.tc-fire.on { background: var(--red); border-color: var(--red); color: #fff; }
 .tc-feet { display: flex; align-items: flex-end; gap: calc(10 * var(--u)); }
 .tc-hb { width: calc(62 * var(--u)); height: calc(62 * var(--u)); border-radius: 50%; }
 .tc-hb.on { background: var(--red); border-color: var(--red); color: #fff; }
@@ -553,3 +559,35 @@ body.touch-ui .tab { padding: 14px 12px 15px; }
 @media (max-height: 500px) and (min-width: 700px) {
   .intro-keys { grid-template-columns: auto 1fr auto 1fr; }
 }
+
+/* ---------------------------------------------------------------- turret (turret vehicles only)
+   gun panel: bottom centre, fixed width (numbers change inside); the sight: full screen under the HUD */
+.sight { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.gunbox {
+  position: absolute; left: 50%; bottom: max(var(--gap), env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; align-items: center; gap: calc(10 * var(--u)); width: calc(290 * var(--u)); box-sizing: border-box;
+  padding: calc(9 * var(--u)) calc(12 * var(--u)); border: 1px solid var(--line); border-radius: calc(14 * var(--u));
+  background: var(--panel); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+.gb-turret { width: calc(30 * var(--u)); height: calc(41 * var(--u)); flex: none; }
+.gb-hull { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.45); stroke-width: 1.5; }
+.gb-tur { fill: #1b1f25; stroke: var(--amber); stroke-width: 2; }
+.gb-barrel { stroke: var(--amber); stroke-width: 3; stroke-linecap: round; }
+.gb-main { flex: 1; min-width: 0; }
+.gb-rows { display: flex; flex-direction: column; gap: calc(3 * var(--u)); }
+.gb-row { position: relative; display: grid; grid-template-columns: calc(44 * var(--u)) calc(34 * var(--u)) calc(40 * var(--u)) 1fr; align-items: baseline;
+  padding: calc(3 * var(--u)) calc(6 * var(--u)); border-radius: calc(6 * var(--u)); color: var(--dim); font: 650 calc(12 * var(--u))/1.1 var(--sans); overflow: hidden; }
+.gb-row b { font-weight: 800; letter-spacing: 0.04em; }
+.gb-row .gb-cal { font-size: calc(10.5 * var(--u)); opacity: 0.8; }
+.gb-row .gb-ammo { text-align: right; font: 800 calc(14 * var(--u))/1 var(--mono); color: var(--txt); }
+.gb-row .gb-res { padding-left: calc(5 * var(--u)); font: 600 calc(11 * var(--u))/1 var(--mono); }
+.gb-row.on { background: rgba(255, 179, 71, 0.16); color: var(--txt); }
+.gb-row.on b { color: var(--amber); }
+.gb-rl { position: absolute; left: 0; right: 0; bottom: 0; height: calc(2 * var(--u)); opacity: 0; }
+.gb-rl > i { display: block; height: 100%; background: var(--amber); transform-origin: left; transform: scaleX(0); }
+.gb-row.reloading .gb-rl { opacity: 1; }
+.gb-row.reloading .gb-ammo { color: var(--amber); }
+.gb-foot { display: flex; align-items: center; gap: calc(8 * var(--u)); margin-top: calc(5 * var(--u)); font: 600 calc(11 * var(--u))/1 var(--sans); color: var(--dim); white-space: nowrap; }
+.gb-foot #h-gunelev { width: calc(30 * var(--u)); font-family: var(--mono); color: var(--txt); }
+.gb-foot .cap { transform: scale(0.85); }
+body.touch-ui .gunbox { bottom: auto; left: max(var(--gap), env(safe-area-inset-left)); transform: none; top: calc(max(var(--gap), env(safe-area-inset-top)) + 44 * var(--u)); }

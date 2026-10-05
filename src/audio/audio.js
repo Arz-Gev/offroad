@@ -91,8 +91,54 @@ export class GameAudio {
     n.start(t, Math.random()); n.stop(t + 0.08);
   }
 
+  // Gunfire (weapons.js). The KPVT: a sharp crack over a deep chest thump and the bolt's clank; the PKT: the
+  // same, higher and shorter; 'far': a friend's gun, muffled. Synthesised like the knock (noise + sine).
+  gunshot(kind) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime + 0.003;
+    const K = { kpvt: { lp: 2600, dec: 0.16, f0: 78, f1: 34, thump: 0.95, crack: 0.7, clank: 0.18 },
+      pkt: { lp: 4200, dec: 0.07, f0: 140, f1: 70, thump: 0.45, crack: 0.5, clank: 0.1 },
+      far: { lp: 900, dec: 0.25, f0: 60, f1: 30, thump: 0.25, crack: 0.12, clank: 0 } }[kind] || { lp: 2600, dec: 0.12, f0: 80, f1: 40, thump: 0.6, crack: 0.5, clank: 0.1 };
+    const out = this.master;
+    // crack: broadband noise, fast attack, short decay, a little random colour shot to shot
+    const n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = K.lp * (0.9 + Math.random() * 0.2); lp.Q.value = 0.8;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(K.crack, t + 0.002); ng.gain.exponentialRampToValueAtTime(0.001, t + K.dec);
+    n.connect(lp).connect(ng).connect(out);
+    n.start(t, Math.random() * 1.5); n.stop(t + K.dec + 0.02);
+    // thump: the muzzle blast felt in the chest, falling in pitch
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(K.f0, t); o.frequency.exponentialRampToValueAtTime(K.f1, t + K.dec);
+    const og = ctx.createGain(); og.gain.setValueAtTime(K.thump, t); og.gain.exponentialRampToValueAtTime(0.001, t + K.dec * 1.3);
+    o.connect(og).connect(out); o.start(t); o.stop(t + K.dec * 1.4);
+    // clank of the action, a hair later
+    if (K.clank) {
+      const c = ctx.createBufferSource(); c.buffer = this.noiseBuf;
+      const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 2300; bf.Q.value = 6;
+      const cg = ctx.createGain(); cg.gain.setValueAtTime(K.clank, t + 0.025); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+      c.connect(bf).connect(cg).connect(out); c.start(t + 0.02, Math.random()); c.stop(t + 0.08);
+    }
+  }
+
+  // a round landing at p (world): heard after the sound's travel time, fainter with distance
+  impact(kind, p) {
+    if (!this.ready || !this.listener || this.impactCool > 0) return;
+    const L = this.listener, d = Math.hypot(p.x - L.x, p.y - L.y, p.z - L.z);
+    const level = (kind === 'hard' ? 0.5 : kind === 'water' ? 0.35 : 0.4) / (1 + d / 25);
+    if (level < 0.01) return;
+    this.impactCool = 0.03;
+    const ctx = this.ctx, t = ctx.currentTime + d / 343;
+    const n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = kind === 'hard' ? 'bandpass' : 'lowpass';
+    f.frequency.value = kind === 'hard' ? 1800 + Math.random() * 1200 : kind === 'water' ? 1400 : 500; f.Q.value = kind === 'hard' ? 3 : 0.7;
+    const g = ctx.createGain(); g.gain.setValueAtTime(level, t); g.gain.exponentialRampToValueAtTime(0.0005, t + (kind === 'hard' ? 0.09 : 0.16));
+    n.connect(f).connect(g).connect(this.master); n.start(t, Math.random()); n.stop(t + 0.2);
+  }
+
   update(dt, v, opts) {
     if (!this.ready) return;
+    this.impactCool = Math.max(0, (this.impactCool || 0) - dt);
     const ctx = this.ctx, t = ctx.currentTime, d = v.drivetrain;
     const p = this.engine.parameters;
     p.get('rpm').setTargetAtTime(d.rpm, t, 0.01);

@@ -76,6 +76,17 @@ export class HUD {
         <div class="tip" id="h-tip" hidden></div>
       </div>
       <div class="hud-fps" id="h-fps" hidden></div>
+      <canvas class="sight" id="h-sight" hidden></canvas>
+      <div class="gunbox" id="h-gun" hidden>
+        <svg class="gb-turret" viewBox="0 0 44 60" aria-hidden="true">
+          <rect class="gb-hull" x="9" y="2" width="26" height="56" rx="5"/>
+          <g id="h-gunrot"><line class="gb-barrel" x1="22" y1="22" x2="22" y2="1"/><circle class="gb-tur" cx="22" cy="22" r="8"/></g>
+        </svg>
+        <div class="gb-main">
+          <div class="gb-rows" id="h-gunrows"></div>
+          <div class="gb-foot"><span id="h-gunelev">0°</span><span class="sep"></span><span id="h-gunkeys"></span></div>
+        </div>
+      </div>
       <div class="hud-panel susp" id="h-susp" hidden>
         <div class="panel-h"><span>Suspension &amp; tyres</span><span id="h-suspkey"></span></div>
         <canvas id="h-suspcv"></canvas>
@@ -143,6 +154,7 @@ export class HUD {
       tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
+    Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev'), gunKeys: $('h-gunkeys') });
     this.sctx = $('h-suspcv').getContext('2d');
     this.c = {};                       // last written values
     this.opts = { speedUnit: 'kmh', pressureUnit: 'psi', cluster: 'auto', hudScale: 1, hints: true, suspension: false, telemetry: false, fps: false };
@@ -379,6 +391,7 @@ export class HUD {
     else this.rpmBar(Math.max(0, d.rpm), v.P.engine);
 
     // pedals
+    this.updateGun(v, ctx.gun || null);
     this.bar(e.thr, 'thr', v.ctl.throttle);
     this.bar(e.brk, 'brk', Math.max(v.ctl.brake, v.ctl.handbrake));
     this.bar(e.clu, 'clu', manual ? clamp(d.clutchPedal / 0.8, 0, 1) : 0);
@@ -501,6 +514,104 @@ export class HUD {
     g.lineCap = 'butt';
     g.strokeStyle = rpm >= E.redlineRpm ? '#ff5a45' : rpm >= E.redlineRpm - 700 ? '#ffb347' : '#f4f6f8';
     g.beginPath(); g.arc(cx, cy, r, A0, ang(rpm)); g.stroke();
+  }
+
+  // ------------------------------------------------------------------ turret: gun panel + gunner's sight
+  // g: { gunnery, sight (in the gunner's view), fov (deg), locked (pointer locked to the sight) } or null
+  updateGun(v, g) {
+    const e = this.e, c = this.c, T = v.turret;
+    const show = !!(T && g);
+    if (show !== c.gunShow) { c.gunShow = show; e.gun.hidden = !show; if (!show) { e.sight.hidden = true; c.sightKey = null; } }
+    if (!show) return;
+    const S = T.spec;
+    // rows: one per gun, built once (fixed width; numbers change inside)
+    if (c.gunRowsFor !== S) {
+      c.gunRowsFor = S;
+      e.gunRows.innerHTML = S.weapons.map((w, i) => `<div class="gb-row" data-w="${i}"><b>${w.short}</b><span class="gb-cal">${w.calibre}</span><span class="gb-ammo">0</span><span class="gb-res">/ 0</span><i class="gb-rl"><i></i></i></div>`).join('');
+      c.gunRow = [...e.gunRows.children].map(r => ({ r, ammo: r.querySelector('.gb-ammo'), res: r.querySelector('.gb-res'), rl: r.querySelector('.gb-rl > i'), k: {} }));
+      c.gunKeysDev = null;
+    }
+    T.guns.forEach((gun, i) => {
+      const row = c.gunRow[i], w = S.weapons[i], k = row.k;
+      const on = i === T.weapon;
+      if (k.on !== on) { k.on = on; row.r.classList.toggle('on', on); }
+      if (k.belt !== gun.belt) { k.belt = gun.belt; row.ammo.textContent = gun.belt; }
+      if (k.res !== gun.reserve) { k.res = gun.reserve; row.res.textContent = '/ ' + gun.reserve; }
+      const rl = gun.reload > 0 ? 1 - gun.reload / w.reload : -1;
+      const q = Math.round(rl * 40);
+      if (k.rl !== q) { k.rl = q; row.r.classList.toggle('reloading', rl >= 0); row.rl.style.transform = `scaleX(${Math.max(0, rl).toFixed(3)})`; }
+    });
+    // turret on the hull outline, gun elevation
+    const yawQ = Math.round(T.yaw * 180 / Math.PI);
+    if (yawQ !== c.gunYaw) { c.gunYaw = yawQ; e.gunRot.setAttribute('transform', `rotate(${yawQ} 22 22)`); }
+    const el = Math.round(T.pitch * 180 / Math.PI);
+    if (el !== c.gunEl) { c.gunEl = el; e.gunElev.textContent = `${el > 0 ? '+' : ''}${el}°`; }
+    if (c.gunKeysDev !== this.device) {
+      c.gunKeysDev = this.device;
+      e.gunKeys.innerHTML = this.device === 'touch' ? '' : `${capsHTML('fire', this.device)} fire · ${capsHTML(this.device === 'pad' ? 'camera' : 'gunner', this.device)} sight`;
+    }
+    // the sight: reticle redrawn only when the view, the field of view or the gun changes
+    e.sight.hidden = !g.sight;
+    if (!g.sight) return;
+    const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    const key = `${W}x${H}@${dpr}|${g.fov.toFixed(1)}|${T.weapon}`;
+    if (key !== c.sightKey) { c.sightKey = key; this.drawSight(W, H, dpr, g.fov, g.gunnery.marks[T.weapon], S.weapons[T.weapon]); }
+  }
+
+  // PP-61AM style reticle: a chevron on the bore line, mil ticks for leading a target, and range marks below:
+  // where the round lands at each range (the gun must be raised by that much), from the gun's ballistics
+  drawSight(W, H, dpr, fovDeg, marks, w) {
+    const cv = this.e.sight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2, tanH = Math.tan(fovDeg * Math.PI / 360);
+    const px = a => Math.tan(a) / tanH * (H / 2);   // angle (rad) -> pixels from the centre
+    // the periscope's round field: dark outside
+    const r = Math.min(W, H) * 0.47;
+    g.fillStyle = 'rgba(4, 6, 8, 0.82)';
+    g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, r, 0, Math.PI * 2, true); g.fill();
+    const ring = g.createRadialGradient(cx, cy, r * 0.86, cx, cy, r);
+    ring.addColorStop(0, 'rgba(0,0,0,0)'); ring.addColorStop(1, 'rgba(0,0,0,0.55)');
+    g.fillStyle = ring; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+    // lines: dark with a faint light edge, readable on sky and on earth
+    const stroke = (draw, lw = 1.6) => {
+      g.lineCap = 'round';
+      g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = lw + 2; g.beginPath(); draw(); g.stroke();
+      g.strokeStyle = 'rgba(10,12,14,0.95)'; g.lineWidth = lw; g.beginPath(); draw(); g.stroke();
+    };
+    const mil = 0.001, k5 = px(5 * mil);
+    // chevron: its tip on the bore line (boresighted at 600 m)
+    stroke(() => { g.moveTo(cx - 9, cy + 9); g.lineTo(cx, cy); g.lineTo(cx + 9, cy + 9); }, 2);
+    // horizontal bar with 5-mil lead ticks, open in the middle
+    const half = r * 0.82;
+    stroke(() => {
+      g.moveTo(cx - half, cy); g.lineTo(cx - 3 * k5, cy); g.moveTo(cx + 3 * k5, cy); g.lineTo(cx + half, cy);
+      for (let i = 1; i * k5 < half; i++) for (const sgn of [-1, 1]) { const x = cx + sgn * i * k5, t = i % 2 ? 4 : 8; if (i < 3) continue; g.moveTo(x, cy - t); g.lineTo(x, cy + t); }
+    });
+    // range marks under the chevron (hundreds of metres)
+    g.font = '600 11px ui-sans-serif, system-ui, sans-serif'; g.textBaseline = 'middle';
+    // ticks at least 4 px apart, labels at least 11 px apart (a flat-shooting gun packs them near the centre;
+    // then only the full and half kilometres get a number)
+    let lastTick = cy + 9, lastLabel = cy + 9;
+    for (const m of marks) {
+      const y = cy + px(m.a);
+      if (y - lastTick < 4) continue;
+      const major = m.d % 500 === 0, len = major ? 12 : 7;
+      stroke(() => { g.moveTo(cx - len, y); g.lineTo(cx + len, y); }, 1.4);
+      lastTick = y;
+      if (y - lastLabel < 11 || (!major && y - lastLabel < 16)) continue;
+      g.fillStyle = 'rgba(10,12,14,0.95)'; g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 2.5;
+      const label = String(m.d / 100);
+      g.strokeText(label, cx + len + 4, y); g.fillText(label, cx + len + 4, y);
+      lastLabel = y;
+    }
+    // the gun's name and the scale, bottom left inside the field
+    g.font = '700 12px ui-sans-serif, system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+    g.fillStyle = 'rgba(230,235,240,0.85)';
+    g.fillText(`${w.name} · ${Math.round(fovDeg)}° · range × 100 m`, cx - r * 0.6, cy + r * 0.82);
   }
 
   // ------------------------------------------------------------------ suspension panel

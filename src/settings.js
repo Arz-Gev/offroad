@@ -66,7 +66,7 @@ const CHOICES = {
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],
-  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit'],
+  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'],   // gunner: turret vehicles only (main.js falls back to chase)
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],

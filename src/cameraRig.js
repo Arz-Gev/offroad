@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 
-export const CAM_MODES = ['chase', 'cockpit', 'hood', 'wheel', 'orbit'];
-export const CAM_NAMES = { chase: 'Chase camera', cockpit: 'Cockpit (first person)', hood: 'Hood camera', wheel: 'Wheel camera (front left)', orbit: 'Free orbit' };
+export const CAM_MODES = ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'];
+export const CAM_NAMES = { chase: 'Chase camera', cockpit: 'Cockpit (first person)', hood: 'Hood camera', wheel: 'Wheel camera (front left)', orbit: 'Free orbit', gunner: "Gunner's sight" };
+// the cameras a vehicle has: the gunner's sight only with a turret
+export const camModesFor = model => (model.turret ? CAM_MODES : CAM_MODES.filter(m => m !== 'gunner'));
+const DEG = Math.PI / 180;
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
@@ -21,6 +24,7 @@ export class CameraRig {
     this.smoothPos = new THREE.Vector3();
     this.first = true;
     this.fov = 62;
+    this.gunnerFov = 23;   // the PP-61AM's 2.6x, 23° field; the wheel zooms out to 50°
   }
 
   get label() { return CAM_NAMES[this.mode]; }
@@ -92,6 +96,16 @@ export class CameraRig {
       cam.position.copy(eye).applyQuaternion(quat).add(pos);
       _e.set(this.lookPitch - (this.mode === 'hood' ? 0.06 : 0.14), this.lookYaw, 0, 'YXZ');
       cam.quaternion.copy(quat).multiply(_q.setFromEuler(_e));
+    } else if (this.mode === 'gunner' && model.turret) {
+      // the sight: on the turret roof, looking where the gun points (no stabiliser: it bounces with the hull)
+      const T = model.turret;
+      this.gunnerFov = THREE.MathUtils.clamp(this.gunnerFov * (1 + m.wheel * 0.12), 12, 50);
+      T.sight.getWorldPosition(cam.position);
+      T.pitch.getWorldQuaternion(cam.quaternion);
+      // boresighted at 600 m: the sight sits 0.3 m left of and above the bore, turn it in that little bit
+      const off = _v2.copy(T.sight.position).sub(T.pitch.position);
+      cam.quaternion.multiply(_q.setFromEuler(_e.set(-off.y / 600, off.x / 600, 0, "YXZ")));
+      near = 0.05; fov = this.gunnerFov;
     } else if (this.mode === 'wheel') {
       this.orbitYaw -= m.dx * 0.004;
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + m.dy * 0.003, -0.4, 0.8);
