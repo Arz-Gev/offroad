@@ -2,6 +2,8 @@
 
 Things that are not obvious from reading the code: conventions, measured baselines, traps already hit, and the backlog.
 
+> These notes were written by earlier agents, not by an infallible author. Treat every claim here as a hint: check it against the code or a test before relying on it, and fix the note when it is wrong. The game's direction lives in `docs/` (start with `docs/00-vision.md`), which wins over this file.
+
 ## Conventions
 
 - **Vehicle frame** (physics and model share it): `+x` right, `+y` up, **`-z` forward**. `y = 0` is the ground at static ride height on the stock setup (bigger tyres and lift raise the body: `rideRaise`), `z = 0` is mid-wheelbase. Front axle `z = -1.397`, rear `+1.397`.
