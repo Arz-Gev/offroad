@@ -117,16 +117,18 @@ export class GameAudio {
     }
     const m = this.muted ? 0 : 1;
     const amb = inside ? 0.7 : 1;
-    this.gravel.g.gain.setTargetAtTime(m * amb * 0.09 * rough / 4, t, 0.05);
+    // levels were set on 4 wheels: per wheel more wheels make more noise, but not twice as much (8 wheels: x1.4)
+    const nW = v.wheels.length, wk = Math.sqrt(nW / 4) / nW;
+    this.gravel.g.gain.setTargetAtTime(m * amb * 0.09 * rough * wk, t, 0.05);
     this.gravel.f.frequency.setTargetAtTime(500 + speed * 25, t, 0.1);
-    this.rumble.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, speed / 15) * (contact / 4), t, 0.05);
+    this.rumble.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, speed / 15) * (contact / nW), t, 0.05);
     this.skid.g.gain.setTargetAtTime(m * 0.06 * Math.min(1.5, skid), t, 0.03);
     this.mud.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, mud), t, 0.05);
     this.wind.g.gain.setTargetAtTime(m * amb * Math.min(0.35, speed * speed * 0.00025), t, 0.1);
     this.wind.f.frequency.setTargetAtTime(300 + speed * 30, t, 0.2);
     // whine from the transfer gears in low range, proportional to prop speed and torque
     const prop = Math.abs(d.wheelMean() * v.P.finalDrive);
-    const tq = Math.min(1, (Math.abs(d.propTorque[0]) + Math.abs(d.propTorque[1])) / 3000);
+    const tq = Math.min(1, d.propTorque.reduce((s, x) => s + Math.abs(x), 0) / 3000);
     this.whine.frequency.setTargetAtTime(Math.max(20, prop * 9 / (2 * Math.PI) * 4), t, 0.03);
     this.whineGain.gain.setTargetAtTime(m * (d.range === 'low' ? 0.025 : 0.008) * Math.min(1, prop / 40) * (0.3 + tq), t, 0.05);
     // gear grind (a clutchless shift that didn't match revs). Was 0.4 at 1.8-3.4 kHz with a hard attack and
@@ -143,8 +145,11 @@ export class GameAudio {
     this.knockCooldown -= dt;
     for (const ax of v.axles) {
       for (let s = 0; s < 2; s++) {
-        const comp = ax.c + (s ? 1 : -1) * ax.p.springTrack / 2 * Math.sin(ax.phi);
-        if ((comp > ax.p.travel - 0.025 || comp < 0.005) && Math.abs(ax.vz - ax.vMountU) > 0.6) this.knock(Math.min(1, Math.abs(ax.vz - ax.vMountU) / 3));
+        // beam axle: heave and roll at the spring; independent corner: its own compression and speed
+        const w = v.wheels[ax.i * 2 + s];
+        const comp = ax.ind ? w.c : ax.c + (s ? 1 : -1) * ax.p.springTrack / 2 * Math.sin(ax.phi);
+        const rate = ax.ind ? w.vz - w.vMountU : ax.vz - ax.vMountU;
+        if ((comp > ax.p.travel - 0.025 || comp < 0.005) && Math.abs(rate) > 0.6) this.knock(Math.min(1, Math.abs(rate) / 3));
       }
     }
   }

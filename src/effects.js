@@ -105,7 +105,7 @@ export class Dust {
   }
 
   spawnFromVehicle(v, dt, rnd = Math.random) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < v.wheels.length; i++) {
       const w = v.wheels[i];
       if (!w.contact || w.FnAvg < 300) continue;
       if (this.waterAt) {

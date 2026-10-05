@@ -18,6 +18,13 @@ for (const s of Object.values(SURFACES)) s.B = Math.tan(Math.PI / (2 * s.C)); //
 
 const FN_REF = 5200;
 
+// The ray fan of a wheel (Vehicle.castContact) and the tyre shader (tireMaterial.js) share these: 13 rays
+// from 80° behind to 80° ahead of straight down, in 3 rows across the tread at -0.34, 0, +0.34 x width.
+export const TIRE_FAN = [];
+for (let i = -6; i <= 6; i++) TIRE_FAN.push((i / 6) * (80 * Math.PI / 180));
+export const TIRE_ROWS = [-1, 0, 1];
+export const TIRE_ROW_OFFSET = 0.34;
+
 // Lateral load sensitivity. A real tyre's cornering stiffness grows much slower than its load (roughly
 // Fz^0.6-0.7), so the slip angle at the force peak grows with load. This is what makes lateral load
 // transfer cost grip: the axle that takes more of it (stiffer roll, more weight) slides first. With a

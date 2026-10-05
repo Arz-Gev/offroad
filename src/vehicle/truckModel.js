@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createTireMaterial } from './tireMaterial.js';
+import { createTireMaterial, makeTireMesh } from './tireMaterial.js';
 import { createMaterials, makeRubberTexture } from './truckMaterials.js';
 import { mesh, bar, mergeStatic, mergeGeometries } from './geom.js';
 import { buildExterior } from './truckBody.js';
@@ -102,6 +102,7 @@ function buildWheel(mats, side, deformable) {
   steer.add(spin);
   const tireMat = deformable ? createTireMaterial(mats.rubberTex) : new THREE.MeshStandardMaterial({ color: 0xffffff, map: mats.rubberTex, roughness: 0.88 });
   const tire = mesh(tireGeometry(), tireMat);
+  if (deformable) makeTireMesh(tire, tireMat, { R: 0.42, rim: 0.205, width: 0.27 });   // the tread, rim seat and width of tireGeometry
   spin.add(tire);
   const rim = rimGroup(mats);
   mergeStatic(rim);

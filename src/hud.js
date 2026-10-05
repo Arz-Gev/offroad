@@ -21,6 +21,34 @@ const SUSP = 216;
 const MAX_RPM = 6000;
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+// wheel names: FL FR RL RR on a 4x4, axle number + side on more axles (1L 1R 2L ...)
+export const wheelName = (i, nA) => nA === 2 ? ['FL', 'FR', 'RL', 'RR'][i] : `${(i >> 1) + 1}${i % 2 ? 'R' : 'L'}`;
+
+// The drivetrain diagram of the cluster: wheels, shafts, an axle diff per axle and the centre diff, in a
+// fixed 64 x 72 box. Two axles: the original drawing. More axles get smaller wheels down the same box.
+function diffSvg(nA) {
+  if (nA === 2) return `<path class="shaft" d="M14 13H50M14 59H50M32 13V59"/>
+                <rect class="w" x="3" y="4" width="11" height="18" rx="2.5"/>
+                <rect class="w" x="50" y="4" width="11" height="18" rx="2.5"/>
+                <rect class="w" x="3" y="50" width="11" height="18" rx="2.5"/>
+                <rect class="w" x="50" y="50" width="11" height="18" rx="2.5"/>
+                <circle class="df" cx="32" cy="13" r="5.5"/>
+                <circle class="df" cx="32" cy="36" r="5.5"/>
+                <circle class="df" cx="32" cy="59" r="5.5"/>`;
+  const y0 = 8, y1 = 64, step = (y1 - y0) / (nA - 1), h = Math.min(18, step - 3), r = Math.min(5.5, step / 2 - 2.5);
+  let path = '', wheels = '', diffs = '';
+  for (let a = 0; a < nA; a++) {
+    const y = (y0 + a * step).toFixed(1);
+    path += `M14 ${y}H50`;
+    wheels += `<rect class="w" x="3" y="${(y - h / 2).toFixed(1)}" width="11" height="${h.toFixed(1)}" rx="2"/><rect class="w" x="50" y="${(y - h / 2).toFixed(1)}" width="11" height="${h.toFixed(1)}" rx="2"/>`;
+    diffs += `<circle class="df" cx="32" cy="${y}" r="${r.toFixed(1)}"/>`;
+  }
+  // centre diff on the shaft between the middle axles, drawn to the side so it doesn't hide an axle diff
+  const yc = ((y0 + y1) / 2).toFixed(1);
+  path += `M32 ${y0}V${y1}M32 ${yc}H40`;
+  diffs += `<circle class="df" cx="42" cy="${yc}" r="${r.toFixed(1)}"/>`;
+  return `<path class="shaft" d="${path}"/>${wheels}${diffs}`;
+}
 
 const ICON_SOUND = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path d="M11 5.5c1 .8 1 4.2 0 5M12.8 4c1.9 1.6 1.9 6.4 0 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
 const ICON_FULL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -280,13 +308,14 @@ export class HUD {
 
     // gearbox mode + selector strip
     const manual = d.mode === 'manual';
-    const modeKey = manual ? (d.clutchAssist ? 'mac' : 'm') : 'a';
+    const modeKey = manual ? (d.autoShift ? 'as' : d.clutchAssist ? 'mac' : 'm') : 'a';
     if (modeKey !== c.mode) {
       c.mode = modeKey; c.stripIdx = undefined;
-      e.mode.textContent = manual ? 'MANUAL' : 'AUTO';
-      e.modeSub.textContent = manual ? (d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : '6-speed';
+      // a manual-only car (BTR-80) in "automatic": its manual box picks the gears itself
+      e.mode.textContent = manual && !d.autoShift ? 'MANUAL' : 'AUTO';
+      e.modeSub.textContent = manual ? (d.autoShift ? 'auto-shift' : d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : `${v.P.auto.ratios.length}-speed`;
       e.strip.innerHTML = (manual ? MAN_STRIP : AUTO_STRIP).map(g => `<i>${g}</i>`).join('');
-      e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist));
+      e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist && !d.autoShift));
     }
     const stripIdx = manual ? d.manualGear + 1 : AUTO_STRIP.indexOf(d.selector);
     if (stripIdx !== c.stripIdx) {
@@ -301,18 +330,42 @@ export class HUD {
 
     // transfer case + diffs
     if (d.range !== c.range) { c.range = d.range; e.range.dataset.v = d.range; }
-    const locks = (d.frontLock ? 1 : 0) | (d.centerLock ? 2 : 0) | (d.rearLock ? 4 : 0);
-    if (locks !== c.locks) {
-      c.locks = locks;
-      e.diffs[0].classList.toggle('locked', d.frontLock);
-      e.diffs[1].classList.toggle('locked', d.centerLock);
-      e.diffs[2].classList.toggle('locked', d.rearLock);
-      const names = [d.centerLock && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
-      // short enough for one line; the icon shows exactly which diff is locked
-      e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || 'Open';
-      e.diffTxt.classList.toggle('locked', names.length > 0);
+    const nA = v.axles.length;
+    if (nA !== c.nA) {
+      // the diagram for this car's axle count (self-locking axle diffs drawn half filled)
+      c.nA = nA; c.locks = undefined;
+      const svg = this.root.querySelector('#h-diffs');
+      svg.innerHTML = diffSvg(nA);
+      e.diffs = [...svg.querySelectorAll('.df')];
+      e.wheels = [...svg.querySelectorAll('.w')];
+      for (let i = 0; i < e.wheels.length; i++) c['w' + i] = undefined;
+      if (nA !== 2) d.layout.axles.forEach((ax, a) => e.diffs[a].classList.toggle('lsd', ax.diff === 'lsd'));
     }
-    for (let i = 0; i < 4; i++) {
+    if (nA === 2) {
+      const locks = (d.frontLock ? 1 : 0) | (d.centerLock ? 2 : 0) | (d.rearLock ? 4 : 0);
+      if (locks !== c.locks) {
+        c.locks = locks;
+        e.diffs[0].classList.toggle('locked', d.frontLock);
+        e.diffs[1].classList.toggle('locked', d.centerLock);
+        e.diffs[2].classList.toggle('locked', d.rearLock);
+        const names = [d.centerLock && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
+        // short enough for one line; the icon shows exactly which diff is locked
+        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || 'Open';
+        e.diffTxt.classList.toggle('locked', names.length > 0);
+      }
+    } else {
+      let locks = d.centerLock ? 1 : 0;
+      d.locks.forEach((l, a) => { if (l) locks |= 2 << a; });
+      if (locks !== c.locks) {
+        c.locks = locks;
+        d.locks.forEach((l, a) => e.diffs[a].classList.toggle('locked', l));
+        e.diffs[nA].classList.toggle('locked', d.centerLock);
+        const nl = d.locks.filter(Boolean).length, lsd = d.layout.axles.some(a => a.diff === 'lsd');
+        e.diffTxt.textContent = d.centerLock && nl === nA ? 'All locked' : d.centerLock ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
+        e.diffTxt.classList.toggle('locked', !!locks);
+      }
+    }
+    for (let i = 0; i < e.wheels.length; i++) {
       const w = v.wheels[i];
       const st = !w.contact ? 'w air' : (w.slipNorm || 0) > 0.95 ? 'w slip' : (w.slipNorm || 0) > 0.7 ? 'w warn' : 'w';
       if (st !== c['w' + i]) { c['w' + i] = st; e.wheels[i].setAttribute('class', st); }
@@ -453,10 +506,14 @@ export class HUD {
   // ------------------------------------------------------------------ suspension panel
   drawSuspension(v) {
     // quantised to what the panel can show (kg, mm, % travel, slip colour, steer, 0.1 deg twist)
-    const q = this.suspKey || (this.suspKey = new Int32Array(26)), prev = this.suspPrev || (this.suspPrev = new Int32Array(26).fill(-1));
-    for (let i = 0; i < 4; i++) {
+    const nW = v.wheels.length, nA = v.axles.length, nq = nW * 6 + nA;
+    if (!this.suspKey || this.suspKey.length !== nq) { this.suspKey = new Int32Array(nq); this.suspPrev = new Int32Array(nq).fill(-1); }
+    const q = this.suspKey, prev = this.suspPrev;
+    // compression at the wheel: beam axle from heave and roll at the spring, independent corner its own
+    const compOf = w => w.axle.ind ? w.c : w.axle.c + w.side * (w.axle.p.springTrack / 2) * Math.sin(w.axle.phi);
+    for (let i = 0; i < nW; i++) {
       const w = v.wheels[i], ax = w.axle;
-      const comp = ax.c + w.side * (ax.p.springTrack / 2) * Math.sin(ax.phi);
+      const comp = compOf(w);
       const slip = w.slipNorm || 0;
       q[i * 6] = Math.round((w.FnAvg || 0) / 9.81);
       q[i * 6 + 1] = Math.round(Math.max(0, w.pen) * 1000);
@@ -465,22 +522,27 @@ export class HUD {
       q[i * 6 + 4] = Math.round(w.steer * 100);
       q[i * 6 + 5] = Math.round(Math.min(1, (w.FnAvg || 0) / 12000) * 20);
     }
-    q[24] = Math.round(v.axles[0].phi * 573); q[25] = Math.round(v.axles[1].phi * 573);
+    for (let a = 0; a < nA; a++) q[nW * 6 + a] = Math.round(v.axles[a].phi * 573);
     if (q.every((x, i) => x === prev[i])) return;
     prev.set(q);
     const g = this.sctx, px = g.canvas.width, k = px / 240;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, px, px);
     g.setTransform(k, 0, 0, k, 0, 0);
-    const pos = [[62, 70], [178, 70], [62, 172], [178, 172]];
+    // axle rows: 70 and 172 for two axles; more axles share the same height, smaller
+    const ys = Array.from({ length: nA }, (_, a) => nA === 2 ? (a ? 172 : 70) : 40 + a * (162 / (nA - 1)));
+    const sc = nA === 2 ? 1 : Math.min(1, (ys[1] - ys[0]) / 76);
+    const pos = Array.from({ length: nW }, (_, i) => [i % 2 ? 178 : 62, ys[i >> 1]]);
     g.strokeStyle = 'rgba(255,255,255,0.22)';
     g.lineWidth = 2.5;
-    g.beginPath(); g.moveTo(62, 70); g.lineTo(178, 70); g.moveTo(62, 172); g.lineTo(178, 172); g.moveTo(120, 70); g.lineTo(120, 172); g.stroke();
-    g.font = '600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    g.beginPath();
+    for (const y of ys) { g.moveTo(62, y); g.lineTo(178, y); }
+    g.moveTo(120, ys[0]); g.lineTo(120, ys[nA - 1]); g.stroke();
+    g.font = `600 ${nA === 2 ? 12 : 10}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < nW; i++) {
       const w = v.wheels[i], ax = w.axle, p = ax.p;
-      const comp = ax.c + w.side * (p.springTrack / 2) * Math.sin(ax.phi);
+      const comp = compOf(w);
       const f = clamp(comp / p.travel, 0, 1);
       const [x, y] = pos[i];
       const slip = Math.min(1, w.slipNorm || 0);
@@ -488,6 +550,7 @@ export class HUD {
       const col = !w.contact ? 'rgba(140,140,140,0.55)' : slip > 0.95 ? '#ff5a45' : slip > 0.7 ? '#ffb347' : '#6fdc8c';
       g.save();
       g.translate(x, y);
+      g.scale(sc, sc);
       g.rotate(w.steer);
       g.fillStyle = 'rgba(0,0,0,0.4)';
       g.fillRect(-12, -22, 24, 44);
@@ -496,20 +559,30 @@ export class HUD {
       g.fillRect(-10, -20, 20, 40);
       g.globalAlpha = 1;
       g.restore();
-      const bx = x + (w.side < 0 ? -28 : 21);
+      const bx = x + (w.side < 0 ? -28 : 21) * sc, bh = 44 * sc;
       g.fillStyle = 'rgba(255,255,255,0.14)';
-      g.fillRect(bx, y - 22, 7, 44);
+      g.fillRect(bx, y - bh / 2, 7 * sc, bh);
       g.fillStyle = f > 0.9 || f < 0.05 ? '#ff6a4a' : '#8cc8ff';
-      g.fillRect(bx, y + 22 - 44 * f, 7, 44 * f);
-      const ty = i < 2 ? y - 46 : y + 36;
-      g.fillStyle = 'rgba(255,255,255,0.92)';
-      g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)} kg`, x, ty);
-      g.fillStyle = 'rgba(255,255,255,0.55)';
-      g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)} cm`, x, ty + 14);
+      g.fillRect(bx, y + bh / 2 - bh * f, 7 * sc, bh * f);
+      if (nA === 2) {
+        const ty = i < 2 ? y - 46 : y + 36;
+        g.fillStyle = 'rgba(255,255,255,0.92)';
+        g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)} kg`, x, ty);
+        g.fillStyle = 'rgba(255,255,255,0.55)';
+        g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)} cm`, x, ty + 14);
+      } else {
+        // beside the wheel, outboard: load, then squash
+        const tx = x + (w.side < 0 ? -52 : 52);
+        g.fillStyle = 'rgba(255,255,255,0.92)';
+        g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)}`, tx, y - 6);
+        g.fillStyle = 'rgba(255,255,255,0.55)';
+        g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)}`, tx, y + 7);
+      }
     }
     g.fillStyle = 'rgba(255,255,255,0.6)';
     g.font = '600 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-    g.fillText(`axle twist  F ${(v.axles[0].phi * 57.3).toFixed(1)}°  R ${(v.axles[1].phi * 57.3).toFixed(1)}°`, 120, 121);
+    if (nA === 2) g.fillText(`axle twist  F ${(v.axles[0].phi * 57.3).toFixed(1)}°  R ${(v.axles[1].phi * 57.3).toFixed(1)}°`, 120, 121);
+    else g.fillText('kg · cm', 120, 12);
   }
 
   telemetryText(v, extra) {
@@ -517,12 +590,17 @@ export class HUD {
     const f = (x, n = 2) => (x >= 0 ? ' ' : '') + x.toFixed(n);
     let s = '';
     s += `rpm ${d.rpm.toFixed(0)}  thr ${d.thr.toFixed(2)}  Tcomb ${d.Tcomb.toFixed(0)}Nm  load ${d.load.toFixed(2)}  clutch ${d.clutchPedal.toFixed(2)} slip ${d.clutchSlip.toFixed(1)}  lockup ${d.lockup.toFixed(2)}\n`;
-    s += `ratio ${d.currentRatio().toFixed(2)}  prop F ${d.propTorque[0].toFixed(0)} R ${d.propTorque[1].toFixed(0)} Nm  speed ${(v.speed * 3.6).toFixed(1)} km/h\n`;
+    const nA = v.axles.length;
+    s += `ratio ${d.currentRatio().toFixed(2)}  prop ${d.propTorque.map(t => t.toFixed(0)).join(' / ')} Nm  speed ${(v.speed * 3.6).toFixed(1)} km/h\n`;
     s += `wheel  ω(rad/s)  Fn(N)   Fx     Fy    slip  pen(cm)  surf\n`;
     v.wheels.forEach((w, i) => {
-      s += `${['FL', 'FR', 'RL', 'RR'][i]}   ${f(d.w[2 + i], 1).padStart(7)} ${w.FnAvg.toFixed(0).padStart(6)} ${w.Fx.toFixed(0).padStart(6)} ${w.Fy.toFixed(0).padStart(6)}  ${(w.slipNorm || 0).toFixed(2)}  ${(w.pen * 100).toFixed(1).padStart(5)}  ${w.surf.name}\n`;
+      s += `${wheelName(i, nA)}   ${f(d.w[2 + i], 1).padStart(7)} ${w.FnAvg.toFixed(0).padStart(6)} ${w.Fx.toFixed(0).padStart(6)} ${w.Fy.toFixed(0).padStart(6)}  ${(w.slipNorm || 0).toFixed(2)}  ${(w.pen * 100).toFixed(1).padStart(5)}  ${w.surf.name}\n`;
     });
-    v.axles.forEach((a, i) => { s += `axle ${i ? 'R' : 'F'} c ${a.c.toFixed(3)}  φ ${(a.phi * 57.3).toFixed(1)}°  springs ${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)} N\n`; });
+    v.axles.forEach((a, i) => {
+      const name = nA === 2 ? (i ? 'R' : 'F') : String(i + 1);
+      if (a.ind) { const wl = v.wheels[2 * i], wr = v.wheels[2 * i + 1]; s += `axle ${name} c L ${wl.c.toFixed(3)} R ${wr.c.toFixed(3)}  camber ${(wl.camber * 57.3).toFixed(1)}° / ${(wr.camber * 57.3).toFixed(1)}°\n`; }
+      else s += `axle ${name} c ${a.c.toFixed(3)}  φ ${(a.phi * 57.3).toFixed(1)}°  springs ${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)} N\n`;
+    });
     if (extra) s += extra;
     return s;
   }

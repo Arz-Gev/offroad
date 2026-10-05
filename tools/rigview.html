@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Rig view</title>
+<style>html,body{margin:0;background:#8d97a0}canvas{display:block}</style></head>
+<body>
+<!-- Dev tool: a car model on its own, posed by a fake physics state, for checking the suspension rig and the
+     tyre deformation (03-car-pipeline.md, step 7: underside / suspension screenshots).
+     http://localhost:5174/tools/rigview.html?car=btr80   then from CDP / Playwright:
+       pose({ c: [per wheel compression from full droop, m], steer: rad, pen: [per wheel tyre intrusion, m] })
+       hide('hull' | 'wheels' | 'turret', true|false), view([eye], [target], fov), turret(yaw, pitch) -->
+<script type="module">
+import * as THREE from 'three';
+import { buildCarModel } from '/src/vehicle/cars.js';
+import { makeCarParams } from '/src/vehicle/carSpecs.js';
+import { useCar, applySetup, STOCK } from '/src/vehicle/tuning.js';
+import { cornerKin, ackermann, steerRefLength } from '/src/vehicle/suspension.js';
+import { VehicleView } from '/src/vehicle/vehicleView.js';
+import { TIRE_FAN, TIRE_ROWS } from '/src/vehicle/tire.js';
+const q = new URLSearchParams(location.search), car = q.get('car') || 'btr80';
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8d97a0);
+scene.add(new THREE.HemisphereLight(0xe8eeff, 0x6a5a48, 1.7));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(5, 9, -4); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 }); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.9); fill.position.set(-4, -2, 3); scene.add(fill);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x9a8a72, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.02, 200);
+useCar(car);
+const P = applySetup(makeCarParams(car), STOCK);
+const model = await buildCarModel(car);
+scene.add(model.root);
+// fake vehicle: just what VehicleView reads
+const nA = P.axles.length;
+const axles = P.axles.map((p, i) => ({ p, i, droopY: p.droopY, c: p.kinC0 ?? 0.1, phi: 0, ind: p.type === 'independent', kin: p.type === 'independent' ? cornerKin(P, p, P.tire.radius) : null }));
+const v = {
+  P, R: P.tire.radius, steerAngle: 0, speed: 0, ctl: { brake: 0, throttle: 0 },
+  drivetrain: { rpm: 800, running: true, mode: 'auto', selector: 'D', manualGear: 1, range: 'high' },
+  axles, turret: { yaw: 0, pitch: 0, recoil: 0 },
+  wheels: Array.from({ length: 2 * nA }, (_, i) => ({ i, axle: axles[i >> 1], side: i % 2 ? 1 : -1, steer: 0, spin: 0, contact: true, pen: 0.03,
+    c: axles[i >> 1].c, out: 0, camber: 0, nLocal: new THREE.Vector3(0, 1, 0), rayPen: null })),
+};
+const vview = new VehicleView(model, v);
+const env = { night: false, darkness: 0, shadows: true };
+window.pose = ({ c, steer = 0, pen, spin = 0 } = {}) => {
+  const L0 = steerRefLength(P);
+  v.wheels.forEach((w, i) => {
+    const ax = w.axle;
+    if (c) w.c = c[i];
+    const st = ax.p.steered ? ackermann(P, ax.i, steer, L0)[w.side < 0 ? 0 : 1] : 0;
+    w.steer = st; w.spin = spin;
+    if (ax.ind) { const dc = w.c - ax.kin.c0; w.camber = ax.kin.g * dc; w.out = ax.kin.hubOut * dc; }
+    if (pen) w.pen = pen[i];
+    w.rayPen = null;
+  });
+  axles.forEach(a => { if (a.ind) a.c = (v.wheels[2 * a.i].c + v.wheels[2 * a.i + 1].c) / 2; });
+  // put the body so the most loaded tyre touches the ground plane
+  let lowest = Infinity;
+  v.wheels.forEach(w => { lowest = Math.min(lowest, w.axle.droopY + w.c - (P.tire.radius - (w.pen || 0))); });
+  model.root.position.set(0, -lowest, 0);
+  vview.update(model.root.position, new THREE.Quaternion(), 0, env);
+  return true;
+};
+window.rays = (i, fn) => { const w = v.wheels[i]; w.rayPen = new Float32Array(TIRE_ROWS.length * TIRE_FAN.length); TIRE_ROWS.forEach((r, ri) => TIRE_FAN.forEach((th, k) => { w.rayPen[ri * TIRE_FAN.length + k] = fn(r, th); })); vview.update(model.root.position, new THREE.Quaternion(), 0, env); return true; };
+window.turret = (yaw, pitch) => { v.turret.yaw = yaw; v.turret.pitch = pitch; vview.update(model.root.position, new THREE.Quaternion(), 0, env); return true; };
+const groups = {
+  hull: () => [model.shell.getObjectByName('Object004')].filter(Boolean),
+  wheels: () => model.wheels.map(w => w.spin),
+  turret: () => model.turret ? [model.turret.yaw] : [],
+};
+window.hide = (what, h = true) => { for (const o of groups[what]()) o.visible = !h; return true; };
+// only corner i's suspension parts (and wheel), the rest hidden; -1 shows all
+window.isolate = i => {
+  model.rig?.corners.forEach((cr, k) => {
+    for (const n of ['armLow', 'armUp', 'barLow', 'barUp', 'eyeLo', 'rod', 'sbody', 'eyeUp']) if (cr[n]) cr[n].grp.visible = i < 0 || k === i;
+    cr.knuckle.visible = i < 0 || k === i;
+    model.wheels[k].steer.visible = i < 0 || k === i;
+  });
+  return true;
+};
+window.view = (eye, target, fov = 40) => {
+  camera.position.set(...eye).add(model.root.position); camera.lookAt(new THREE.Vector3(...target).add(model.root.position));
+  camera.fov = fov; camera.updateProjectionMatrix();
+  renderer.render(scene, camera); return true;
+};
+window.model = model; window.v = v; window.P = P;
+pose();
+view([7, 2.5, -6], [0, 0.8, -0.5]);
+window.ready = true;
+</script>
+</body></html>

@@ -25,7 +25,7 @@ const label = id => BINDING[id].touch;
 const CHIP_STATE = {
   range: d => d.range === 'low' ? 'LOW' : 'HIGH',
   centreLock: d => d.centerLock ? 'Locked' : 'Open',
-  lockers: d => d.frontLock && d.rearLock ? 'Front + rear' : d.rearLock ? 'Rear' : 'Off',
+  lockers: d => !d.canLock ? 'Self-lock' : d.frontLock && d.rearLock ? (d.nA === 2 ? 'Front + rear' : 'All') : d.rearLock ? 'Rear' : 'Off',
   rwd: d => d.rwd ? '2WD' : '4WD',
   engineStart: d => d.running ? 'Running' : d.cranking ? 'Starting' : 'Off · tap',
   headlights: (d, view) => ['Off', 'Low beam', 'High beam'][view.lights.head],

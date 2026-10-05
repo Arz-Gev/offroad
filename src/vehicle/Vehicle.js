@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Drivetrain } from './drivetrain.js';
-import { SURFACES, tireCoefs, tireForces, tireRelax } from './tire.js';
+import { SURFACES, tireCoefs, tireForces, tireRelax, TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET } from './tire.js';
 import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.js';
 
 // Physics model
@@ -20,8 +20,7 @@ import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.j
 
 const V3 = THREE.Vector3;
 const G = 9.81;
-const FAN = [];
-for (let i = -6; i <= 6; i++) FAN.push((i / 6) * (80 * Math.PI / 180));
+const FAN = TIRE_FAN, NF = TIRE_FAN.length;
 
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -99,6 +98,7 @@ export class Vehicle {
         latOff: 0, surf: SURFACES.dirt, fc: new V3(), sc: new V3(), vcx: 0, vcy: 0, vHubPerp: new V3(),
         ux: 0, uy: 0, Fx: 0, Fy: 0, Fn: 0, Re: P.tire.radius, slipNorm: 0, slipSteady: 0,
         co: {}, accF: new V3(), FnAvg: 0, slipVel: 0, collider: null,
+        rayPen: new Float32Array(TIRE_ROWS.length * NF).fill(-1),   // radial intrusion of each ray (m), -1 no hit: the tyre shader's data
         // independent corner: compression, absolute vertical speed, mount speed, spring + damper sums, camber
         c: ax.c, vz: 0, vMountU: 0, accS: 0, accD: 0, Qc: 0, camber: 0, out: 0,
       });
@@ -411,8 +411,9 @@ export class Vehicle {
     const ray = this.ray;
     let maxPen = -1e9, sumW = 0, nx = 0, ny = 0, nz = 0, lat = 0, snLat = 0;
     let deep = null, deepX = 0, deepY = 0, deepZ = 0;
+    const rp = w.rayPen;
     for (let row = -1; row <= 1; row++) {
-      const o = row * 0.34 * T.width;
+      const o = row * TIRE_ROW_OFFSET * T.width;
       const ox = w.hub.x + w.spinAxis.x * o, oy = w.hub.y + w.spinAxis.y * o, oz = w.hub.z + w.spinAxis.z * o;
       for (let k = 0; k < FAN.length; k++) {
         const th = FAN[k];
@@ -421,8 +422,9 @@ export class Vehicle {
         ray.origin.x = ox; ray.origin.y = oy; ray.origin.z = oz;
         ray.dir.x = dx; ray.dir.y = dy; ray.dir.z = dz;
         const hit = this.world.castRayAndGetNormal(ray, R + margin, true, undefined, undefined, undefined, this.body);
-        if (!hit) continue;
+        if (!hit) { rp[(row + 1) * NF + k] = -1; continue; }
         const pen = R - hit.timeOfImpact;
+        rp[(row + 1) * NF + k] = pen;
         const wg = (pen + margin) * (pen + margin);
         if (pen > maxPen) {
           maxPen = pen; deep = hit.collider;

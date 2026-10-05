@@ -17,8 +17,7 @@ import { applySetup, rideRaise, useCar } from './vehicle/tuning.js';
 import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
-import { buildTruck } from './vehicle/truckModel.js';
-import { fitCarBody, CARS } from './vehicle/cars.js';
+import { buildCarModel, CARS } from './vehicle/cars.js';
 import { makeCarParams } from './vehicle/carSpecs.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
@@ -131,8 +130,7 @@ async function main() {
   const vehicle = new Vehicle(RAPIER, world, P, { position: { x: SPAWN.x, y: spawnY, z: SPAWN.z }, yaw: SPAWN.yaw, surfaceAt });
   vehicle.pressures = [tuning.setup.tyres.pressF, tuning.setup.tyres.pressR];
   world.step();
-  const model = buildTruck(makeCarParams());   // modelled stock; the view scales the wheels and follows the lift
-  await fitCarBody(model, car);
+  const model = await buildCarModel(car);
   scene.add(model.root);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
@@ -195,7 +193,7 @@ async function main() {
     game.redraw = 3;
   };
 
-  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
+  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   // drive with friends (invite links, peer to peer); the menu's Friends tab
@@ -303,7 +301,7 @@ async function main() {
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
-    gearbox(v, o) { if (d.mode !== v) { d.toggleMode(); if (o.silent) d.message = null; } },
+    gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
     autoClutch(v, o) { if (d.clutchAssist !== v) { d.toggleClutchAssist(); if (o.silent) d.message = null; } },
     arcadeAuto(v, o) {
       vehicle.arcadeAuto = v; vehicle.revTimer = 0;
@@ -381,7 +379,7 @@ async function main() {
   const ACTIONS = {
     shiftUp: () => d.requestShift(1),
     shiftDown: () => d.requestShift(-1),
-    gearbox: () => settings.set('gearbox', d.mode === 'auto' ? 'manual' : 'auto'),
+    gearbox: () => settings.set('gearbox', d.gearboxSetting === 'auto' ? 'manual' : 'auto'),
     autoClutch: () => (d.mode === 'auto' ? toggle('arcadeAuto') : settings.set('autoClutch', !d.clutchAssist)),
     range: () => d.toggleRange(vehicle.speed),
     centreLock: () => d.toggleCenterLock(),
@@ -434,7 +432,7 @@ async function main() {
     device: () => input.device,
     get(key) {
       switch (key) {
-        case 'gearbox': return d.mode;
+        case 'gearbox': return d.gearboxSetting;
         case 'autoClutch': return d.clutchAssist;
         case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
@@ -649,7 +647,7 @@ async function main() {
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
   if (!settings.introSeen) menu.openIntro();
-  else say('welcome', `${escapeHTML(CARS[car]?.label || 'Offroad')} · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
+  else say('welcome', `${escapeHTML(CARS[car]?.label || 'Offroad')} · ${d.gearboxSetting === 'auto' ? (vehicle.P.manualOnly ? 'auto-shift' : 'automatic') : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
 
   let last = performance.now();
   function loop(now) {

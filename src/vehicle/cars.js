@@ -3,6 +3,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { makeCarParams, CAR_SPECS } from './carSpecs.js';
 import { staticRide } from './tuning.js';
+import { buildTruck } from './truckModel.js';
+import { buildBtr } from './btrModel.js';
+import { createTireMaterial, makeTireMesh } from './tireMaterial.js';
 
 // What each drivable car looks like. Physics numbers: carSpecs.js. Imported cars swap the Defender's
 // body for a downloaded shell and its own wheels; our axles, springs, steering and lamps stay.
@@ -60,6 +63,16 @@ export const CARS = {
 
 const CORNERS = ['FL', 'FR', 'RL', 'RR'];   // truckModel.buildTruck wheel order: front left, front right, rear ...
 
+// the model of a car, ready for VehicleView: the Defender, a downloaded shell on the Defender's running
+// gear (fitCarBody), or a car with its own builder (BTR-80: btrModel.js)
+export async function buildCarModel(id) {
+  const c = CARS[id];
+  if (c?.build === 'btr') return buildBtr(id, c);
+  const model = buildTruck(makeCarParams());   // modelled stock; the view scales the wheels and follows the lift
+  await fitCarBody(model, id);
+  return model;
+}
+
 // swap the Defender body and wheels of a built truck model (truckModel.buildTruck) for the car's own
 export async function fitCarBody(model, id) {
   const c = CARS[id];
@@ -96,6 +109,13 @@ export async function fitCarBody(model, id) {
         m.matrixAutoUpdate = false;
         m.matrix.multiplyMatrices(toHub, o.matrixWorld);
         m.castShadow = o.castShadow; m.receiveShadow = o.receiveShadow;
+        // the tyre deforms with the contact data (tyre v2); the rim merged into the same mesh stays round:
+        // nothing inside the rim radius moves
+        if (scaled) {
+          const mat = createTireMaterial(o.material);
+          makeTireMesh(m, mat, { toWheel: m.matrix, R: c.wheel.R, rim: CAR_SPECS[id].tire.rimRadius, width: c.wheel.width });
+          (mw.tireMats ||= []).push(mat);
+        }
         g.add(m);
       });
       node.removeFromParent();
@@ -103,6 +123,7 @@ export async function fitCarBody(model, id) {
     }
     mw.tire.visible = false;
     mw.rim.visible = false;
+    if (mw.tireMats) { mw.tireMat = mw.tireMats[0]; mw.tireUnits = 0.42 / c.wheel.R; } else mw.tireMat = null;
   });
   // hubs at the stock static ride height (front and rear differ a little: tilt to match both)
   const [f, r] = staticRide(P).map(x => x.hubY);
