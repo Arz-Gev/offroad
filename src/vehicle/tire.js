@@ -24,6 +24,8 @@ export const TIRE_FAN = [];
 for (let i = -6; i <= 6; i++) TIRE_FAN.push((i / 6) * (80 * Math.PI / 180));
 export const TIRE_ROWS = [-1, 0, 1];
 export const TIRE_ROW_OFFSET = 0.34;
+export const TIRE_SUB = 6;   // samples of the ground between two neighbouring rays (tyre v2 patch integral)
+export const TIRE_BELT = 1.0; // the tread band's stiffness as a spread of the load (Vehicle.integrateTyre)
 
 // Lateral load sensitivity. A real tyre's cornering stiffness grows much slower than its load (roughly
 // Fz^0.6-0.7), so the slip angle at the force peak grows with load. This is what makes lateral load

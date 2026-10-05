@@ -24,6 +24,8 @@ Things that are not obvious from reading the code: conventions, measured baselin
   - A low-speed damper (`2.6 * Fn * fade`) stops parked trucks oscillating.
   - Stability of these terms relies on the 960 Hz substep. Raise substeps if you add stiffness.
   - Lateral load sensitivity: the peak slip angle grows as `Fn^0.35` (`latPeak`), so cornering stiffness grows ~`Fn^0.65` as on a real tyre. Before (Oct 3) it was almost proportional to load, lateral load transfer cost no grip, and weight split and anti-roll bars hardly changed the balance.
+- **Tyre v2: the contact patch** (`Vehicle.castContact` / `integrateTyre`, Oct 5): the 39 rays are no longer reduced to one point, one normal and one intrusion. Each ray gives its own intrusion; between neighbouring rays the ground is the straight line through their hits (exact on flat ground), sampled `TIRE_SUB` = 6 times. Every sample pushes the hub back along its ray with `K·√δ` per unit angle (an inflated toroid's patch is ~√δ wide). The tread band is stiff: the loaded profile is the upper envelope of the raw one under parabolas of curvature `R / (2·TIRE_BELT)`, so a rock tip deflects a zone around it instead of a needle. `K` comes from `tireRadialStiffness(psi)` so that flat ground gives back the old radial stiffness (static squash 3.19 → 3.28 cm). Normal = the resultant, contact point (friction) = its force-weighted centroid, μ and rolling resistance = load-weighted over the surfaces under the patch (`muRatio`, `crrRatio`), rim strike at the deepest sample. Within a step the force follows the hub with the patch's own stiffness `kEff` (a second pass with the hub 2 mm closer). The same per-ray profile goes to the tyre shader (`tireMaterial.js`, also the shadow pass). Cost: ~0.55–0.75 ms per physics step for 4 wheels, was ~0.5. `node tools/tiretest.mjs rock|step [kmh] [psi]` (`CAR=btr80`) prints peak load, rays loaded and the body's vertical acceleration over a rock or a 15 cm step. Measured, Defender at 20 psi: rock at 5 km/h 10.0 kN with 24 rays loaded (old single-point model 10.5 kN), step at 5 km/h 11.5 kN and 1.9 m/s² (old 15.8 kN). Without the belt envelope a step edge cut into the tyre and gave 34 m/s² spikes.
+- **Physics ground = drawn ground** (`node tools/groundmatch.mjs`): terrain rays vs `surfaceHeight` (the render's level-0 triangles) match within 0.04 mm over 20 000 random points. Boulders: the collider is the convex hull of the rock's vertices, and since Oct 5 the drawn rock is pushed out onto that hull too (`props.js addRock`; it costs ~170 ms at load). Hull above mesh: median 0.1 mm, 90 % 8 mm, 99 % 29 mm (before: 3 / 48 / 171 mm, the tyre floated over dents). The rest is mesh triangles cutting across hull edges.
 - **Drivetrain** (`drivetrain.js`):
   - Bodies: engine, input shaft, 4 wheels.
   - Equality rows: gear, centre/axle lockers, park pawl.
@@ -55,7 +57,7 @@ Things that are not obvious from reading the code: conventions, measured baselin
 
 | Check | Value |
 |---|---|
-| Static load sum | = weight (21 974 N); tyre squash ≈ 3 cm at 20 psi, 5–6 cm at 8 psi |
+| Static load sum | = weight (21 974 N); tyre squash ≈ 3.3 cm at 20 psi, 5–6 cm at 8 psi (tyre v2: was 3.19 cm) |
 | 0–100 km/h (auto) | 8.7 s; shifts at ~4800 rpm WOT (traction control trims launch wheelspin) |
 | 80→0 km/h braking | 34 m, ~0.75 g on dirt (μ 0.72), stable with ABS (without ABS the rear locks and it spins) |
 | 30° slope, P + handbrake | holds, ~2 cm settle |
