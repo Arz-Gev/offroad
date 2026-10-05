@@ -417,6 +417,9 @@ body.paused #mp-tags { display: none; }
    Shown on phones and tablets (body.touch-ui). Lengths scale with the HUD (--u) like the rest of it. */
 body.touch-ui { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .tc-layer { position: absolute; inset: 0; pointer-events: none; }
+/* the menu row and the Vehicle drawer sit above the touch layer: the steering zone (lower left) must never
+   take the taps meant for drawer buttons that reach down into it */
+body.touch-ui .hud-tl { z-index: 1; }
 body.paused #hud .tc-layer { visibility: hidden; }
 .tc-btn {
   pointer-events: auto; touch-action: none; cursor: pointer;
@@ -503,7 +506,6 @@ body.touch-ui .hud-fps { top: auto; right: auto; left: max(var(--gap), env(safe-
 body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
 /* narrow (portrait phone): the cluster goes under the button row, the open drawer covers it */
 @media (max-width: 600px) {
-  body.touch-ui .hud-tl { z-index: 1; }
   body.touch-ui .cluster { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); }
   body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
   body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
