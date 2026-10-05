@@ -1,11 +1,19 @@
 import * as THREE from 'three';
 import { Drivetrain } from './drivetrain.js';
 import { SURFACES, tireCoefs, tireForces, tireRelax } from './tire.js';
+import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.js';
 
 // Physics model
 // - Chassis: one Rapier rigid body (sprung + unsprung mass, gravity on the unsprung part cancelled).
-// - Each beam axle: 2 DOF (heave c, roll phi) relative to the chassis, with its own mass and roll inertia,
-//   integrated in substeps with absolute velocities, so wheels hop, axles articulate and axle wrap exists.
+// - Any number of axles, two wheels each (P.axles, front to back), each with its own suspension type,
+//   steering (Ackermann about one turning centre, suspension.js) and drive (drivetrain.js):
+//   - beam axle ('solid', the default): 2 DOF (heave c, roll phi) relative to the chassis, with its own mass
+//     and roll inertia, integrated in substeps with absolute velocities, so wheels hop, axles articulate
+//     and axle wrap exists;
+//   - independent ('independent'): 1 DOF per wheel (compression c) with kinematic curves (camber, roll
+//     centre height via the contact patch's lateral path), wheel-rate spring, damper, bump stop, droop
+//     stop and an optional anti-roll bar. The diff sits on the body, so the drive torque reaction stays in
+//     the body.
 // - Tyres: fan of rays in the wheel plane (3 rows across the tread) gives contact point, normal and
 //   radial deflection; the tyre is a radial spring/damper in series with the coil spring.
 // - Friction: transient tyre model (tire.js) driven by the drivetrain's wheel speeds (drivetrain.js).
@@ -36,11 +44,14 @@ export class Vehicle {
     this.P = P;
     this.surfaceAt = opts.surfaceAt || (() => SURFACES.dirt);
     this.substeps = opts.substeps || 4;
-    this.pressures = [P.tire.pressure, P.tire.pressure];   // front, rear (psi)
+    this.pressures = [P.tire.pressure, P.tire.pressure];   // front, rear (psi): the front / rear half of the axles
     // geometry the physics uses right now; retune() eases it towards P (tyre radius, axle droop height)
     this.R = P.tire.radius;
+    this.nA = P.axles.length;
+    this.nW = 2 * this.nA;
+    this.steerL = steerRefLength(P);     // reference length of the steering geometry (wheelbase on a 4x4)
 
-    const unsprung = P.axles[0].mass + P.axles[1].mass;
+    const unsprung = P.axles.reduce((s, a) => s + a.mass, 0);
     this.totalMass = P.bodyMass + unsprung;
     const pos = opts.position || { x: 0, y: 1, z: 0 };
     const rot = new THREE.Quaternion().setFromAxisAngle(Y, opts.yaw || 0);
@@ -62,20 +73,24 @@ export class Vehicle {
     // static sag estimate so we spawn close to equilibrium
     const L = P.wheelbase;
     const frontFrac = (L / 2 - P.com[2]) / L;
+    const shares = this.nA === 2 ? null : axleShares(P);
     this.axles = P.axles.map((p, i) => {
-      const load = P.bodyMass * G * (i === 0 ? frontFrac : 1 - frontFrac) / 2;
+      const load = P.bodyMass * G * (shares ? shares[i] : (i === 0 ? frontFrac : 1 - frontFrac)) / 2;
+      const ind = p.type === 'independent';
       return {
-        p, i, droopY: p.droopY, k: p.k,
+        p, i, droopY: p.droopY, k: p.k, ind,
+        front: i < this.nA / 2,        // front half: front brakes, front tyre pressure
         c: Math.min(p.travel * 0.9, load / p.k - p.preload),
         vz: 0, phi: 0, Om: 0,
         A: new V3(), q: new THREE.Quaternion(), mount: new V3(), vMountU: 0, rollRateBody: 0,
         S: [0, 0], accS: [0, 0], accD: [0, 0], accArb: 0,
+        kin: ind ? cornerKin(P, p, P.tire.radius) : null,
       };
     });
 
     this.wheels = [];
-    for (let i = 0; i < 4; i++) {
-      const ax = this.axles[i < 2 ? 0 : 1];
+    for (let i = 0; i < this.nW; i++) {
+      const ax = this.axles[i >> 1];
       this.wheels.push({
         i, axle: ax, side: i % 2 === 0 ? -1 : 1, steer: 0,
         hub: new V3(), q: new THREE.Quaternion(), spin: 0,
@@ -84,6 +99,8 @@ export class Vehicle {
         latOff: 0, surf: SURFACES.dirt, fc: new V3(), sc: new V3(), vcx: 0, vcy: 0, vHubPerp: new V3(),
         ux: 0, uy: 0, Fx: 0, Fy: 0, Fn: 0, Re: P.tire.radius, slipNorm: 0, slipSteady: 0,
         co: {}, accF: new V3(), FnAvg: 0, slipVel: 0, collider: null,
+        // independent corner: compression, absolute vertical speed, mount speed, spring + damper sums, camber
+        c: ax.c, vz: 0, vMountU: 0, accS: 0, accD: 0, Qc: 0, camber: 0, out: 0,
       });
     }
 
@@ -106,10 +123,11 @@ export class Vehicle {
     this.steerAssist = 'strong'; // keyboard steering limit at speed: 'strong' | 'light' | 'off' (Settings)
     this.arcadeAuto = false; // automatic gearbox: pedals pick R / D by themselves (Settings: Arcade automatic)
     this.speed = 0;          // forward speed m/s
-    this.tireT = new Float64Array(4);
-    this.rrT = new Float64Array(4);
-    this.brakeT = new Float64Array(4);
-    this.absFactor = new Float64Array([1, 1, 1, 1]);
+    this.tireT = new Float64Array(this.nW);
+    this.rrT = new Float64Array(this.nW);
+    this.brakeT = new Float64Array(this.nW);
+    this.absFactor = new Float64Array(this.nW).fill(1);
+    this._tp = new Float64Array(this.nA);   // pinion torque per axle, summed over the substeps
     this.abs = true;
     this.hbMode = 'hold';    // handbrake key: 'hold' (while pressed) | 'toggle' (press on / press off) | 'auto' (tap toggles, long press holds)
     this.hbLatched = false;
@@ -119,7 +137,7 @@ export class Vehicle {
     this.absActive = 0;
     this.tc = true;          // electronic traction control (brakes a spinning wheel)
     this.tcActive = 0;
-    this.tcT = new Float64Array(4);
+    this.tcT = new Float64Array(this.nW);
     this.time = 0;
 
     // body state cache
@@ -166,7 +184,7 @@ export class Vehicle {
   // over ~0.5 s (morphGeometry): dropping 850 kg of load in one step would throw the body off its springs.
   updateMass(snap = false) {
     const P = this.P;
-    this.massTarget = [P.bodyMass + P.axles[0].mass + P.axles[1].mass, ...P.com, ...P.bodyInertia];
+    this.massTarget = [P.axles.reduce((s, a) => s + a.mass, P.bodyMass), ...P.com, ...P.bodyInertia];
     if (snap || !this.massNow) this.massNow = [...this.massTarget];
     this.applyMass();
   }
@@ -189,7 +207,7 @@ export class Vehicle {
 
   snapGeometry() {
     this.R = this.P.tire.radius;
-    for (const ax of this.axles) { ax.droopY = ax.p.droopY; ax.k = ax.p.k; }
+    for (const ax of this.axles) { ax.droopY = ax.p.droopY; ax.k = ax.p.k; if (ax.ind) ax.kin = cornerKin(this.P, ax.p, this.P.tire.radius); }
     if (this.massTarget && this.massNow.some((x, i) => x !== this.massTarget[i])) { this.massNow = [...this.massTarget]; this.applyMass(); }
     if (Math.abs(this.R - this.wheelColR) > 1e-4 || Math.abs(this.P.tire.width * 0.42 - this.wheelColW) > 1e-4) this.makeWheelColliders();
   }
@@ -277,10 +295,11 @@ export class Vehicle {
     if (raw.analogSteer) lim = 1 / (1 + Math.max(0, v - 8) / 30);
     else {
       const a = STEER_ASSIST[this.steerAssist];
-      if (a) lim = Math.min(1, (Math.atan(this.P.wheelbase * a.k * this.gripG * G / Math.max(v * v, 1e-3)) + a.c * this.gripSlip) / maxA);
+      if (a) lim = Math.min(1, (Math.atan(this.steerL * a.k * this.gripG * G / Math.max(v * v, 1e-3)) + a.c * this.gripSlip) / maxA);
     }
     const target = raw.steer * maxA * lim;
-    const rate = 1.35 * 17 / this.P.steer.ratio; // rad/s at the road wheel (hydraulic rack; stock 17:1)
+    // rad/s at the road wheel (hydraulic rack; stock 17:1), or the car's own (a heavy truck's power steering)
+    const rate = this.P.steer.rate ?? 1.35 * 17 / this.P.steer.ratio;
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));
     c.steer = this.steerAngle;
   }
@@ -293,7 +312,7 @@ export class Vehicle {
     for (const w of this.wheels) {
       if (!w.contact || !(w.Fn > 0) || !w.co.mu) continue;
       mu += w.co.mu; n++;
-      if (w.i < 2) { ap += w.aPk || w.surf.aPeak; nf++; }
+      if (w.axle.p.steered) { ap += w.aPk || w.surf.aPeak; nf++; }
     }
     if (!n) return;
     const k = Math.min(1, h / 0.3);
@@ -320,31 +339,31 @@ export class Vehicle {
     return out.subVectors(p, this.com).crossVectors(this.angVel, out).add(this.vel);
   }
 
-  steerAngles() {
-    const d = this.steerAngle + this.steerComp;
-    if (Math.abs(d) < 1e-4) return [d, d];
-    const L = this.P.wheelbase, T = this.P.steer.kingpinTrack;
-    const Rt = L / Math.tan(Math.abs(d));
-    const inner = Math.atan(L / (Rt - T / 2)), outer = Math.atan(L / (Rt + T / 2));
-    const s = Math.sign(d);
-    // d > 0 = right turn: right wheel is the inner one
-    return s > 0 ? [outer * s, inner * s] : [inner * s, outer * s];
+  // road wheel angles [left, right] of axle a (Ackermann about the turning centre, suspension.js)
+  steerAngles(a = 0) {
+    return ackermann(this.P, a, this.steerAngle + this.steerComp, this.steerL);
   }
 
   updateGeometry() {
     const P = this.P;
-    const [sl, sr] = this.steerAngles();
     for (const ax of this.axles) {
       const p = ax.p;
+      if (ax.ind) {
+        // derived for the HUD / telemetry: mean compression and the left / right difference as a roll angle
+        const wl = this.wheels[ax.i * 2], wr = this.wheels[ax.i * 2 + 1];
+        ax.c = (wl.c + wr.c) / 2; ax.phi = (wr.c - wl.c) / P.track;
+      }
       ax.A.set(0, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
-      _q.setFromAxisAngle(Z, ax.phi);
+      _q.setFromAxisAngle(Z, ax.ind ? 0 : ax.phi);
       ax.q.copy(this.quat).multiply(_q);
+      ax.steer = p.steered ? this.steerAngles(ax.i) : null;
     }
     for (const w of this.wheels) {
       const ax = w.axle;
+      if (ax.ind) { this.cornerGeometry(w); continue; }
       // roll steer: the axle's links swing it about a vertical axis as the body rolls on it.
       // rollSteer > 0 = roll understeer (rear axle turns into the bend, front axle out of it)
-      w.steer = (ax.p.steered ? (w.side < 0 ? sl : sr) : 0) + Math.sign(ax.p.z) * -(ax.p.rollSteer || 0) * ax.phi;
+      w.steer = (ax.p.steered ? (w.side < 0 ? ax.steer[0] : ax.steer[1]) : 0) + Math.sign(ax.p.z) * -(ax.p.rollSteer || 0) * ax.phi;
       w.hub.set(w.side * P.track / 2, 0, 0).applyQuaternion(ax.q).add(ax.A);
       _q.setFromAxisAngle(Y, -w.steer);
       w.q.copy(ax.q).multiply(_q);
@@ -361,6 +380,28 @@ export class Vehicle {
         _q2.multiply(_q.setFromAxisAngle(Y, -w.steer)).multiply(_q.setFromAxisAngle(Z, -Math.PI / 2));
         w.sideCollider.setRotationWrtParent({ x: _q2.x, y: _q2.y, z: _q2.z, w: _q2.w });
       }
+    }
+  }
+
+  // independent corner: hub in the body frame from the compression and the kinematic curves; wheel frame
+  // = body, then camber about the body's long axis, then steer about the (cambered) kingpin
+  cornerGeometry(w) {
+    const ax = w.axle, p = ax.p, k = ax.kin, dc = w.c - k.c0;
+    w.camber = k.g * dc;
+    w.out = k.hubOut * dc;
+    w.steer = p.steered ? (w.side < 0 ? ax.steer[0] : ax.steer[1]) : 0;
+    _v.set(w.side * (this.P.track / 2 + w.out), ax.droopY + w.c, p.z);
+    w.hub.copy(_v).applyQuaternion(this.quat).add(this.pos);
+    _q2.setFromAxisAngle(Z, -w.side * w.camber);
+    _q2.multiply(_q.setFromAxisAngle(Y, -w.steer));
+    w.q.copy(this.quat).multiply(_q2);
+    w.spinAxis.copy(X).applyQuaternion(w.q);
+    w.up.copy(Y).applyQuaternion(w.q);
+    w.fwd.copy(Z).applyQuaternion(w.q).negate();
+    if (w.sideCollider) {
+      w.sideCollider.setTranslationWrtParent({ x: _v.x, y: _v.y, z: _v.z });
+      _q2.multiply(_q.setFromAxisAngle(Z, -Math.PI / 2));
+      w.sideCollider.setRotationWrtParent({ x: _q2.x, y: _q2.y, z: _q2.z, w: _q2.w });
     }
   }
 
@@ -428,6 +469,17 @@ export class Vehicle {
 
     for (const ax of this.axles) {
       const p = ax.p;
+      if (ax.ind) {
+        // each corner's mount: the body point at its hub
+        for (let s = 0; s < 2; s++) {
+          const w = this.wheels[ax.i * 2 + s];
+          _v2.set(w.side * (P.track / 2 + w.out), ax.droopY + w.c, p.z).applyQuaternion(this.quat).add(this.pos);
+          this.pointVel(_v2, _v);
+          w.vMountU = _v.dot(up);
+          w.accS = 0; w.accD = 0;
+        }
+        continue;
+      }
       ax.mount.set(0, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
       this.pointVel(ax.mount, _v);
       ax.vMountU = _v.dot(up);
@@ -439,7 +491,7 @@ export class Vehicle {
     const R0 = this.R;
     for (const w of this.wheels) {
       this.castContact(w);
-      tireCoefs(T, this.pressures[w.i < 2 ? 0 : 1], w.surf, w.co);
+      tireCoefs(T, this.pressures[w.axle.front ? 0 : 1], w.surf, w.co);
       w.Re = R0 - Math.max(0, w.pen) * 0.33;
       if (w.contact) {
         const n = w.n;
@@ -461,8 +513,9 @@ export class Vehicle {
     // at a standstill the handbrake holds the whole transfer output (all driven wheels), not just the rear axle,
     // so the front can't pull through an open centre diff; fades out above ~2 m/s to keep handbrake turns
     const holdT = c.handbrake > 0.5 ? P.brakes.handbrakeHold * Math.max(0, Math.min(1, 2 - Math.abs(this.speed))) : 0;
-    // brakes with a simple 4-channel ABS (releases a wheel that is about to lock, then reapplies)
-    for (let i = 0; i < 4; i++) {
+    // brakes with a simple ABS, one channel per wheel (releases a wheel that is about to lock, then reapplies)
+    const nW = this.nW;
+    for (let i = 0; i < nW; i++) {
       const w = this.wheels[i];
       let f = this.absFactor[i];
       const vx = Math.abs(w.vcx);
@@ -470,13 +523,13 @@ export class Vehicle {
       if (this.abs && c.brake > 0.05 && vx > 1.8 && w.Fn > 0 && slip < -0.16) { f = Math.max(0.05, f - 9 * h); this.absActive = 0.15; }
       else f = Math.min(1, f + 3.5 * h);
       this.absFactor[i] = f;
-      this.brakeT[i] = c.brake * f * (i < 2 ? P.brakes.front : P.brakes.rear);
+      this.brakeT[i] = c.brake * f * (w.axle.front ? P.brakes.front : P.brakes.rear);
     }
     this.absActive = Math.max(0, this.absActive - h);
     // Traction control (like Land Rover ETC): brake a wheel that spins faster than the ground under it.
     // An open diff always splits torque evenly, so braking the spinning wheel lets the others drive.
     // Works across the axle diffs and, when a whole axle spins, across the centre diff too.
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < nW; i++) {
       const w = this.wheels[i];
       let T = this.tcT[i];
       if (this.tc && c.throttle > 0.05 && dt.running) {
@@ -493,7 +546,9 @@ export class Vehicle {
       this.brakeT[i] = Math.max(this.brakeT[i], T);
     }
     this.tcActive = Math.max(0, this.tcActive - h);
-    let tpf = 0, tpr = 0, engA = 0;
+    const tp = this._tp;
+    tp.fill(0);
+    let engA = 0;
 
     for (let k = 0; k < S; k++) {
       // a. normal loads
@@ -507,7 +562,7 @@ export class Vehicle {
         } else w.Fn = 0;
       }
       // b. tyre forces
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < nW; i++) {
         const w = this.wheels[i];
         const om = dt.w[2 + i];
         if (w.Fn > 0) {
@@ -515,13 +570,14 @@ export class Vehicle {
           tireForces(w, w.Fn, vsx, -w.vcy, Math.hypot(w.vcx, w.vcy), w.surf, w.co);
         } else { w.Fx = 0; w.Fy = 0; }
         this.tireT[i] = -w.Fx * w.Re;
-        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + 2.5;
+        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + (T.hubDrag ?? 2.5);   // + bearing / hub drag (Nm)
       }
       // c. drivetrain
       dt.substep(hs, this.tireT, this.rrT, this.brakeT, hbT, holdT);
-      tpf += dt.propTorque[0]; tpr += dt.propTorque[1]; engA += dt.engineAlpha;
+      for (let a = 0; a < this.nA; a++) tp[a] += dt.propTorque[a];
+      engA += dt.engineAlpha;
       // d. tyre transient state
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < nW; i++) {
         const w = this.wheels[i];
         if (w.Fn > 0) {
           const vsx = dt.w[2 + i] * w.Re - w.vcx;
@@ -533,7 +589,7 @@ export class Vehicle {
         }
       }
       // e. axle dynamics
-      for (const ax of this.axles) this.axleSubstep(ax, hs, gU, ax.i === 0 ? dt.propTorque[0] : dt.propTorque[1]);
+      for (const ax of this.axles) { if (ax.ind) this.cornerSubstep(ax, hs, gU); else this.axleSubstep(ax, hs, gU, dt.propTorque[ax.i]); }
       // f. tyre deflection follows the hub
       for (const w of this.wheels) {
         this.hubPenDot(w);
@@ -549,10 +605,21 @@ export class Vehicle {
     for (const w of this.wheels) {
       w.accF.multiplyScalar(inv);
       w.FnAvg *= inv;
-      b.addForceAtPoint(w.accF, w.hub, true);
+      // beam axle: the part of the tyre force the axle doesn't take goes in at the hub (panhard rod: roll
+      // centre at axle height); independent: at the contact patch, it's the linkage's constraint force
+      b.addForceAtPoint(w.accF, w.axle.ind ? w.P : w.hub, true);
     }
     for (const ax of this.axles) {
       const p = ax.p;
+      if (ax.ind) {
+        // spring, damper and bar act between the body and each corner, at the hub; unsprung weight cancelled
+        for (let s = 0; s < 2; s++) {
+          const w = this.wheels[ax.i * 2 + s];
+          _v.copy(up).multiplyScalar((w.accS + w.accD) * inv - p.mass / 2 * G * -up.y);
+          b.addForceAtPoint(_v, w.hub, true);
+        }
+        continue;
+      }
       for (let s = 0; s < 2; s++) {
         const side = s === 0 ? -1 : 1;
         _v2.set(side * p.springTrack / 2, ax.droopY + ax.c, p.z).applyQuaternion(this.quat).add(this.pos);
@@ -568,8 +635,12 @@ export class Vehicle {
     }
     // anti-roll bars + drivetrain torque reactions (engine rock, axle wrap) about the roll axis
     let rollT = 0;
-    for (const ax of this.axles) rollT -= ax.accArb * inv;
-    rollT -= (P.engine.inertia * engA + tpf + tpr) * inv;
+    for (const ax of this.axles) if (!ax.ind) rollT -= ax.accArb * inv;
+    let crank = P.engine.inertia * engA;
+    for (let a = 0; a < this.nA; a++) crank += tp[a];
+    rollT -= crank * inv;
+    // a diff on the body takes its own pinion torque back: only the beam axles twist against the body
+    for (const ax of this.axles) if (ax.ind) rollT += tp[ax.i] * inv;
     _v.copy(this.back).multiplyScalar(rollT);
     b.addTorque(_v, true);
     // aero drag
@@ -579,7 +650,7 @@ export class Vehicle {
       b.addForce(_v, true);
     }
 
-    for (let i = 0; i < 4; i++) this.wheels[i].spin += dt.w[2 + i] * h;
+    for (let i = 0; i < nW; i++) this.wheels[i].spin += dt.w[2 + i] * h;
     this.steerCompliance(h);
   }
 
@@ -591,9 +662,8 @@ export class Vehicle {
     const S = this.P.steer;
     if (!S.stiffness) { this.steerComp = 0; return; }
     let M = 0;
-    for (let i = 0; i < 2; i++) {
-      const w = this.wheels[i];
-      if (w.Fn <= 0) continue;
+    for (const w of this.wheels) {
+      if (!w.axle.p.steered || w.Fn <= 0) continue;
       const tp = S.pneuTrail * Math.max(0, 1 - w.slipNorm);
       M += w.Fy * (S.casterTrail + tp);
     }
@@ -603,23 +673,25 @@ export class Vehicle {
 
   hubPenDot(w) {
     const ax = w.axle;
-    const vU = ax.vz + w.side * (this.P.track / 2) * Math.cos(ax.phi) * ax.Om;
+    const vU = ax.ind ? w.vz : ax.vz + w.side * (this.P.track / 2) * Math.cos(ax.phi) * ax.Om;
     const n = w.n, up = this.up;
     const v = w.vHubPerp;
     w.penDot = -((v.x + up.x * vU) * n.x + (v.y + up.y * vU) * n.y + (v.z + up.z * vU) * n.z);
   }
 
   // Coil spring + bump stop + droop limit, at the spring seat. x = compression, xd = compression rate.
+  // stopScale: the stops of a heavier vehicle (BTR-80: x3), 1 for the 2.4 t trucks they were set on
   springForce(p, x, xd, k = p.k) {
     let F = Math.max(0, k * (x + p.preload));
+    const ss = p.stopScale ?? 1;
     const bs = x - (p.travel - 0.05);
     if (bs > 0) {
       // progressive rubber bump stop with hysteresis: it gives back less than it took (no pogo off the stops)
-      const el = 220000 * bs + 8e6 * bs * bs;
-      F += (xd > 0 ? el : 0.55 * el) + (xd > 0 ? 6000 * xd * Math.min(1, bs / 0.02) : 0);
+      const el = (220000 * bs + 8e6 * bs * bs) * ss;
+      F += (xd > 0 ? el : 0.55 * el) + (xd > 0 ? 6000 * ss * xd * Math.min(1, bs / 0.02) : 0);
     }
-    if (x > p.travel) F += 3e6 * (x - p.travel) + (xd > 0 ? 25000 * xd : 0);
-    if (x < 0) F += 1.6e6 * x + (xd < 0 ? 12000 * xd : 0);
+    if (x > p.travel) F += 3e6 * ss * (x - p.travel) + (xd > 0 ? 25000 * ss * xd : 0);
+    if (x < 0) F += 1.6e6 * ss * x + (xd < 0 ? 12000 * ss * xd : 0);
     return F;
   }
 
@@ -673,6 +745,33 @@ export class Vehicle {
     ax.accArb += arb;
   }
 
+  // Independent corners of one axle. The tyre force F at the contact patch drives the corner through the
+  // patch's path J = up + right * side * q (virtual work: generalised force Qc = F . J); the rest of F
+  // (F - Qc up) does no work on the corner, so it is the linkage's constraint force and goes into the body
+  // at the patch. Spring, damper and bar push between the body and the corner at the hub.
+  cornerSubstep(ax, hs, gU) {
+    const p = ax.p, up = this.up, right = this.right, q = ax.kin.q;
+    const wl = this.wheels[ax.i * 2], wr = this.wheels[ax.i * 2 + 1];
+    for (const w of [wl, wr]) {
+      _v.copy(w.n).multiplyScalar(w.Fn).addScaledVector(w.fc, w.Fx).addScaledVector(w.sc, w.Fy);
+      const Qc = _v.dot(up) + w.side * q * _v.dot(right);
+      _v.addScaledVector(up, -Qc);
+      w.accF.add(_v);
+      w.FnAvg += w.Fn;
+      w.Qc = Qc;
+    }
+    const bar = p.arb * (wl.c - wr.c);      // N at the wheels: resists one side moving against the other
+    const m = p.mass / 2;
+    for (const w of [wl, wr]) {
+      const cd = w.vz - w.vMountU;
+      const S = this.springForce(p, w.c, cd, ax.k) + (w === wl ? bar : -bar);
+      const D = this.damperForce(p, cd);
+      w.vz += hs * ((w.Qc - S - D) / m + gU);
+      w.c += hs * (w.vz - w.vMountU);
+      w.accS += S; w.accD += D;
+    }
+  }
+
   // put the truck back on its wheels
   reset(position, yaw) {
     const b = this.body;
@@ -682,9 +781,9 @@ export class Vehicle {
     b.setLinvel({ x: 0, y: 0, z: 0 }, true);
     b.setAngvel({ x: 0, y: 0, z: 0 }, true);
     for (const ax of this.axles) { ax.vz = 0; ax.Om = 0; ax.phi = 0; }
-    for (const w of this.wheels) { w.ux = w.uy = 0; }
+    for (const w of this.wheels) { w.ux = w.uy = 0; w.vz = 0; }
     const d = this.drivetrain;
-    for (let i = 2; i < 6; i++) d.w[i] = 0;
+    for (let i = 2; i < d.nB; i++) d.w[i] = 0;
     // the wheels stop dead: drop the converter lock-up and let the engine ride it out (a teleport at
     // speed in a locked-up gear used to stall it)
     d.lockup = 0;

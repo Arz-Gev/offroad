@@ -17,6 +17,7 @@
 import { makeCarParams, setCar } from './carSpecs.js';
 import { tireRadialStiffness } from './tire.js';
 import { D } from './truckDims.js';
+import { axleShares, steerRefLength } from './suspension.js';
 
 const G = 9.81;
 const DEG = Math.PI / 180;
@@ -84,8 +85,23 @@ export const ENGINES = {
       [4500, 288], [5000, 280], [5750, 262], [6250, 230], [6800, 150], [7200, 40]]),
     idleRpm: 900, limiterRpm: 6800, redlineRpm: 6500, shiftRpm: 6300, inertia: 0.14,
   },
+  // BTR-80 (8x8, 13.6 t). Real figures from the manufacturers' published curves (net, flywheel).
+  kamaz: {
+    label: 'KamAZ-7403', name: 'KamAZ-7403 10.85 V8 turbodiesel', fuel: 'diesel', note: 'Stock BTR-80: 260 PS at 2600, 785 Nm at 1600–1800. All-speed governor.',
+    torque: gross([[0, 0], [400, 300], [600, 560], [800, 625], [1000, 680], [1200, 730], [1400, 765], [1600, 785], [1800, 785],
+      [2000, 772], [2200, 750], [2400, 726], [2600, 700], [2700, 420], [2800, 120], [2850, 0]]),
+    idleRpm: 600, limiterRpm: 2900, redlineRpm: 2600, shiftRpm: 2450, inertia: 2.2,
+  },
+  yamz: {
+    label: 'YaMZ-238M2', name: 'YaMZ-238M2 14.86 V8 diesel', fuel: 'diesel', note: 'BTR-80 with the YaMZ engine: 240 PS at 2100, 883 Nm at 1250–1450. Slower, pulls lower.',
+    torque: gross([[0, 0], [400, 320], [600, 640], [800, 760], [1000, 840], [1250, 883], [1450, 883], [1700, 860], [1900, 835],
+      [2100, 818], [2200, 480], [2300, 120], [2350, 0]]),
+    idleRpm: 550, limiterRpm: 2400, redlineRpm: 2100, shiftRpm: 2000, inertia: 2.6,
+  },
 };
-export const ENGINE_ORDER = ['v8', 'works', 'v35', 'tdi300', 'td5', 'puma', 'g500', 'lancia'];
+const ENGINES_DEFAULT = ['v8', 'works', 'v35', 'tdi300', 'td5', 'puma', 'g500', 'lancia'];
+// engines the tuning panel offers: the car's own family (carSpecs engines) or the road-car list
+export let ENGINE_ORDER = ENGINES_DEFAULT;
 
 // ---------------------------------------------------------------- the stock setup
 // the current car's stock params (carSpecs.js); useCar() switches it before anything is built
@@ -94,7 +110,7 @@ const stockSize = () => BASE.tire.size ?? 33, stockWidth = () => BASE.tire.width
 const COLLIDER_NAMES = ['Cabin / rear body', 'Engine bay', 'Front bumper', 'Rear bumper', 'Chassis rails', 'Roof rack', 'Spare wheel', 'Belly', 'Fuel tank'];
 
 function stockSetup() {
-  const P = BASE, [f, r] = P.axles;
+  const P = BASE, f = P.axles[0], r = P.axles[P.axles.length - 1];   // front / rear half of the axles
   const names = P.colliderNames || COLLIDER_NAMES;
   const axle = a => ({ k: a.k, bump: a.bump, rebound: a.rebound, arb: a.arb, travel: a.travel });
   return {
@@ -142,12 +158,24 @@ export function useCar(id) {
   BASE = makeCarParams();
   SPRUNG_COM = sprungCom();
   STOCK = stockSetup();
+  ENGINE_ORDER = BASE.engineChoices || ENGINES_DEFAULT;
   if (BASE.car) {
     const s0 = stockSize(), w0 = stockWidth();
     RANGES['tyres.size'] = [s0 - 4, s0 + 5, 0.5];
     RANGES['tyres.width'] = [w0 - 1.5, w0 + 3, 0.5];
     TYRE_SIZES = [s0 - 2, s0 - 1, s0, s0 + 1, s0 + 2, s0 + 4];
     TYRE_WIDTHS = [w0 - 1, w0, w0 + 1, w0 + 2];
+    // a truck's numbers sit outside the road-car ranges: widen (never narrow) them around its stock
+    const T = BASE.tire, wid = (k, lo, hi) => { const r = RANGES[k]; RANGES[k] = [Math.min(r[0], lo), Math.max(r[1], hi), r[2]]; };
+    wid('tyres.press', T.minPressure ?? 6, T.maxPressure ?? 38);
+    wid('gearbox.ratio', 0.5, Math.max(...BASE.manual.ratios, ...BASE.auto.ratios, BASE.manual.reverse, BASE.auto.reverse) * 1.2);
+    wid('gearbox.final', 2.5, BASE.finalDrive * 1.25);
+    wid('steering.lock', BASE.steer.maxAngle / DEG - 6, BASE.steer.maxAngle / DEG + 8);
+    wid('steering.ratio', BASE.steer.ratio - 6, BASE.steer.ratio + 6);
+    wid('suspension.k', 15000, Math.max(...BASE.axles.map(a => a.k)) * 1.6);
+    wid('suspension.bump', 1000, Math.max(...BASE.axles.map(a => a.bump)) * 1.8);
+    wid('suspension.rebound', 1500, Math.max(...BASE.axles.map(a => a.rebound)) * 1.8);
+    wid('mass.cargo', 0, BASE.bodyMass * 0.25);
   }
 }
 export const sanitize = s => fill(STOCK, s);
@@ -206,7 +234,7 @@ export const wheelMass = (inches, width) => 20 + 22 * Math.pow(inches / 33, 2.2)
 // Unsprung axle mass position and the sprung COM implied by the stock total COM (params.js).
 let SPRUNG_COM = sprungCom();
 function sprungCom() {
-  const P = BASE, ms = P.bodyMass, m = ms + P.axles[0].mass + P.axles[1].mass;
+  const P = BASE, ms = P.bodyMass, m = P.axles.reduce((s, a) => s + a.mass, ms);
   const ay = a => a.droopY + staticCompression(P, a);
   return [
     (m * P.com[0]) / ms,
@@ -214,12 +242,20 @@ function sprungCom() {
     (m * P.com[2] - P.axles.reduce((s, a) => s + a.mass * a.z, 0)) / ms,
   ];
 }
+// share of the sprung weight on axle i (2 axles: the lever rule, as it always was)
+function axleShare(P, i) {
+  if (P.axles.length !== 2) return axleShares(P)[i];
+  const L = P.wheelbase;
+  return i === 0 ? (L / 2 - P.com[2]) / L : (L / 2 + P.com[2]) / L;
+}
 // static spring compression of an axle (m), from the sprung load it carries
 function staticCompression(P, a) {
-  const L = P.wheelbase, i = P.axles.indexOf(a);
-  const frac = i === 0 ? (L / 2 - P.com[2]) / L : (L / 2 + P.com[2]) / L;
+  const frac = axleShare(P, P.axles.indexOf(a));
   return clamp(P.bodyMass * G * frac / 2 / a.k - a.preload, 0, a.travel);
 }
+const unsprungMass = P => P.axles.reduce((s, a) => s + a.mass, 0);
+const totalMass = P => P.axles.reduce((s, a) => s + a.mass, P.bodyMass);
+const frontHalf = (P, i) => i < P.axles.length / 2;
 
 export const CARGO_POS = [0, 0.98, 1.45];    // load bay floor, behind the rear seats
 export const ROOF_POS = [0, 2.45, 0.75];     // on the rack
@@ -258,10 +294,17 @@ export function applySetup(P, s) {
   // suspension: lift lowers the axles relative to the body (longer springs / spacers), springs and
   // dampers per axle; travel is the bump travel to the hard stop
   const su = s.suspension;
+  const nA = P.axles.length;
   P.axles.forEach((a, i) => {
-    const b = B.axles[i], q = i === 0 ? su.front : su.rear;
+    const b = B.axles[i], q = frontHalf(P, i) ? su.front : su.rear;
     a.droopY = b.droopY - su.lift;
-    a.k = q.k; a.bump = q.bump; a.rebound = q.rebound; a.arb = q.arb; a.travel = q.travel;
+    if (nA === 2) { a.k = q.k; a.bump = q.bump; a.rebound = q.rebound; a.arb = q.arb; a.travel = q.travel; }
+    else {
+      // more axles: the panel's front / rear values scale each axle of that half from its own stock (the
+      // BTR-80's end axles have two shocks per wheel, the middle ones one: that difference stays)
+      const r = B.axles[frontHalf(P, i) ? 0 : nA - 1], sc = (k, x) => (r[k] ? b[k] * x / r[k] : x);
+      a.k = sc('k', q.k); a.bump = sc('bump', q.bump); a.rebound = sc('rebound', q.rebound); a.arb = sc('arb', q.arb); a.travel = sc('travel', q.travel);
+    }
     a.mass = b.mass + 2 * (wm - wm0);
   });
   P.lift = su.lift;
@@ -277,7 +320,7 @@ export function applySetup(P, s) {
   const sc0 = [SPRUNG_COM[0], SPRUNG_COM[1] + m.comY, SPRUNG_COM[2]];
   const sprung = [0, 1, 2].map(j => (ms0 * sc0[j] + m.cargo * CARGO_POS[j] + m.roof * ROOF_POS[j]) / P.bodyMass);
   P.sprungCom = sprung;
-  const mu = P.axles[0].mass + P.axles[1].mass, mt = P.bodyMass + mu;
+  const mu = unsprungMass(P), mt = P.bodyMass + mu;
   const axY = a => a.droopY + staticCompression(P, a);
   const com = [
     (P.bodyMass * sprung[0]) / mt,
@@ -294,7 +337,7 @@ export function applySetup(P, s) {
       const dx = p[0] - P.com[0], dy = p[1] - P.com[1], dz = p[2] - P.com[2];
       I[0] += mass * (dy * dy + dz * dz); I[1] += mass * (dx * dx + dz * dz); I[2] += mass * (dx * dx + dy * dy);
     };
-    const m0 = ms0 + B.axles[0].mass + B.axles[1].mass;
+    const m0 = totalMass({ bodyMass: ms0, axles: B.axles });
     add(m0, B.com);
     add(m.cargo, CARGO_POS); add(m.roof, ROOF_POS);
     I[0] += m.cargo * (0.5 * 0.5 + 1.0 * 1.0) / 12; I[1] += m.cargo * (1.2 * 1.2 + 1.0 * 1.0) / 12; I[2] += m.cargo * (1.2 * 1.2 + 0.5 * 0.5) / 12;
@@ -344,12 +387,12 @@ function tangentAngle(d, h, R, c) {
 
 // static ride: spring compression, tyre squash and the ground line in the body frame
 export function staticRide(P, pressF = P.tire.pressure, pressR = pressF) {
-  const L = P.wheelbase, mt = P.bodyMass + P.axles[0].mass + P.axles[1].mass;
-  const fFront = (L / 2 - P.com[2]) / L;
+  const L = P.wheelbase, mt = totalMass(P);
+  const fFront = (L / 2 - P.com[2]) / L, shares = P.axles.length === 2 ? null : axleShares(P);
   return P.axles.map((a, i) => {
     const c = staticCompression(P, a);
-    const wheelLoad = mt * G * (i === 0 ? fFront : 1 - fFront) / 2;
-    const squash = wheelLoad / tireRadialStiffness(i === 0 ? pressF : pressR);
+    const wheelLoad = mt * G * (shares ? shares[i] : i === 0 ? fFront : 1 - fFront) / 2;
+    const squash = wheelLoad / tireRadialStiffness(frontHalf(P, i) ? pressF : pressR, P.tire.kScale ?? 1);
     const hubY = a.droopY + c;               // hub height in the body frame
     return { c, wheelLoad, squash, hubY, groundY: hubY - (P.tire.radius - squash), hubH: P.tire.radius - squash };
   });
@@ -358,19 +401,26 @@ export function staticRide(P, pressF = P.tire.pressure, pressR = pressF) {
 // pts: [z, y] underside outline in the body frame (default: the collision boxes)
 export function geometry(P, pressF, pressR, pts0 = null) {
   const ride = staticRide(P, pressF, pressR);
-  const [f, r] = P.axles, R = P.tire.radius;
-  const zf = f.z, zr = r.z, gf = ride[0].groundY, gr = ride[1].groundY;
+  const nA = P.axles.length, last = nA - 1, f = P.axles[0], r = P.axles[last], R = P.tire.radius;
+  const zf = f.z, zr = r.z, gf = ride[0].groundY, gr = ride[last].groundY;
   const ground = z => gf + (z - zf) * (gr - gf) / (zr - zf);   // ground line under the truck (body frame)
   const pts = (pts0 || colliderUnderside(P)).map(([z, y]) => [z, y - ground(z)]);
   let app = 90, dep = 90, brk = 180, low = 9;
   for (const [z, h] of pts) {
     low = Math.min(low, h);
     if (z < zf) app = Math.min(app, tangentAngle(zf - z, h, R, ride[0].hubH));
-    else if (z > zr) dep = Math.min(dep, tangentAngle(z - zr, h, R, ride[1].hubH));
-    else brk = Math.min(brk, tangentAngle(z - zf, h, R, ride[0].hubH) + tangentAngle(zr - z, h, R, ride[1].hubH));
+    else if (z > zr) dep = Math.min(dep, tangentAngle(z - zr, h, R, ride[last].hubH));
+    else {
+      // breakover between the two axles around this point (a multi-axle truck crests between neighbours)
+      let a = 0;
+      while (a < last - 1 && z > P.axles[a + 1].z) a++;
+      const A0 = P.axles[a], A1 = P.axles[a + 1];
+      brk = Math.min(brk, tangentAngle(z - A0.z, h, R, ride[a].hubH) + tangentAngle(A1.z - z, h, R, ride[a + 1].hubH));
+    }
   }
-  // axle diff housing (r 0.15 x 0.9) is the lowest part of a beam-axle truck
-  const diff = Math.min(ride[0].hubH, ride[1].hubH) - 0.135;
+  // axle diff housing (r 0.15 x 0.9) is the lowest part of a beam-axle truck; independent axles carry it in the body
+  const beam = P.axles.map((a, i) => a.type === 'independent' ? Infinity : ride[i].hubH);
+  const diff = Math.min(...beam) - 0.135;
   // tyre top vs the arch top (D.ARCH_TOP, body frame) at full bump, and with one wheel pushed up by
   // full axle articulation (one spring on its stop, the other at full droop)
   const arch = P.axles.map(a => {
@@ -382,31 +432,35 @@ export function geometry(P, pressF, pressR, pts0 = null) {
 }
 
 export function analyze(P, setup, gearbox = 'auto') {
+  if (P.manualOnly) gearbox = 'manual';   // no automatic: 'auto' is the manual box shifting itself
   const t = setup.tyres;
   const out = {};
-  const mt = P.bodyMass + P.axles[0].mass + P.axles[1].mass;
+  const mt = totalMass(P);
   out.mass = mt;
   // engine
   const [pk, pkAt] = peakOf(P, r => netTorque(P, r) * r * Math.PI / 30);
   const [tq, tqAt] = peakOf(P, r => netTorque(P, r));
   out.engine = { kw: pk / 1000, kwAt: pkAt, hp: pk / 735.5, nm: tq, nmAt: tqAt, kgPerHp: mt / (pk / 735.5) };
   // weight distribution and stability
-  const L = P.wheelbase;
-  out.front = (L / 2 - P.com[2]) / L;
+  const L = P.wheelbase, nA = P.axles.length;
+  const shares = P.axles.map((a, i) => axleShare(P, i));
+  out.front = nA === 2 ? (L / 2 - P.com[2]) / L : shares.reduce((s, x, i) => s + (frontHalf(P, i) ? x : 0), 0);
   const geo = geometry(P, t.pressF, t.pressR);
   out.geo = geo;
-  const gAvg = (geo.ride[0].groundY + geo.ride[1].groundY) / 2;
+  const gAvg = (geo.ride[0].groundY + geo.ride[nA - 1].groundY) / 2;
   out.comH = P.com[1] - gAvg;
   out.ssf = P.track / (2 * out.comH);            // static stability factor = rollover threshold in g
   out.tiltDeg = Math.atan(out.ssf) / DEG;         // side slope where it tips over (rigid, no body roll)
   // suspension: heave frequency and damping per axle (spring in series with the tyre)
   out.susp = P.axles.map((a, i) => {
-    const kt = tireRadialStiffness(i === 0 ? t.pressF : t.pressR);
+    const kt = tireRadialStiffness(frontHalf(P, i) ? t.pressF : t.pressR, P.tire.kScale ?? 1);
     const kRide = (a.k * kt) / (a.k + kt);
-    const ms = P.bodyMass * G * (i === 0 ? out.front : 1 - out.front) / G;
+    const ms = P.bodyMass * G * (nA === 2 ? (i === 0 ? out.front : 1 - out.front) : shares[i]) / G;
     const f = Math.sqrt(2 * kRide / ms) / (2 * Math.PI);
     const zeta = (a.bump + a.rebound) / (2 * Math.sqrt(2 * a.k * ms)); // two dampers, average of bump/rebound
-    return { f, zeta, kRide, rollStiff: a.k * a.springTrack * a.springTrack / 2 + a.arb };
+    // roll stiffness: springs at their track (independent: wheel rates at the wheel track) + bar
+    const st = a.type === 'independent' ? P.track : a.springTrack;
+    return { f, zeta, kRide, rollStiff: a.k * st * st / 2 + (a.type === 'independent' ? a.arb * P.track * P.track / 2 : a.arb) };
   });
   // gearing: road speed at the limiter in every gear, high and low range
   const R = P.tire.radius, Re = R - 0.012;
@@ -430,15 +484,16 @@ export function analyze(P, setup, gearbox = 'auto') {
   }
   out.vmax = vmax * 3.6;
   // brakes: deceleration the brakes alone can make (all four at full torque) and which axle locks first
-  const brakeG = 2 * (P.brakes.front + P.brakes.rear) / Re / (mt * G);
+  const nF = P.axles.filter((a, i) => frontHalf(P, i)).length, nR = nA - nF;
+  const brakeG = 2 * (nF * P.brakes.front + nR * P.brakes.rear) / Re / (mt * G);
   const mu = 0.72;
   const a = Math.min(brakeG, mu);
   const idealFront = out.front + a * out.comH / L;  // dynamic front share at that deceleration
   const bias = P.brakes.front / (P.brakes.front + P.brakes.rear);
   out.brakes = { brakeG, dirtG: a, bias, ideal: idealFront, first: bias >= idealFront ? 'front' : 'rear' };
   // steering
-  const d = P.steer.maxAngle;
-  out.turnDiameter = 2 * (L / Math.sin(d) + P.track / 2 + 0.15);
+  const d = P.steer.maxAngle, Ls = steerRefLength(P);
+  out.turnDiameter = 2 * (Ls / Math.sin(d) + P.track / 2 + 0.15);
   out.lockToLock = 2 * d * P.steer.ratio / (2 * Math.PI);
   out.accel = estimateAccel(P, gearbox, t.pressF);
   return out;
@@ -450,9 +505,9 @@ export function analyze(P, setup, gearbox = 'auto') {
 const TC_K = [[0, 1], [0.3, 1.02], [0.5, 1.07], [0.7, 1.17], [0.8, 1.3], [0.87, 1.55], [0.92, 2.0], [0.96, 3.0], [0.985, 5.5], [1, 9]];
 const TC_TR = [[0, 2.1], [0.2, 1.86], [0.4, 1.6], [0.6, 1.35], [0.8, 1.1], [0.87, 1.0], [1, 1.0]];
 export function estimateAccel(P, gearbox = 'auto', psi = 20) {
-  const E = P.engine, auto = gearbox !== 'manual';
+  const E = P.engine, auto = gearbox !== 'manual' && !P.manualOnly;
   const box = auto ? P.auto.ratios : P.manual.ratios;
-  const mt = P.bodyMass + P.axles[0].mass + P.axles[1].mass;
+  const mt = totalMass(P);
   const Re = P.tire.radius - 0.012, tr = P.transfer.high * P.finalDrive;
   const crr = 0.026 * Math.sqrt(28 / Math.max(psi, 4));
   const traction = 0.76 * mt * G * (P.tire.grip ?? 1);       // what traction control lets through on dirt
@@ -480,7 +535,7 @@ export function estimateAccel(P, gearbox = 'auto', psi = 20) {
       Tin = netTorque(P, we * toRpm);
     }
     if (shift > 0) { Tin *= auto ? 0.45 : 0; shift -= dt; }
-    const Iw = 4 * P.tire.inertia / (Re * Re) + (auto ? 0 : E.inertia * G4 * G4 / (Re * Re));
+    const Iw = 2 * P.axles.length * P.tire.inertia / (Re * Re) + (auto ? 0 : E.inertia * G4 * G4 / (Re * Re));
     const F = Math.min(traction, Tin * G4 / Re);
     const drag = 0.5 * P.aero.rho * P.aero.cdA * v * v + crr * mt * G;
     v = Math.max(0, v + dt * (F - drag) / (mt + Iw));

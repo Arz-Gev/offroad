@@ -1,12 +1,17 @@
 // Drivetrain: engine -> clutch (manual) / torque converter (auto) -> gearbox -> 2-speed transfer case
-// with lockable centre diff -> front/rear axle diffs (lockable) -> 4 wheels.
+// with lockable centre diff -> axle diffs (open, lockable or cam-type limited slip) -> 2 wheels per axle.
 //
-// Rotating bodies: 0 engine crank, 1 gearbox input (clutch disc / turbine), 2..5 wheels FL FR RL RR.
+// Rotating bodies: 0 engine crank, 1 gearbox input (clutch disc / turbine), 2.. wheels, two per axle
+// from the front (left, right): FL FR RL RR on a 4x4, 1L 1R 2L 2R 3L 3R 4L 4R on an 8x8.
 // Couplings are velocity constraints solved with projected Gauss-Seidel each substep:
-//   gear: w_in = G * mean(w_wheels)   (open diffs give equal torque split for free)
+//   gear: w_in = G * mean(w_driven wheels)   (open diffs give equal torque split for free)
 //   clutch / lockup clutch: w_e = w_in, impulse limited by clutch capacity
-//   centre / axle lockers, brakes, park pawl, friction: more rows.
+//   centre lock: mean(group 0) = mean(group 1). The centre diff's two outputs each drive a group of axles;
+//     axles in one group are coupled rigidly (link rows: BTR-80 axles 1 + 3 and 2 + 4, no diff between them)
+//   axle lockers, limited-slip rows, brakes, park pawl, friction: more rows.
 // Torque sources (combustion, starter, torque converter, tyres) are applied explicitly.
+// The drive layout comes from P.axles (driven, group, diff) and P.drive; a car without them is the 4x4
+// it always was: front axle = group 0, rear axle = group 1, open diffs, 2WD drives the rear axle.
 
 export const RPM = 30 / Math.PI; // rad/s -> rpm
 
@@ -28,9 +33,20 @@ const TC_K = [[0, 1], [0.3, 1.02], [0.5, 1.07], [0.7, 1.17], [0.8, 1.3], [0.87, 
 const TC_TR = [[0, 2.1], [0.2, 1.86], [0.4, 1.6], [0.6, 1.35], [0.8, 1.1], [0.87, 1.0], [1, 1.0]];
 
 class Row {
-  constructor() { this.j = new Float64Array(6); this.lo = -Infinity; this.hi = Infinity; this.lambda = 0; this.m = 0; }
-  set(j0, j1, j2, j3, j4, j5) { const j = this.j; j[0] = j0; j[1] = j1; j[2] = j2; j[3] = j3; j[4] = j4; j[5] = j5; return this; }
+  constructor(n) { this.j = new Float64Array(n); this.lo = -Infinity; this.hi = Infinity; this.lambda = 0; this.m = 0; }
+  clear() { this.j.fill(0); return this; }
   bound(b) { this.lo = -b; this.hi = b; return this; }
+}
+
+// drive layout of a car (P.axles, P.drive): which axles are driven, which centre-diff output (group) each
+// one hangs on, the axle diff type, which axles 2WD drives and which axles the handbrake holds
+export function driveLayout(P) {
+  const n = P.axles.length;
+  return {
+    axles: P.axles.map((a, i) => ({ driven: a.driven !== false, group: a.group ?? (i < n / 2 ? 0 : 1), diff: a.diff || 'open', lock: a.diffLock ?? 0.35 })),
+    rwd: P.drive?.rwd ?? [n - 1],              // axles that stay driven in 2WD
+    handbrake: P.drive?.handbrake ?? [n - 1],  // axles the handbrake holds (transmission brake behind them)
+  };
 }
 
 const AUTO_SELECTOR = ['P', 'R', 'N', 'D'];
@@ -40,17 +56,21 @@ export class Drivetrain {
     this.P = P;
     this.mode = 'auto';             // 'auto' | 'manual'
     this.clutchAssist = true;       // manual: automatic clutch
+    this.autoShift = false;         // manual-only cars (P.manualOnly) in "automatic": the gears are picked for you
     this.manualGear = 0;            // -1 R, 0 N, 1..5
     this.selector = 'D';            // auto selector
     this.autoGear = 1;
     this.range = 'high';
     this.centerLock = false;
-    this.frontLock = false;
-    this.rearLock = false;
+    this.layout = driveLayout(P);
+    this.nA = P.axles.length;
+    this.nW = 2 * this.nA;
+    this.nB = 2 + this.nW;          // rotating bodies
+    this.locks = new Array(this.nA).fill(false);   // axle lockers
     this.rwd = false;               // front prop shaft disconnected: rear-wheel drive only (high range)
 
-    this.w = new Float64Array(6);
-    this.inv = new Float64Array(6);
+    this.w = new Float64Array(this.nB);
+    this.inv = new Float64Array(this.nB);
     this.w[0] = P.engine.idleRpm / RPM;
     this.running = true;
     this.stalled = false;
@@ -77,25 +97,37 @@ export class Drivetrain {
     this.Tcomb = 0;
     this.load = 0;
     this.engineAlpha = 0;
-    this.propTorque = [0, 0];       // front / rear pinion torque (Nm)
-    this.wheelDrive = new Float64Array(4);
+    this.propTorque = new Array(this.nA).fill(0);   // pinion torque of each axle (Nm)
+    this.wheelDrive = new Float64Array(this.nW);
+    this.axleDrive = new Float64Array(this.nA);     // drive torque into each axle diff (limited slip)
     this.clutchSlip = 0;
 
+    const B = this.nB, row = () => new Row(B);
     this.rows = {
-      gear: new Row(), clutch: new Row(), center: new Row(), front: new Row(), rear: new Row(), park: new Row(),
-      hb: new Row(), hold: new Row(), efric: new Row(), ifric: new Row(),
-      b0: new Row(), b1: new Row(), b2: new Row(), b3: new Row(),
-      r0: new Row(), r1: new Row(), r2: new Row(), r3: new Row(),
+      gear: row(), clutch: row(), center: row(), park: row(), hb: row(), hold: row(), efric: row(), ifric: row(),
+      lock: this.layout.axles.map(row), links: this.layout.axles.map(row),
+      b: Array.from({ length: this.nW }, row), r: Array.from({ length: this.nW }, row),
     };
     this.active = [];
+    // a car with only a manual box starts in it, shifting by itself, in 1st (the automatic's "D")
+    if (P.manualOnly) { this.mode = 'manual'; this.autoShift = true; this.manualGear = 1; this.selector = 'N'; }
     this.updateInertia();
   }
+
+  // axle lockers of a 4x4 by name (HUD, menu, multiplayer): front = first axle, rear = last
+  get frontLock() { return this.locks[0]; }
+  set frontLock(v) { this.locks[0] = v; }
+  get rearLock() { return this.locks[this.nA - 1]; }
+  set rearLock(v) { this.locks[this.nA - 1] = v; }
+  // axles that take drive right now (2WD drops the others)
+  isDriven(a) { const L = this.layout; return L.axles[a].driven && (!this.rwd || L.rwd.includes(a)); }
+  get canLock() { return this.layout.axles.some(a => a.driven && a.diff !== 'lsd'); }
 
   updateInertia() {
     const P = this.P;
     this.inv[0] = 1 / P.engine.inertia;
     this.inv[1] = 1 / (this.mode === 'auto' ? P.auto.turbineInertia : P.clutch.inputInertia);
-    for (let i = 2; i < 6; i++) this.inv[i] = 1 / P.tire.inertia;
+    for (let i = 2; i < this.nB; i++) this.inv[i] = 1 / P.tire.inertia;
   }
 
   get rpm() { return this.w[0] * RPM; }
@@ -122,7 +154,12 @@ export class Drivetrain {
   }
 
   // mean speed of the driven wheels (= transfer case output / ratio)
-  wheelMean() { const w = this.w; return this.rwd ? 0.5 * (w[4] + w[5]) : 0.25 * (w[2] + w[3] + w[4] + w[5]); }
+  wheelMean() {
+    const w = this.w;
+    let s = 0, n = 0;
+    for (let a = 0; a < this.nA; a++) if (this.isDriven(a)) { s += w[2 + 2 * a]; s += w[3 + 2 * a]; n += 2; }
+    return n ? s * (1 / n) : 0;
+  }
 
   gearLabel() {
     if (this.mode === 'manual') return this.manualGear === 0 ? 'N' : this.manualGear < 0 ? 'R' : String(this.manualGear);
@@ -133,7 +170,17 @@ export class Drivetrain {
   say(msg) { this.message = { text: msg, t: 2.2 }; }
 
   // ---------------------------------------------------------------- commands
+  // what the gearbox setting shows: a car with only a manual box (BTR-80) has no automatic, so 'auto' is
+  // the manual box with automatic gear selection (and the auto-clutch)
+  get gearboxSetting() { return this.P.manualOnly ? (this.autoShift ? 'auto' : 'manual') : this.mode; }
+  setGearbox(v) {
+    if (!this.P.manualOnly) { if (this.mode !== v) this.toggleMode(); return; }
+    if (this.mode !== 'manual') { this.mode = 'manual'; this.manualGear = 0; this.shift = null; this.lockup = 0; this.updateInertia(); this.w[1] = this.w[0]; }
+    this.autoShift = v === 'auto';
+    this.say(this.autoShift ? 'Manual 5-speed, automatic shifting' : 'Manual 5-speed' + (this.clutchAssist ? ' (auto clutch)' : ' (clutch pedal: Shift)'));
+  }
   toggleMode() {
+    if (this.P.manualOnly) { this.setGearbox(this.autoShift ? 'manual' : 'auto'); return; }
     this.mode = this.mode === 'auto' ? 'manual' : 'auto';
     this.manualGear = 0; this.selector = 'N'; this.autoGear = 1; this.shift = null; this.lockup = 0;
     this.updateInertia();
@@ -155,6 +202,7 @@ export class Drivetrain {
     this.centerLock = !this.centerLock; this.say(this.centerLock ? 'Centre diff LOCKED' : 'Centre diff open');
   }
   toggleRwd(speed) {
+    if (!this.layout.rwd?.length) { this.say('Permanent all-wheel drive'); return; }
     if (!this.rwd && this.range === 'low') { this.say('RWD only in HIGH range'); return; }
     if (Math.abs(speed) > 8) { this.say('Slow down to change 2WD / 4WD'); return; }
     this.rwd = !this.rwd;
@@ -162,9 +210,19 @@ export class Drivetrain {
     this.say(this.rwd ? '2WD: rear-wheel drive' : '4WD: all wheels driven');
   }
   cycleAxleLockers() {
-    if (!this.rearLock) { this.rearLock = true; this.say('Rear locker ON'); }
-    else if (!this.frontLock) { this.frontLock = true; this.say('Front + rear lockers ON'); }
-    else { this.rearLock = false; this.frontLock = false; this.say('Axle lockers off'); }
+    if (!this.canLock) { this.say('Self-locking axle diffs: no lockers to engage'); return; }
+    const n = this.nA;
+    if (n === 2) {
+      if (!this.rearLock) { this.rearLock = true; this.say('Rear locker ON'); }
+      else if (!this.frontLock) { this.frontLock = true; this.say('Front + rear lockers ON'); }
+      else { this.rearLock = false; this.frontLock = false; this.say('Axle lockers off'); }
+      return;
+    }
+    // more axles: rear half -> all -> off
+    const rear = this.locks.slice(n / 2).every(Boolean), all = this.locks.every(Boolean);
+    if (!rear) { this.locks.fill(true, Math.ceil(n / 2)); this.say('Rear axle lockers ON'); }
+    else if (!all) { this.locks.fill(true); this.say('All axle lockers ON'); }
+    else { this.locks.fill(false); this.say('Axle lockers off'); }
   }
   startEngine() {
     const E0 = this.P.engine;
@@ -191,10 +249,10 @@ export class Drivetrain {
       this.setSelector(AUTO_SELECTOR[i]);
       return;
     }
-    const target = clamp(this.manualGear + dir, -1, 5);
+    const target = clamp(this.manualGear + dir, -1, this.P.manual.ratios.length);
     if (target === this.manualGear) return;
-    if (target === -1 && this.wheelMean() * 0.42 > 1.5) { this.say('Too fast for reverse'); this.grind = 0.35; return; }
-    if (this.clutchAssist) {
+    if (target === -1 && this.wheelMean() * this.P.tire.radius > 1.5) { this.say('Too fast for reverse'); this.grind = 0.35; return; }
+    if (this.clutchAssist || this.autoShift) {
       this.shift = { phase: 'out', t: 0, target };
       return;
     }
@@ -242,7 +300,7 @@ export class Drivetrain {
 
     // ---- transmission logic
     let throttle = ctl.throttle;
-    if (this.mode === 'manual') throttle *= this.manualLogic(h, ctl);
+    if (this.mode === 'manual') { if (this.autoShift) this.autoShiftLogic(ctl, speed); throttle *= this.manualLogic(h, ctl); }
     else throttle *= this.autoLogic(h, ctl, speed);
     this.driverThrottle = ctl.throttle;
 
@@ -267,7 +325,7 @@ export class Drivetrain {
   manualLogic(h, ctl) {
     let cut = 1;
     const sh = this.shift;
-    const assist = this.clutchAssist;
+    const assist = this.clutchAssist || this.autoShift;
     let pedalTarget = assist ? 0 : ctl.clutch;
     if (assist) {
       if (sh) {
@@ -293,6 +351,20 @@ export class Drivetrain {
       this.clutchPedal += clamp(pedalTarget - this.clutchPedal, -rate * h, rate * h);
     }
     return cut;
+  }
+
+  // manual box, automatic gear choice (manual-only cars): like the automatic's schedule, on engine rpm at
+  // the wheel (or ground) speed; 1 s between shifts. E / Q still shift by hand (the logic waits after that).
+  autoShiftLogic(ctl, speed) {
+    const P = this.P, g = this.manualGear, top = P.manual.ratios.length;
+    if (g < 1 || this.shift || this.sinceShift < 1.0 || this.cranking) return;
+    const wm = Math.min(Math.max(0, this.wheelMean()), Math.max(0, speed) / P.tire.radius * 1.25 + 0.5);
+    const rpmAt = k => wm * Math.abs(this.ratioFor('manual', k)) * RPM;
+    const t = ctl.throttle, sr = P.engine.shiftRpm || 4800, idle = P.engine.idleRpm;
+    const up = idle + 500 + (sr - idle - 500) * Math.pow(t, 1.2);
+    const down = idle + 150 + (0.6 * sr - idle - 150) * Math.pow(t, 1.5);
+    if (g < top && rpmAt(g) > up && rpmAt(g + 1) > idle + 250) this.shift = { phase: 'out', t: 0, target: g + 1 };
+    else if (g > 1 && rpmAt(g) < down && rpmAt(g - 1) < sr - 150) this.shift = { phase: 'out', t: 0, target: g - 1 };
   }
 
   autoClutchTarget(ctl) {
@@ -372,14 +444,19 @@ export class Drivetrain {
       w[1] += h * tc.Tt * inv[1];
       this.tcPump = tc.Tp;
     }
-    for (let i = 0; i < 4; i++) w[2 + i] += h * tireT[i] * inv[2 + i];
+    const nW = this.nW, nA = this.nA, L = this.layout;
+    for (let i = 0; i < nW; i++) w[2 + i] += h * tireT[i] * inv[2 + i];
 
     // ---- constraint rows
     const A = this.active; A.length = 0;
     const G = this.currentRatio();
+    // driven wheels: the gear, park and hold rows spread over them evenly
+    let nD = 0;
+    for (let a = 0; a < nA; a++) if (this.isDriven(a)) nD += 2;
+    const spread = (row, v) => { row.clear(); for (let a = 0; a < nA; a++) if (this.isDriven(a)) { row.j[2 + 2 * a] = v; row.j[3 + 2 * a] = v; } return row; };
     if (G !== 0) {
-      const g4 = -G / 4;
-      const row = this.rwd ? R.gear.set(0, 1, 0, 0, -G / 2, -G / 2) : R.gear.set(0, 1, g4, g4, g4, g4);
+      const row = spread(R.gear, -G / nD);
+      row.j[1] = 1;
       if (this.mode === 'auto' && this.shift) {
         const f = clamp(this.shift.t / P.auto.shiftTime, 0, 1);
         row.bound(P.auto.shiftCapacity * (0.3 + 0.7 * f) * h);
@@ -390,30 +467,57 @@ export class Drivetrain {
     if (this.mode === 'manual') {
       const e = clamp((0.8 - this.clutchPedal) / 0.6, 0, 1);
       const cap = P.clutch.capacity * e * e * (3 - 2 * e);
-      if (cap > 0) A.push(R.clutch.set(1, -1, 0, 0, 0, 0).bound(cap * h)); else R.clutch.lambda = 0;
+      if (cap > 0) { const r = R.clutch.clear(); r.j[0] = 1; r.j[1] = -1; A.push(r.bound(cap * h)); } else R.clutch.lambda = 0;
     } else {
       const cap = P.auto.lockupCapacity * this.lockup;
-      if (cap > 0) A.push(R.clutch.set(1, -1, 0, 0, 0, 0).bound(cap * h)); else R.clutch.lambda = 0;
-      if (this.selector === 'P') A.push((this.rwd ? R.park.set(0, 0, 0, 0, 0.5, 0.5) : R.park.set(0, 0, 0.25, 0.25, 0.25, 0.25)).bound(Infinity));
+      if (cap > 0) { const r = R.clutch.clear(); r.j[0] = 1; r.j[1] = -1; A.push(r.bound(cap * h)); } else R.clutch.lambda = 0;
+      if (this.selector === 'P') A.push(spread(R.park, 1 / nD).bound(Infinity));
     }
-    if (this.centerLock) A.push(R.center.set(0, 0, 0.5, 0.5, -0.5, -0.5).bound(Infinity));
-    if (this.frontLock) A.push(R.front.set(0, 0, 1, -1, 0, 0).bound(Infinity));
-    if (this.rearLock) A.push(R.rear.set(0, 0, 0, 0, 1, -1).bound(Infinity));
-    if (hbT > 0) A.push(R.hb.set(0, 0, 0, 0, 0.5, 0.5).bound(hbT * h)); else R.hb.lambda = 0;
-    if (holdT > 0) A.push((this.rwd ? R.hold.set(0, 0, 0, 0, 0.5, 0.5) : R.hold.set(0, 0, 0.25, 0.25, 0.25, 0.25)).bound(holdT * h)); else R.hold.lambda = 0;
-    const bRows = [R.b0, R.b1, R.b2, R.b3], rRows = [R.r0, R.r1, R.r2, R.r3];
-    for (let i = 0; i < 4; i++) {
+    // centre lock: mean speed of group 0 = mean speed of group 1 (driven axles only)
+    if (this.centerLock) {
+      const r = R.center.clear();
+      let n0 = 0, n1 = 0;
+      for (let a = 0; a < nA; a++) if (this.isDriven(a)) { if (L.axles[a].group === 0) n0 += 2; else n1 += 2; }
+      if (n0 && n1) {
+        for (let a = 0; a < nA; a++) if (this.isDriven(a)) { const v = L.axles[a].group === 0 ? 1 / n0 : -1 / n1; r.j[2 + 2 * a] = v; r.j[3 + 2 * a] = v; }
+        A.push(r.bound(Infinity));
+      } else r.lambda = 0;
+    }
+    // axles on the same centre-diff output turn together (prop shafts, no diff between them)
+    for (let a = 0; a < nA; a++) {
+      const r = R.links[a];
+      let b = -1;
+      if (this.isDriven(a)) for (let c = a - 1; c >= 0; c--) if (this.isDriven(c) && L.axles[c].group === L.axles[a].group) { b = c; break; }
+      if (b < 0) { r.lambda = 0; continue; }
+      r.clear(); r.j[2 + 2 * b] = 0.5; r.j[3 + 2 * b] = 0.5; r.j[2 + 2 * a] = -0.5; r.j[3 + 2 * a] = -0.5;
+      A.push(r.bound(Infinity));
+    }
+    // axle diffs: locker (driver), or a cam-type limited slip whose friction follows the drive torque
+    for (let a = 0; a < nA; a++) {
+      const r = R.lock[a], ax = L.axles[a];
+      const lsd = ax.diff === 'lsd' && this.isDriven(a);
+      if (!this.locks[a] && !lsd) { r.lambda = 0; continue; }
+      r.clear(); r.j[2 + 2 * a] = 1; r.j[3 + 2 * a] = -1;
+      A.push(r.bound(this.locks[a] ? Infinity : (ax.lock * Math.abs(this.axleDrive[a]) + 15) * h));
+    }
+    if (hbT > 0) {
+      const r = R.hb.clear(), hbA = L.handbrake, v = 1 / (2 * hbA.length);
+      for (const a of hbA) { r.j[2 + 2 * a] = v; r.j[3 + 2 * a] = v; }
+      A.push(r.bound(hbT * h));
+    } else R.hb.lambda = 0;
+    if (holdT > 0) A.push(spread(R.hold, 1 / nD).bound(holdT * h)); else R.hold.lambda = 0;
+    for (let i = 0; i < nW; i++) {
       if (brakeT[i] > 0) {
-        const r = bRows[i].set(0, 0, 0, 0, 0, 0); r.j[2 + i] = 1; A.push(r.bound(brakeT[i] * h));
-      } else bRows[i].lambda = 0;
-      const rr = rRows[i].set(0, 0, 0, 0, 0, 0); rr.j[2 + i] = 1; A.push(rr.bound(rrT[i] * h));
+        const r = R.b[i].clear(); r.j[2 + i] = 1; A.push(r.bound(brakeT[i] * h));
+      } else R.b[i].lambda = 0;
+      const rr = R.r[i].clear(); rr.j[2 + i] = 1; A.push(rr.bound(rrT[i] * h));
     }
     // engine friction + pumping losses (implicit Coulomb-style so a dead engine comes to rest cleanly)
     const thr = this.thr;
     let Tf = 12 + 0.0085 * Math.abs(rpm) + 1.2e-6 * rpm * rpm + (1 - thr) * (6 + 0.0105 * Math.abs(rpm));
     if (!this.running) Tf += 16;
-    A.push(R.efric.set(1, 0, 0, 0, 0, 0).bound(Tf * h));
-    A.push(R.ifric.set(0, 1, 0, 0, 0, 0).bound((1.5 + 0.004 * Math.abs(w[1])) * h));
+    { const r = R.efric.clear(); r.j[0] = 1; A.push(r.bound(Tf * h)); }
+    { const r = R.ifric.clear(); r.j[1] = 1; A.push(r.bound((1.5 + 0.004 * Math.abs(w[1])) * h)); }
 
     this.solve(A, 24);
 
@@ -424,13 +528,17 @@ export class Drivetrain {
     const lh = hbT > 0 ? R.hb.lambda : 0;
     const lo = holdT > 0 ? R.hold.lambda : 0;
     const gj = R.gear.j, cj = R.center.j, hj = R.hb.j, oj = R.hold.j;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < nW; i++) {
       const b = 2 + i;
-      this.wheelDrive[i] = ((G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0)) / h;
+      let t = (G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0);
+      for (let a = 0; a < nA; a++) { const r = R.links[a]; if (r.lambda !== 0) t += r.j[b] * r.lambda; }
+      this.wheelDrive[i] = t / h;
     }
     const fd = P.finalDrive;
-    this.propTorque[0] = (this.wheelDrive[0] + this.wheelDrive[1]) / fd;
-    this.propTorque[1] = (this.wheelDrive[2] + this.wheelDrive[3]) / fd;
+    for (let a = 0; a < nA; a++) {
+      this.axleDrive[a] = this.wheelDrive[2 * a] + this.wheelDrive[2 * a + 1];
+      this.propTorque[a] = this.axleDrive[a] / fd;
+    }
     this.clutchSlip = w[0] - w[1];
     const maxT = table(E.torque, Math.max(rpm, 0));
     this.load = maxT > 0 ? Tc / maxT : 0;
@@ -456,28 +564,28 @@ export class Drivetrain {
   }
 
   solve(A, iters) {
-    const w = this.w, inv = this.inv;
+    const w = this.w, inv = this.inv, B = this.nB;
     for (let r = 0; r < A.length; r++) {
       const row = A[r], j = row.j;
       let k = 0;
-      for (let b = 0; b < 6; b++) k += j[b] * j[b] * inv[b];
+      for (let b = 0; b < B; b++) k += j[b] * j[b] * inv[b];
       row.m = k > 0 ? 1 / k : 0;
       // warm start
       const l = clamp(row.lambda, row.lo, row.hi);
       row.lambda = l;
-      if (l !== 0) for (let b = 0; b < 6; b++) w[b] += j[b] * inv[b] * l;
+      if (l !== 0) for (let b = 0; b < B; b++) w[b] += j[b] * inv[b] * l;
     }
     for (let it = 0; it < iters; it++) {
       for (let r = 0; r < A.length; r++) {
         const row = A[r], j = row.j;
         let jv = 0;
-        for (let b = 0; b < 6; b++) jv += j[b] * w[b];
+        for (let b = 0; b < B; b++) jv += j[b] * w[b];
         const old = row.lambda;
         const nl = clamp(old - row.m * jv, row.lo, row.hi);
         const d = nl - old;
         if (d !== 0) {
           row.lambda = nl;
-          for (let b = 0; b < 6; b++) w[b] += j[b] * inv[b] * d;
+          for (let b = 0; b < B; b++) w[b] += j[b] * inv[b] * d;
         }
       }
     }

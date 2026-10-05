@@ -37,6 +37,19 @@ export const CARS = {
     hoodEye: [0, 1.02, -1.05],
     lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
   },
+  btr80: {
+    label: 'BTR-80',
+    url: 'models/btr80.glb',
+    author: 'Goga.Danelia',
+    credit: 'BTR 80 by Goga.Danelia, CC BY 4.0, https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce',
+    build: 'btr',                          // its own model builder (btrModel.js): 8 wheels, own suspension, turret
+    wheel: { R: 0.5715, width: 0.40 },     // its own tyre, measured by prepcar
+    chase: { dist: 11.5, target: 1.6 },
+    eye: [-0.62, 2.22, -2.63],             // driver's hatch, head out (march position)
+    hoodEye: [0, 2.05, -2.45],
+    // headlamps on the nose, light bar = the searchlight on the gun cradle, tail lamps
+    lamps: { head: [0, 1.25, -3.95], bar: [0, 2.6, -1.0], rear: [0, 1.25, 3.65] },
+  },
 };
 
 // a car added to one list but not the other fails here, at start-up and in npm run simtest, not later in a menu

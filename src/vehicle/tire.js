@@ -26,9 +26,10 @@ const FN_REF = 5200;
 const LAT_LOAD_EXP = 0.35;
 export const latPeak = (surf, Fn) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / FN_REF)), LAT_LOAD_EXP);
 
-// Radial stiffness (N/m) as a function of pressure (psi): carcass + air.
-export function tireRadialStiffness(psi) {
-  return 46000 + 6300 * psi;
+// Radial stiffness (N/m) as a function of pressure (psi): carcass + air, for the 33x10.5 tyre the numbers
+// were set on; kScale scales it for a bigger or smaller tyre (P.tire.kScale, 1 by default).
+export function tireRadialStiffness(psi, kScale = 1) {
+  return (46000 + 6300 * psi) * kScale;
 }
 
 // Per-wheel tyre parameters that depend on pressure and surface. Cheap enough to call every substep.
@@ -42,7 +43,7 @@ export function tireCoefs(tire, psi, surf, out) {
   out.crr = surf.crr * (hard * Math.sqrt(28 / Math.max(psi, 4)) + surf.soft * Math.pow(Math.max(psi, 4) / 28, 0.6));
   out.Lx = tire.relaxX * (1 + 0.6 * low);
   out.Ly = tire.relaxY * (1 + 0.7 * low);
-  out.kt = tireRadialStiffness(psi);
+  out.kt = tireRadialStiffness(psi, tire.kScale ?? 1);
   return out;
 }
 
