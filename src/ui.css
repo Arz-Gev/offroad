@@ -477,6 +477,12 @@ body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 5
 body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 164 * var(--u)); }
 body.touch-ui .hud-fps { top: auto; bottom: var(--gap); right: 50%; transform: translateX(50%); }
 body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
+/* narrow (portrait phone): the cluster goes under the button row, the open drawer covers it */
+@media (max-width: 600px) {
+  body.touch-ui .hud-tl { z-index: 1; }
+  body.touch-ui .cluster { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); }
+  body.touch-ui .hud-top, body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
+}
 body.touch-ui.tune-open .tc-right { right: calc(400px + 24px); }
 @media (max-width: 900px) { body.touch-ui.tune-open .tc-layer { visibility: hidden; } }
 
