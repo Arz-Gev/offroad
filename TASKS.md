@@ -46,7 +46,7 @@ Technical notes live in `DEVNOTES.md`.
 | 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Tyre size and lift now come from the tuning panel (the springs stretch with the lift, the wheels scale); the arches and links are still the stock model. |
 | 📋 Tuning: what's left | Medium | The engine sound is the V8 for every engine (diesels need their own sound). Tyres rubbing the arches are shown (red tyre outline), not simulated as a stop. Tyre width changes the look, the contact rays and the side cylinders, not the grip. The model's long rear overhang limits the departure angle to 31° (the rear bumper scrapes at the foot of 30°+ ramps); lift and bigger tyres fix that, as on the real truck. |
 | 📋 River is badly built | Medium | Must be fixed, but later. Most of its length floats in the air, and from below it isn't even visible: the water surface doesn't follow the terrain / the riverbed isn't carved into it. |
-| 📋 Phones and tablets | Large | Touch controls, a mobile performance preset, HUD layout. Last. |
+| ✅ Phones and tablets | On-screen controls (`touch.js`): thumb stick or tilt steering, analog gas / brake / clutch pedals, handbrake, ▲ ▼ shift, camera, recover, a 4×4 drawer (range, diff locks, 2WD, engine, lights, tyres, tuning), fullscreen. Drag to look, pinch to zoom. Shown automatically on touch (Settings → Touch screen). HUD moves out of the thumbs' way (compact cluster top right); touch welcome card and Controls column; the menu fills a landscape phone screen. Phones and iPads get the Low preset. Web app manifest: Add to Home Screen starts full screen in landscape. |
 
 ## Parked
 

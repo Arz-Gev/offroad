@@ -1,4 +1,4 @@
-import { BINDINGS, capsHTML, padCapHTML } from './input.js';
+import { BINDINGS, capsHTML, padCapHTML, touchCapHTML } from './input.js';
 import { escapeHTML } from './hud.js';
 
 // Pause menu (Locations / Settings / Controls) and the first-start welcome card.
@@ -54,6 +54,10 @@ const SECTIONS = [
     row('suspension', 'Suspension panel', 'switch', { hot: 'suspension' }),
     row('telemetry', 'Telemetry', 'switch', { hot: 'telemetry' }),
     row('fps', 'FPS counter', 'switch'),
+  ] },
+  { title: 'Touch screen', rows: [
+    row('touchControls', 'On-screen controls', 'seg', { options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']], note: 'Auto: shown while you use the touch screen, hidden when you press a key or use a gamepad.' }),
+    row('touchSteer', 'Steering', 'seg', { options: [['stick', 'Thumb'], ['tilt', 'Tilt']], note: 'Thumb: touch the lower left and slide sideways. Tilt: turn the phone or tablet like a steering wheel.' }),
   ] },
   { title: 'Game', rows: [
     row('autoPause', 'Pause when the window loses focus', 'switch'),
@@ -203,23 +207,27 @@ export class Menu {
         </div>`).join('')}</div>`).join('')}</div>`;
   }
 
-  buildControls() {
+  // third column: the gamepad, or the on-screen controls on a touch screen
+  buildControls(touch = false) {
+    this.ctlTouch = touch;
     const groups = [...new Set(BINDINGS.map(b => b.group))];
+    const third = touch ? touchCapHTML : padCapHTML, dev = touch ? 'touch' : 'kb';
     this.panes.controls.innerHTML = `
       <div class="ctl-cols">${groups.map(g => `
         <div class="ctl-sec">
-          <div class="ctl-row head"><h2>${g}</h2><span>Keyboard</span><span class="ctl-p">Gamepad</span></div>
+          <div class="ctl-row head"><h2>${g}</h2><span>Keyboard</span><span class="ctl-p">${touch ? 'Touch' : 'Gamepad'}</span></div>
           <div class="ctl-table">${BINDINGS.filter(b => b.group === g).map(b => `
-            <div class="ctl-row"><span class="ctl-a">${escapeHTML(b.label)}</span><span class="ctl-k">${capsHTML(b.id, 'kb', { all: true })}</span><span class="ctl-p">${padCapHTML(b.id)}</span></div>`).join('')}
+            <div class="ctl-row"><span class="ctl-a">${escapeHTML(b.label)}</span><span class="ctl-k">${capsHTML(b.id, 'kb', { all: true })}</span><span class="ctl-p">${third(b.id)}</span></div>`).join('')}
           </div></div>`).join('')}
       </div>
-      <div class="callout"><b>Getting stuck?</b> Stop, shift to low range (${capsHTML('range')}), lock the centre diff (${capsHTML('centreLock')}) and the axle lockers (${capsHTML('lockers')}), and air the tyres down (${capsHTML('pressureDown')}). ${capsHTML('recover')} always puts you back on your wheels.</div>`;
+      <div class="callout"><b>Getting stuck?</b> Stop, shift to low range (${capsHTML('range', dev)}), lock the centre diff (${capsHTML('centreLock', dev)}) and the axle lockers (${capsHTML('lockers', dev)}), and air the tyres down (${capsHTML('pressureDown', dev)}). ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The 4×4 button next to the menu button holds the range, lock, engine, light and tyre controls.' : ''}</div>`;
   }
 
   // device-dependent labels: header buttons, footer hints, welcome card
   renderDevice() {
     const dev = this.api.device();
-    for (const el of this.root.querySelectorAll('[data-cap]')) el.innerHTML = capsHTML(el.dataset.cap, dev);
+    for (const el of this.root.querySelectorAll('[data-cap]')) el.innerHTML = dev === 'touch' ? '' : capsHTML(el.dataset.cap, dev);
+    if ((dev === 'touch') !== this.ctlTouch) this.buildControls(dev === 'touch');
     this.renderFoot();
     if (this.introOpen) this.renderIntro();
   }
@@ -295,8 +303,9 @@ export class Menu {
       // Keyboard Lock (Chromium) keeps a short Esc press for the menu; holding Esc still leaves fullscreen
       const d = document, done = () => this.isOpen && this.refresh();
       if (d.fullscreenElement) Promise.resolve(d.exitFullscreen?.()).catch(() => {}).then(done);
-      else Promise.resolve(d.documentElement.requestFullscreen?.())
-        .then(() => navigator.keyboard?.lock?.(['Escape'])).catch(() => {}).then(done);
+      else Promise.resolve(d.documentElement.requestFullscreen?.({ navigationUI: 'hide' }))
+        .then(() => this.api.device() === 'touch' ? screen.orientation?.lock?.('landscape') : navigator.keyboard?.lock?.(['Escape']))
+        .catch(() => {}).then(done);
     } else if (a === 'intro') { this.close(); this.openIntro(); return; }
     else if (a === 'resetSettings') this.api.set('resetSettings', true);
     else this.api.action(a);
@@ -457,6 +466,7 @@ export class Menu {
 
   renderIntro() {
     const dev = this.api.device(), k = id => capsHTML(id, dev);
+    if (dev === 'touch') { this.renderTouchIntro(); return; }
     const or = '<span class="or">/</span>';
     const kb = l => `<kbd class="cap">${l}</kbd>`;
     const rows = [
@@ -478,6 +488,33 @@ export class Menu {
         <div class="intro-foot">
           <span class="fine">${dev === 'pad' ? `${k('menu')} opens the menu at any time.` : `${k('controls')} shows every control at any time.`}</span>
           <button class="btn primary big" type="button" data-act="start">Start driving ${startCap}</button>
+        </div>
+      </div>`;
+  }
+
+  // welcome card for phones and tablets: the on-screen controls (touch.js)
+  renderTouchIntro() {
+    const k = id => capsHTML(id, 'touch');
+    const tilt = this.api.get('touchSteer') === 'tilt';
+    const rows = [
+      [k('throttle') + k('brake'), 'Right thumb. Higher up the pedal is more.'],
+      [k('steer'), tilt ? 'Tilt the screen like a wheel.' : 'Left thumb: touch the lower left, slide sideways.'],
+      [k('shiftUp') + k('shiftDown'), 'Gear selector: ▲ to D, ▼ to R and P.'],
+      [k('handbrake'), 'Handbrake'],
+      [k('camera'), 'Camera · drag the view to look, pinch to zoom'],
+      [k('recover'), 'Recover when stuck or upside down'],
+      [k('menu'), 'Locations, settings (tilt steering), all controls'],
+    ];
+    this.introRoot.innerHTML = `
+      <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+        <div class="eyebrow">Offroad · Defender 110 V8</div>
+        <h1 id="intro-title">Take it off the road</h1>
+        <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
+        <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
+        <div class="callout"><b>Hard obstacle?</b> Stop, open <kbd class="cap touch">4×4</kbd> next to the menu button and tap ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs. ${k('pressureDown')} airs the tyres down.</div>
+        <div class="intro-foot">
+          <span class="fine">Best in landscape and full screen.</span>
+          <button class="btn primary big" type="button" data-act="start">Start driving</button>
         </div>
       </div>`;
   }

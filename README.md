@@ -13,35 +13,37 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 ## Controls
 **Esc** (gamepad **Menu**) pauses and opens the menu: **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
 
-| Keyboard | Gamepad | Action |
-|---|---|---|
-| W / ↑ · S / ↓ | RT · LT | Throttle · brake (automatic: hold brake at a stop to reverse) |
-| A D / ← → | Left stick | Steer |
-| Space | A | Handbrake |
-| Shift | LB | Clutch (manual with auto-clutch off) |
-| E · Q | RB · X | Shift up · down (automatic: selector P R N D) |
-| M | View | Automatic ⇄ manual |
-| K | | Auto-clutch on / off |
-| T | D-pad ↓ | Transfer case high / low (stop first) |
-| X | D-pad ← | Centre diff lock |
-| Z | D-pad → | Axle lockers: rear → front + rear → off |
-| [ · ] | | Tyre pressure down · up |
-| I | Left stick click | Start engine |
-| O | | Stop engine |
-| L | D-pad ↑ | Headlights off / low / high |
-| J | | Roof light bar |
-| G | | Hazard lights |
-| R | B | Recover (back on the wheels) |
-| C | Y | Camera: chase, cockpit, hood, wheel, orbit |
-| Mouse drag · wheel | Right stick | Look around · zoom |
-| N | | Time of day: day, dusk, night |
-| P | | Locations (teleport picker; 1–7 in the picker) |
-| H | | Controls list |
-| V | | Sound on / off |
-| U | | Suspension and tyre-load panel |
-| F3 or ` | | Telemetry |
+| Keyboard | Gamepad | Touch | Action |
+|---|---|---|---|
+| W / ↑ · S / ↓ | RT · LT | Gas · Brake pedals | Throttle · brake (automatic: hold brake at a stop to reverse) |
+| A D / ← → | Left stick | Left thumb slides (or tilt) | Steer |
+| Space | A | HB | Handbrake |
+| Shift | LB | Clutch (shown when needed) | Clutch (manual with auto-clutch off) |
+| E · Q | RB · X | ▲ · ▼ | Shift up · down (automatic: selector P R N D) |
+| M | View |  | Automatic ⇄ manual |
+| K |  |  | Auto-clutch on / off |
+| T | D-pad ↓ | 4×4 → LO | Transfer case high / low (stop first) |
+| X | D-pad ← | 4×4 → CDL | Centre diff lock |
+| Z | D-pad → | 4×4 → LOCK | Axle lockers: rear → front + rear → off |
+| [ · ] |  | 4×4 → Tyres − · + | Tyre pressure down · up |
+| I | Left stick click | 4×4 → Start | Start engine |
+| O |  |  | Stop engine |
+| L | D-pad ↑ | 4×4 → Lights | Headlights off / low / high |
+| J |  |  | Roof light bar |
+| G |  |  | Hazard lights |
+| R | B | Recover | Recover (back on the wheels) |
+| C | Y | Cam | Camera: chase, cockpit, hood, wheel, orbit |
+| Mouse drag · wheel | Right stick | Drag the view · pinch | Look around · zoom |
+| N |  |  | Time of day: day, dusk, night |
+| P |  |  | Locations (teleport picker; 1–7 in the picker) |
+| H |  |  | Controls list |
+| V |  |  | Sound on / off |
+| U |  |  | Suspension and tyre-load panel |
+| F3 or ` |  |  | Telemetry |
 
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
+
+**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **4×4** button next to the menu holds range, diff locks, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones get the Low graphics preset. Best in landscape; the fullscreen button next to Menu goes full screen (Android, tablets, desktop), on iPhone use Share → Add to Home Screen (it then starts full screen).
 
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.

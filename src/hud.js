@@ -20,6 +20,8 @@ const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
 const ICON_SOUND = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path d="M11 5.5c1 .8 1 4.2 0 5M12.8 4c1.9 1.6 1.9 6.4 0 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+const ICON_FULL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_FULL_EXIT = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_MUTED = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path d="M11 6l4 4M15 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
 export class HUD {
@@ -32,6 +34,7 @@ export class HUD {
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             <span>Menu</span><span class="kc" id="h-menukey"></span>
           </button>
+          <button class="menu-btn icon" id="h-full" tabindex="-1" type="button" aria-label="Fullscreen" title="Fullscreen"></button>
           <div class="hints" id="h-hints"></div>
         </div>
         <div class="sound-pill" id="h-sound" hidden></div>
@@ -99,7 +102,7 @@ export class HUD {
     const $ = id => root.querySelector('#' + id);
     this.$ = $;
     this.e = {
-      menuBtn: $('h-menubtn'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'),
+      menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'),
       toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
       cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'),
       diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')], diffTxt: $('h-difftxt'),
@@ -113,13 +116,18 @@ export class HUD {
     this.c = {};                       // last written values
     this.opts = { speedUnit: 'kmh', pressureUnit: 'psi', cluster: 'auto', hudScale: 1, hints: true, suspension: false, telemetry: false, fps: false };
     this.device = 'kb';
+    this.touchUI = false;              // on-screen touch controls shown (touch.js)
     this.toastList = [];
     this.tipState = { key: null, rolled: 0, stuck: 0, neutral: 0, engine: 0, clear: 0, acc: 0 };
     this.fpsAcc = 0; this.fpsN = 0; this.suspAcc = 1; this.teleAcc = 1;
     this.soundState = 'locked';
     this.onMenu = null;
-    this.e.menuBtn.addEventListener('mousedown', e => e.preventDefault());   // never take keyboard focus
+    this.onFullscreen = null;
+    for (const b of [this.e.menuBtn, this.e.fullBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // never take keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
+    this.e.fullBtn.addEventListener('click', () => this.onFullscreen && this.onFullscreen());
+    document.addEventListener('fullscreenchange', () => this.refreshFullscreen());
+    this.refreshFullscreen();
     window.addEventListener('resize', () => this.resize());
     this.setDevice('kb', true);
     this.resize();
@@ -162,13 +170,31 @@ export class HUD {
     if (d === this.device && !force) return;
     this.device = d;
     const k = id => capsHTML(id, d);
-    this.e.menuKey.innerHTML = k('menu');
-    this.e.hints.innerHTML = d === 'pad'
+    this.e.menuKey.innerHTML = d === 'touch' ? '' : k('menu');
+    this.e.hints.innerHTML = d === 'touch' ? '' : d === 'pad'
       ? `<span>${k('camera')} Camera</span><span>${k('recover')} Recover</span><span>${k('shiftUp')}${k('shiftDown')} Shift</span>`
       : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('tuning')} Tuning</span><span>${k('recover')} Recover</span>`;
     this.e.suspKey.innerHTML = capsHTML('suspension', 'kb');
     this.tipState.key = null;           // re-render the tip with the new prompts
     this.setSound(this.soundState, true);
+  }
+
+  // fullscreen button: hidden where pages can't go fullscreen (iPhone Safari: Add to Home Screen does it)
+  // and in the installed app, which already is
+  refreshFullscreen() {
+    const standalone = window.matchMedia?.('(display-mode: fullscreen), (display-mode: standalone)').matches;
+    const on = !!document.fullscreenElement, b = this.e.fullBtn;
+    b.hidden = !document.fullscreenEnabled || standalone;
+    b.innerHTML = on ? ICON_FULL_EXIT : ICON_FULL;
+    b.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+    b.title = on ? 'Exit fullscreen' : 'Fullscreen';
+  }
+
+  // touch controls on screen: compact cluster at the top right (ui.css body.touch-ui), no key hints
+  setTouch(on) {
+    this.touchUI = on;
+    this.c.compact = undefined;
+    this.setDevice(this.device, true);
   }
 
   // sound status pill: 'locked' (waiting for a gesture), 'on', 'muted', 'error'
@@ -179,8 +205,9 @@ export class HUD {
     el.className = 'sound-pill ' + state;
     if (state === 'on') { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = state === 'locked' ? `${ICON_SOUND}<span>Click or press a key to turn on sound</span>`
-      : state === 'muted' ? `${ICON_MUTED}<span>Sound off</span>${capsHTML('mute', 'kb')}`
+    const touch = this.device === 'touch';
+    el.innerHTML = state === 'locked' ? `${ICON_SOUND}<span>${touch ? 'Tap the screen to turn on sound' : 'Click or press a key to turn on sound'}</span>`
+      : state === 'muted' ? `${ICON_MUTED}<span>Sound off</span>${touch ? '' : capsHTML('mute', 'kb')}`
         : `${ICON_MUTED}<span>Sound unavailable</span>`;
   }
 
@@ -243,7 +270,7 @@ export class HUD {
     this._lastMsg = d.message;
 
     // cluster layout
-    const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small));
+    const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small || this.touchUI));
     if (compact !== c.compact) { c.compact = compact; e.cluster.classList.toggle('compact', compact); c.rpmQ = undefined; }
 
     // gearbox mode + selector strip

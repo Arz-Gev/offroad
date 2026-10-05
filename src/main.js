@@ -23,6 +23,7 @@ import { makeCarParams } from './vehicle/carSpecs.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
 import { Input, capsHTML } from './input.js';
+import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
 import { Settings } from './settings.js';
@@ -142,6 +143,8 @@ async function main() {
   if (model.chaseDist) rig.dist = model.chaseDist;
   const input = new Input(canvas);
   const hud = new HUD();
+  const touch = new TouchControls({ input, canvas, hud, action: id => input.onAction(id) });
+  hud.setDevice(input.device);   // touch.js picks 'touch' on a phone or tablet
   const audio = new GameAudio();
   const dust = new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
@@ -192,7 +195,7 @@ async function main() {
     game.redraw = 3;
   };
 
-  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
+  const game = { scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog };
   window.game = game;
 
   // drive with friends (invite links, peer to peer); the menu's Friends tab
@@ -298,6 +301,8 @@ async function main() {
     renderScale: () => applyGraphics(),
     vegetation: () => applyGraphics(),
     solidTrucks: () => mp.setSolid(),
+    touchControls: v => touch.configure({ mode: v }),
+    touchSteer: v => touch.configure({ steer: v }),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
   };
   function hudOpt(v, o, key) { hud.configure({ [key]: v }); }
@@ -381,6 +386,7 @@ async function main() {
     document.body.classList.toggle('paused', p);
     audio.setPaused(p);
     input.reset();
+    touch.release();
     input.uiHandler = p ? ev => menu.handle(ev) : null;
     game.redraw = 3;
   }
@@ -439,6 +445,7 @@ async function main() {
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;
   hud.onMenu = () => menu.open();
+  hud.onFullscreen = () => menu.runAction('fullscreen');
 
   // pause when the window loses focus (setting), so the truck doesn't roll away unattended
   let started = false;
@@ -447,7 +454,7 @@ async function main() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
 
   // ---------------------------------------------------------------- input devices
-  input.onDevice = dev => { hud.setDevice(dev); menu.renderDevice(); };
+  input.onDevice = dev => { hud.setDevice(dev); touch.setDevice(dev); menu.renderDevice(); };
   window.addEventListener('gamepadconnected', e => {
     say('pad', `Controller connected · ${capsHTML('menu', 'pad')} menu`, 'good', 3.5);
     console.info('gamepad', e.gamepad.id, e.gamepad.mapping || '(non-standard mapping)');
@@ -485,6 +492,7 @@ async function main() {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
     const mark = key => { const n = performance.now(); T[key] = (T[key] || 0) * 0.9 + (n - tm) * 0.1; tm = n; };
+    touch.update(dt, vehicle, view);
     input.update(dt);
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
     const paused = game.paused;
@@ -598,7 +606,7 @@ async function main() {
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
   if (!settings.introSeen) menu.openIntro();
-  else say('welcome', `Defender 110 V8 · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${k('menu')} menu · ${k('controls')} controls`, '', 5);
+  else say('welcome', `Defender 110 V8 · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
 
   let last = performance.now();
   function loop(now) {
