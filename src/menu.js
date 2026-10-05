@@ -496,13 +496,13 @@ export class Menu {
     const k = id => capsHTML(id, 'touch');
     const tilt = this.api.get('touchSteer') === 'tilt';
     const rows = [
-      [k('throttle') + k('brake'), 'Right thumb: gas and brake. Higher up the pedal is more.'],
-      [k('steer'), tilt ? 'Tilt the screen like a steering wheel (thumb steering: Menu → Settings).' : 'Left thumb: touch the lower left, slide sideways (tilt steering: Menu → Settings).'],
-      [k('shiftUp') + k('shiftDown'), 'Gear selector: ▲ towards D, ▼ towards R and P.'],
+      [k('throttle') + k('brake'), 'Right thumb. Higher up the pedal is more.'],
+      [k('steer'), tilt ? 'Tilt the screen like a wheel.' : 'Left thumb: touch the lower left, slide sideways.'],
+      [k('shiftUp') + k('shiftDown'), 'Gear selector: ▲ to D, ▼ to R and P.'],
       [k('handbrake'), 'Handbrake'],
-      [k('camera') + k('look'), 'Change camera · drag the view to look around, pinch to zoom'],
+      [k('camera'), 'Camera · drag the view to look, pinch to zoom'],
       [k('recover'), 'Recover when stuck or upside down'],
-      [k('menu'), 'Menu (top left): locations, settings, all controls'],
+      [k('menu'), 'Locations, settings (tilt steering), all controls'],
     ];
     this.introRoot.innerHTML = `
       <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
