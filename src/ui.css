@@ -115,7 +115,7 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
   animation: toast-in 0.25s ease-out;
 }
 
-.hud-fps { position: absolute; top: var(--gap); right: var(--gap); font: 600 calc(11 * var(--u))/1 var(--mono); color: var(--faint); text-shadow: 0 1px 2px #000; }
+.hud-fps { position: absolute; top: var(--gap); right: var(--gap); font: 700 calc(15 * var(--u))/1 var(--mono); color: rgba(238, 241, 244, 0.9); text-shadow: 0 1px 3px #000, 0 0 6px rgba(0, 0, 0, 0.6); }
 
 .hud-panel {
   position: absolute; border: 1px solid var(--line); border-radius: calc(14 * var(--u));
@@ -502,7 +502,7 @@ body.touch-ui .tells { top: calc(100% + 6 * var(--u)); bottom: auto; flex-wrap: 
 body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); width: min(calc(100vw - 2 * var(--gap)), calc(440 * var(--u))); }
 body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
 /* fps: bottom left corner, under the resting steering stick and clear of the pedals and handbrake */
-body.touch-ui .hud-fps { top: auto; right: auto; left: max(var(--gap), env(safe-area-inset-left)); bottom: max(calc(6 * var(--u)), env(safe-area-inset-bottom)); }
+body.touch-ui .hud-fps { top: auto; right: auto; left: max(var(--gap), env(safe-area-inset-left)); bottom: calc(max(calc(6 * var(--u)), env(safe-area-inset-bottom)) + 6 * var(--u)); }
 body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
 /* narrow (portrait phone): the cluster goes under the button row, the open drawer covers it */
 @media (max-width: 600px) {
