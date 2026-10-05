@@ -2,9 +2,20 @@
 // Frame times measured on an M1 Pro (headless Chrome, 1920x1080 window, devicePixelRatio 2, trail drive):
 // low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
-export const QUALITY_ORDER = ['low', 'medium', 'high', 'ultra'];
+export const QUALITY_ORDER = ['mobile', 'low', 'medium', 'high', 'ultra'];
 
 export const QUALITY = {
+  // phones and tablets (Auto picks it there): no anti-aliasing (the pixels are tiny), no shadows, no AO,
+  // no grass or bushes. dynamicDpr: the pixel density moves between 1 and `dpr` on its own to hold
+  // 45-60 fps (main.js, "dynamic resolution").
+  mobile: {
+    label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
+    treeNear: 40, impostorShadows: false,
+    terrainDetail: 1, lodScale: 0.7, bloom: true, vegetation: false,
+    grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
+    grassFarWidth: 1.85, grassFarSpacing: 1.3, grassFarGrow: 0,
+    bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
+  },
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: true, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
@@ -91,7 +102,7 @@ export function autoQuality(renderer) {
   // very large windows on a mid GPU: one step down
   if (px > 9e6 && q === 'high' && !/max|ultra/.test(n)) q = 'medium';
   // phones and tablets (iPadOS reports a Mac: tell it by the touch screen)
-  if (isMobileDevice()) q = 'low';
+  if (isMobileDevice()) q = 'mobile';
   return { preset: q, gpu: name };
 }
 

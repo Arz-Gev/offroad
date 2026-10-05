@@ -1,6 +1,6 @@
-# Offroad Defender
+# Offroad
 
-Three.js + Rapier off-road sandbox with a procedural Defender 110 (built from `reference.webp`).
+Three.js + Rapier off-road sandbox: a procedural Defender 110 (built from `reference.webp`), a G-Class and a Lancia Delta.
 
 ```
 npm install
@@ -11,7 +11,7 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
 
 ## Controls
-**Esc** (gamepad **Menu**) pauses and opens the menu: **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
+**Esc** (gamepad **Menu**) pauses and opens the menu (to change the car, pick it in Settings and press **Apply & restart**): **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
 
 | Keyboard | Gamepad | Touch | Action |
 |---|---|---|---|
@@ -22,13 +22,13 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 | E · Q | RB · X | ▲ · ▼ | Shift up · down (automatic: selector P R N D) |
 | M | View |  | Automatic ⇄ manual |
 | K |  |  | Auto-clutch on / off |
-| T | D-pad ↓ | 4×4 → LO | Transfer case high / low (stop first) |
-| X | D-pad ← | 4×4 → CDL | Centre diff lock |
-| Z | D-pad → | 4×4 → LOCK | Axle lockers: rear → front + rear → off |
-| [ · ] |  | 4×4 → Tyres − · + | Tyre pressure down · up |
-| I | Left stick click | 4×4 → Start | Start engine |
+| T | D-pad ↓ | Vehicle → Range | Transfer case high / low (stop first) |
+| X | D-pad ← | Vehicle → Centre diff | Centre diff lock |
+| Z | D-pad → | Vehicle → Lockers | Axle lockers: rear → front + rear → off |
+| [ · ] |  | Vehicle → Tyres − · + | Tyre pressure down · up |
+| I | Left stick click | Vehicle → Engine | Start engine |
 | O |  |  | Stop engine |
-| L | D-pad ↑ | 4×4 → Lights | Headlights off / low / high |
+| L | D-pad ↑ | Vehicle → Lights | Headlights off / low / high |
 | J |  |  | Roof light bar |
 | G |  |  | Hazard lights |
 | R | B | Recover | Recover (back on the wheels) |
@@ -43,7 +43,7 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 
-**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **4×4** button next to the menu holds range, diff locks, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones get the Low graphics preset. Best in landscape; the fullscreen button next to Menu goes full screen (Android, tablets, desktop), on iPhone use Share → Add to Home Screen (it then starts full screen).
+**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **Vehicle** button next to the menu holds range, diff locks, 2WD / 4WD, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones and tablets get the **Mobile** graphics preset: no anti-aliasing, shadows, ambient occlusion or grass, medium ground shading, and a pixel density that sets itself between 100 and 150 % to hold 45–60 fps. Best in landscape. The fullscreen button next to Menu (it pulses until you first use it) goes full screen on Android, tablets and desktop; on iPhone it explains Share → Add to Home Screen, which then starts full screen.
 
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.

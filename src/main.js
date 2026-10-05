@@ -18,7 +18,7 @@ import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildTruck } from './vehicle/truckModel.js';
-import { fitCarBody } from './vehicle/cars.js';
+import { fitCarBody, CARS } from './vehicle/cars.js';
 import { makeCarParams } from './vehicle/carSpecs.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_MODES, CAM_NAMES } from './cameraRig.js';
@@ -209,7 +209,7 @@ async function main() {
 
   // ---------------------------------------------------------------- graphics quality
   // preset (auto picks one from the GPU) or 'custom' (the g* settings) + resolution scale; applied live
-  const gfx = { auto: autoQuality(renderer), preset: null, q: null };
+  const gfx = { auto: autoQuality(renderer), preset: null, q: null, dyn: 1 };
   const _db = new THREE.Vector2();
   const GFX_KEYS = Object.keys(presetToGfx(QUALITY.high));
   function applyGraphics() {
@@ -225,15 +225,14 @@ async function main() {
       // show the preset's values in the per-option controls
       const g = presetToGfx(q);
       for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
+      // grass and bushes are the player's switch, except Mobile turns them off (turning them on makes it Custom)
+      if (q.vegetation === false) settings.set('vegetation', false, { silent: true, sync: true });
     }
-    q = { ...q, vegetation: settings.get('vegetation') };   // not part of the presets
+    q = { ...q, vegetation: settings.get('vegetation') };
     gfx.q = q;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * settings.get('renderScale'));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.getDrawingBufferSize(_db);
     pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
     pipeline.params.bloom = q.bloom !== false;
-    pipeline.setSize(_db.x, _db.y);
+    applyResolution();
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;
     env.sun.castShadow = !!S;
     if (S) {
@@ -250,8 +249,42 @@ async function main() {
     scenery.configure(q);
     game.redraw = 3;
   }
+  // pixel ratio and buffer sizes only (window resize, dynamic resolution)
+  function applyResolution() {
+    const q = gfx.q, dpr = q.dynamicDpr ? gfx.dyn : q.dpr;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dpr) * settings.get('renderScale'));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.getDrawingBufferSize(_db);
+    pipeline.setSize(_db.x, _db.y);
+    game.redraw = 3;
+  }
+  // Dynamic resolution (presets with dynamicDpr: Mobile). It starts at 100 % pixel density so the first
+  // seconds are smooth, then steps by 12.5 % every few seconds: up while the game holds ~60 fps, down below
+  // 45. A step up that drops it under 50 fps goes back and that level is not tried again for a minute.
+  // Only the frame rate is measured (no test scene, nothing for the player to wait for).
+  const dynRes = { t: 0, n: 0, skip: 1, ceil: Infinity, ceilUntil: 0, raised: false };
+  const DYN_STEP = 0.125, DYN_MIN = 1;
+  function updateDynamicResolution(dt, paused) {
+    const q = gfx.q, R = dynRes;
+    if (!q?.dynamicDpr || paused || document.hidden || (window.devicePixelRatio || 1) <= DYN_MIN) { R.t = R.n = 0; return; }
+    R.t += dt; R.n++;
+    if (R.t < 2.5) return;
+    const fps = R.n / R.t, now = performance.now();
+    R.t = R.n = 0;
+    if (R.skip > 0) { R.skip--; return; }               // the window right after a change holds its hitch
+    const max = Math.min(q.dpr, window.devicePixelRatio || 1);
+    if (now > R.ceilUntil) R.ceil = Infinity;
+    let next = gfx.dyn;
+    if (fps < 45 || (R.raised && fps < 50)) {
+      if (R.raised) { R.ceil = gfx.dyn - DYN_STEP; R.ceilUntil = now + 60000; }
+      next = Math.max(DYN_MIN, gfx.dyn - DYN_STEP);
+    } else if (fps >= 57 && gfx.dyn + DYN_STEP <= Math.min(max, R.ceil) + 1e-6) next = gfx.dyn + DYN_STEP;
+    R.raised = next > gfx.dyn;
+    if (next !== gfx.dyn) { gfx.dyn = next; R.skip = 1; applyResolution(); }
+  }
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
+  game.dynRes = dynRes; game.updateDynamicResolution = updateDynamicResolution;   // console / tests
 
   // ---------------------------------------------------------------- settings -> game
   // Every persisted setting is applied here, whether it came from a key, the menu or startup.
@@ -299,7 +332,11 @@ async function main() {
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     renderScale: () => applyGraphics(),
-    vegetation: () => applyGraphics(),
+    vegetation(v, o) {
+      if (o.sync) return;
+      if (v && !o.startup && !o.reset && gfx.preset === 'mobile') settings.set('quality', 'custom', { silent: true });
+      else applyGraphics();
+    },
     solidTrucks: () => mp.setSolid(),
     touchControls: v => touch.configure({ mode: v }),
     touchSteer: v => touch.configure({ steer: v }),
@@ -410,7 +447,8 @@ async function main() {
         case 'name': return mp.name;
         case 'qualityNote': {
           const sel = settings.get('quality'), auto = QUALITY[gfx.auto.preset].label;
-          return sel === 'auto' ? `Auto: ${auto} for this graphics chip.` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`;
+          const dyn = gfx.q?.dynamicDpr ? ` Pixel density adjusts itself between 100 and 150 % to hold 45–60 fps (now ${Math.round(Math.min(gfx.dyn, window.devicePixelRatio || 1) * 100)} %).` : '';
+          return (sel === 'auto' ? `Auto: ${auto} for this ${gfx.auto.preset === 'mobile' ? 'device' : 'graphics chip'}.` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`) + dyn;
         }
         default: return settings.get(key);
       }
@@ -437,6 +475,8 @@ async function main() {
     },
     teleport,
     recover,
+    // the car is built at startup: save the choice and start again with it
+    applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
     onPause: setPaused,
     introDone: () => { settings.introSeen = true; },
   });
@@ -555,6 +595,7 @@ async function main() {
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');
+    updateDynamicResolution(dt, paused);
     input.endFrame();
   }
   game.tick = tick;
@@ -606,7 +647,7 @@ async function main() {
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
   if (!settings.introSeen) menu.openIntro();
-  else say('welcome', `Defender 110 V8 · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
+  else say('welcome', `${escapeHTML(CARS[car]?.label || 'Offroad')} · ${d.mode === 'auto' ? 'automatic' : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
 
   let last = performance.now();
   function loop(now) {

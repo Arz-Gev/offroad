@@ -20,7 +20,7 @@ const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${Stri
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
-    row('car', 'Vehicle', 'seg', { options: [['defender', 'Defender 110'], ['gclass', 'G-Class'], ['lancia', 'Lancia Delta']], note: 'Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Switching reloads the game. Models on Sketchfab (CC BY 4.0): G-Class by ItsDiyor, Lancia Delta by TARANTULA.' }),
+    row('car', 'Vehicle', 'seg', { options: [['defender', 'Defender 110'], ['gclass', 'G-Class'], ['lancia', 'Lancia Delta']], apply: true, note: 'Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): G-Class by ItsDiyor, Lancia Delta by TARANTULA.' }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),
@@ -77,7 +77,7 @@ const MP_SECTIONS = [
 // Graphics tab. Changing any option below the preset switches the preset to Custom.
 const GFX_SECTIONS = [
   { title: 'Preset', rows: [
-    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
+    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['mobile', 'Mobile'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
     row('fullscreen', 'Fullscreen', 'switch'),
     row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'For high-density screens (Retina, 4K laptops, Windows scaling above 100%): how many of the screen\'s extra pixels to render. The biggest cost of all.' }),
@@ -118,6 +118,7 @@ export class Menu {
     this.tab = 'locations';
     this.isOpen = false;
     this.introOpen = false;
+    this.pending = {};            // choices waiting for their Apply button (the car)
     this.build();
   }
 
@@ -129,7 +130,7 @@ export class Menu {
     r.innerHTML = `
       <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="m-title">
         <header class="sheet-head">
-          <div class="titles"><div class="eyebrow">Offroad · Defender 110</div><h1 id="m-title">Paused</h1></div>
+          <div class="titles"><div class="eyebrow">Offroad</div><h1 id="m-title">Paused</h1></div>
           <div class="head-actions">
             <button class="btn" type="button" data-act="recover">Recover <span class="kc" data-cap="recover"></span></button>
             <button class="btn primary" type="button" data-act="resume">Resume <span class="kc" data-cap="menu"></span></button>
@@ -192,7 +193,11 @@ export class Menu {
 
   buildSettings(pane, sections) {
     const ctl = r => {
-      if (r.type === 'seg') return `<div class="seg" role="radiogroup" aria-label="${escapeHTML(r.label)}">${r.options.map(([v, l]) => `<button type="button" role="radio" data-seg="${v}">${l}</button>`).join('')}</div>`;
+      if (r.type === 'seg') {
+        const seg = `<div class="seg" role="radiogroup" aria-label="${escapeHTML(r.label)}">${r.options.map(([v, l]) => `<button type="button" role="radio" data-seg="${v}">${l}</button>`).join('')}</div>`;
+        // a choice that only takes effect on a restart (the car): pick, then confirm
+        return r.apply ? `<div class="seg-apply">${seg}<button type="button" class="btn small primary" data-action="${r.key}Apply" disabled>Apply &amp; restart</button></div>` : seg;
+      }
       if (r.type === 'switch') return `<button type="button" class="switch" role="switch" aria-label="${escapeHTML(r.label)}"><span class="knob"></span></button>`;
       if (r.type === 'range') return `<div class="range"><input type="range" min="${r.min}" max="${r.max}" step="${r.step}" aria-label="${escapeHTML(r.label)}"><output></output></div>`;
       if (r.type === 'stepper') return `<div class="stepper"><button type="button" data-action="pressureDown" aria-label="Lower">−</button><output></output><button type="button" data-action="pressureUp" aria-label="Raise">+</button></div>`;
@@ -220,7 +225,7 @@ export class Menu {
             <div class="ctl-row"><span class="ctl-a">${escapeHTML(b.label)}</span><span class="ctl-k">${capsHTML(b.id, 'kb', { all: true })}</span><span class="ctl-p">${third(b.id)}</span></div>`).join('')}
           </div></div>`).join('')}
       </div>
-      <div class="callout"><b>Getting stuck?</b> Stop, shift to low range (${capsHTML('range', dev)}), lock the centre diff (${capsHTML('centreLock', dev)}) and the axle lockers (${capsHTML('lockers', dev)}), and air the tyres down (${capsHTML('pressureDown', dev)}). ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The 4×4 button next to the menu button holds the range, lock, engine, light and tyre controls.' : ''}</div>`;
+      <div class="callout"><b>Getting stuck?</b> Stop, shift to low range (${capsHTML('range', dev)}), lock the centre diff (${capsHTML('centreLock', dev)}) and the axle lockers (${capsHTML('lockers', dev)}), and air the tyres down (${capsHTML('pressureDown', dev)}). ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds the range, diff lock, drive, engine, light and tyre controls.' : ''}</div>`;
   }
 
   // device-dependent labels: header buttons, footer hints, welcome card
@@ -253,7 +258,12 @@ export class Menu {
     for (const rowEl of [...this.panes.settings.querySelectorAll('.set-row'), ...this.panes.graphics.querySelectorAll('.set-row'), ...this.panes.friends.querySelectorAll('.set-row')]) {
       const key = rowEl.dataset.key, def = this.rowDef(key);
       if (def.type === 'seg') {
-        const cur = String(api.get(key));
+        const cur = String(def.apply && this.pending[key] !== undefined ? this.pending[key] : api.get(key));
+        if (def.apply) {
+          const btn = rowEl.querySelector('[data-action]'), changed = cur !== String(api.get(key));
+          btn.disabled = !changed;
+          rowEl.classList.toggle('pending', changed);
+        }
         const bs = [...rowEl.querySelectorAll('[data-seg]')], any = bs.some(b => b.dataset.seg === cur);
         for (const b of bs) {
           const on = b.dataset.seg === cur;
@@ -294,6 +304,7 @@ export class Menu {
     if (key === 'fullscreen') { this.runAction('fullscreen'); return; }
     const def = this.rowDef(key);
     if (def && def.type === 'seg' && typeof def.options[0][0] === 'number') v = +v;
+    if (def?.apply) { this.pending[key] = v; this.refresh(); return; }     // applied by its Apply & restart button
     this.api.set(key, v);
     this.refresh();
   }
@@ -307,6 +318,7 @@ export class Menu {
         .then(() => this.api.device() === 'touch' ? screen.orientation?.lock?.('landscape') : navigator.keyboard?.lock?.(['Escape']))
         .catch(() => {}).then(done);
     } else if (a === 'intro') { this.close(); this.openIntro(); return; }
+    else if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
     else if (a === 'resetSettings') this.api.set('resetSettings', true);
     else this.api.action(a);
     this.refresh();
@@ -329,6 +341,7 @@ export class Menu {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.root.hidden = true;
+    this.pending = {};
     this.sheet.classList.remove('kbnav');
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     this.api.onPause(this.blocking);
@@ -480,7 +493,7 @@ export class Menu {
     const startCap = dev === 'pad' ? '<kbd class="cap pad pad-a">A</kbd>' : '<kbd class="cap">Enter</kbd>';
     this.introRoot.innerHTML = `
       <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad · Defender 110 V8</div>
+        <div class="eyebrow">Offroad</div>
         <h1 id="intro-title">Take it off the road</h1>
         <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
         <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
@@ -507,11 +520,11 @@ export class Menu {
     ];
     this.introRoot.innerHTML = `
       <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad · Defender 110 V8</div>
+        <div class="eyebrow">Offroad</div>
         <h1 id="intro-title">Take it off the road</h1>
         <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
         <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> Stop, open <kbd class="cap touch">4×4</kbd> next to the menu button and tap ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs. ${k('pressureDown')} airs the tyres down.</div>
+        <div class="callout"><b>Hard obstacle?</b> Stop, open <kbd class="cap touch">Vehicle</kbd> next to the menu button, tap ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs. ${k('pressureDown')} airs the tyres down.</div>
         <div class="intro-foot">
           <span class="fine">Best in landscape and full screen.</span>
           <button class="btn primary big" type="button" data-act="start">Start driving</button>

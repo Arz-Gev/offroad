@@ -1,4 +1,7 @@
 import { capsHTML } from './input.js';
+import { storage } from './settings.js';
+
+const FULL_SEEN_KEY = 'offroad.fullscreenUsed.v1';
 
 // In-game HUD: instrument cluster (bottom right), toasts and context tips (top centre),
 // key hints + menu button (top left), optional suspension panel, telemetry and fps.
@@ -125,7 +128,12 @@ export class HUD {
     this.onFullscreen = null;
     for (const b of [this.e.menuBtn, this.e.fullBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // never take keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
-    this.e.fullBtn.addEventListener('click', () => this.onFullscreen && this.onFullscreen());
+    this.e.fullBtn.addEventListener('click', () => {
+      if (!storage.get(FULL_SEEN_KEY)) { storage.set(FULL_SEEN_KEY, '1'); this.e.fullBtn.classList.remove('attn'); }
+      if (!document.fullscreenEnabled) { this.toast('Full screen on iPhone: Share → Add to Home Screen, then start the game from there', { kind: 'warn', key: 'full', t: 5 }); return; }
+      if (this.onFullscreen) this.onFullscreen();
+    });
+    this.e.fullBtn.classList.toggle('attn', !storage.get(FULL_SEEN_KEY));
     document.addEventListener('fullscreenchange', () => this.refreshFullscreen());
     this.refreshFullscreen();
     window.addEventListener('resize', () => this.resize());
@@ -179,12 +187,9 @@ export class HUD {
     this.setSound(this.soundState, true);
   }
 
-  // fullscreen button: hidden where pages can't go fullscreen (iPhone Safari: Add to Home Screen does it)
-  // and in the installed app, which already is
+  // fullscreen button: always shown (where pages can't go fullscreen, iPhone Safari, it says how instead)
   refreshFullscreen() {
-    const standalone = window.matchMedia?.('(display-mode: fullscreen), (display-mode: standalone)').matches;
     const on = !!document.fullscreenElement, b = this.e.fullBtn;
-    b.hidden = !document.fullscreenEnabled || standalone;
     b.innerHTML = on ? ICON_FULL_EXIT : ICON_FULL;
     b.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
     b.title = on ? 'Exit fullscreen' : 'Fullscreen';
