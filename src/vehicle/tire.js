@@ -33,7 +33,8 @@ export const TIRE_BELT = 1.0; // the tread band's stiffness as a spread of the l
 // constant peak slip angle the cornering stiffness was almost proportional to load (exponent 0.86) and the
 // truck came out nearly neutral whatever its weight split and anti-roll bars.
 const LAT_LOAD_EXP = 0.35;
-export const latPeak = (surf, Fn) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / FN_REF)), LAT_LOAD_EXP);
+// ref: the tyre's nominal load (P.tire.fnRef; the 33" tyre's 5.2 kN by default): load sensitivity is relative to it
+export const latPeak = (surf, Fn, ref = FN_REF) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / ref)), LAT_LOAD_EXP);
 
 // Radial stiffness (N/m) as a function of pressure (psi): carcass + air, for the 33x10.5 tyre the numbers
 // were set on; kScale scales it for a bigger or smaller tyre (P.tire.kScale, 1 by default).
@@ -53,6 +54,7 @@ export function tireCoefs(tire, psi, surf, out) {
   out.Lx = tire.relaxX * (1 + 0.6 * low);
   out.Ly = tire.relaxY * (1 + 0.7 * low);
   out.kt = tireRadialStiffness(psi, tire.kScale ?? 1);
+  out.fnRef = tire.fnRef ?? FN_REF;
   return out;
 }
 
@@ -60,10 +62,10 @@ export function tireCoefs(tire, psi, surf, out) {
 // w: wheel state with ux, uy. Writes w.Fx, w.Fy, w.slipNorm.
 export function tireForces(w, Fn, vsx, vsy, speed, surf, co) {
   if (Fn <= 0) { w.Fx = 0; w.Fy = 0; w.slipNorm = 0; return; }
-  const loadFactor = Math.max(0.75, Math.min(1.12, 1 - 0.14 * (Fn / FN_REF - 1)));
+  const loadFactor = Math.max(0.75, Math.min(1.12, 1 - 0.14 * (Fn / co.fnRef - 1)));
   const mu = co.mu * loadFactor;
   const sx = w.ux / (co.Lx * surf.kPeak);
-  w.aPk = latPeak(surf, Fn);
+  w.aPk = latPeak(surf, Fn, co.fnRef);
   const sy = w.uy / (co.Ly * w.aPk);
   const s = Math.hypot(sx, sy);
   let Fx = 0, Fy = 0;

@@ -715,7 +715,7 @@ export class Vehicle {
           tireForces(w, w.Fn, vsx, -w.vcy, Math.hypot(w.vcx, w.vcy), w.surf, w.co);
         } else { w.Fx = 0; w.Fy = 0; }
         this.tireT[i] = -w.Fx * w.Re;
-        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + (T.hubDrag ?? 2.5);   // + bearing / hub drag (Nm)
+        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + (T.hubDrag ?? 2.5) + (T.hubDragV ? T.hubDragV * Math.abs(om) : 0);   // + bearing / hub drag (Nm), + speed-dependent driveline losses (hub reductions, oil churning)
       }
       // c. drivetrain
       dt.substep(hs, this.tireT, this.rrT, this.brakeT, hbT, holdT);

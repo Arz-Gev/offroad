@@ -479,7 +479,7 @@ export function analyze(P, setup, gearbox = 'auto') {
       if (rpm > P.engine.limiterRpm || rpm < 900) continue;
       best = Math.max(best, netTorque(P, rpm) * g * P.transfer.high * P.finalDrive * 0.9 / Re);
     }
-    const need = 0.5 * P.aero.rho * P.aero.cdA * v * v + crr * mt * G;
+    const need = 0.5 * P.aero.rho * P.aero.cdA * v * v + crr * mt * G + driveLoss(P, v, Re);
     if (best >= need) vmax = v; else if (vmax > 0) break;
   }
   out.vmax = vmax * 3.6;
@@ -502,6 +502,8 @@ export function analyze(P, setup, gearbox = 'auto') {
 // Quick 0-100 km/h estimate (the panel recomputes it on every change; "Measure" runs the full physics).
 // Quasi-static: engine torque through the converter (auto) or a slipping clutch (manual), gearing,
 // tyre traction limit, drag and rolling resistance, rotating inertia, shift pauses.
+// speed-dependent driveline losses (P.tire.hubDragV, Nm per rad/s per wheel; Vehicle.js) as a force at the road
+const driveLoss = (P, v, Re) => (P.tire.hubDragV ? 2 * P.axles.length * P.tire.hubDragV * v / (Re * Re) : 0);
 const TC_K = [[0, 1], [0.3, 1.02], [0.5, 1.07], [0.7, 1.17], [0.8, 1.3], [0.87, 1.55], [0.92, 2.0], [0.96, 3.0], [0.985, 5.5], [1, 9]];
 const TC_TR = [[0, 2.1], [0.2, 1.86], [0.4, 1.6], [0.6, 1.35], [0.8, 1.1], [0.87, 1.0], [1, 1.0]];
 export function estimateAccel(P, gearbox = 'auto', psi = 20) {
@@ -537,7 +539,7 @@ export function estimateAccel(P, gearbox = 'auto', psi = 20) {
     if (shift > 0) { Tin *= auto ? 0.45 : 0; shift -= dt; }
     const Iw = 2 * P.axles.length * P.tire.inertia / (Re * Re) + (auto ? 0 : E.inertia * G4 * G4 / (Re * Re));
     const F = Math.min(traction, Tin * G4 / Re);
-    const drag = 0.5 * P.aero.rho * P.aero.cdA * v * v + crr * mt * G;
+    const drag = 0.5 * P.aero.rho * P.aero.cdA * v * v + crr * mt * G + driveLoss(P, v, Re);
     v = Math.max(0, v + dt * (F - drag) / (mt + Iw));
     t += dt;
     if (t60 === null && v >= 60 / 3.6) t60 = t;

@@ -105,6 +105,7 @@ export class Drivetrain {
     const B = this.nB, row = () => new Row(B);
     this.rows = {
       gear: row(), clutch: row(), center: row(), park: row(), hb: row(), hold: row(), efric: row(), ifric: row(),
+      hbAx: Array.from({ length: this.nA }, row),   // handbrake on several axles: one row per axle (see substep)
       lock: this.layout.axles.map(row), links: this.layout.axles.map(row),
       b: Array.from({ length: this.nW }, row), r: Array.from({ length: this.nW }, row),
     };
@@ -300,7 +301,7 @@ export class Drivetrain {
 
     // ---- transmission logic
     let throttle = ctl.throttle;
-    if (this.mode === 'manual') { if (this.autoShift) this.autoShiftLogic(ctl, speed); throttle *= this.manualLogic(h, ctl); }
+    if (this.mode === 'manual') { if (this.autoShift) this.autoShiftLogic(ctl, speed, h); throttle *= this.manualLogic(h, ctl); }
     else throttle *= this.autoLogic(h, ctl, speed);
     this.driverThrottle = ctl.throttle;
 
@@ -355,15 +356,30 @@ export class Drivetrain {
 
   // manual box, automatic gear choice (manual-only cars): like the automatic's schedule, on engine rpm at
   // the wheel (or ground) speed; 1 s between shifts. E / Q still shift by hand (the logic waits after that).
-  autoShiftLogic(ctl, speed) {
+  // Load detection, as a truck automatic does on a hill: at full throttle it only upshifts while the vehicle
+  // is still gaining speed (a 30° climb in 1st low otherwise shifts to 2nd at the rev limit and bogs down).
+  autoShiftLogic(ctl, speed, h = 1 / 240) {
     const P = this.P, g = this.manualGear, top = P.manual.ratios.length;
+    const acc = this._asV === undefined ? 0 : (speed - this._asV) / h;
+    this._asV = speed;
+    this.asAccel = (this.asAccel || 0) + (acc - (this.asAccel || 0)) * Math.min(1, h / 0.5);
     if (g < 1 || this.shift || this.sinceShift < 1.0 || this.cranking) return;
     const wm = Math.min(Math.max(0, this.wheelMean()), Math.max(0, speed) / P.tire.radius * 1.25 + 0.5);
     const rpmAt = k => wm * Math.abs(this.ratioFor('manual', k)) * RPM;
     const t = ctl.throttle, sr = P.engine.shiftRpm || 4800, idle = P.engine.idleRpm;
     const up = idle + 500 + (sr - idle - 500) * Math.pow(t, 1.2);
     const down = idle + 150 + (0.6 * sr - idle - 150) * Math.pow(t, 1.5);
-    if (g < top && rpmAt(g) > up && rpmAt(g + 1) > idle + 250) this.shift = { phase: 'out', t: 0, target: g + 1 };
+    // would it still gain speed in the next gear? Resistance now = drive force - m a; the next gear pulls
+    // with the engine's full torque at its rpm (a 30° climb in 1st low at the governor otherwise shifts to
+    // 2nd and bogs down)
+    let pulling = ctl.throttle < 0.8 || g >= top;
+    if (!pulling) {
+      const m = this._mass || (this._mass = P.axles.reduce((a, x) => a + (x.mass || 0), P.bodyMass || 0) || 1);
+      const F = this.axleDrive.reduce((a, b) => a + b, 0) / P.tire.radius;
+      const Fn = 0.9 * table(P.engine.torque, rpmAt(g + 1)) * Math.abs(this.ratioFor('manual', g + 1)) / P.tire.radius;
+      pulling = (Fn - (F - m * this.asAccel)) / m > 0.15;
+    }
+    if (g < top && rpmAt(g) > up && rpmAt(g + 1) > idle + 250 && pulling) this.shift = { phase: 'out', t: 0, target: g + 1 };
     else if (g > 1 && rpmAt(g) < down && rpmAt(g - 1) < sr - 150) this.shift = { phase: 'out', t: 0, target: g - 1 };
   }
 
@@ -500,12 +516,24 @@ export class Drivetrain {
       r.clear(); r.j[2 + 2 * a] = 1; r.j[3 + 2 * a] = -1;
       A.push(r.bound(this.locks[a] ? Infinity : (ax.lock * Math.abs(this.axleDrive[a]) + 15) * h));
     }
-    if (hbT > 0) {
-      const r = R.hb.clear(), hbA = L.handbrake, v = 1 / (2 * hbA.length);
+    const hbA = L.handbrake, hbMulti = hbA.length > 1;
+    if (hbMulti) {
+      // several axles (BTR: every wheel's brake): each axle held on its own. One row on the mean of them all
+      // would let axles counter-rotate through the centre diff and hold nothing. The standstill hold joins
+      // in on the same rows.
+      R.hb.lambda = 0;
+      for (let a = 0; a < nA; a++) {
+        const r = R.hbAx[a];
+        if (hbT + holdT <= 0 || !hbA.includes(a)) { r.lambda = 0; continue; }
+        r.clear(); r.j[2 + 2 * a] = 0.5; r.j[3 + 2 * a] = 0.5;
+        A.push(r.bound((hbT + holdT) / hbA.length * h));
+      }
+    } else if (hbT > 0) {
+      const r = R.hb.clear(), v = 1 / (2 * hbA.length);
       for (const a of hbA) { r.j[2 + 2 * a] = v; r.j[3 + 2 * a] = v; }
       A.push(r.bound(hbT * h));
     } else R.hb.lambda = 0;
-    if (holdT > 0) A.push(spread(R.hold, 1 / nD).bound(holdT * h)); else R.hold.lambda = 0;
+    if (holdT > 0 && !hbMulti) A.push(spread(R.hold, 1 / nD).bound(holdT * h)); else R.hold.lambda = 0;
     for (let i = 0; i < nW; i++) {
       if (brakeT[i] > 0) {
         const r = R.b[i].clear(); r.j[2 + i] = 1; A.push(r.bound(brakeT[i] * h));
@@ -525,13 +553,14 @@ export class Drivetrain {
     this.engineAlpha = (w[0] - w0Old) / h;
     const lg = G !== 0 ? R.gear.lambda : 0;
     const lc = this.centerLock ? R.center.lambda : 0;
-    const lh = hbT > 0 ? R.hb.lambda : 0;
-    const lo = holdT > 0 ? R.hold.lambda : 0;
+    const lh = hbT > 0 && !hbMulti ? R.hb.lambda : 0;
+    const lo = holdT > 0 && !hbMulti ? R.hold.lambda : 0;
     const gj = R.gear.j, cj = R.center.j, hj = R.hb.j, oj = R.hold.j;
     for (let i = 0; i < nW; i++) {
       const b = 2 + i;
       let t = (G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0);
       for (let a = 0; a < nA; a++) { const r = R.links[a]; if (r.lambda !== 0) t += r.j[b] * r.lambda; }
+      if (hbMulti) for (let a = 0; a < nA; a++) { const r = R.hbAx[a]; if (r.lambda !== 0) t += r.j[b] * r.lambda; }
       this.wheelDrive[i] = t / h;
     }
     const fd = P.finalDrive;

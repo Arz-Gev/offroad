@@ -83,7 +83,7 @@ export const CAR_SPECS = {
     bodyMass: 11800, axleMass: [460, 460, 460, 460], inertia: [60000, 66000, 13500], com: [0, 1.12, 0.10], cdA: 6.0,
     // tyre: 45" (13.00-18 is 1120 mm; the model's is 1143) x 15.5" (the model's tread width). kScale: the
     // 33" tyre's stiffness curve x 1.7 (wider, bigger: ~3 cm static deflection at 2.5 kgf/cm², ~11 at 0.5)
-    tire: { size: 45, widthIn: 15.5, rimRadius: 0.2286, inertia: 25, pressure: 36, minPressure: 7, maxPressure: 43, kScale: 1.7, hubDrag: 9 },
+    tire: { size: 45, widthIn: 15.5, rimRadius: 0.2286, inertia: 25, pressure: 36, minPressure: 7, maxPressure: 43, kScale: 1.7, hubDrag: 9, hubDragV: 4.5, fnRef: 16000 },
     // torsion bars as wheel rates: 1.15 Hz heave with the tyre in series, zeta ~0.25 (twice the damping on
     // the axles with two shocks); 0.32 m of wheel travel from full droop, bump rubbers 5 cm before the stop
     axles: [
@@ -179,7 +179,7 @@ function makeAxlesParams(P, id, c) {
   P.aero.cdA = c.cdA;
   Object.assign(P.tire, { radius: c.tire.size * R_PER_INCH, width: c.tire.widthIn * W_PER_INCH, size: c.tire.size, widthIn: c.tire.widthIn,
     rimRadius: c.tire.rimRadius, inertia: c.tire.inertia, pressure: c.tire.pressure, grip: c.tire.grip ?? 1 });
-  for (const k of ['minPressure', 'maxPressure', 'kScale', 'hubDrag']) if (c.tire[k] !== undefined) P.tire[k] = c.tire[k];
+  for (const k of ['minPressure', 'maxPressure', 'kScale', 'hubDrag', 'hubDragV', 'fnRef']) if (c.tire[k] !== undefined) P.tire[k] = c.tire[k];
   Object.assign(P.steer, c.steer);
   Object.assign(P.brakes, c.brakes);
   if (c.drive) P.drive = { ...c.drive };
