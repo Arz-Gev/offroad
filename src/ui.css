@@ -253,7 +253,10 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 .btn.small { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 13px; }
 .btn.big { height: 44px; padding: 0 18px; font-size: 15px; }
 .btn:disabled, .btn:disabled:hover { opacity: 0.38; cursor: default; background: rgba(255, 255, 255, 0.06); border-color: var(--line-2); color: var(--txt); }
-.seg-apply { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* the car row: the picker and its Apply button get the whole row under the label, so they never overflow */
+.set-row:has(.seg-apply) { flex-wrap: wrap; }
+.set-row:has(.seg-apply) .set-c { flex: 1 1 100%; min-width: 0; }
+.seg-apply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .set-row.pending .seg { border-color: var(--amber); }
 .set-row.pending .seg-apply .btn { animation: attn-amber 1.4s ease-in-out infinite; }
 @keyframes attn-amber { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 179, 71, 0.7); } 60% { box-shadow: 0 0 0 6px rgba(255, 179, 71, 0); } }
