@@ -113,6 +113,7 @@ export class HUD {
     this.c = {};                       // last written values
     this.opts = { speedUnit: 'kmh', pressureUnit: 'psi', cluster: 'auto', hudScale: 1, hints: true, suspension: false, telemetry: false, fps: false };
     this.device = 'kb';
+    this.touchUI = false;              // on-screen touch controls shown (touch.js)
     this.toastList = [];
     this.tipState = { key: null, rolled: 0, stuck: 0, neutral: 0, engine: 0, clear: 0, acc: 0 };
     this.fpsAcc = 0; this.fpsN = 0; this.suspAcc = 1; this.teleAcc = 1;
@@ -162,13 +163,20 @@ export class HUD {
     if (d === this.device && !force) return;
     this.device = d;
     const k = id => capsHTML(id, d);
-    this.e.menuKey.innerHTML = k('menu');
-    this.e.hints.innerHTML = d === 'pad'
+    this.e.menuKey.innerHTML = d === 'touch' ? '' : k('menu');
+    this.e.hints.innerHTML = d === 'touch' ? '' : d === 'pad'
       ? `<span>${k('camera')} Camera</span><span>${k('recover')} Recover</span><span>${k('shiftUp')}${k('shiftDown')} Shift</span>`
       : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('tuning')} Tuning</span><span>${k('recover')} Recover</span>`;
     this.e.suspKey.innerHTML = capsHTML('suspension', 'kb');
     this.tipState.key = null;           // re-render the tip with the new prompts
     this.setSound(this.soundState, true);
+  }
+
+  // touch controls on screen: compact cluster at the top right (ui.css body.touch-ui), no key hints
+  setTouch(on) {
+    this.touchUI = on;
+    this.c.compact = undefined;
+    this.setDevice(this.device, true);
   }
 
   // sound status pill: 'locked' (waiting for a gesture), 'on', 'muted', 'error'
@@ -179,8 +187,9 @@ export class HUD {
     el.className = 'sound-pill ' + state;
     if (state === 'on') { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = state === 'locked' ? `${ICON_SOUND}<span>Click or press a key to turn on sound</span>`
-      : state === 'muted' ? `${ICON_MUTED}<span>Sound off</span>${capsHTML('mute', 'kb')}`
+    const touch = this.device === 'touch';
+    el.innerHTML = state === 'locked' ? `${ICON_SOUND}<span>${touch ? 'Tap the screen to turn on sound' : 'Click or press a key to turn on sound'}</span>`
+      : state === 'muted' ? `${ICON_MUTED}<span>Sound off</span>${touch ? '' : capsHTML('mute', 'kb')}`
         : `${ICON_MUTED}<span>Sound unavailable</span>`;
   }
 
@@ -243,7 +252,7 @@ export class HUD {
     this._lastMsg = d.message;
 
     // cluster layout
-    const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small));
+    const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small || this.touchUI));
     if (compact !== c.compact) { c.compact = compact; e.cluster.classList.toggle('compact', compact); c.rpmQ = undefined; }
 
     // gearbox mode + selector strip

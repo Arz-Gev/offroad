@@ -399,3 +399,120 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 body.paused #mp-tags { display: none; }
+
+/* ------------------------------------------------------------------ touch controls (touch.js)
+   Shown on phones and tablets (body.touch-ui). Lengths scale with the HUD (--u) like the rest of it. */
+body.touch-ui { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.tc-layer { position: absolute; inset: 0; pointer-events: none; }
+body.paused #hud .tc-layer { visibility: hidden; }
+.tc-btn {
+  pointer-events: auto; touch-action: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  border: 1px solid var(--line-2); border-radius: calc(12 * var(--u));
+  background: var(--panel); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  color: var(--txt); font: 750 calc(14 * var(--u))/1 var(--sans); letter-spacing: 0.02em;
+  transition: background 0.08s, transform 0.08s;
+}
+.tc-btn.on { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); }
+.tc-btn:active { transform: scale(0.96); }
+
+/* steering: the stick rests here and jumps under the finger */
+.tc-steer { position: absolute; left: 0; bottom: 0; width: min(44vw, calc(520 * var(--u))); height: 64%; pointer-events: auto; touch-action: none; }
+.tc-stick { position: absolute; left: 50%; top: 64%; width: 0; height: 0; opacity: 0.5; transition: opacity 0.15s; }
+.tc-stick.on { left: 0; top: 0; opacity: 1; transition: none; }
+.tc-track { position: absolute; left: calc(-94 * var(--u)); top: calc(-30 * var(--u)); width: calc(188 * var(--u)); height: calc(60 * var(--u)); box-sizing: border-box; border-radius: 999px; border: 1px solid var(--line-2); background: rgba(12, 14, 18, 0.42); }
+.tc-arrow { position: absolute; top: calc(-7 * var(--u)); border: calc(7 * var(--u)) solid transparent; }
+.tc-arrow.l { left: calc(-86 * var(--u)); border-right: calc(9 * var(--u)) solid rgba(255, 255, 255, 0.55); }
+.tc-arrow.r { left: calc(70 * var(--u)); border-left: calc(9 * var(--u)) solid rgba(255, 255, 255, 0.55); }
+.tc-knob { position: absolute; left: calc(-27 * var(--u)); top: calc(-27 * var(--u)); width: calc(54 * var(--u)); height: calc(54 * var(--u)); box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.7); background: rgba(255, 255, 255, 0.22); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3); }
+.tc-stick.on .tc-knob { background: rgba(255, 179, 71, 0.55); border-color: var(--amber); }
+
+/* tilt steering: a level that shows the steering */
+.tc-tilt { position: absolute; left: 50%; bottom: max(var(--gap), env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: calc(5 * var(--u)); font: 650 calc(11 * var(--u))/1 var(--sans); color: var(--dim); text-shadow: 0 1px 2px #000; }
+.tc-tilt::before { content: ''; width: calc(110 * var(--u)); height: calc(4 * var(--u)); border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+.tc-tilt i { position: absolute; top: calc(-4 * var(--u)); width: calc(12 * var(--u)); height: calc(12 * var(--u)); border-radius: 50%; background: var(--amber); }
+
+/* right thumb: shift, handbrake, pedals */
+.tc-right { position: absolute; right: max(var(--gap), env(safe-area-inset-right)); bottom: max(var(--gap), env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: flex-end; gap: calc(10 * var(--u)); }
+.tc-shift { display: flex; gap: calc(10 * var(--u)); }
+.tc-gear { width: calc(66 * var(--u)); height: calc(50 * var(--u)); font-size: calc(18 * var(--u)); }
+.tc-feet { display: flex; align-items: flex-end; gap: calc(10 * var(--u)); }
+.tc-hb { width: calc(62 * var(--u)); height: calc(62 * var(--u)); border-radius: 50%; }
+.tc-hb.on { background: var(--red); border-color: var(--red); color: #fff; }
+.tc-pedal {
+  position: relative; overflow: hidden; pointer-events: auto; touch-action: none; box-sizing: border-box;
+  width: calc(80 * var(--u)); height: calc(150 * var(--u)); border-radius: calc(14 * var(--u));
+  border: 1px solid var(--line-2); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 calc(3 * var(--u)), transparent calc(3 * var(--u)) calc(12 * var(--u))), var(--panel);
+}
+.tc-pedal.gas { height: calc(176 * var(--u)); }
+.tc-pedal.brake { width: calc(88 * var(--u)); height: calc(132 * var(--u)); }
+.tc-pedal.clutch { width: calc(70 * var(--u)); height: calc(120 * var(--u)); }
+.tc-pedal i { position: absolute; inset: 0; transform-origin: 50% 100%; transform: scaleY(0); background: rgba(111, 220, 140, 0.42); }
+.tc-pedal.brake i { background: rgba(255, 90, 69, 0.48); }
+.tc-pedal.clutch i { background: rgba(140, 200, 255, 0.45); }
+.tc-pedal b { position: absolute; left: 0; right: 0; top: calc(10 * var(--u)); text-align: center; font: 750 calc(12 * var(--u))/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+.tc-pedal.on { border-color: rgba(255, 255, 255, 0.5); }
+.tc-pedal.on b { color: #fff; }
+
+/* next to the menu button: camera, recover, 4×4 drawer, fullscreen */
+body.touch-ui .menu-btn { height: calc(42 * var(--u)); padding: 0 calc(12 * var(--u)); border-radius: calc(12 * var(--u)); }
+.tc-tools { display: flex; gap: calc(8 * var(--u)); }
+.tc-icon { min-width: calc(46 * var(--u)); height: calc(42 * var(--u)); padding: 0 calc(10 * var(--u)); font-size: calc(13 * var(--u)); }
+.tc-icon svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }
+.tc-drawer {
+  pointer-events: auto; display: flex; flex-wrap: wrap; gap: calc(6 * var(--u));
+  max-width: min(calc(100vw - 2 * var(--gap)), calc(400 * var(--u))); box-sizing: border-box; padding: calc(8 * var(--u));
+  border: 1px solid var(--line); border-radius: calc(14 * var(--u)); background: var(--sheet);
+  animation: toast-in 0.15s ease-out;
+}
+.tc-chip { height: calc(38 * var(--u)); padding: 0 calc(13 * var(--u)); font-size: calc(12.5 * var(--u)); white-space: nowrap; background: rgba(255, 255, 255, 0.07); }
+.tc-chip.warn { border-color: var(--red); color: #ffd2cb; }
+
+/* where the HUD goes with the touch controls on screen */
+body.touch-ui .hints { display: none; }
+body.touch-ui .cluster { top: max(var(--gap), env(safe-area-inset-top)); bottom: auto; }
+body.touch-ui .tells { top: calc(100% + 6 * var(--u)); bottom: auto; flex-wrap: wrap; }
+body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); width: min(calc(100vw - 2 * var(--gap)), calc(440 * var(--u))); }
+body.touch-ui .hud-fps { top: auto; bottom: var(--gap); right: 50%; transform: translateX(50%); }
+body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
+body.touch-ui.tune-open .tc-right { right: calc(400px + 24px); }
+@media (max-width: 900px) { body.touch-ui.tune-open .tc-layer { visibility: hidden; } }
+
+/* menu and welcome card: no key caps, bigger targets */
+kbd.cap.touch { border-radius: 999px; border-bottom-width: 1px; padding: 0 0.6em; background: rgba(255, 179, 71, 0.16); border-color: rgba(255, 179, 71, 0.55); color: #ffe0b3; }
+body.touch-ui .overlay .kc, body.touch-ui .sheet-foot { display: none; }
+body.touch-ui .seg button { padding: 9px 12px; }
+body.touch-ui .btn { height: 40px; }
+body.touch-ui .btn.small { height: 36px; }
+body.touch-ui .stepper button { width: 38px; height: 38px; }
+body.touch-ui .tab { padding: 14px 12px 15px; }
+
+/* portrait phone: ask for landscape once, then fade */
+.tc-rotate { display: none; }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.touch-ui .tc-rotate {
+    display: block; position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: max-content; max-width: 80vw;
+    padding: 10px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+    font: 650 13px/1.35 var(--sans); text-align: center; animation: rotate-hint 7s ease forwards;
+  }
+}
+@keyframes rotate-hint { 0%, 80% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+/* landscape phones: the menu fills the screen, the welcome card packs tighter */
+@media (max-height: 500px) {
+  .overlay { padding: 0; }
+  .sheet { width: 100%; height: 100%; border-radius: 0; border: 0; }
+  .sheet-foot { display: none; }
+  #intro.overlay { padding: 8px; }
+  .card { padding: 16px 20px 14px; }
+  .card h1 { font-size: 22px; margin: 4px 0 6px; }
+  .card .lead { display: none; }
+  .intro-keys { gap: 6px 12px; margin-bottom: 10px; }
+  .it { font-size: 13px; }
+  .callout { font-size: 12.5px; line-height: 1.6; padding: 8px 12px; }
+  .intro-foot { margin-top: 10px; }
+}
+@media (max-height: 500px) and (min-width: 700px) {
+  .intro-keys { grid-template-columns: auto 1fr auto 1fr; }
+}

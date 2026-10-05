@@ -25,6 +25,8 @@ export const DEFAULTS = {
   telemetry: false,
   fps: false,
   autoPause: true,          // open the menu when the window loses focus
+  touchControls: 'auto',    // on-screen controls (touch.js): 'auto' (while you use the touch screen) | 'on' | 'off'
+  touchSteer: 'stick',      // touch steering: 'stick' (left thumb slides) | 'tilt' (turn the device like a wheel)
   quality: 'auto',          // graphics preset: 'auto' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
   renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
   // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
@@ -65,6 +67,8 @@ const CHOICES = {
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
+  touchControls: ['auto', 'on', 'off'],
+  touchSteer: ['stick', 'tilt'],
   quality: ['auto', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],

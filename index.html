@@ -4,10 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0d0f12" />
+  <!-- Add to Home Screen: full screen, landscape (iPhone Safari has no fullscreen button for pages) -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Offroad" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon-180.png" />
   <title>Offroad Defender</title>
   <style>
     /* only what the page needs before the JS (and src/ui.css) loads */
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f12; color: #eef1f4; font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #0d0f12; color: #eef1f4; font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    body { touch-action: manipulation; }   /* no double-tap zoom on phones */
     canvas#c { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
     canvas#c:active { cursor: grabbing; }
     [hidden] { display: none !important; }

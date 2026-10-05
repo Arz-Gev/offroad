@@ -1,4 +1,5 @@
-// Keyboard + gamepad input. Digital keys are ramped like real pedals so you can feather the throttle.
+// Keyboard + gamepad + touch input. Digital keys are ramped like real pedals so you can feather the throttle.
+// Touch (touch.js) writes analog pedals / steering into Input.touch; they count while the device is 'touch'.
 //
 // BINDINGS is the single source of truth for every control: main.js dispatches the discrete actions,
 // and the HUD hints, the welcome card and the menu's controls page are all generated from it.
@@ -10,44 +11,45 @@ export const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8
 
 // keys: labels shown to the player. codes: KeyboardEvent.code values that fire the action.
 // pad: label of the gamepad control. button: pad button index that fires the action.
+// touch: label of the on-screen touch control (touch.js), shown in tips and toasts on phones and tablets.
 export const BINDINGS = [
-  { id: 'throttle', group: 'Driving', label: 'Throttle', keys: ['W', '↑'], pad: 'RT' },
-  { id: 'brake', group: 'Driving', label: 'Brake', keys: ['S', '↓'], pad: 'LT' },
-  { id: 'steer', group: 'Driving', label: 'Steer', keys: ['A', 'D'], alt: ['←', '→'], pad: 'L stick' },
-  { id: 'handbrake', group: 'Driving', label: 'Handbrake (hold, toggle or auto: Menu → Driving)', keys: ['Space'], pad: 'A' },
-  { id: 'clutch', group: 'Driving', label: 'Clutch pedal (manual with auto-clutch off)', keys: ['Shift'], pad: 'LB' },
+  { id: 'throttle', group: 'Driving', label: 'Throttle', keys: ['W', '↑'], pad: 'RT', touch: 'Gas' },
+  { id: 'brake', group: 'Driving', label: 'Brake', keys: ['S', '↓'], pad: 'LT', touch: 'Brake' },
+  { id: 'steer', group: 'Driving', label: 'Steer', keys: ['A', 'D'], alt: ['←', '→'], pad: 'L stick', touch: 'Steer' },
+  { id: 'handbrake', group: 'Driving', label: 'Handbrake (hold, toggle or auto: Menu → Driving)', keys: ['Space'], pad: 'A', touch: 'HB' },
+  { id: 'clutch', group: 'Driving', label: 'Clutch pedal (manual with auto-clutch off)', keys: ['Shift'], pad: 'LB', touch: 'Clutch' },
 
-  { id: 'shiftUp', group: 'Gearbox & 4×4', label: 'Shift up · automatic: selector P → R → N → D', codes: ['KeyE'], keys: ['E'], pad: 'RB', button: PAD.RB },
-  { id: 'shiftDown', group: 'Gearbox & 4×4', label: 'Shift down · automatic: selector D → N → R → P', codes: ['KeyQ'], keys: ['Q'], pad: 'X', button: PAD.X },
+  { id: 'shiftUp', group: 'Gearbox & 4×4', label: 'Shift up · automatic: selector P → R → N → D', codes: ['KeyE'], keys: ['E'], pad: 'RB', button: PAD.RB, touch: '▲' },
+  { id: 'shiftDown', group: 'Gearbox & 4×4', label: 'Shift down · automatic: selector D → N → R → P', codes: ['KeyQ'], keys: ['Q'], pad: 'X', button: PAD.X, touch: '▼' },
   { id: 'gearbox', group: 'Gearbox & 4×4', label: 'Automatic ⇄ manual gearbox', codes: ['KeyM'], keys: ['M'], pad: 'View', button: PAD.VIEW },
   { id: 'autoClutch', group: 'Gearbox & 4×4', label: 'Manual: auto-clutch on / off · automatic: arcade reverse on / off', codes: ['KeyK'], keys: ['K'] },
-  { id: 'range', group: 'Gearbox & 4×4', label: 'Transfer case HIGH / LOW (stop first)', codes: ['KeyT'], keys: ['T'], pad: 'D-pad ↓', button: PAD.DOWN },
-  { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT },
-  { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT },
+  { id: 'range', group: 'Gearbox & 4×4', label: 'Transfer case HIGH / LOW (stop first)', codes: ['KeyT'], keys: ['T'], pad: 'D-pad ↓', button: PAD.DOWN, touch: 'LO' },
+  { id: 'centreLock', group: 'Gearbox & 4×4', label: 'Centre diff lock', codes: ['KeyX'], keys: ['X'], pad: 'D-pad ←', button: PAD.LEFT, touch: 'CDL' },
+  { id: 'lockers', group: 'Gearbox & 4×4', label: 'Axle lockers: rear → front + rear → off', codes: ['KeyZ'], keys: ['Z'], pad: 'D-pad →', button: PAD.RIGHT, touch: 'LOCK' },
   { id: 'traction', group: 'Gearbox & 4×4', label: 'Traction control on / off (brakes a spinning wheel)', codes: ['KeyY'], keys: ['Y'] },
   { id: 'abs', group: 'Gearbox & 4×4', label: 'ABS on / off (off: wheels can lock under braking)', codes: ['KeyB'], keys: ['B'] },
-  { id: 'rwd', group: 'Gearbox & 4×4', label: '2WD (rear-wheel drive) ⇄ 4WD · HIGH range only', codes: ['KeyF'], keys: ['F'] },
+  { id: 'rwd', group: 'Gearbox & 4×4', label: '2WD (rear-wheel drive) ⇄ 4WD · HIGH range only', codes: ['KeyF'], keys: ['F'], touch: '2WD' },
 
-  { id: 'engineStart', group: 'Vehicle', label: 'Start engine', codes: ['KeyI'], keys: ['I'], pad: 'L stick click', button: PAD.LS },
+  { id: 'engineStart', group: 'Vehicle', label: 'Start engine', codes: ['KeyI'], keys: ['I'], pad: 'L stick click', button: PAD.LS, touch: 'Start' },
   { id: 'engineStop', group: 'Vehicle', label: 'Stop engine', codes: ['KeyO'], keys: ['O'] },
-  { id: 'pressureDown', group: 'Vehicle', label: 'Tyre pressure down (air down for grip)', codes: ['BracketLeft'], keys: ['['] },
-  { id: 'pressureUp', group: 'Vehicle', label: 'Tyre pressure up', codes: ['BracketRight'], keys: [']'] },
-  { id: 'headlights', group: 'Vehicle', label: 'Headlights off / low / high', codes: ['KeyL'], keys: ['L'], pad: 'D-pad ↑', button: PAD.UP },
+  { id: 'pressureDown', group: 'Vehicle', label: 'Tyre pressure down (air down for grip)', codes: ['BracketLeft'], keys: ['['], touch: 'Tyres −' },
+  { id: 'pressureUp', group: 'Vehicle', label: 'Tyre pressure up', codes: ['BracketRight'], keys: [']'], touch: 'Tyres +' },
+  { id: 'headlights', group: 'Vehicle', label: 'Headlights off / low / high', codes: ['KeyL'], keys: ['L'], pad: 'D-pad ↑', button: PAD.UP, touch: 'Lights' },
   { id: 'lightBar', group: 'Vehicle', label: 'Roof light bar', codes: ['KeyJ'], keys: ['J'] },
   { id: 'hazards', group: 'Vehicle', label: 'Hazard lights', codes: ['KeyG'], keys: ['G'] },
-  { id: 'recover', group: 'Vehicle', label: 'Recover: put the truck back on its wheels', codes: ['KeyR'], keys: ['R'], pad: 'B', button: PAD.B },
+  { id: 'recover', group: 'Vehicle', label: 'Recover: put the truck back on its wheels', codes: ['KeyR'], keys: ['R'], pad: 'B', button: PAD.B, touch: 'Recover' },
 
-  { id: 'camera', group: 'Camera & world', label: 'Next camera: chase, cockpit, hood, wheel, orbit', codes: ['KeyC'], keys: ['C'], pad: 'Y', button: PAD.Y },
-  { id: 'look', group: 'Camera & world', label: 'Look around · zoom', keys: ['Drag mouse', 'Wheel'], pad: 'R stick' },
+  { id: 'camera', group: 'Camera & world', label: 'Next camera: chase, cockpit, hood, wheel, orbit', codes: ['KeyC'], keys: ['C'], pad: 'Y', button: PAD.Y, touch: 'Cam' },
+  { id: 'look', group: 'Camera & world', label: 'Look around · zoom', keys: ['Drag mouse', 'Wheel'], pad: 'R stick', touch: 'Drag · pinch' },
   { id: 'time', group: 'Camera & world', label: 'Time of day: jump to day, dusk, night', codes: ['KeyN'], keys: ['N'] },
 
-  { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU },
+  { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
   { id: 'locations', group: 'Game', label: 'Locations: teleport to the proving ground lanes', codes: ['KeyP'], keys: ['P'] },
   { id: 'controls', group: 'Game', label: 'Controls (this list)', codes: ['KeyH'], keys: ['H'] },
   { id: 'mute', group: 'Game', label: 'Sound on / off', codes: ['KeyV'], keys: ['V'] },
   { id: 'suspension', group: 'Game', label: 'Suspension and tyre load panel', codes: ['KeyU'], keys: ['U'] },
   { id: 'telemetry', group: 'Game', label: 'Telemetry readout', codes: ['F3', 'Backquote'], keys: ['F3', '`'] },
-  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'] },
+  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'], touch: 'Tune' },
 ];
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));
@@ -65,13 +67,18 @@ const BROWSER_KEY = /^F\d+$/;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const padClass = l => ({ A: ' pad-a', B: ' pad-b', X: ' pad-x', Y: ' pad-y' })[l] || '';
 
-// keycap HTML for an action on the given device ('kb' | 'pad'). Falls back to the keyboard label.
+// keycap HTML for an action on the given device ('kb' | 'pad' | 'touch'). Falls back to the keyboard label.
 export function capsHTML(id, device = 'kb', { all = false } = {}) {
   const b = BINDING[id];
   if (!b) return '';
   if (device === 'pad' && b.pad) return `<kbd class="cap pad${padClass(b.pad)}">${esc(b.pad)}</kbd>`;
+  if (device === 'touch' && b.touch) return touchCapHTML(id);
   const keys = all && b.alt ? [...b.keys, ...b.alt] : b.keys;
   return keys.map(k => `<kbd class="cap">${esc(k)}</kbd>`).join('');
+}
+export function touchCapHTML(id) {
+  const b = BINDING[id];
+  return b && b.touch ? `<kbd class="cap touch">${esc(b.touch)}</kbd>` : '<span class="cap-none">–</span>';
 }
 export function padCapHTML(id) {
   const b = BINDING[id];
@@ -84,7 +91,8 @@ export class Input {
     this.pressed = new Set();      // edge-triggered this frame (kept for console tests)
     this.raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, analogSteer: false };
     this.mouse = { dx: 0, dy: 0, wheel: 0, down: false, lastMove: 0 };
-    this.device = 'kb';            // last used: 'kb' | 'pad'
+    this.touch = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };   // written by touch.js
+    this.device = 'kb';            // last used: 'kb' | 'pad' | 'touch'
     this.onAction = null;          // (id, device) => void
     this.onDevice = null;          // (device) => void
     this.uiHandler = null;         // (event) => bool handled; set while a menu is open
@@ -132,6 +140,7 @@ export class Input {
     this.pressed.clear();
     this._thr = this._brk = this._steer = 0;
     this.mouse.down = false;
+    for (const k in this.touch) this.touch[k] = 0;
   }
 
   down(...codes) { return codes.some(c => this.keys.has(c)); }
@@ -155,6 +164,13 @@ export class Input {
     let clutch = this.down('ShiftLeft', 'ShiftRight') ? 1 : 0;
     let hb = this.down('Space') ? 1 : 0;
     r.analogSteer = false;
+    if (this.device === 'touch') {
+      // on-screen pedals and stick (or tilt) are analog; the steering gets the gamepad's speed curve
+      const t = this.touch;
+      thr = Math.max(thr, t.throttle); brk = Math.max(brk, t.brake);
+      if (!lt && !rt) { steer = t.steer; r.analogSteer = true; }
+      clutch = Math.max(clutch, t.clutch); hb = Math.max(hb, t.handbrake);
+    }
 
     // gamepad (standard mapping)
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];

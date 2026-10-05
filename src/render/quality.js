@@ -90,6 +90,11 @@ export function autoQuality(renderer) {
   else if (/intel|uhd|iris|adreno|mali|powervr/.test(n)) q = 'low';
   // very large windows on a mid GPU: one step down
   if (px > 9e6 && q === 'high' && !/max|ultra/.test(n)) q = 'medium';
-  if (/mobile|android|iphone|ipad/i.test(navigator.userAgent)) q = 'low';
+  // phones and tablets (iPadOS reports a Mac: tell it by the touch screen)
+  if (isMobileDevice()) q = 'low';
   return { preset: q, gpu: name };
+}
+
+export function isMobileDevice() {
+  return /mobile|android|iphone|ipad/i.test(navigator.userAgent) || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
