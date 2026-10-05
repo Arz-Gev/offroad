@@ -11,4 +11,6 @@ Headless Chromium with software WebGL, Low preset, 13:00. In-game shots are the 
 | `suspension-articulated.jpg` | Hull and turret hidden, corners at different compressions, front two axles steered: arms, shocks and knuckles follow each wheel |
 | `corner-droop.jpg`, `corner-bump.jpg` | Front left corner at full droop and full bump: the arms pivot at the hull, the shocks stretch and compress |
 | `turret-firing.jpg` | KPVT firing to the right: muzzle flash, smoke, a tracer downrange |
-| `gunner-sight.jpg` | The gunner's sight while firing: reticle, range marks, gun panel (belt, reserve, elevation) |
+| `gunner-sight.jpg` | The gunner's sight while firing at the rock garden on the proving ground: reticle, range marks, gun panel (belt, reserve, elevation) |
+
+The trees and rocks that seem to float over the lake behind `three-quarter.jpg` (and on the right of `turret-firing.jpg`) are a world-rendering effect seen in this software renderer, not part of the BTR; not checked on a GPU.
