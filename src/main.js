@@ -256,6 +256,7 @@ async function main() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.getDrawingBufferSize(_db);
     pipeline.setSize(_db.x, _db.y);
+    dust.setViewport(_db.y);
     game.redraw = 3;
   }
   // Dynamic resolution (presets with dynamicDpr: Mobile). It starts at 100 % pixel density so the first
@@ -338,6 +339,7 @@ async function main() {
       else applyGraphics();
     },
     solidTrucks: () => mp.setSolid(),
+    dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),
     touchSteer: v => touch.configure({ steer: v }),
     speedUnit: hudOpt, pressureUnit: hudOpt, cluster: hudOpt, hudScale: hudOpt, hints: hudOpt, suspension: hudOpt, telemetry: hudOpt, fps: hudOpt,
@@ -580,7 +582,7 @@ async function main() {
       scenery.update(dt, camera, rPos);
     }
     mark('view');
-    if (!paused) {
+    if (!paused && dust.enabled) {
       dust.spawnFromVehicle(vehicle, dt);
       dust.update(dt, 1 - 0.88 * env.darkness);
     }

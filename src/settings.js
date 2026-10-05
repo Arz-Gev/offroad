@@ -50,6 +50,7 @@ export const DEFAULTS = {
   gBushes: 0.65,            // undergrowth density multiplier
   gBushHeight: 1.6,         // undergrowth size multiplier
   gBushDist: 1.55,          // undergrowth distance multiplier
+  dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   vegetation: true,         // grass and undergrowth on / off (not part of the presets, except Mobile turns it off)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
