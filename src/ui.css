@@ -474,6 +474,7 @@ body.touch-ui .hints { display: none; }
 body.touch-ui .cluster { top: max(var(--gap), env(safe-area-inset-top)); bottom: auto; }
 body.touch-ui .tells { top: calc(100% + 6 * var(--u)); bottom: auto; flex-wrap: wrap; }
 body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 54 * var(--u)); width: min(calc(100vw - 2 * var(--gap)), calc(440 * var(--u))); }
+body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 164 * var(--u)); }
 body.touch-ui .hud-fps { top: auto; bottom: var(--gap); right: 50%; transform: translateX(50%); }
 body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inset-top)) + 110 * var(--u)); }
 body.touch-ui.tune-open .tc-right { right: calc(400px + 24px); }
@@ -483,6 +484,7 @@ body.touch-ui.tune-open .tc-right { right: calc(400px + 24px); }
 kbd.cap.touch { border-radius: 999px; border-bottom-width: 1px; padding: 0 0.6em; background: rgba(255, 179, 71, 0.16); border-color: rgba(255, 179, 71, 0.55); color: #ffe0b3; }
 body.touch-ui .overlay .kc, body.touch-ui .sheet-foot { display: none; }
 body.touch-ui .seg button { padding: 9px 12px; }
+body.touch-ui .set-row { flex-wrap: wrap; }
 body.touch-ui .btn { height: 40px; }
 body.touch-ui .btn.small { height: 36px; }
 body.touch-ui .stepper button { width: 38px; height: 38px; }

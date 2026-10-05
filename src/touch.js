@@ -137,7 +137,7 @@ export class TouchControls {
     if (vis === this.visible) return;
     this.visible = vis;
     this.el.hidden = this.tools.hidden = !vis;
-    if (!vis) { this.drawer.hidden = true; this.release(); }
+    if (!vis) { this.drawer.hidden = true; document.body.classList.remove('tc-drawer-open'); this.drawerBtn.classList.remove('on'); this.release(); }
     document.body.classList.toggle('touch-ui', vis);
     this.api.hud.setTouch(vis);
   }
@@ -166,6 +166,7 @@ export class TouchControls {
       this.drawer.hidden = !this.drawer.hidden;
       this.drawerBtn.setAttribute('aria-expanded', !this.drawer.hidden);
       this.drawerBtn.classList.toggle('on', !this.drawer.hidden);
+      document.body.classList.toggle('tc-drawer-open', !this.drawer.hidden);   // toasts move below it
       buzz();
       return;
     }
