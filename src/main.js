@@ -411,7 +411,10 @@ async function main() {
     pressureDown: () => changePressure(-2),
     pressureUp: () => changePressure(2),
     headlights: () => setHeadlights((view.lights.head + 1) % 3),
-    lightBar: () => { view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Light bar on' : 'Light bar off'); },
+    lightBar: () => {
+      if (!model.lights.bar) { say('bar', `The ${carDef(car).label} has no light bar`); return; }
+      view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Light bar on' : 'Light bar off');
+    },
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
     camera: () => settings.set('camera', next(camModes, rig.mode)),
@@ -469,6 +472,7 @@ async function main() {
         case 'pressureText': return fmtPressure(vehicle.pressure, settings.get('pressureUnit'));
         case 'headlights': return view.lights.head;
         case 'lightBar': return view.lights.bar;
+        case 'hasLightBar': return !!model.lights.bar;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;
@@ -485,7 +489,7 @@ async function main() {
       const silent = { silent: true };
       if (key === 'sound') settings.set('muted', !v, silent);
       else if (key === 'headlights') setHeadlights(v, true);
-      else if (key === 'lightBar') view.lights.bar = !!v;
+      else if (key === 'lightBar') view.lights.bar = !!v && !!model.lights.bar;
       else if (key === 'hazards') view.lights.hazard = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
@@ -664,7 +668,7 @@ async function main() {
   // lights as they are.
   try {
     const ls = view.lights, head = ls.head, bar = ls.bar;
-    ls.head = 1; ls.bar = true;
+    ls.head = 1; ls.bar = !!model.lights.bar;
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);

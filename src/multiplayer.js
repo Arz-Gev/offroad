@@ -198,7 +198,7 @@ export class Multiplayer {
       if (+h.tr) P.tire.radius = +h.tr;
       const model = await buildCarModel(car);
       // no lamp beams for friends (see the header): only the lens glow
-      for (const k of ['head', 'bar', 'rear']) { const L = model.lights[k]; L.parent?.remove(L); L.target.parent?.remove(L.target); }
+      for (const k of ['head', 'bar', 'rear']) { const L = model.lights[k]; if (!L) continue; L.parent?.remove(L); L.target.parent?.remove(L.target); }
       if (!this.peers.has(p.id)) return;    // left while loading
       this.removeModel(p);
       p.proxy = makeProxy(P);

@@ -301,6 +301,9 @@ export class Menu {
     const manual = api.get('gearbox') === 'manual';
     this.panes.settings.querySelector('[data-key="autoClutch"]').hidden = !manual;
     this.panes.settings.querySelector('[data-key="arcadeAuto"]').hidden = manual;
+    // the light bar switch only on a car that has one
+    const bar = this.panes.settings.querySelector('[data-key="lightBar"]');
+    if (bar) bar.hidden = !api.get('hasLightBar');
   }
 
   setValue(key, v) {
