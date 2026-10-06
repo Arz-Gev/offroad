@@ -1,82 +1,39 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { makeCarParams, CAR_SPECS } from './carSpecs.js';
+import { makeCarParams } from './carParams.js';
+import { carDef } from '../cars/index.js';
 import { staticRide } from './tuning.js';
 import { buildTruck } from './truckModel.js';
 import { buildBtr } from './btrModel.js';
 import { createTireMaterial, makeTireMesh } from './tireMaterial.js';
 
-// What each drivable car looks like. Physics numbers: carSpecs.js. Imported cars swap the Defender's
-// body for a downloaded shell and its own wheels; our axles, springs, steering and lamps stay.
+// A car's model, from its file's look (src/cars/<id>.js): the Defender's own procedural body, or a
+// downloaded shell on the Defender's running gear (fitCarBody), or a car with its own builder (look.build).
+// Imported cars swap the Defender's body for the shell and its own wheels; our axles, springs, steering
+// and lamps stay.
 //
-// CARS and CAR_SPECS together are the list of cars: the Settings choices, the menu's Vehicle row and its
-// credits are made from them. Both must have the same ids (checked below), in the order the menu shows them.
-//
-// Shells are prepared with tools/prepcar.mjs (DEVNOTES.md, "Imported cars"): frame baked in (+x right,
+// Shells are prepared with tools/prepcar.mjs (.claude/skills/add-car/SKILL.md): frame baked in (+x right,
 // -z forward, hub centre at y 0, mid-wheelbase at z 0), wheels split into wheel_<FL|FR|RL|RR> (spin) and
 // hub_<corner> (calipers: steer only), compressed (meshopt + WebP). The shell sits in the body frame at
 // the static hub height, so lift and bigger tyres move the wheels away from the arches as on the Defender.
-export const CARS = {
-  defender: { label: 'Defender 110' },
-  gclass: {
-    label: 'G-Class',
-    url: 'models/gclass2021.glb',
-    author: 'ItsDiyor',
-    credit: 'Mercedes-Benz G-Class 2021 by ItsDiyor, CC BY 4.0, https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d',
-    wheel: { R: 0.4015, width: 0.285 },   // its own tyre (the wheel nodes scale from this to the tuned size)
-    eye: [-0.40, 1.62, 0.10],           // left-hand drive
-    hoodEye: [0, 1.68, -1.05],
-    lamps: { head: [0, 0.95, -2.42], bar: [0, 2.02, -0.55], rear: [0, 0.80, 2.62] },
-  },
-  lancia: {
-    label: 'Lancia Delta',
-    url: 'models/lancia-delta.glb',
-    author: 'TARANTULA',
-    credit: 'Lancia Delta HF Integrale Evo 2 by TARANTULA, CC BY 4.0, https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7',
-    wheel: { R: 0.2965, width: 0.241 },
-    chase: { dist: 5.6, target: 0.85 },   // 0.7 m shorter and 0.6 m lower than the Defender: the camera comes closer
-    eye: [-0.38, 1.10, 0.15],
-    hoodEye: [0, 1.02, -1.05],
-    lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
-  },
-  btr80: {
-    label: 'BTR-80',
-    url: 'models/btr80.glb',
-    author: 'Goga.Danelia',
-    credit: 'BTR 80 by Goga.Danelia, CC BY 4.0, https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce',
-    build: 'btr',                          // its own model builder (btrModel.js): 8 wheels, own suspension, turret
-    wheel: { R: 0.5715, width: 0.40 },     // its own tyre, measured by prepcar
-    chase: { dist: 11.5, target: 1.6 },
-    eye: [-0.62, 2.22, -2.63],             // driver's hatch, head out (march position)
-    hoodEye: [0, 2.05, -2.45],
-    // headlamps on the nose, light bar = the searchlight on the gun cradle, tail lamps
-    lamps: { head: [0, 1.25, -3.95], bar: [0, 2.6, -1.0], rear: [0, 1.25, 3.65] },
-  },
-};
-
-// a car added to one list but not the other fails here, at start-up and in npm run simtest, not later in a menu
-{
-  const a = Object.keys(CARS).join(), b = Object.keys(CAR_SPECS).join();
-  if (a !== b) throw new Error(`cars.js CARS (${a}) and carSpecs.js CAR_SPECS (${b}) must list the same cars in the same order`);
-}
 
 const CORNERS = ['FL', 'FR', 'RL', 'RR'];   // truckModel.buildTruck wheel order: front left, front right, rear ...
 
 // the model of a car, ready for VehicleView: the Defender, a downloaded shell on the Defender's running
 // gear (fitCarBody), or a car with its own builder (BTR-80: btrModel.js)
 export async function buildCarModel(id) {
-  const c = CARS[id];
-  if (c?.build === 'btr') return buildBtr(id, c);
-  const model = buildTruck(makeCarParams());   // modelled stock; the view scales the wheels and follows the lift
+  const c = carDef(id).look;
+  if (c.build === 'btr') return buildBtr(id, c);
+  const model = buildTruck(makeCarParams(id));   // modelled stock; the view scales the wheels and follows the lift
   await fitCarBody(model, id);
   return model;
 }
 
 // swap the Defender body and wheels of a built truck model (truckModel.buildTruck) for the car's own
 export async function fitCarBody(model, id) {
-  const c = CARS[id];
-  if (!c?.url) return;
+  const c = carDef(id).look;
+  if (!c.url) return;
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const gltf = await loader.loadAsync(import.meta.env.BASE_URL + c.url);
   const shell = gltf.scene;
@@ -113,7 +70,7 @@ export async function fitCarBody(model, id) {
         // nothing inside the rim radius moves
         if (scaled) {
           const mat = createTireMaterial(o.material);
-          makeTireMesh(m, mat, { toWheel: m.matrix, R: c.wheel.R, rim: CAR_SPECS[id].tire.rimRadius, width: c.wheel.width });
+          makeTireMesh(m, mat, { toWheel: m.matrix, R: c.wheel.R, rim: P.tire.rimRadius, width: c.wheel.width });
           (mw.tireMats ||= []).push(mat);
         }
         g.add(m);
@@ -127,7 +84,7 @@ export async function fitCarBody(model, id) {
   });
   // hubs at the stock static ride height (front and rear differ a little: tilt to match both)
   const [f, r] = staticRide(P).map(x => x.hubY);
-  shell.position.y = (f + r) / 2 + (CAR_SPECS[id].raise || 0);   // a raised car: the body goes up, the wheels stay
+  shell.position.y = (f + r) / 2 + (P.raise || 0);   // a raised car: the body goes up, the wheels stay
   shell.rotation.x = Math.asin((f - r) / P.wheelbase);
   model.root.add(shell);
   model.body.visible = false;     // exterior + cockpit

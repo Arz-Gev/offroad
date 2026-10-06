@@ -7,7 +7,7 @@ import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.j
 // - Chassis: one Rapier rigid body (sprung + unsprung mass, gravity on the unsprung part cancelled).
 // - Any number of axles, two wheels each (P.axles, front to back), each with its own suspension type,
 //   steering (Ackermann about one turning centre, suspension.js) and drive (drivetrain.js):
-//   - beam axle ('solid', the default): 2 DOF (heave c, roll phi) relative to the chassis, with its own mass
+//   - beam axle ('beam', the default): 2 DOF (heave c, roll phi) relative to the chassis, with its own mass
 //     and roll inertia, integrated in substeps with absolute velocities, so wheels hop, axles articulate
 //     and axle wrap exists;
 //   - independent ('independent'): 1 DOF per wheel (compression c) with kinematic curves (camber, roll
@@ -70,11 +70,9 @@ export class Vehicle {
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
     // static sag estimate so we spawn close to equilibrium
-    const L = P.wheelbase;
-    const frontFrac = (L / 2 - P.com[2]) / L;
-    const shares = this.nA === 2 ? null : axleShares(P);
+    const shares = axleShares(P);
     this.axles = P.axles.map((p, i) => {
-      const load = P.bodyMass * G * (shares ? shares[i] : (i === 0 ? frontFrac : 1 - frontFrac)) / 2;
+      const load = P.bodyMass * G * shares[i] / 2;
       const ind = p.type === 'independent';
       return {
         p, i, droopY: p.droopY, k: p.k, ind,

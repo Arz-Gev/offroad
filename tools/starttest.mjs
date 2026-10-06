@@ -2,7 +2,7 @@
 //   node tools/starttest.mjs [auto|manual] [N|P|D]
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { SURFACES } from '../src/vehicle/tire.js';
 await RAPIER.init();
 const H = 1 / 240, mode = process.argv[2] || 'auto', sel = process.argv[3] || 'P';
@@ -10,7 +10,7 @@ const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 }); world.timestep = H;
 const n = 20, N = n + 1;
 world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, new Float32Array(N * N), { x: 200, y: 1, z: 200 }));
 world.step();
-const v = new Vehicle(RAPIER, world, makeDefenderParams(), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES.dirt });
+const v = new Vehicle(RAPIER, world, makeCarParams('defender'), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES.dirt });
 const d = v.drivetrain, raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };
 if (mode === 'manual') d.toggleMode(); else d.setSelector(sel);
 for (let i = 0; i < 240 * 2; i++) { v.step(H, raw); world.step(); }

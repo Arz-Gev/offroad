@@ -9,9 +9,9 @@
 // stock truck, so with TUNE the numbers are printed but only the sanity checks (settles, no stall) count.
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams, CAR_SPECS } from '../src/vehicle/carSpecs.js';
-import '../src/vehicle/cars.js';   // throws if its CARS and CAR_SPECS list different cars
+import { makeCarParams } from '../src/vehicle/carParams.js';
+import { CAR_IDS, carDef } from '../src/cars/index.js';
+import '../src/vehicle/cars.js';   // the model builder loads (the car files are checked by src/cars/index.js)
 import * as tuning from '../src/vehicle/tuning.js';
 import { Turret, trajectory } from '../src/vehicle/turret.js';
 const { sanitize, applySetup, useCar } = tuning;
@@ -73,7 +73,7 @@ function check(label, value, lo, hi, { unit = '', baseline = true } = {}) {
 
 const test = process.argv[2] || 'all';
 const want = name => test === name || test === 'all';
-const P = TUNED ? applySetup(makeDefenderParams(), sanitize(JSON.parse(process.env.TUNE))) : makeDefenderParams();
+const P = TUNED ? applySetup(makeCarParams('defender'), sanitize(JSON.parse(process.env.TUNE))) : makeCarParams('defender');
 if (TUNED) console.log('setup', process.env.TUNE);
 
 if (want('settle')) {
@@ -203,10 +203,10 @@ if (want('manual')) {
   check('speed after 20 s', v.speed * 3.6, 120, 145, { unit: ' km/h' });
 }
 
-// every car in carSpecs.js settles on its springs with the ground at y 0 and accelerates in its own range
+// every car in src/cars/ settles on its springs with the ground at y 0 and accelerates in its own range
 if (want('cars') && !TUNED) {
-  const T100 = { defender: [8.2, 9.3], gclass: [4.7, 6], lancia: [4.9, 6.3] };   // real cars: 0-100 in 5.4 s (G 500), 5.7 s (Delta Evo 2)
-  for (const id of Object.keys(CAR_SPECS)) {
+  for (const id of CAR_IDS) {
+    const t100Band = carDef(id).tests.t100;   // the car file's 0-100 band (around the real car's time)
     console.log(`--- ${id}: settle and 0-100`);
     const world = makeWorld();
     useCar(id);   // as main.js builds the car: its stock setup (engine curve, tyres) applied to its params
@@ -215,11 +215,11 @@ if (want('cars') && !TUNED) {
     run(v, world, 3, raw(), 0.5, status);
     const sumFn = v.wheels.reduce((a, w) => a + w.FnAvg, 0);
     check(`${id}: tyre load sum / weight`, sumFn / (v.totalMass * 9.81), 0.99, 1.01, { baseline: false });
-    check(`${id}: ride height error`, Math.abs(v.pos.y - (CAR_SPECS[id]?.raise || 0)) * 100, 0, 3, { unit: ' cm' });
-    if (!T100[id]) continue;   // heavy trucks: own scenario (btr80 below)
+    check(`${id}: ride height error`, Math.abs(v.pos.y - (Pc.raise || 0)) * 100, 0, 3, { unit: ' cm' });
+    if (!t100Band) continue;   // heavy trucks: own scenario (btr80 below)
     let t100 = null;
     run(v, world, 20, (t, veh) => { if (t100 === null && veh.speed >= 100 / 3.6) t100 = t; return raw({ throttle: 1 }); }, 2, status);
-    check(`${id}: 0-100 km/h`, t100, ...T100[id], { unit: ' s' });
+    check(`${id}: 0-100 km/h`, t100, ...t100Band, { unit: ' s' });
   }
   useCar('defender');
 }

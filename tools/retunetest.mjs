@@ -4,7 +4,7 @@
 //   node tools/retunetest.mjs
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { STOCK, clone, applySetup } from '../src/vehicle/tuning.js';
 await RAPIER.init();
 const H = 1 / 240;
@@ -14,7 +14,7 @@ const N = 61, heights = new Float32Array(N * N);
 world.createCollider(RAPIER.ColliderDesc.heightfield(60, 60, heights, { x: 600, y: 1, z: 600 }));
 world.step();
 const setup = clone(STOCK);
-const P = applySetup(makeDefenderParams(), setup);
+const P = applySetup(makeCarParams('defender'), setup);
 const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: 0.15, z: 200 } });
 const raw = o => ({ throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 1, ...o });
 function run(secs, input = raw()) {

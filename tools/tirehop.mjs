@@ -6,13 +6,12 @@
 //   node tools/tirehop.mjs [bump|wash] [kmh] [psi]      CAR=btr80 for another car
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
 await RAPIER.init();
 const H = 1 / 240;
 const [kind = 'bump', kmh = '30', psiArg] = process.argv.slice(2);
-const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
+const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 }); world.timestep = H;
 const n = 100, N = n + 1;

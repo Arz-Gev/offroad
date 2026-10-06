@@ -1,14 +1,15 @@
 // Static suspension numbers of each car at its stock params (no simulation, instant).
-//   node tools/suspcheck.mjs [car ...]      (default: all cars in carSpecs.js)
+//   node tools/suspcheck.mjs [car ...]      (default: all cars in src/cars/)
 // Per axle: static spring compression (sag) and its share of the travel, droop left, room to the bump rubber
 // (5 cm before the hard stop) and to the stop, the extra load the springs take before the rubber (in g of
 // the static load), the sprung heave frequency (spring only, no tyre), and for 2 axles the roll stiffness
 // share of the front (springs at springTrack + bar). Targets for a new car: .claude/skills/add-car/SKILL.md.
-import { CAR_SPECS, makeCarParams } from '../src/vehicle/carSpecs.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
+import { CAR_IDS } from '../src/cars/index.js';
 import { axleShares } from '../src/vehicle/suspension.js';
 
 const G = 9.81, cm = x => (x * 100).toFixed(1);
-for (const id of process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CAR_SPECS)) {
+for (const id of process.argv.slice(2).length ? process.argv.slice(2) : CAR_IDS) {
   const P = makeCarParams(id), sh = axleShares(P);
   console.log(`${P.name}: sprung ${P.bodyMass} kg, ${P.axles.length} axles`);
   const roll = [];

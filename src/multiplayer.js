@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildCarModel } from './vehicle/cars.js';
-import { makeCarParams, CAR_SPECS } from './vehicle/carSpecs.js';
+import { makeCarParams } from './vehicle/carParams.js';
+import { isCar, DEFAULT_CAR } from './cars/index.js';
 import { cornerKin } from './vehicle/suspension.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { escapeHTML } from './hud.js';
@@ -159,7 +160,7 @@ export class Multiplayer {
 
   helloData() {
     const P = this.api.vehicle.P;
-    return { name: this.name, car: P.car || 'defender', tw: P.tire.width, sr: P.steer.ratio, tr: P.tire.radius };
+    return { name: this.name, car: P.car, tw: P.tire.width, sr: P.steer.ratio, tr: P.tire.radius };
   }
 
   // ------------------------------------------------------------------ friends
@@ -180,7 +181,7 @@ export class Multiplayer {
     if (p.tag) p.tag.textContent = p.name;
     if (isNew) this.api.say('mp-' + id, `${escapeHTML(p.name)} joined`, 'good');
     this.api.changed?.();
-    const car = Object.hasOwn(CAR_SPECS, h.car) ? h.car : 'defender';
+    const car = isCar(h.car) ? h.car : DEFAULT_CAR;
     p.lastHello = h;
     if (p.car !== car || !p.model) { p.car = car; p.S = layoutFor(makeCarParams(car)); p.snaps.length = 0; this.build(p, h); }
     else if (p.proxy) { p.proxy.P.tire.width = +h.tw || p.proxy.P.tire.width; p.proxy.P.steer.ratio = +h.sr || p.proxy.P.steer.ratio; }

@@ -10,7 +10,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { buildCarModel } from '/src/vehicle/cars.js';
-import { makeCarParams } from '/src/vehicle/carSpecs.js';
+import { makeCarParams } from '/src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK } from '/src/vehicle/tuning.js';
 import { cornerKin, ackermann, steerRefLength } from '/src/vehicle/suspension.js';
 import { VehicleView } from '/src/vehicle/vehicleView.js';
@@ -88,7 +88,7 @@ window.view = (eye, target, fov = 40) => {
   camera.fov = fov; camera.updateProjectionMatrix();
   renderer.render(scene, camera); return true;
 };
-window.model = model; window.v = v; window.P = P;
+window.model = model; window.v = v; window.P = P; window.vview = vview; window.env = env;
 pose();
 view([7, 2.5, -6], [0, 0.8, -0.5]);
 window.ready = true;
