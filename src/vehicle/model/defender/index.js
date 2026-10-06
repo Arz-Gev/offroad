@@ -33,8 +33,8 @@ export function defenderBody(mats) {
     eye: cab.driverEye,
     cockpit: { steeringWheel: cab.steeringWheel, gearLever: cab.gearLever, transferLever: cab.transferLever, needles: cab.needles,
       gaugeMat: cab.gaugeMat, needleMat: cab.needleMat, warnMat: cab.warnMat },
-    lenses: { head: L.headLens, side: L.sideLens, bar: L.barLens, work: L.workLens, tail: L.tail, brake: L.brake,
-      reverse: L.reverse, amber: L.amber, beacon: L.beacon },
+    lenses: { head: [L.headLens], side: [L.sideLens], bar: [L.barLens], work: [L.workLens], tail: [L.tail], brake: [L.brake],
+      reverse: [L.reverse], amber: [L.amber], beacon: [L.beacon] },
     kits: [{
       // the spare follows the tuned tyre size, its face stays at the door
       update(view, v) {

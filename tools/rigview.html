@@ -6,7 +6,8 @@
      tyre deformation (03-car-pipeline.md, step 7: underside / suspension screenshots).
      http://localhost:5174/tools/rigview.html?car=btr80   then from CDP / Playwright:
        pose({ c: [per wheel compression from full droop, m], steer: rad, pen: [per wheel tyre intrusion, m] })
-       hide('hull' | 'wheels' | 'turret', true|false), view([eye], [target], fov), turret(yaw, pitch) -->
+       hide('hull' | 'wheels' | 'turret', true|false), view([eye], [target], fov), turret(yaw, pitch),
+       measureArches() (the car's physics.archTop) -->
 <script type="module">
 import * as THREE from 'three';
 import { buildCarModel } from '/src/vehicle/model/index.js';
@@ -88,7 +89,26 @@ window.view = (eye, target, fov = 40) => {
   camera.fov = fov; camera.updateProjectionMatrix();
   renderer.render(scene, camera); return true;
 };
-window.model = model; window.v = v; window.P = P; window.vview = vview; window.env = env;
+window.model = model; window.v = v; window.P = P; window.vview = vview; window.env = env; window.THREE = THREE;
+// the car's arch top (physics.archTop): the lowest body surface over each tyre, from rays straight up out of
+// the static tyre top across the tread and along the arch (body frame, the model at its static ride)
+window.measureArches = () => {
+  model.root.position.set(0, 0, 0); model.root.quaternion.identity(); model.root.updateMatrixWorld(true);
+  const targets = [];
+  (model.shell || model.body).traverse(o => { if (o.isMesh && !o.material.transparent) targets.push(o); });
+  const rc = new THREE.Raycaster(), per = [];
+  for (const a of P.axles) {
+    let low = Infinity;
+    for (const side of [-1, 1]) for (const dx of [-0.08, 0, 0.08]) for (const dz of [-0.25, -0.12, 0, 0.12, 0.25]) {
+      rc.set(new THREE.Vector3(side * P.track / 2 + dx, 2 * P.tire.radius + 0.06, a.z + dz), new THREE.Vector3(0, 1, 0));
+      const h = rc.intersectObjects(targets, false)[0];
+      if (h) low = Math.min(low, h.point.y);
+    }
+    per.push(+low.toFixed(3));
+  }
+  pose();
+  return { perAxle: per, archTop: Math.min(...per) };
+};
 pose();
 view([7, 2.5, -6], [0, 0.8, -0.5]);
 window.ready = true;

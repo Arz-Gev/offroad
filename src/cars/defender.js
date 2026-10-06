@@ -23,7 +23,7 @@ export default {
     aero: { cdA: 2.15 },
     wheelbase: 2.794,
     track: 1.56,
-    archTop: 1.03,                        // top of the wheel arch openings (body frame, model/defender/dims.js)
+    archTop: 1.01,                        // the lowest body over the tyres: the inner wheel tubs (the arch openings: 1.03)
 
     // Solid beam axles on coil springs (front: radius arms + panhard, rear: trailing links + A-frame).
     // droopY: the axle centre height at full droop, set by hand on this car (the others' is computed from

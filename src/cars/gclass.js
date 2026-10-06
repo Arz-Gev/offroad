@@ -10,6 +10,7 @@ export default {
     engine: { preset: 'g500', choices: ROAD_ENGINES },
     bodyMass: 2050, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
     wheelbase: 2.907, track: 1.635,
+    archTop: 0.86,   // the lowest body over the tyres (tools/rigview.html measureArches)
     // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
     // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60.
     // Front spring stiff enough that the static ride uses ~40 % of the travel (47000 sat at 45 %, 8 cm to the
@@ -52,7 +53,16 @@ export default {
     wheel: { R: 0.4015, width: 0.285 },   // its own tyre (the wheel nodes scale from this to the tuned size)
     eye: [-0.40, 1.62, 0.10],             // left-hand drive
     hoodEye: [0, 1.68, -1.05],
-    lamps: { head: [0, 0.95, -2.42], bar: [0, 2.02, -0.55], rear: [0, 0.80, 2.62] },
+    // beams; the lamps' glass and inserts were cut out of the model (tools/cutparts.mjs, model frame, both
+    // sides mirrored): lens_head x [0.52, 0.76] y [0.43, 0.67] z [-2.13, -2.02], lens_tail x [0.55, 0.84]
+    // y [0.34, 0.47] z [2.14, 2.24]
+    lamps: { head: [0, 0.95, -2.42], rear: [0, 0.80, 2.62],
+      lenses: { head: '^lens_head', tail: '^lens_tail', brake: '^lens_tail' } },
+    // a roof light bar over the windscreen (the roof top is at 1.98): it carries the bar beam
+    lightBar: { at: [0, 2.08, -0.40], width: 1.1, lamps: 4, roof: 1.98 },
+    // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.56, -0.26], [0.82, 1.07],
+    // [-0.41, -0.25]] in the model frame); it turns about its own axis
+    cockpit: { steeringWheel: 'steering_wheel' },
   },
 
   tests: {

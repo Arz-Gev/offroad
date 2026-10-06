@@ -30,6 +30,7 @@ export default {
     // sprung 11.8 t + 4 x 460 kg unsprung (two wheels with hubs, wheel reductions, drums, knuckles, half arms)
     bodyMass: 11800, bodyInertia: [60000, 66000, 13500], com: [0, 1.12, 0.10], aero: { cdA: 6.0 },
     wheelbase: 4.44, track: 2.313,
+    archTop: 1.22,   // the lowest hull over the tyres, axle 1 (1.24-1.28 behind it; tools/rigview.html measureArches)
     // front two axles steer; centre-diff outputs: axles 1 + 3 (group 0) and 2 + 4 (group 1)
     axles: [
       { ...CORNER, ...TWO_SHOCKS, z: -2.22, steered: true, group: 0 },

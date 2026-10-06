@@ -11,6 +11,7 @@ import { wishboneCorners } from './wishbones.js';
 import { turretRig } from './turretRig.js';
 import { cockpitKit, pivotFromNode } from './cockpit.js';
 import { defenderBody } from './defender/index.js';
+import { lightBar } from './accessories.js';
 
 // A car's model, built from its file's look (src/cars/<id>.js) and its physics (the axle types): the same
 // steps for every car, each part chosen by data.
@@ -20,7 +21,7 @@ import { defenderBody } from './defender/index.js';
 //   gear      (look.suspension, wishbones.js)
 //   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js)
 //   cockpit   the cabin's moving parts: the procedural body's, or the shell's nodes (look.cockpit)
-//   extras    a turret (look.turret, turretRig.js)
+//   extras    a turret (look.turret, turretRig.js), a roof light bar (look.lightBar, accessories.js)
 //   cameras   look.eye / hoodEye / chase
 // The result is what VehicleView drives: { root, wheels, kits (each with update(view, v, dt)), cockpit,
 // lenses, lights, driverEye, hoodEye, chaseDist, chaseTarget, turret, shell }. Body frame: +x right,
@@ -74,9 +75,16 @@ export async function buildCarModel(id) {
     model.kits.push(t);
   }
 
-  // ---------------- lamps
-  model.lights = buildLightRig(root, look.lamps || src.lamps);
+  // ---------------- lamps (a light bar carries the bar beam and its lenses)
+  const lamps = { ...(look.lamps || src.lamps) };
   model.lenses = src ? src.lenses : modelLenses(shell, look.lamps?.lenses);
+  if (look.lightBar) {
+    const lb = lightBar(mats, look.lightBar);
+    root.add(lb.group);
+    lamps.bar = lb.beam;
+    for (const [role, mats_] of Object.entries(lb.lenses)) model.lenses[role] = [...(model.lenses[role] || []), ...mats_];
+  }
+  model.lights = buildLightRig(root, lamps);
 
   // ---------------- cockpit and cameras
   model.driverEye = new THREE.Vector3(...(look.eye || src.eye.toArray()));

@@ -147,24 +147,31 @@ export function buildLightRig(root, at) {
 }
 
 // The lens roles VehicleView drives: head, side (side lamps), bar (light bar), work (reversing work lamps),
-// tail, brake, reverse, amber (indicators / hazards), beacon. A downloaded model names the materials of its
-// lenses by role (look.lamps.lenses: role -> material name pattern); each pattern gets one glowing copy of
-// the material, shared by every role that names it (the BTR-80's red lens is tail and brake).
+// tail, brake, reverse, amber (indicators / hazards), beacon; each role is a list of materials. A downloaded
+// model names its lenses by role (look.lamps.lenses: role -> a pattern matched against the material name
+// and the mesh name, e.g. the nodes tools/cutparts.mjs cut out). Every source material under a pattern
+// gets one glowing copy, shared by the roles that name the same pattern (the BTR-80's red lens is tail and
+// brake).
 const LENS_COLOR = { amber: [1, 0.55, 0.1], beacon: [1, 0.55, 0.1], tail: [1, 0.1, 0.05], brake: [1, 0.1, 0.05] };
 export function modelLenses(shell, lenses = {}) {
   const roles = {}, byPattern = new Map();
   for (const [role, pattern] of Object.entries(lenses)) {
     if (!byPattern.has(pattern)) {
-      const re = new RegExp(pattern);
-      let mat = null;
+      const re = new RegExp(pattern), copies = new Map();
       shell.traverse(o => {
-        if (!o.isMesh || !re.test(o.material.name)) return;
-        if (!mat) { mat = o.material.clone(); mat.emissive = new THREE.Color(...(LENS_COLOR[role] || [1, 1, 1])); mat.emissiveIntensity = 0; }
+        if (!o.isMesh || !(re.test(o.material.name) || re.test(o.name))) return;
+        let mat = copies.get(o.material);
+        if (!mat) {
+          mat = o.material.clone(); mat.emissive = new THREE.Color(...(LENS_COLOR[role] || [1, 1, 1])); mat.emissiveIntensity = 0;
+          // clear glass: lit from inside it shows its glow (VehicleView raises the opacity with it)
+          if (mat.transparent) mat.userData.clearOpacity = mat.opacity;
+          copies.set(o.material, mat);
+        }
         o.material = mat;
       });
-      byPattern.set(pattern, mat);
+      byPattern.set(pattern, [...copies.values()]);
     }
-    if (byPattern.get(pattern)) roles[role] = byPattern.get(pattern);
+    if (byPattern.get(pattern).length) roles[role] = byPattern.get(pattern);
   }
   return roles;
 }

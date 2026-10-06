@@ -108,7 +108,14 @@ export class VehicleView {
     glow.head = head === 0 ? 0 : head === 1 ? 2.6 : 5.0; glow.side = tailOn ? 1.2 : 0; glow.bar = ls.bar ? 6.0 : 0;
     glow.work = ls.bar && reversing ? 4.0 : 0; glow.tail = tailOn ? 1.6 : 0; glow.brake = braking ? 3.2 : tailOn ? 1.0 : 0;
     glow.reverse = reversing ? 4.0 : 0; glow.amber = blinkOn ? 5.0 : 0; glow.beacon = 0;
-    for (const role in glow) if (lens[role]) lens[role].emissiveIntensity = glow[role];
+    for (const role in glow) {
+      const mats = lens[role];
+      if (mats) for (const mat of mats) {
+        mat.emissiveIntensity = glow[role];
+        const o0 = mat.userData.clearOpacity;   // a clear lens: lit from inside, its glass glows
+        if (o0 !== undefined) mat.opacity = o0 + (1 - o0) * Math.min(1, glow[role] / 2.6);
+      }
+    }
 
     // rear: tail / brake glow on the ground behind + the reversing lamps (one small spot)
     const red = (braking ? 0.5 : 0) + (tailOn ? 0.08 : 0);

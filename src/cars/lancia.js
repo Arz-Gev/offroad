@@ -11,6 +11,7 @@ export default {
     engine: { preset: 'lancia', choices: ROAD_ENGINES },
     bodyMass: 1170, bodyInertia: [1450, 1900, 450], com: [0, 0.50, -0.22], aero: { cdA: 0.68 },
     wheelbase: 2.477, track: 1.401,
+    archTop: 0.67,   // the lowest body over the tyres (tools/rigview.html measureArches)
     // character: a gravel rally car: light, very quick steering, grippy rally tyres, a rear bar that helps it
     // turn in. Soft, long travel and 6 cm higher than the road car (road springs and 17 cm of travel scraped
     // and crashed over the trail bumps above 60). The static ride uses half the travel (6 cm to the bump
@@ -58,7 +59,13 @@ export default {
     chase: { dist: 5.6, target: 0.85 },   // 0.7 m shorter and 0.6 m lower than the Defender: the camera comes closer
     eye: [-0.38, 1.10, 0.15],
     hoodEye: [0, 1.02, -1.05],
-    lamps: { head: [0, 0.62, -2.08], bar: [0, 1.33, -0.30], rear: [0, 0.75, 2.0] },
+    // beams (the bar beam from the driving lamps in the grille: no roof bar); the model's lamp inserts glow
+    // (behind the clear glass): LightBump (headlamps), LightBump_rear (tail and brake)
+    lamps: { head: [0, 0.62, -2.08], bar: [0, 0.62, -2.10], rear: [0, 0.75, 2.0],
+      lenses: { head: '^LightBump$', tail: '^LightBump_rear$', brake: '^LightBump_rear$' } },
+    // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.52, -0.12], [0.34, 0.68],
+    // [-0.63, -0.40]] in the model frame); it turns about its own axis
+    cockpit: { steeringWheel: 'steering_wheel' },
   },
 
   tests: {
