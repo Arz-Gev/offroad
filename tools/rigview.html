@@ -9,7 +9,7 @@
        hide('hull' | 'wheels' | 'turret', true|false), view([eye], [target], fov), turret(yaw, pitch) -->
 <script type="module">
 import * as THREE from 'three';
-import { buildCarModel } from '/src/vehicle/cars.js';
+import { buildCarModel } from '/src/vehicle/model/index.js';
 import { makeCarParams } from '/src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK } from '/src/vehicle/tuning.js';
 import { cornerKin, ackermann, steerRefLength } from '/src/vehicle/suspension.js';
@@ -76,10 +76,10 @@ const groups = {
 window.hide = (what, h = true) => { for (const o of groups[what]()) o.visible = !h; return true; };
 // only corner i's suspension parts (and wheel), the rest hidden; -1 shows all
 window.isolate = i => {
-  model.rig?.corners.forEach((cr, k) => {
-    for (const n of ['armLow', 'armUp', 'barLow', 'barUp', 'eyeLo', 'rod', 'sbody', 'eyeUp']) if (cr[n]) cr[n].grp.visible = i < 0 || k === i;
+  model.kits.find(k => k.corners)?.corners.forEach((cr, k) => {
+    for (const n of ['armLow', 'armUp', 'barLow', 'barUp', 'shockEyeLo', 'shockRod', 'shockBody', 'shockEyeUp']) if (cr[n]) cr[n].grp.visible = i < 0 || k === i;
     cr.knuckle.visible = i < 0 || k === i;
-    model.wheels[k].steer.visible = i < 0 || k === i;
+    model.wheels[cr.wheel].steer.visible = i < 0 || k === i;
   });
   return true;
 };

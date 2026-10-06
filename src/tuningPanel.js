@@ -487,19 +487,20 @@ export class TuningPanel {
     if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th><th>low</th></tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td><td>${f0(g.low)}</td></tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
     this.refreshLive();
     const geo = A.geo, arch = geo.arch;
-    const archTxt = a => a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;
+    const archTxt = a => !a ? '—' : a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;
     ss('tyres', `${s.tyres.size}×${s.tyres.width} · ${fmtPressure(v.pressure, this.api.settings.get('pressureUnit'))}`);
     ro('tyres', kv([
       ['Axle clearance', `${cm(geo.diffClear)}${vs(geo.diffClear * 100, S.geo.diffClear * 100, 0)}`],
       ['Gearing', s.tyres.size === STOCK.tyres.size ? 'stock' : `${pct(tyreRadius(s.tyres.size), tyreRadius(STOCK.tyres.size))} taller`],
-      ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[1])],
+      ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[arch.length - 1])],
     ]));
-    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[1].f)} Hz`);
+    const rA = A.susp.length - 1;   // the rear: the last axle
+    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[rA].f)} Hz`);
     const freq = i => `${f2(A.susp[i].f)} Hz <em class="${A.susp[i].f > S.susp[i].f + 0.005 ? 'up' : A.susp[i].f < S.susp[i].f - 0.005 ? 'dn' : ''}">${A.susp[i].f > S.susp[i].f + 0.005 ? 'stiffer' : A.susp[i].f < S.susp[i].f - 0.005 ? 'softer' : 'stock'}</em>`;
     const zeta = z => `${f2(z)} ${z < 0.25 ? '<span class="bad">bouncy</span>' : z < 0.4 ? '<span class="warn">soft</span>' : z > 0.9 ? '<span class="warn">harsh</span>' : ''}`;
     ro('susp', kv([
-      ['Ride F', freq(0)], ['Ride R', freq(1)],
-      ['Damping F', zeta(A.susp[0].zeta)], ['Damping R', zeta(A.susp[1].zeta)],
+      ['Ride F', freq(0)], ['Ride R', freq(rA)],
+      ['Damping F', zeta(A.susp[0].zeta)], ['Damping R', zeta(A.susp[rA].zeta)],
       ['Body clearance', `${cm(geo.bodyClear)}${vs(geo.bodyClear * 100, S.geo.bodyClear * 100, 0)}`], ['Axle clearance', cm(geo.diffClear)],
       ['Approach', `${f0(geo.approach)}°${vs(geo.approach, S.geo.approach, 0)}`], ['Departure', `${f0(geo.departure)}°${vs(geo.departure, S.geo.departure, 0)}`],
       ['Breakover', `${f0(geo.breakover)}°${vs(geo.breakover, S.geo.breakover, 0)}`], ['Centre of mass', `${cm(A.comH)} up`],

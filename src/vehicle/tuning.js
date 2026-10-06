@@ -18,7 +18,6 @@ import { makeCarParams } from './carParams.js';
 import { setCar, carDef, DEFAULT_CAR } from '../cars/index.js';
 import { ENGINES, ROAD_ENGINES, engineFriction } from './engines.js';
 import { tireRadialStiffness, tyreRadius, tyreWidth } from './tire.js';
-import { D } from './truckDims.js';
 import { axleShares, steerRefLength } from './suspension.js';
 
 const G = 9.81;
@@ -333,11 +332,13 @@ export function geometry(P, pressF, pressR, pts0 = null) {
   // axle diff housing (r 0.15 x 0.9) is the lowest part of a beam-axle truck; independent axles carry it in the body
   const beam = P.axles.map((a, i) => a.type === 'independent' ? Infinity : ride[i].hubH);
   const diff = Math.min(...beam) - 0.135;
-  // tyre top vs the arch top (D.ARCH_TOP, body frame) at full bump, and with one wheel pushed up by
-  // full axle articulation (one spring on its stop, the other at full droop)
+  // tyre top vs the car's arch top (physics.archTop, body frame) at full bump, and with one wheel pushed up
+  // by full axle articulation (beam: one spring on its stop, the other at full droop; an independent wheel
+  // goes no higher than its own bump). null: the car's arches aren't measured.
   const arch = P.axles.map(a => {
-    const bump = D.ARCH_TOP - (a.droopY + a.travel + R);
-    const twist = D.ARCH_TOP - (a.droopY + a.travel / 2 * (1 + P.track / a.springTrack) + R);
+    if (P.archTop == null) return null;
+    const bump = P.archTop - (a.droopY + a.travel + R);
+    const twist = a.type === 'independent' ? bump : P.archTop - (a.droopY + a.travel / 2 * (1 + P.track / a.springTrack) + R);
     return { bump, twist };
   });
   return { ride, approach: app, departure: dep, breakover: brk, bodyClear: low, diffClear: diff, arch };

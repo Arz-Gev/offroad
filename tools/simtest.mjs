@@ -11,7 +11,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeCarParams } from '../src/vehicle/carParams.js';
 import { CAR_IDS, carDef } from '../src/cars/index.js';
-import '../src/vehicle/cars.js';   // the model builder loads (the car files are checked by src/cars/index.js)
+import '../src/vehicle/model/index.js';   // the model builder loads (the car files are checked by src/cars/index.js)
 import * as tuning from '../src/vehicle/tuning.js';
 import { Turret, trajectory } from '../src/vehicle/turret.js';
 const { sanitize, applySetup, useCar } = tuning;

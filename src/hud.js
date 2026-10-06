@@ -1,5 +1,6 @@
 import { capsHTML } from './input.js';
 import { storage } from './settings.js';
+import { wheelName } from './vehicle/suspension.js';
 
 const FULL_SEEN_KEY = 'offroad.fullscreenUsed.v1';
 
@@ -21,8 +22,6 @@ const SUSP = 216;
 const MAX_RPM = 6000;
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-// wheel names: FL FR RL RR on a 4x4, axle number + side on more axles (1L 1R 2L ...)
-export const wheelName = (i, nA) => nA === 2 ? ['FL', 'FR', 'RL', 'RR'][i] : `${(i >> 1) + 1}${i % 2 ? 'R' : 'L'}`;
 
 // The drivetrain diagram of the cluster: wheels, shafts, an axle diff per axle and the centre diff, in a
 // fixed 64 x 72 box. Two axles: the original drawing. More axles get smaller wheels down the same box.

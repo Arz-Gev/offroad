@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 
-// Truck lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
+// Vehicle lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
 // cut-off: very little light goes steeply down (near field), most goes just below the horizon (far
 // field). Ground illuminance from a lamp at height h is E = I * h / r^3, so a plain cone always gives a
 // blown-out pool at the bumper and nothing further away. Here every beam is a SpotLight with a
 // light cookie (SpotLight.map) that encodes the angular intensity distribution I(elevation, azimuth).
 //
-// Lights (all on the truck root, only made visible at night or when something is switched on, so the
-// day scene pays nothing for them):
+// Lights (all on the vehicle root, only made visible at night or when something is switched on, so the
+// day scene pays nothing for them), at the car's lamp positions (look.lamps, or its procedural body's):
 //   head  - one spot between the headlamps, low/high beam cookies, the only shadow caster
 //   bar   - roof light bar, wide long-range flood, no shadow (the source is above the eye anyway)
 //   rear  - one small dim spot for tail/brake glow and the reversing lamps
-// Lens glow comes from emissive materials; there are no point lights.
+// Lens glow comes from emissive materials (lensRoles: the lamps' roles -> materials); there are no point
+// lights.
 
 // Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a
 // tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3);
@@ -23,7 +24,7 @@ function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
   const spotRE = /(\t\tgetSpotLightInfo\( spotLight, geometryPosition, directLight \);\n)([\s\S]*?)(\t\tRE_Direct\( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight \);\n)/;
-  if (!spotRE.test(C.lights_fragment_begin)) { console.warn('truckLights: lights_fragment_begin layout changed, lamp shoulder disabled'); return; }
+  if (!spotRE.test(C.lights_fragment_begin)) { console.warn('lamps: lights_fragment_begin layout changed, lamp shoulder disabled'); return; }
   const k = (1 / (LAMP_KNEE * LAMP_KNEE)).toFixed(6);
   const glsl = `\t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n`;
   C.lights_fragment_begin = C.lights_fragment_begin.replace(spotRE, (m, a, body, re) => `${a}${body}${glsl}${re}`);
@@ -143,4 +144,27 @@ export function buildLightRig(root, at) {
   // rear: tail/brake glow + reversing lamps, aimed back and down
   rig.rear = spot(0xff2a10, at.rear, [0, -0.3, 1], 0.95, 0.8, 11);
   return rig;
+}
+
+// The lens roles VehicleView drives: head, side (side lamps), bar (light bar), work (reversing work lamps),
+// tail, brake, reverse, amber (indicators / hazards), beacon. A downloaded model names the materials of its
+// lenses by role (look.lamps.lenses: role -> material name pattern); each pattern gets one glowing copy of
+// the material, shared by every role that names it (the BTR-80's red lens is tail and brake).
+const LENS_COLOR = { amber: [1, 0.55, 0.1], beacon: [1, 0.55, 0.1], tail: [1, 0.1, 0.05], brake: [1, 0.1, 0.05] };
+export function modelLenses(shell, lenses = {}) {
+  const roles = {}, byPattern = new Map();
+  for (const [role, pattern] of Object.entries(lenses)) {
+    if (!byPattern.has(pattern)) {
+      const re = new RegExp(pattern);
+      let mat = null;
+      shell.traverse(o => {
+        if (!o.isMesh || !re.test(o.material.name)) return;
+        if (!mat) { mat = o.material.clone(); mat.emissive = new THREE.Color(...(LENS_COLOR[role] || [1, 1, 1])); mat.emissiveIntensity = 0; }
+        o.material = mat;
+      });
+      byPattern.set(pattern, mat);
+    }
+    if (byPattern.get(pattern)) roles[role] = byPattern.get(pattern);
+  }
+  return roles;
 }
