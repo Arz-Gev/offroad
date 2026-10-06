@@ -104,6 +104,7 @@ export class ColliderView {
     const ap = [];
     for (const z of [D.ARCH_F, D.ARCH_R]) for (const x of [-1, 1]) ap.push(x * 0.78, D.ARCH_TOP, z - 0.34, x * 0.78, D.ARCH_TOP, z + 0.34);
     this.arches = onTop(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(ap, 3)), lineMat(0xffffff, 0.6)));
+    this.arches.visible = this.v.nA === 2;   // the Defender's arch line; a multi-axle truck has its own hull
     this.body.add(this.arches);
     // travel gauges, outside the body next to each wheel: droop..bump, bump stop zone, current position
     this.gauges = this.v.wheels.map(w => {
@@ -167,25 +168,33 @@ export class ColliderView {
     const R = v.R;
     v.wheels.forEach((w, i) => {
       const ax = w.axle, ap = ax.p, o = this.wheels[i];
-      _q.setFromAxisAngle(Z, ax.phi);
-      _v.set(w.side * P.track / 2, 0, 0).applyQuaternion(_q);
-      _v.y += ax.droopY + ax.c; _v.z += ap.z;
-      _q2.copy(_q).multiply(_q.setFromAxisAngle(Y, -w.steer));
+      if (ax.ind) {
+        // independent corner: hub, camber, steer (Vehicle.cornerGeometry)
+        _v.set(w.side * (P.track / 2 + w.out), ax.droopY + w.c, ap.z);
+        _q2.setFromAxisAngle(Z, -w.side * w.camber).multiply(_q.setFromAxisAngle(Y, -w.steer));
+      } else {
+        _q.setFromAxisAngle(Z, ax.phi);
+        _v.set(w.side * P.track / 2, 0, 0).applyQuaternion(_q);
+        _v.y += ax.droopY + ax.c; _v.z += ap.z;
+        _q2.copy(_q).multiply(_q.setFromAxisAngle(Y, -w.steer));
+      }
       o.cyl.position.copy(_v); o.cyl.quaternion.copy(_q2);
       const cr = R - 0.12 * R / 0.42;
       o.cyl.scale.set(P.tire.width * 0.42, cr, cr);
       o.tyre.position.copy(_v); o.tyre.quaternion.copy(_q2); o.tyre.scale.setScalar(R);
       // tyre top against the arch top (body frame): red when it reaches the arch
       const top = _v.y + R;
-      const rub = top > D.ARCH_TOP - 0.01;
+      const rub = v.nA === 2 && top > D.ARCH_TOP - 0.01;
       o.tyre.material.color.copy(rub ? COL.hit : COL.tyre);
       // side cylinder touching a rock / log / tree
       const hitW = w.sideCollider ? touchPoints(world, w.sideCollider) > 0 : false;
       o.cyl.material.color.copy(hitW ? COL.hit : COL.wheel);
       // travel gauge: spring compression at this side, 0 = full droop, travel = hard stop
       const g = this.gauges[i], s2 = ap.springTrack / 2;
-      const comp = ax.c + w.side * s2 * Math.sin(ax.phi);
-      g.g.position.set(w.side * (D.W + 0.12), ax.droopY, ap.z + (ax.i === 0 ? -0.62 : 0.62));
+      const comp = ax.ind ? w.c : ax.c + w.side * s2 * Math.sin(ax.phi);
+      // beside the body ahead of / behind the wheel (4x4), or just outboard of the tyre (more axles)
+      if (v.nA === 2) g.g.position.set(w.side * (D.W + 0.12), ax.droopY, ap.z + (ax.i === 0 ? -0.62 : 0.62));
+      else g.g.position.set(w.side * (P.track / 2 + P.tire.width / 2 + 0.12), ax.droopY, ap.z);
       g.rail.scale.y = ap.travel;
       g.stop.position.y = ap.travel - 0.05; g.stop.scale.y = 0.05;
       g.mark.position.y = Math.max(-0.02, Math.min(ap.travel + 0.02, comp));

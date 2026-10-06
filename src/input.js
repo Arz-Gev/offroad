@@ -39,9 +39,15 @@ export const BINDINGS = [
   { id: 'hazards', group: 'Vehicle', label: 'Hazard lights', codes: ['KeyG'], keys: ['G'] },
   { id: 'recover', group: 'Vehicle', label: 'Recover: put the truck back on its wheels', codes: ['KeyR'], keys: ['R'], pad: 'B', button: PAD.B, touch: 'Recover' },
 
-  { id: 'camera', group: 'Camera & world', label: 'Next camera: chase, cockpit, hood, wheel, orbit', codes: ['KeyC'], keys: ['C'], pad: 'Y', button: PAD.Y, touch: 'Cam' },
+  { id: 'camera', group: 'Camera & world', label: 'Next camera: chase, cockpit, hood, wheel, orbit (and the gunner\'s sight on a turret)', codes: ['KeyC'], keys: ['C'], pad: 'Y', button: PAD.Y, touch: 'Cam' },
   { id: 'look', group: 'Camera & world', label: 'Look around · zoom', keys: ['Drag mouse', 'Wheel'], pad: 'R stick', touch: 'Drag · pinch' },
   { id: 'time', group: 'Camera & world', label: 'Time of day: jump to day, dusk, night', codes: ['KeyN'], keys: ['N'] },
+
+  // turret vehicles (BTR-80). fire and aim are held controls (read in Input.update), not dispatched actions
+  { id: 'gunner', group: 'Turret', label: 'Gunner\'s sight on / off (click in it to aim with the mouse)', keys: ['Right mouse'], touch: 'Sight' },
+  { id: 'fire', group: 'Turret', label: 'Fire (hold)', keys: ['Left mouse', 'Enter'], pad: 'R stick click', touch: 'Fire' },
+  { id: 'aim', group: 'Turret', label: 'Turn the turret and the gun: mouse in the sight, arrows in the sight, or the numpad', keys: ['Mouse', '↑ ↓ ← →'], alt: ['Num 8 2 4 6'], pad: 'R stick (in the sight)', touch: 'Drag' },
+  { id: 'weapon', group: 'Turret', label: 'Gun: KPVT 14.5 mm ⇄ coaxial PKT 7.62 mm', codes: ['Digit1'], keys: ['1'], touch: 'Gun' },
 
   { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
   { id: 'locations', group: 'Game', label: 'Locations: teleport to the proving ground lanes', codes: ['KeyP'], keys: ['P'] },
@@ -89,9 +95,11 @@ export class Input {
   constructor(el) {
     this.keys = new Set();
     this.pressed = new Set();      // edge-triggered this frame (kept for console tests)
-    this.raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, analogSteer: false };
-    this.mouse = { dx: 0, dy: 0, wheel: 0, down: false, lastMove: 0 };
-    this.touch = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };   // written by touch.js
+    this.raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, analogSteer: false, fire: 0, aimX: 0, aimY: 0 };
+    this.mouse = { dx: 0, dy: 0, wheel: 0, down: false, lastMove: 0, fire: false };
+    this.touch = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, fire: 0 };   // written by touch.js
+    this.gunner = false;           // in the gunner's sight (main.js): arrows aim the turret, the mouse aims, LMB fires
+    this.sightLock = null;         // () => request pointer lock for the sight (main.js)
     this.device = 'kb';            // last used: 'kb' | 'pad' | 'touch'
     this.onAction = null;          // (id, device) => void
     this.onDevice = null;          // (device) => void
@@ -116,8 +124,18 @@ export class Input {
     });
     window.addEventListener('keyup', e => { this.keys.delete(e.code); if (e.key === 'Meta') this.keys.clear(); });
     window.addEventListener('blur', () => this.keys.clear());
-    el.addEventListener('mousedown', e => { this.mouse.down = true; this.mouse.lastMove = performance.now(); e.preventDefault(); });
-    window.addEventListener('mouseup', () => { this.mouse.down = false; });
+    el.addEventListener('mousedown', e => {
+      e.preventDefault();
+      // right button: the gunner's sight (turret vehicles); in the sight the left button fires once the
+      // pointer is locked to the view (the first click only locks it)
+      if (e.button === 2) { if (this.onAction) this.onAction('gunner', 'kb'); return; }
+      if (this.gunner && e.button === 0) {
+        if (document.pointerLockElement) { this.mouse.fire = true; return; }
+        this.sightLock?.();   // locks from now on; a drag aims meanwhile (and if the browser refuses the lock)
+      }
+      this.mouse.down = true; this.mouse.lastMove = performance.now();
+    });
+    window.addEventListener('mouseup', e => { if (e.button === 0) this.mouse.fire = false; if (e.button !== 2) this.mouse.down = false; });
     window.addEventListener('mousemove', e => {
       if (this.mouse.down || document.pointerLockElement) {
         this.mouse.dx += e.movementX; this.mouse.dy += e.movementY;
@@ -139,7 +157,7 @@ export class Input {
     this.keys.clear();
     this.pressed.clear();
     this._thr = this._brk = this._steer = 0;
-    this.mouse.down = false;
+    this.mouse.down = false; this.mouse.fire = false;
     for (const k in this.touch) this.touch[k] = 0;
   }
 
@@ -149,8 +167,14 @@ export class Input {
   // call once per rendered frame
   update(dt) {
     const r = this.raw;
-    const up = this.down('KeyW', 'ArrowUp'), dn = this.down('KeyS', 'ArrowDown');
-    const lt = this.down('KeyA', 'ArrowLeft'), rt = this.down('KeyD', 'ArrowRight');
+    // in the gunner's sight the arrows turn the turret (W A S D still drive)
+    const arrows = !this.gunner;
+    const up = this.down('KeyW') || (arrows && this.down('ArrowUp')), dn = this.down('KeyS') || (arrows && this.down('ArrowDown'));
+    const lt = this.down('KeyA') || (arrows && this.down('ArrowLeft')), rt = this.down('KeyD') || (arrows && this.down('ArrowRight'));
+    const ax = (this.down('Numpad6') || (!arrows && this.down('ArrowRight')) ? 1 : 0) - (this.down('Numpad4') || (!arrows && this.down('ArrowLeft')) ? 1 : 0);
+    const ay = (this.down('Numpad8') || (!arrows && this.down('ArrowUp')) ? 1 : 0) - (this.down('Numpad2') || (!arrows && this.down('ArrowDown')) ? 1 : 0);
+    let aimX = ax, aimY = ay;
+    let fire = this.down('Enter', 'NumpadEnter') || (this.mouse.fire && !!document.pointerLockElement) ? 1 : 0;
     // pedal ramps (keyboard)
     const ramp = (cur, on, upRate, downRate) => on ? Math.min(1, cur + upRate * dt) : Math.max(0, cur - downRate * dt);
     let thr = ramp(this._thr || 0, up, 2.2, 5);
@@ -170,6 +194,7 @@ export class Input {
       thr = Math.max(thr, t.throttle); brk = Math.max(brk, t.brake);
       if (!lt && !rt) { steer = t.steer; r.analogSteer = true; }
       clutch = Math.max(clutch, t.clutch); hb = Math.max(hb, t.handbrake);
+      fire = Math.max(fire, t.fire);
     }
 
     // gamepad (standard mapping)
@@ -210,14 +235,21 @@ export class Input {
         if (gp.buttons[PAD.A]?.pressed) hb = 1;
         if (gp.buttons[PAD.LB]?.pressed) clutch = 1;
         for (const i in PAD_ACTION) if (edge(+i) && this.onAction) this.onAction(PAD_ACTION[i], 'pad');
-        // right stick looks around
-        this.mouse.dx += (gp.axes[2] || 0) * 14; this.mouse.dy += (gp.axes[3] || 0) * 10;
-        if (Math.abs(gp.axes[2] || 0) > 0.2 || Math.abs(gp.axes[3] || 0) > 0.2) this.mouse.lastMove = performance.now();
+        // right stick looks around, or in the gunner's sight turns the turret (R3 held fires)
+        if (this.gunner) {
+          const rs = v => Math.abs(v) < 0.12 ? 0 : Math.sign(v) * Math.pow((Math.abs(v) - 0.12) / 0.88, 1.6);
+          aimX += rs(gp.axes[2] || 0); aimY -= rs(gp.axes[3] || 0);
+        } else {
+          this.mouse.dx += (gp.axes[2] || 0) * 14; this.mouse.dy += (gp.axes[3] || 0) * 10;
+          if (Math.abs(gp.axes[2] || 0) > 0.2 || Math.abs(gp.axes[3] || 0) > 0.2) this.mouse.lastMove = performance.now();
+        }
+        if (gp.buttons[PAD.RS]?.pressed) fire = 1;
       } else {
         for (const i in PAD_ACTION) this.padPrev[i] = !!gp.buttons[i]?.pressed;
       }
     }
     r.throttle = thr; r.brake = brk; r.steer = steer; r.clutch = clutch; r.handbrake = hb;
+    r.fire = fire; r.aimX = Math.max(-1, Math.min(1, aimX)); r.aimY = Math.max(-1, Math.min(1, aimY));
   }
 
   endFrame() {

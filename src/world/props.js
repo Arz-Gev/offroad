@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { makeSimplex2D, mulberry32, fbm } from './noise.js';
 import { LANES, PAD, SPAWN, SURF, MAP_SIZE, POI } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
@@ -53,6 +54,26 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
     const ry = rnd() * Math.PI * 2;
     g.rotateY(ry);
     g.rotateX((rnd() - 0.5) * 0.4);
+    // The collider is the convex hull of these vertices, so the drawn rock is made the same shape: vertices in
+    // a dent are pushed out (from the rock's centre) onto the hull. Otherwise a tyre sits on the hull over a
+    // dip the mesh shows (tools/groundmatch.mjs: 5 cm at the 90th percentile on rock tops) and the drawn tyre,
+    // deformed by the physics' ray hits, floats. The hull, and so the physics, is unchanged.
+    const pts3 = [];
+    for (let i = 0; i < pos.count; i++) pts3.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+    const hull = new ConvexHull().setFromPoints(pts3);
+    const nf = hull.faces.length, fp = new Float64Array(nf * 4);
+    const onHull = new Set();
+    hull.faces.forEach((f, k) => {
+      fp[k * 4] = f.normal.x; fp[k * 4 + 1] = f.normal.y; fp[k * 4 + 2] = f.normal.z; fp[k * 4 + 3] = f.constant;
+      let e = f.edge; do { onHull.add(e.vertex.point); e = e.next; } while (e !== f.edge);
+    });
+    for (let i = 0; i < pts3.length; i++) {
+      if (onHull.has(pts3[i])) continue;   // a hull vertex already
+      const p = pts3[i];
+      let t = Infinity;
+      for (let k = 0; k < nf * 4; k += 4) { const d = fp[k] * p.x + fp[k + 1] * p.y + fp[k + 2] * p.z; if (d > 1e-9) { const tt = fp[k + 3] / d; if (tt < t) t = tt; } }
+      if (t > 1 && t < 2) pos.setXYZ(i, p.x * t, p.y * t, p.z * t);
+    }
     const ground = Math.min(terrain.heightAt(x - sx * 0.5, z), terrain.heightAt(x + sx * 0.5, z), terrain.heightAt(x, z - sz * 0.5), terrain.heightAt(x, z + sz * 0.5), terrain.heightAt(x, z));
     const y = ground + sy * (1 - sink) - sy;
     g.computeVertexNormals();

@@ -18,17 +18,28 @@ for (const s of Object.values(SURFACES)) s.B = Math.tan(Math.PI / (2 * s.C)); //
 
 const FN_REF = 5200;
 
+// The ray fan of a wheel (Vehicle.castContact) and the tyre shader (tireMaterial.js) share these: 13 rays
+// from 80° behind to 80° ahead of straight down, in 3 rows across the tread at -0.34, 0, +0.34 x width.
+export const TIRE_FAN = [];
+for (let i = -6; i <= 6; i++) TIRE_FAN.push((i / 6) * (80 * Math.PI / 180));
+export const TIRE_ROWS = [-1, 0, 1];
+export const TIRE_ROW_OFFSET = 0.34;
+export const TIRE_SUB = 6;   // samples of the ground between two neighbouring rays (tyre v2 patch integral)
+export const TIRE_BELT = 1.0; // the tread band's stiffness as a spread of the load (Vehicle.integrateTyre)
+
 // Lateral load sensitivity. A real tyre's cornering stiffness grows much slower than its load (roughly
 // Fz^0.6-0.7), so the slip angle at the force peak grows with load. This is what makes lateral load
 // transfer cost grip: the axle that takes more of it (stiffer roll, more weight) slides first. With a
 // constant peak slip angle the cornering stiffness was almost proportional to load (exponent 0.86) and the
 // truck came out nearly neutral whatever its weight split and anti-roll bars.
 const LAT_LOAD_EXP = 0.35;
-export const latPeak = (surf, Fn) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / FN_REF)), LAT_LOAD_EXP);
+// ref: the tyre's nominal load (P.tire.fnRef; the 33" tyre's 5.2 kN by default): load sensitivity is relative to it
+export const latPeak = (surf, Fn, ref = FN_REF) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / ref)), LAT_LOAD_EXP);
 
-// Radial stiffness (N/m) as a function of pressure (psi): carcass + air.
-export function tireRadialStiffness(psi) {
-  return 46000 + 6300 * psi;
+// Radial stiffness (N/m) as a function of pressure (psi): carcass + air, for the 33x10.5 tyre the numbers
+// were set on; kScale scales it for a bigger or smaller tyre (P.tire.kScale, 1 by default).
+export function tireRadialStiffness(psi, kScale = 1) {
+  return (46000 + 6300 * psi) * kScale;
 }
 
 // Per-wheel tyre parameters that depend on pressure and surface. Cheap enough to call every substep.
@@ -42,7 +53,8 @@ export function tireCoefs(tire, psi, surf, out) {
   out.crr = surf.crr * (hard * Math.sqrt(28 / Math.max(psi, 4)) + surf.soft * Math.pow(Math.max(psi, 4) / 28, 0.6));
   out.Lx = tire.relaxX * (1 + 0.6 * low);
   out.Ly = tire.relaxY * (1 + 0.7 * low);
-  out.kt = tireRadialStiffness(psi);
+  out.kt = tireRadialStiffness(psi, tire.kScale ?? 1);
+  out.fnRef = tire.fnRef ?? FN_REF;
   return out;
 }
 
@@ -50,10 +62,10 @@ export function tireCoefs(tire, psi, surf, out) {
 // w: wheel state with ux, uy. Writes w.Fx, w.Fy, w.slipNorm.
 export function tireForces(w, Fn, vsx, vsy, speed, surf, co) {
   if (Fn <= 0) { w.Fx = 0; w.Fy = 0; w.slipNorm = 0; return; }
-  const loadFactor = Math.max(0.75, Math.min(1.12, 1 - 0.14 * (Fn / FN_REF - 1)));
+  const loadFactor = Math.max(0.75, Math.min(1.12, 1 - 0.14 * (Fn / co.fnRef - 1)));
   const mu = co.mu * loadFactor;
   const sx = w.ux / (co.Lx * surf.kPeak);
-  w.aPk = latPeak(surf, Fn);
+  w.aPk = latPeak(surf, Fn, co.fnRef);
   const sy = w.uy / (co.Ly * w.aPk);
   const s = Math.hypot(sx, sy);
   let Fx = 0, Fy = 0;

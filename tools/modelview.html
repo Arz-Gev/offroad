@@ -1,0 +1,60 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Model view</title>
+<style>html,body{margin:0;background:#888}canvas{display:block}</style></head>
+<body>
+<!-- Dev tool: renders a GLB from fixed views for checking a downloaded model (03-car-pipeline.md, step 7).
+     http://localhost:<port>/tools/modelview.html?url=/models/x.glb   then window.view(name) / window.info() from CDP.
+     Views: side, front, rear, q34 (3/4 front), q34r, top, bottom; window.view(name, {target, dist}) -->
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+const q = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9aa4ad);
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x554433, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(4, 8, 3); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.8); fill.position.set(-4, -3, -5); scene.add(fill);
+const grid = new THREE.GridHelper(20, 20, 0x333333, 0x666666); scene.add(grid);
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 500);
+const root = new THREE.Group(); scene.add(root);
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+const gltf = await loader.loadAsync(q.get('url'));
+root.add(gltf.scene);
+const s = Number(q.get('scale') || 1);
+root.scale.setScalar(s);
+root.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(root);
+const size = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
+grid.position.y = box.min.y;
+window.info = () => {
+  const out = [];
+  root.traverse(o => { if (o.isMesh) { const b = new THREE.Box3().setFromObject(o); out.push([o.name, o.material?.name, b.min.toArray().map(x => +x.toFixed(3)), b.max.toArray().map(x => +x.toFixed(3))]); } });
+  return { size: size.toArray(), center: ctr.toArray(), meshes: out.length, list: out };
+};
+const R = Math.max(size.x, size.y, size.z);
+const VIEWS = {
+  side: [1, 0.05, 0], front: [0, 0.1, -1], rear: [0, 0.1, 1], q34: [0.8, 0.45, -0.8], q34r: [-0.8, 0.45, 0.8],
+  top: [0.001, 1, 0], bottom: [0.3, -1, 0.15], under: [1, -0.25, 0.2],
+};
+window.view = (name, o = {}) => {
+  const d = new THREE.Vector3(...(o.dir || VIEWS[name])).normalize();
+  const t = o.target ? new THREE.Vector3(...o.target) : ctr;
+  camera.position.copy(t).addScaledVector(d, o.dist || R * 2.1);
+  camera.up.set(0, 1, 0);
+  if (Math.abs(d.y) > 0.95) camera.up.set(0, 0, -1);
+  camera.lookAt(t);
+  grid.visible = d.y > -0.1;
+  renderer.render(scene, camera);
+  return true;
+};
+window.hide = (re, hidden = true) => { let n = 0; root.traverse(o => { if (o.isMesh && new RegExp(re).test(o.name)) { o.visible = !hidden; n++; } }); return n; };
+window.ready = true;
+view('q34');
+</script>
+</body></html>

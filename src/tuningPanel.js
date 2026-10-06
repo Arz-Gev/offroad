@@ -112,9 +112,11 @@ export class TuningPanel {
 
   // section definitions: rows + a readout function
   sections() {
-    const gearbox = this.api.settings.get('gearbox');
-    const box = gearbox === 'manual' ? 'manual' : 'auto';
+    const gearbox = this.api.settings.get('gearbox'), P = this.v.P;
+    const box = gearbox === 'manual' || P.manualOnly ? 'manual' : 'auto';   // a manual-only car shifts its manual box itself
     const ratios = this.setup.gearbox[box];
+    // suspension rows per half of the axles: front / rear on a 4x4, "1–2" / "3–4" on an 8x8
+    const nA = P.axles.length, AX = nA === 2 ? AXLES : [['front', `1–${nA / 2}`], ['rear', `${nA / 2 + 1}–${nA}`]];
     return [
       { id: 'engine', title: 'Engine', rows: [
         { type: 'engines' },
@@ -141,9 +143,9 @@ export class TuningPanel {
       ] },
       { id: 'susp', title: 'Suspension', rows: [
         sl('suspension.lift', 'Lift', 'suspension.lift', v => (v ? '+' : '') + cm(v), 'Longer springs: more ground clearance and room in the arches, higher centre of mass.'),
-        ...['k', 'bump', 'rebound', 'arb', 'travel'].flatMap(k => AXLES.map(([ax, n]) => sl(`suspension.${ax}.${k}`, `${{ k: 'Spring', bump: 'Bump damping', rebound: 'Rebound damping', arb: 'Anti-roll bar', travel: 'Bump travel' }[k]} ${n}`, 'suspension.' + k,
+        ...['k', 'bump', 'rebound', 'arb', 'travel'].flatMap(k => AX.map(([ax, n]) => sl(`suspension.${ax}.${k}`, `${{ k: 'Spring', bump: 'Bump damping', rebound: 'Rebound damping', arb: 'Anti-roll bar', travel: 'Bump travel' }[k]} ${n}`, 'suspension.' + k,
           v => (k === 'travel' ? cm(v) : `${kN(v)}${k === 'k' ? 'N/m' : k === 'arb' ? 'N·m/rad' : 'N·s/m'}`) + ` · ${pct(v, STOCK.suspension[ax][k])}`,
-          n === 'F' ? { k: 'Stiffer: less roll and pitch, harsher on bumps, less articulation.', bump: 'Damping on the way up (compression).', rebound: 'Damping on the way down: too little and the truck keeps bouncing.', arb: 'Roll stiffness only; 0 = disconnected (max articulation).', travel: 'How far the axle can rise before the hard stop.' }[k] : ''))),
+          ax === 'front' ? { k: 'Stiffer: less roll and pitch, harsher on bumps, less articulation.', bump: 'Damping on the way up (compression).', rebound: 'Damping on the way down: too little and the truck keeps bouncing.', arb: 'Roll stiffness only; 0 = disconnected (max articulation).', travel: 'How far the axle can rise before the hard stop.' }[k] : ''))),
       ] },
       { id: 'brakes', title: 'Brakes', rows: [
         sl('brakes.force', 'Brake force', 'brakes.force', v => `×${f2(v)}`, ''),
@@ -192,11 +194,20 @@ export class TuningPanel {
       <div class="tn-chips">${r.options.map(([v, l]) => `<button type="button" data-chip="${r.path}" data-v="${v}">${l}</button>`).join('')}</div>${r.hint ? `<div class="tn-h">${r.hint}</div>` : ''}</div>`;
     if (r.type === 'engines') return `<div class="tn-row"><div class="tn-chips tn-eng">${ENGINE_ORDER.map(k => `<button type="button" data-engine="${k}" title="${escapeHTML(ENGINES[k].name)}">${ENGINES[k].label}</button>`).join('')}</div><div class="tn-h tn-engnote"></div></div>`;
     if (r.type === 'curve') return `<div class="tn-row"><canvas class="tn-curve" width="720" height="220"></canvas><div class="tn-h"><span class="tn-k tq">torque</span> <span class="tn-k pw">power</span> <span class="tn-k st">stock</span> · net, at the flywheel</div></div>`;
-    if (r.type === 'gearbox') return `<div class="tn-row"><div class="tn-l"><span>Gearbox</span></div><div class="tn-chips"><button type="button" data-gearbox="auto">Automatic 6</button><button type="button" data-gearbox="manual">Manual 5</button></div></div>`;
+    if (r.type === 'gearbox') {
+      const P = this.v.P, nm = P.manual.ratios.length;
+      const auto = P.manualOnly ? `Auto-shift ${nm}` : `Automatic ${P.auto.ratios.length}`;
+      return `<div class="tn-row"><div class="tn-l"><span>Gearbox</span></div><div class="tn-chips"><button type="button" data-gearbox="auto">${auto}</button><button type="button" data-gearbox="manual">Manual ${nm}</button></div></div>`;
+    }
     if (r.type === 'gears') return `<div class="tn-row"><div class="tn-gears"></div></div>`;
-    if (r.type === 'live') return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
-      ${[['range', 'Low range'], ['centreLock', 'Centre lock'], ['rearLock', 'Rear locker'], ['frontLock', 'Front locker'], ['traction', 'Traction ctl'], ['abs', 'ABS'], ['rwd', '2WD']].map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
+    if (r.type === 'live') {
+      // only the switches this car has (the BTR-80: no lockers, self-locking axle diffs; no 2WD)
+      const d = this.v.drivetrain;
+      const sw = [['range', 'Low range'], ['centreLock', 'Centre lock'], ...(d.canLock ? [['rearLock', 'Rear locker'], ['frontLock', 'Front locker']] : []), ['traction', 'Traction ctl'], ['abs', 'ABS'], ...(d.layout.rwd?.length ? [['rwd', '2WD']] : [])];
+      return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
+      ${sw.map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
+    }
     if (r.type === 'colliders') return `<div class="tn-row">
         <div class="tn-l"><span>Show physics</span><button type="button" class="switch" data-act="overlay" role="switch" aria-label="Show physics"><span class="knob"></span></button></div>
         <div class="tn-h">Collision boxes (red where they touch), wheel side cylinders, tyres against the arch tops, suspension travel (orange: bump stop) and the tyre contact patches (size: load, colour: slip).</div>

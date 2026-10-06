@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { shared } from './truckMaterials.js';
+import { setTireContact } from './tireMaterial.js';
 
-// Drives the procedural model from the physics state: body pose (interpolated), axle heave/roll,
-// steering, wheel spin, tyre squash, springs, dampers, links, prop shafts, lights and gauges.
+// Drives the model from the physics state: body pose (interpolated), beam axle heave/roll or independent
+// corners (hub, camber), steering, wheel spin, tyre deformation (per ray, tireMaterial.js), springs,
+// dampers, links, prop shafts, lights and gauges. Parts a model doesn't have (the BTR-80 has no beam
+// axles, coil springs or gauges) are skipped; a model's own rig (btrModel.js: suspension, turret) runs
+// from model.rig.update.
 
 const _m = new THREE.Matrix4(), _n3 = new THREE.Matrix3();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-const _q = new THREE.Quaternion();
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _c = new THREE.Color();
 const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
 
@@ -33,24 +37,31 @@ export class VehicleView {
     m.root.position.copy(pos);
     m.root.quaternion.copy(quat);
 
-    // axles
-    for (let ai = 0; ai < 2; ai++) {
+    // beam axles (the Defender model's axle groups)
+    if (m.axles) for (let ai = 0; ai < m.axles.length; ai++) {
       const a = v.axles[ai], g = m.axles[ai];
       g.position.set(0, a.droopY + a.c, a.p.z);
       g.rotation.set(0, 0, a.phi);
     }
     // wheels; the model is built for 33x10.5 (R 0.42, width 0.27): tuning scales the whole wheel
     const ws = v.R / 0.42, wx = P.tire.width / 0.27;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < m.wheels.length; i++) {
       const w = v.wheels[i], mw = m.wheels[i];
-      mw.steer.rotation.y = -w.steer;
+      if (w.axle.ind) {
+        // independent corner: the wheel group follows the hub (body frame), camber, then steer
+        mw.steer.position.set(w.side * (P.track / 2 + (w.out || 0)), w.axle.droopY + w.c, w.axle.p.z);
+        _q.setFromAxisAngle(Z, -w.side * (w.camber || 0));
+        mw.steer.quaternion.copy(_q).multiply(_q2.setFromAxisAngle(Y, -w.steer));
+      } else mw.steer.rotation.y = -w.steer;
       mw.spin.rotation.x = -w.spin;
       if (mw.spin.scale.y !== ws || mw.spin.scale.x !== wx) mw.spin.scale.set(wx, ws, ws);
     }
-    const sp = m.spare.steer, spS = P.tire.radius / 0.42;
-    if (sp.scale.y !== spS || sp.scale.x !== wx) { sp.scale.set(wx, spS, spS); sp.position.z = 2.33 + 0.11 + 0.135 * wx; }
+    if (m.spare) {
+      const sp = m.spare.steer, spS = P.tire.radius / 0.42;
+      if (sp.scale.y !== spS || sp.scale.x !== wx) { sp.scale.set(wx, spS, spS); sp.position.z = 2.33 + 0.11 + 0.135 * wx; }
+    }
     // suspension pieces (body frame)
-    for (const s of m.suspension) {
+    if (m.suspension) for (const s of m.suspension) {
       const ap = P.axles[s.ai];
       const base = this.axleToBody(s.ai, _v.set(s.sx, 0.07, 0), _v);
       s.coil.position.copy(base);
@@ -67,7 +78,7 @@ export class VehicleView {
       s.shockBody.position.copy(st);
       s.shockBody.quaternion.setFromUnitVectors(Y, dir);
     }
-    for (let ai = 0; ai < 2; ai++) {
+    if (m.axles) for (let ai = 0; ai < m.axles.length; ai++) {
       const g = m.axles[ai];
       for (const l of g.userData.links) {
         const end = this.axleToBody(ai, l.end, _v);
@@ -87,7 +98,7 @@ export class VehicleView {
     // prop shafts from the transfer case to each diff
     const tc = _v3.set(0.06, 0.48, 0.3);
     const dt_ = v.drivetrain;
-    for (let ai = 0; ai < 2; ai++) {
+    if (m.props) for (let ai = 0; ai < m.props.length; ai++) {
       const end = this.axleToBody(ai, _v.set(ai === 0 ? 0.12 : 0, 0.0, ai === 0 ? 0.22 : -0.22), _v);
       const d = _v2.subVectors(end, tc);
       const pm = m.props[ai];
@@ -96,30 +107,26 @@ export class VehicleView {
       pm.quaternion.setFromUnitVectors(Y, d.normalize());
     }
 
+    if (m.rig) m.rig.update(this, v, dt);
     m.root.updateMatrixWorld(true);
 
-    // tyre squash: contact plane into each tyre's object space
+    // tyre deformation: each ray's intrusion into the tyre (tyre v2), in the wheel's own units. The wheel
+    // group scales the tyre by ws (radius) from the model's size, so metres / (ws x model scale).
     const R = v.R;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < m.wheels.length; i++) {
       const w = v.wheels[i], mw = m.wheels[i];
-      const u = mw.tireMat.userData.uniforms;
-      _m.copy(mw.tire.matrixWorld).invert();
-      if (w.contact && w.pen > -0.02) {
-        const hub = _v.setFromMatrixPosition(mw.tire.matrixWorld);
-        const n = _v2.copy(w.nLocal).applyQuaternion(quat);
-        const p = hub.addScaledVector(n, -(R - w.pen));
-        u.uPlaneP.value.copy(p).applyMatrix4(_m);
-        // a plane normal maps with the transpose of the object matrix (the wheel may be scaled unevenly)
-        u.uPlaneN.value.copy(n).applyMatrix3(_n3.setFromMatrix4(mw.tire.matrixWorld).transpose()).normalize();
-        u.uDefl.value = Math.max(0, w.pen) / ws;
-      } else {
-        u.uPlaneP.value.set(0, -5, 0);
-        u.uPlaneN.value.set(0, 1, 0);
-        u.uDefl.value = 0;
-      }
+      if (!mw.tireMat) continue;
+      const units = mw.tireUnits ?? 1;   // metres per tyre unit at stock size (imported wheels: their own scale)
+      for (const mat of mw.tireMats || [mw.tireMat]) setTireContact(mat, w, R, 1 / (ws * units), w.spin);
     }
 
-    // cockpit
+    // cockpit (the Defender's own: gauges, levers)
+    if (m.steeringWheel) this.updateCockpit(dt, P, v, dt_);
+    this.updateLights(dt, env, quat);
+  }
+
+  updateCockpit(dt, P, v, dt_) {
+    const m = this.m;
     m.steeringWheel.rotation.z = -v.steerAngle * P.steer.ratio;
     const kmh = Math.abs(v.speed) * 3.6;
     const dialRot = f => Math.PI * 0.75 - Math.PI * 1.5 * Math.min(Math.max(f, 0), 1.03);
@@ -137,8 +144,6 @@ export class VehicleView {
     const row = gl === 0 ? 0 : gl < 0 ? -1 : (gl % 2 === 1 ? -1 : 1);
     m.gearLever.rotation.set(row * 0.25, 0, -col * 0.18);
     m.transferLever.rotation.x = dt_.range === 'low' ? 0.35 : -0.15;
-
-    this.updateLights(dt, env, quat);
   }
 
   // Ambient light level of the scene (sun/moon + sky), used to scale the lamps: the scene is not
@@ -210,7 +215,7 @@ export class VehicleView {
     // instrument backlight (night / lights on) and warning lamps
     const dark = env.darkness ?? (env.night ? 1 : 0);
     const back = tailOn ? 1 : dark;
-    m.gaugeMat.emissiveIntensity = 0.45 + 0.4 * back;
+    if (m.gaugeMat) m.gaugeMat.emissiveIntensity = 0.45 + 0.4 * back;
     if (m.needleMat) m.needleMat.emissiveIntensity = 0.35 + 0.65 * back;
     if (m.warnMat) m.warnMat.emissiveIntensity = dt_.running ? 0 : 1.2;
 

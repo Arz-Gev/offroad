@@ -1,6 +1,6 @@
 // Headless physics checks for the vehicle model.
 //
-//   npm run simtest [settle|accel|brake|slope|climb|turn|manual|cars]
+//   npm run simtest [settle|accel|brake|slope|climb|turn|manual|cars|btr]
 //
 // Every scenario measures a few numbers and checks them against the baselines in DEVNOTES.md
 // ("Baselines"). A number outside its band prints FAIL and the run exits with code 1, so a physics change
@@ -13,6 +13,7 @@ import { makeDefenderParams } from '../src/vehicle/params.js';
 import { makeCarParams, CAR_SPECS } from '../src/vehicle/carSpecs.js';
 import '../src/vehicle/cars.js';   // throws if its CARS and CAR_SPECS list different cars
 import * as tuning from '../src/vehicle/tuning.js';
+import { Turret, trajectory } from '../src/vehicle/turret.js';
 const { sanitize, applySetup, useCar } = tuning;
 await RAPIER.init();
 
@@ -215,9 +216,193 @@ if (want('cars') && !TUNED) {
     const sumFn = v.wheels.reduce((a, w) => a + w.FnAvg, 0);
     check(`${id}: tyre load sum / weight`, sumFn / (v.totalMass * 9.81), 0.99, 1.01, { baseline: false });
     check(`${id}: ride height error`, Math.abs(v.pos.y - (CAR_SPECS[id]?.raise || 0)) * 100, 0, 3, { unit: ' cm' });
+    if (!T100[id]) continue;   // heavy trucks: own scenario (btr80 below)
     let t100 = null;
     run(v, world, 20, (t, veh) => { if (t100 === null && veh.speed >= 100 / 3.6) t100 = t; return raw({ throttle: 1 }); }, 2, status);
-    check(`${id}: 0-100 km/h`, t100, ...(T100[id] || [3, 20]), { unit: ' s' });
+    check(`${id}: 0-100 km/h`, t100, ...T100[id], { unit: ' s' });
+  }
+  useCar('defender');
+}
+
+// BTR-80 (8x8, independent torsion-bar corners, 13.6 t). Bands from the real vehicle where published
+// (80 km/h on the road, 30° climb, 25° side slope, turning radius 13.2 m, clearance 475 mm) and sanity
+// elsewhere; the numbers are in DEVNOTES "Baselines".
+if (want('btr') && !TUNED) {
+  useCar('btr80');
+  const PB = () => applySetup(makeCarParams('btr80'), tuning.STOCK);
+  const spawn = (world, z = 0, P0 = PB()) => new Vehicle(RAPIER, world, P0, { position: { x: 0, y: 0.1, z } });
+  const minLoad = v => Math.min(...v.wheels.map(w => w.FnAvg)) / (v.totalMass * 9.81 / v.wheels.length);
+
+  console.log('--- btr80: static ride');
+  {
+    const world = makeWorld();
+    const v = spawn(world, 500);
+    run(v, world, 4, raw(), 1, status);
+    const loads = v.wheels.map(w => w.FnAvg), mean = loads.reduce((a, b) => a + b) / loads.length;
+    check('btr80: tyre load sum / weight', loads.reduce((a, b) => a + b) / (v.totalMass * 9.81), 0.99, 1.01, { baseline: false });
+    check('btr80: ride height error', Math.abs(v.pos.y) * 100, 0, 2, { unit: ' cm' });
+    check('btr80: wheel load spread (max / min)', Math.max(...loads) / Math.min(...loads), 1, 1.35);
+    check('btr80: body pitch', Math.asin(v.fwd.y) * 57.3, -0.6, 0.6, { unit: '°' });
+    check('btr80: tyre squash at 36 psi', v.wheels.reduce((a, w) => a + w.pen, 0) / v.wheels.length * 100, 3, 6.5, { unit: ' cm' });
+    console.log(`  info  btr80: mean wheel load ${(mean / 1000).toFixed(1)} kN, mass ${v.totalMass.toFixed(0)} kg`);
+  }
+
+  console.log('--- btr80: 0-60 and top speed (4 km strip, automatic shifting)');
+  {
+    const world = makeWorld(0, 4000, 400);
+    const v = spawn(world, 1950);
+    run(v, world, 2, raw());
+    let t60 = null, v100 = 0;
+    run(v, world, 150, (t, veh) => {
+      if (t60 === null && veh.speed >= 60 / 3.6) t60 = t;
+      if (Math.abs(t - 100) < H / 2) v100 = veh.speed * 3.6;
+      return raw({ throttle: 1 });
+    }, 10, status);
+    check('btr80: 0-60 km/h', t60, 22, 34, { unit: ' s' });
+    check('btr80: speed after 100 s', v100, 74, 82, { unit: ' km/h' });
+    check('btr80: speed after 150 s (top, real 80)', v.speed * 3.6, 77, 84, { unit: ' km/h' });
+    check('btr80: gear at top speed', v.drivetrain.manualGear, 5, 5);
+  }
+
+  console.log('--- btr80: braking from 60 km/h');
+  {
+    const world = makeWorld();
+    const v = spawn(world, 500);
+    run(v, world, 1, raw());
+    let i = 0;
+    while (v.speed < 60 / 3.6 && i++ < 20000) { v.step(H, raw({ throttle: 1 })); world.step(); }
+    const p0 = v.pos.clone(), f0 = v.fwd.clone(), r0 = v.right.clone();
+    let t = 0;
+    while (v.speed > 0.1 && t < 15) { v.step(H, raw({ brake: 1 })); world.step(); t += H; }
+    const moved = v.pos.clone().sub(p0);
+    check('btr80: 60-0 stop distance', moved.dot(f0), 18, 32, { unit: ' m' });
+    check('btr80: sideways drift', Math.abs(moved.dot(r0)), 0, 0.5, { unit: ' m', baseline: false });
+  }
+
+  // as a real gradient test: a run-up on the flat, then a 30° ramp, low range, full throttle
+  for (const [label, locks] of [['centre open', false], ['centre locked', true]]) {
+    console.log(`--- btr80: 30° climb from a run-up, low range, ${label}`);
+    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    world.timestep = H;
+    const n = 300, N = n + 1, size = 600, heights = new Float32Array(N * N), tan = Math.tan(30 * Math.PI / 180);
+    for (let c = 0; c < N; c++) for (let r = 0; r < N; r++) heights[c * N + r] = Math.max(0, -(-size / 2 + (r / n) * size) - 0) * tan;
+    world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }).setFriction(0.8));
+    world.step();
+    const v = spawn(world, 12);
+    const d = v.drivetrain;
+    d.range = 'low';
+    d.centerLock = locks;
+    run(v, world, 1, raw());
+    let back = 0;
+    run(v, world, 25, (t, veh) => { if (veh.pos.y > 2 && veh.speed < -0.2) back = 1; return raw({ throttle: 1 }); }, 2, status);
+    check(`btr80: ${label}: engine running`, d.running ? 1 : 0, 1, 1, { baseline: false });
+    check(`btr80: ${label}: height climbed in 25 s`, v.pos.y, locks ? 10 : 7, 100, { unit: ' m' });
+    check(`btr80: ${label}: speed on the ramp at the end`, v.speed * 3.6, locks ? 4.5 : 3, 8, { unit: ' km/h' });
+    check(`btr80: ${label}: rolled back on the ramp`, back, 0, 0, { baseline: false });
+  }
+
+  console.log('--- btr80: parked on 30° with the handbrake (engine off)');
+  {
+    const world = makeWorld(30);
+    const v = spawn(world);
+    pitchTo(v, 30);
+    v.drivetrain.running = false;
+    run(v, world, 0.05, raw({ brake: 1 }));
+    const z0 = v.pos.z;
+    run(v, world, 6, raw({ handbrake: 1 }), 1, status);
+    check('btr80: creep on 30°', Math.abs(v.pos.z - z0) * 100, 0, 3, { unit: ' cm' });
+  }
+
+  console.log('--- btr80: across a 25° side slope (real limit 25°), parked');
+  {
+    const world = makeWorld(25);
+    const v = spawn(world);
+    // facing +x: the slope (rising towards -z) is now on the left
+    const a = 25 * Math.PI / 180, qy = { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }, qx = { x: Math.sin(a / 2), y: 0, z: 0, w: Math.cos(a / 2) };
+    const q = { w: qx.w * qy.w - qx.x * qy.x - qx.y * qy.y - qx.z * qy.z, x: qx.w * qy.x + qx.x * qy.w + qx.y * qy.z - qx.z * qy.y,
+      y: qx.w * qy.y - qx.x * qy.z + qx.y * qy.w + qx.z * qy.x, z: qx.w * qy.z + qx.x * qy.y - qx.y * qy.x + qx.z * qy.w };
+    v.body.setRotation(q, true); v.readBody(); v.updateGeometry();
+    v.drivetrain.running = false;
+    run(v, world, 6, raw({ handbrake: 1 }), 1, status);
+    check('btr80: side slope: body roll', Math.abs(rollDeg(v)), 22, 30, { unit: '°' });
+    check('btr80: side slope: least loaded wheel / mean', minLoad(v), 0.3, 1);
+    check('btr80: side slope: slide in 6 s', Math.abs(v.vel.length()), 0, 0.02, { unit: ' m/s', baseline: false });
+  }
+
+  console.log('--- btr80: articulation (25 cm blocks under diagonal wheels: front left, 2nd right, 3rd left)');
+  {
+    const world = makeWorld();
+    const P0 = PB();
+    for (const [x, z] of [[-1, P0.axles[0].z], [1, P0.axles[1].z], [-1, P0.axles[2].z]]) {
+      world.createCollider(RAPIER.ColliderDesc.cuboid(0.45, 0.125, 0.45).setTranslation(x * P0.track / 2, 0.125, z).setFriction(0.9));
+    }
+    world.step();
+    const v = spawn(world, 0, P0);
+    v.body.setTranslation({ x: 0, y: 0.35, z: 0 }, true); v.readBody(); v.updateGeometry();
+    run(v, world, 5, raw(), 1, status);
+    check('btr80: articulation: wheels on the ground', v.wheels.filter(w => w.contact && w.FnAvg > 500).length, 8, 8);
+    check('btr80: articulation: least loaded wheel / mean', minLoad(v), 0.15, 1);
+    check('btr80: articulation: most loaded wheel / mean', Math.max(...v.wheels.map(w => w.FnAvg)) / (v.totalMass * 9.81 / 8), 1, 2.2);
+  }
+
+  console.log('--- btr80: turning circle at walking pace, full lock');
+  {
+    const world = makeWorld();
+    const v = spawn(world, 500);
+    v.steerAssist = 'off';
+    run(v, world, 1, raw());
+    let rad = 0;
+    run(v, world, 25, (t, veh) => {
+      if (t > 20) rad = veh.speed / Math.max(1e-3, Math.abs(veh.angVel.dot(veh.up)));
+      return raw({ throttle: veh.speed < 2.5 ? 0.4 : 0, steer: t > 3 ? 1 : 0 });
+    }, 2, status);
+    check('btr80: turning radius (real 13.2 m)', rad, 11.5, 15, { unit: ' m' });
+  }
+
+  console.log('--- btr80: steady turn at ~40 km/h');
+  {
+    const world = makeWorld();
+    const v = spawn(world, 500);
+    run(v, world, 1, raw());
+    let lat = 0, lift = 0;
+    run(v, world, 40, (t, veh) => {
+      if (t > 25) { lat = Math.max(lat, Math.abs(veh.speed * veh.angVel.dot(veh.up) / 9.81)); if (veh.wheels.some(w => !w.contact || w.FnAvg < 200)) lift += H; }
+      return raw({ throttle: veh.speed < 40 / 3.6 ? 0.8 : 0.2, steer: t > 15 ? 0.6 : 0 });
+    }, 4, status);
+    check('btr80: lateral g', lat, 0.25, 0.6, { unit: ' g' });
+    check('btr80: body roll', Math.abs(rollDeg(v)), 1, 10, { unit: '°' });
+    check('btr80: time with a wheel off the ground', lift, 0, 0.1, { unit: ' s' });
+  }
+
+  console.log('--- btr80: turret');
+  {
+    const S = PB().turret, tu = new Turret(S), h = 1 / 240;
+    // traverse 90° right and elevate to +30° from rest
+    tu.aim(Math.PI / 2, 30 * Math.PI / 180, 0, 0, h);
+    let tYaw = null, tPitch = null, t = 0;
+    while (t < 20 && (tYaw === null || tPitch === null)) {
+      tu.step(h, false); t += h;
+      if (tYaw === null && Math.abs(tu.yaw - Math.PI / 2) < 0.2 * Math.PI / 180) tYaw = t;
+      if (tPitch === null && Math.abs(tu.pitch - 30 * Math.PI / 180) < 0.2 * Math.PI / 180) tPitch = t;
+    }
+    check('turret: 90° traverse', tYaw, 7.2, 9, { unit: ' s' });
+    check('turret: 0 → 30° elevation', tPitch, 3.6, 5, { unit: ' s' });
+    tu.aim(0, 2, 0, 0, h); for (let i = 0; i < 20 / h; i++) tu.step(h, false);
+    check('turret: elevation limit', tu.pitch * 57.3, 59.9, 60.1, { unit: '°' });
+    tu.aim(0, -2, 0, 0, h); for (let i = 0; i < 20 / h; i++) tu.step(h, false);
+    check('turret: depression limit', tu.pitch * 57.3, -4.1, -3.9, { unit: '°' });
+    // KPVT: rate of fire, one belt, the reload
+    const tk = new Turret(S);
+    let n3 = 0, n10 = 0, n20 = 0;
+    for (let i = 1; i <= 20 / h; i++) { tk.step(h, true); const n = tk.guns[0].count; if (i === Math.round(3 / h)) n3 = n; if (i === Math.round(10 / h)) n10 = n; n20 = n; }
+    check('KPVT: rounds in 3 s (600 rpm)', n3, 29, 31);
+    check('KPVT: rounds in 10 s (one belt of 50, then reloading)', n10, 50, 50);
+    check('KPVT: rounds in 20 s (8 s reload)', n20, 95, 101);
+    const kp = trajectory(S.weapons[0], [500, 1000, 2000]), pk = trajectory(S.weapons[1], [500]);
+    console.log(`  info  KPVT ${kp.map(r => `${r.d} m: ${r.t.toFixed(2)} s, ${r.v.toFixed(0)} m/s, drop ${r.drop.toFixed(1)} m`).join('; ')}`);
+    check('KPVT: velocity at 1000 m (B-32 ~770 m/s)', kp[1].v, 740, 800, { unit: ' m/s' });
+    check('KPVT: time of flight to 1000 m', kp[1].t, 1.05, 1.25, { unit: ' s' });
+    check('PKT: velocity at 500 m (~560 m/s)', pk[0].v, 530, 590, { unit: ' m/s' });
   }
   useCar('defender');
 }

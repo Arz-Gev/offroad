@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { fitCarBody } from './vehicle/cars.js';
+import { buildCarModel } from './vehicle/cars.js';
 import { makeCarParams, CAR_SPECS } from './vehicle/carSpecs.js';
-import { buildTruck } from './vehicle/truckModel.js';
+import { cornerKin } from './vehicle/suspension.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { escapeHTML } from './hud.js';
 
@@ -23,9 +23,19 @@ const BUF = 40;             // snapshots kept per friend
 const PUPPET_W = 2 * Math.PI * 2;                                     // solid trucks: spring to the network pose (rad/s)
 const GROUP_PUPPET = (0x0004 << 16) | (0xffff & ~0x0001);             // everything but the ground heightfield (Vehicle.js GROUND_BIT)
 
-// state packet layout (one flat array, JSON)
-const S = { t: 0, pos: 1, quat: 4, vel: 8, ax: 11, droop: 15, R: 17, steer: 18, speed: 19, rpm: 20, brake: 21, flags: 22, wheels: 23 };
-const N = S.wheels + 12;    // 4 wheels × [steer, spin, pen]
+// state packet layout (one flat array, JSON), from the car's axle count: per axle [a, b] (beam axle: heave,
+// roll; independent: left and right compression) and its droop height, per wheel [steer, spin, pen], and
+// for a car with a turret [yaw, pitch, shots fired]. A 4x4's layout is the one the game always sent.
+function layout(nA, turret) {
+  const S = { t: 0, pos: 1, quat: 4, vel: 8, ax: 11, droop: 11 + 2 * nA };
+  S.R = S.droop + nA; S.steer = S.R + 1; S.speed = S.R + 2; S.rpm = S.R + 3; S.brake = S.R + 4; S.flags = S.R + 5; S.wheels = S.R + 6;
+  S.turret = S.wheels + 6 * nA;
+  S.N = S.turret + (turret ? 3 : 0);
+  S.nA = nA;
+  return S;
+}
+const layoutFor = P => layout(P.axles.length, !!P.turret);
+const S = layout(2, false);   // only for the fields every layout shares (t, pos, quat, vel); per car: p.S, this.S
 
 const r3 = x => Math.round(x * 1000) / 1000;
 const r4 = x => Math.round(x * 10000) / 10000;
@@ -40,12 +50,14 @@ const newRoomId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b 
 
 // the fields VehicleView reads from a Vehicle
 function makeProxy(P) {
+  const axles = P.axles.map((p, i) => ({ p, i, droopY: p.droopY, c: 0, phi: 0, ind: p.type === 'independent', kin: p.type === 'independent' ? cornerKin(P, p, P.tire.radius) : null }));
   return {
     P, R: P.tire.radius, steerAngle: 0, speed: 0,
     ctl: { brake: 0 },
     drivetrain: { rpm: 800, running: true, mode: 'auto', selector: 'D', manualGear: 1, range: 'high' },
-    axles: P.axles.map(p => ({ p, droopY: p.droopY, c: 0, phi: 0 })),
-    wheels: [0, 1, 2, 3].map(() => ({ steer: 0, spin: 0, contact: false, pen: -1, nLocal: new THREE.Vector3(0, 1, 0) })),
+    axles,
+    wheels: Array.from({ length: 2 * P.axles.length }, (_, i) => ({ axle: axles[i >> 1], side: i % 2 ? 1 : -1, steer: 0, spin: 0, contact: false, pen: -1, c: 0, out: 0, camber: 0, nLocal: new THREE.Vector3(0, 1, 0) })),
+    turret: P.turret ? { yaw: 0, pitch: 0, recoil: 0, shots: 0 } : null,
   };
 }
 
@@ -154,7 +166,7 @@ export class Multiplayer {
   peer(id) {
     let p = this.peers.get(id);
     if (!p) {
-      p = { id, name: '', car: null, snaps: [], off: null, model: null, view: null, proxy: null, body: null, tag: null, building: false };
+      p = { id, name: '', car: null, S: null, snaps: [], off: null, model: null, view: null, proxy: null, body: null, tag: null, building: false };
       this.peers.set(id, p);
     }
     return p;
@@ -170,7 +182,7 @@ export class Multiplayer {
     this.api.changed?.();
     const car = Object.hasOwn(CAR_SPECS, h.car) ? h.car : 'defender';
     p.lastHello = h;
-    if (p.car !== car || !p.model) { p.car = car; this.build(p, h); }
+    if (p.car !== car || !p.model) { p.car = car; p.S = layoutFor(makeCarParams(car)); p.snaps.length = 0; this.build(p, h); }
     else if (p.proxy) { p.proxy.P.tire.width = +h.tw || p.proxy.P.tire.width; p.proxy.P.steer.ratio = +h.sr || p.proxy.P.steer.ratio; }
   }
 
@@ -183,8 +195,7 @@ export class Multiplayer {
       if (+h.tw) P.tire.width = +h.tw;
       if (+h.sr) P.steer.ratio = +h.sr;
       if (+h.tr) P.tire.radius = +h.tr;
-      const model = buildTruck(makeCarParams(car));
-      await fitCarBody(model, car);
+      const model = await buildCarModel(car);
       // no lamp beams for friends (see the header): only the lens glow
       for (const k of ['head', 'bar', 'rear']) { const L = model.lights[k]; L.parent?.remove(L); L.target.parent?.remove(L.target); }
       if (!this.peers.has(p.id)) return;    // left while loading
@@ -222,8 +233,8 @@ export class Multiplayer {
   }
 
   onState(id, s) {
-    if (!Array.isArray(s) || s.length !== N || !s.every(Number.isFinite)) return;
     const p = this.peer(id);
+    if (!p.S || !Array.isArray(s) || s.length !== p.S.N || !s.every(Number.isFinite)) return;   // layout known from the hello
     // clock offset to the sender: the smallest seen (the fastest packet), creeping up slowly for drift
     const off = performance.now() / 1000 - s[S.t];
     p.off = p.off === null || off < p.off ? off : p.off + (off - p.off) * 0.01;
@@ -236,8 +247,8 @@ export class Multiplayer {
 
   // the friend's state at local time t: interpolated between snapshots into `out` (a flat array)
   sample(p, t, out) {
-    const sn = p.snaps;
-    if (!sn.length) return false;
+    const sn = p.snaps, S = p.S, N = S?.N;
+    if (!sn.length || !S) return false;
     const ts = t - p.off - DELAY;          // in the sender's clock
     let i = sn.length - 1;
     while (i > 0 && sn[i - 1][S.t] > ts) i--;
@@ -256,6 +267,13 @@ export class Multiplayer {
     _q.slerp(_q2, f);
     out[S.quat] = _q.x; out[S.quat + 1] = _q.y; out[S.quat + 2] = _q.z; out[S.quat + 3] = _q.w;
     out[S.flags] = b[S.flags];
+    if (N > S.turret) {
+      // turret yaw the short way round, shots as counted
+      let d = b[S.turret] - a[S.turret];
+      d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI;
+      out[S.turret] = a[S.turret] + d * f;
+      out[S.turret + 2] = b[S.turret + 2];
+    }
     return true;
   }
 
@@ -273,7 +291,7 @@ export class Multiplayer {
     }
     if (p.body) return;
     const { RAPIER, world } = this.api, P = p.proxy.P;
-    const mass = P.bodyMass + P.axles[0].mass + P.axles[1].mass;
+    const mass = P.axles.reduce((m, a) => m + a.mass, P.bodyMass);
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(0, -500, 0).setGravityScale(0).setCanSleep(false).setCcdEnabled(true)
       .setAdditionalMassProperties(mass, { x: P.com[0], y: P.com[1], z: P.com[2] },
@@ -295,7 +313,7 @@ export class Multiplayer {
   // before each physics step (h): pull the puppets towards where the friends are at that instant
   stepBodies(t, h) {
     if (!this.peers.size) return;
-    const out = this._sb || (this._sb = new Float64Array(N));
+    const out = this._sb || (this._sb = new Float64Array(256));
     const w = PUPPET_W, kp = w * w * h, kd = 2 * w * h;
     for (const p of this.peers.values()) {
       if (!p.body || !this.sample(p, t, out)) continue;
@@ -338,7 +356,7 @@ export class Multiplayer {
       this.sendAcc = Math.min(this.sendAcc - 1 / SEND_HZ, 0.1);
       this.state.send(this.pack(t));
     }
-    const out = this._uo || (this._uo = new Float64Array(N));
+    const out = this._uo || (this._uo = new Float64Array(256));
     for (const p of this.peers.values()) {
       if (!p.view || !this.sample(p, t, out)) continue;
       this.apply(p, out, dt, env);
@@ -347,14 +365,17 @@ export class Multiplayer {
 
   pack(t) {
     const v = this.api.vehicle, ls = this.api.view.lights, d = v.drivetrain;
-    const s = new Array(N);
+    const S = this.S || (this.S = layoutFor(v.P)), nA = S.nA;
+    const s = new Array(S.N);
     s[S.t] = r4(t);
     s[S.pos] = r3(v.pos.x); s[S.pos + 1] = r3(v.pos.y); s[S.pos + 2] = r3(v.pos.z);
     s[S.quat] = r4(v.quat.x); s[S.quat + 1] = r4(v.quat.y); s[S.quat + 2] = r4(v.quat.z); s[S.quat + 3] = r4(v.quat.w);
     s[S.vel] = r3(v.vel.x); s[S.vel + 1] = r3(v.vel.y); s[S.vel + 2] = r3(v.vel.z);
-    for (let a = 0; a < 2; a++) {
-      s[S.ax + a * 2] = r4(v.axles[a].c); s[S.ax + a * 2 + 1] = r4(v.axles[a].phi);
-      s[S.droop + a] = r4(v.axles[a].droopY);
+    for (let a = 0; a < nA; a++) {
+      const ax = v.axles[a];
+      if (ax.ind) { s[S.ax + a * 2] = r4(v.wheels[2 * a].c); s[S.ax + a * 2 + 1] = r4(v.wheels[2 * a + 1].c); }
+      else { s[S.ax + a * 2] = r4(ax.c); s[S.ax + a * 2 + 1] = r4(ax.phi); }
+      s[S.droop + a] = r4(ax.droopY);
     }
     s[S.R] = r4(v.R);
     s[S.steer] = r4(v.steerAngle);
@@ -363,24 +384,39 @@ export class Multiplayer {
     s[S.brake] = r3(v.ctl.brake);
     const rev = d.mode === 'manual' ? d.manualGear < 0 : d.selector === 'R';
     s[S.flags] = ls.head | (ls.bar ? 4 : 0) | (ls.hazard ? 8 : 0) | (d.running ? 16 : 0) | (rev ? 32 : 0) | (d.range === 'low' ? 64 : 0);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2 * nA; i++) {
       const w = v.wheels[i], k = S.wheels + i * 3;
       s[k] = r4(w.steer); s[k + 1] = r3(w.spin); s[k + 2] = r4(w.contact ? w.pen : -1);
     }
+    if (S.N > S.turret) { const T = v.turret; s[S.turret] = r4(T.yaw); s[S.turret + 1] = r4(T.pitch); s[S.turret + 2] = T.shots; }
     return s;
   }
 
   apply(p, s, dt, env) {
-    const x = p.proxy, f = s[S.flags];
-    for (let a = 0; a < 2; a++) {
-      x.axles[a].c = s[S.ax + a * 2]; x.axles[a].phi = s[S.ax + a * 2 + 1]; x.axles[a].droopY = s[S.droop + a];
+    const x = p.proxy, S = p.S, f = s[S.flags];
+    for (let a = 0; a < S.nA; a++) {
+      const ax = x.axles[a];
+      ax.droopY = s[S.droop + a];
+      if (!ax.ind) { ax.c = s[S.ax + a * 2]; ax.phi = s[S.ax + a * 2 + 1]; continue; }
+      // independent corners: compression of each, the kinematic curves give camber and lateral path
+      for (let k = 0; k < 2; k++) {
+        const w = x.wheels[2 * a + k], dc = (w.c = s[S.ax + a * 2 + k]) - ax.kin.c0;
+        w.camber = ax.kin.g * dc; w.out = ax.kin.hubOut * dc;
+      }
+      ax.c = (x.wheels[2 * a].c + x.wheels[2 * a + 1].c) / 2;
     }
     x.R = s[S.R]; x.steerAngle = s[S.steer]; x.speed = s[S.speed]; x.ctl.brake = s[S.brake];
     const d = x.drivetrain;
     d.rpm = s[S.rpm]; d.running = !!(f & 16); d.selector = f & 32 ? 'R' : 'D'; d.range = f & 64 ? 'low' : 'high';
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2 * S.nA; i++) {
       const w = x.wheels[i], k = S.wheels + i * 3;
       w.steer = s[k]; w.spin = s[k + 1]; w.pen = s[k + 2]; w.contact = s[k + 2] > -0.5;
+    }
+    if (x.turret && S.N > S.turret) {
+      const T = x.turret, shots = s[S.turret + 2];
+      T.yaw = s[S.turret]; T.pitch = s[S.turret + 1];
+      if (shots > T.shots && T.shots > 0) this.api.friendShots?.(p, shots - T.shots);   // muzzle flash + tracer on our side
+      T.shots = shots;
     }
     p.view.lights.head = f & 3; p.view.lights.bar = !!(f & 4); p.view.lights.hazard = !!(f & 8);
     _v.set(s[S.pos], s[S.pos + 1], s[S.pos + 2]);

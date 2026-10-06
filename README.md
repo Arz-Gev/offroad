@@ -1,11 +1,11 @@
 # Offroad
 
-Three.js + Rapier off-road sandbox: a procedural Defender 110 (built from `reference.webp`), a G-Class and a Lancia Delta.
+Three.js + Rapier off-road sandbox: a procedural Defender 110 (built from `reference.webp`), a G-Class, a Lancia Delta and a BTR-80 8x8 armoured personnel carrier with a working turret.
 
 ```
 npm install
 npm run dev        # http://localhost:5174
-npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual)
+npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual, cars, btr)
 ```
 
 **Where the game is going**: `docs/` (vision, physics, car pipeline, world, graphics, UI, audio, modes, tech, roadmap, known issues), starting with `docs/00-vision.md`.
@@ -43,6 +43,8 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 | U |  |  | Suspension and tyre-load panel |
 | F3 or ` |  |  | Telemetry |
 
+**BTR-80 turret** (Turret group in the Controls list): **right mouse** (touch **Sight**) toggles the gunner's sight; click in it and the mouse turns the turret and the gun at the hand-wheel speeds (or arrows / numpad 8 2 4 6, gamepad right stick in the sight); mouse wheel zooms. **Left mouse** or **Enter** (gamepad right stick click, touch **Fire**) fires, **1** switches between the 14.5 mm KPVT and the coaxial 7.62 mm PKT. Belts and reloads are shown in the gun panel.
+
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 
 **Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **Vehicle** button next to the menu holds range, diff locks, 2WD / 4WD, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones and tablets get the **Mobile** graphics preset: no anti-aliasing, shadows, ambient occlusion or grass, medium ground shading, and a pixel density that sets itself between 100 and 150 % to hold 45–60 fps. Best in landscape. The fullscreen button next to Menu (it pulses until you first use it) goes full screen on Android, tablets and desktop; on iPhone it explains Share → Add to Home Screen, which then starts full screen.
@@ -60,3 +62,4 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 - Multiplayer: [Trystero](https://github.com/dmotz/trystero) (MIT).
 - Mercedes-Benz G-Class 2021 model: [ItsDiyor on Sketchfab](https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d), CC BY 4.0. Wheels split off, compressed and re-framed for the game (`public/models/gclass2021.glb`).
 - Lancia Delta HF Integrale Evo 2 model: [TARANTULA on Sketchfab](https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7), CC BY 4.0. Same treatment (`public/models/lancia-delta.glb`).
+- BTR-80 model: ["BTR 80" by Goga.Danelia on Sketchfab](https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce), CC BY 4.0. Scaled, wheels, tyres and the suspension parts split off, compressed (`public/models/btr80.glb`; source and steps in `assets-src/btr80/`).
