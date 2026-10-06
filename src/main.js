@@ -17,7 +17,7 @@ import { applySetup, rideRaise, useCar } from './vehicle/tuning.js';
 import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
-import { buildCarModel } from './vehicle/cars.js';
+import { buildCarModel } from './vehicle/model/index.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';

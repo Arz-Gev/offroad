@@ -26,9 +26,9 @@ const label = id => BINDING[id].touch;
 // drawer chips: a fixed label and a state line under it, in a fixed grid, so nothing moves when a state changes
 const CHIP_STATE = {
   range: d => d.range === 'low' ? 'LOW' : 'HIGH',
-  centreLock: d => !d.canLockCentre ? 'Viscous' : d.centerLock ? 'Locked' : 'Open',
+  centreLock: d => ({ viscous: 'Viscous', none: '—' })[d.layout.centre] || (d.centreLocked ? 'Locked' : 'Open'),
   lockers: d => !d.canLock ? 'Self-lock' : d.frontLock && d.rearLock ? (d.nA === 2 ? 'Front + rear' : 'All') : d.rearLock ? 'Rear' : 'Off',
-  rwd: d => d.rwd ? '2WD' : '4WD',
+  rwd: d => !d.layout.rwd.length ? ({ awd: 'AWD', rwd: 'RWD', fwd: 'FWD' })[d.layout.layout] : d.rwd ? '2WD' : '4WD',
   engineStart: d => d.running ? 'Running' : d.cranking ? 'Starting' : 'Off · tap',
   headlights: (d, view) => ['Off', 'Low beam', 'High beam'][view.lights.head],
   pressureDown: (d, view, v, unit) => fmtPressure(v.pressure, unit),
@@ -36,7 +36,7 @@ const CHIP_STATE = {
   tuning: () => 'Panel',
 };
 const CHIP_ON = {
-  range: d => d.range === 'low', centreLock: d => d.centerLock, lockers: d => d.frontLock || d.rearLock,
+  range: d => d.range === 'low', centreLock: d => d.centreLocked, lockers: d => d.frontLock || d.rearLock,
   rwd: d => d.rwd, headlights: (d, view) => view.lights.head > 0,
 };
 const ICON_VEHICLE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6" cy="4" r="1.7" fill="currentColor"/><circle cx="10.5" cy="8" r="1.7" fill="currentColor"/><circle cx="5" cy="12" r="1.7" fill="currentColor"/></svg>';

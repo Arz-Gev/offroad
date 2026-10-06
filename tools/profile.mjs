@@ -8,17 +8,15 @@ import * as THREE from 'three';
 // the model draws gauge faces on a canvas: a no-op stand-in is enough for geometry
 const noop = new Proxy(function () {}, { get: (t, k) => (k === 'data' ? new Uint8ClampedArray(4) : noop), apply: () => noop, set: () => true });
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => noop, style: {} }) };
-const { buildTruck } = await import('../src/vehicle/truckModel.js');
+const { defenderBody } = await import('../src/vehicle/model/defender/index.js');
+const { createMaterials } = await import('../src/vehicle/model/materials.js');
 import { makeCarParams } from '../src/vehicle/carParams.js';
 import { geometry } from '../src/vehicle/tuning.js';
 const P = makeCarParams('defender');
-const m = buildTruck(P);
+// the body alone (exterior, cabin, spare wheel): no running gear or wheels to skip
+const m = { root: defenderBody(createMaterials()).body };
 m.root.updateMatrixWorld(true);
 const skip = new Set();
-for (const a of m.axles) a.traverse(o => skip.add(o));
-for (const s of m.suspension) for (const o of [s.coil, s.shockBody, s.shockRod]) skip.add(o);
-for (const p of m.props) skip.add(p);
-for (const a of m.axles) { for (const l of a.userData.links) skip.add(l.link); skip.add(a.userData.panhard.mesh); }
 const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
 const bins = new Map(); // z bin (2 cm) -> lowest body point
 const put = (z, y, o) => { const k = Math.round(z / 0.02); const e = bins.get(k); if (!e || y < e.y) bins.set(k, { y, o }); };

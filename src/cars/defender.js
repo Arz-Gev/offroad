@@ -2,7 +2,7 @@ import { ROAD_ENGINES } from '../vehicle/engines.js';
 
 // Land Rover Defender 110 station wagon, lifted, on 33" mud tyres, Rover 4.6 V8 (the game's first car).
 // Everything the game knows about this car is in this file: physics (vehicle/carParams.js turns it into
-// the params P), looks (vehicle/cars.js) and test bands (tools/simtest.mjs). Format and fields:
+// the params P), looks (vehicle/model/index.js) and test bands (tools/simtest.mjs). Format and fields:
 // src/cars/README.md.
 export default {
   id: 'defender',
@@ -23,6 +23,7 @@ export default {
     aero: { cdA: 2.15 },
     wheelbase: 2.794,
     track: 1.56,
+    archTop: 1.01,                        // the lowest body over the tyres: the inner wheel tubs (the arch openings: 1.03)
 
     // Solid beam axles on coil springs (front: radius arms + panhard, rear: trailing links + A-frame).
     // droopY: the axle centre height at full droop, set by hand on this car (the others' is computed from
@@ -68,7 +69,7 @@ export default {
     // switch (front prop shaft disconnected, a game addition) (defaults, vehicle/drivetrain.js driveLayout)
     drive: {},
 
-    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (truckBody.js)
+    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (model/defender/body.js)
     // on Oct 3: the old front bumper box sat 10 cm lower and 11 cm further forward than the bumper you see
     // (an invisible nose: approach 32° instead of 38°).
     colliders: [
@@ -87,7 +88,7 @@ export default {
   },
 
   look: {
-    body: 'defender',   // procedural (vehicle/truckModel.js), no downloaded model
+    body: 'defender',   // procedural (vehicle/model/defender/), no downloaded model
   },
 
   tests: {

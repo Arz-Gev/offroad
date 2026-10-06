@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildCarModel } from './vehicle/cars.js';
+import { buildCarModel } from './vehicle/model/index.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { isCar, DEFAULT_CAR } from './cars/index.js';
 import { cornerKin } from './vehicle/suspension.js';

@@ -30,6 +30,7 @@ export default {
     // sprung 11.8 t + 4 x 460 kg unsprung (two wheels with hubs, wheel reductions, drums, knuckles, half arms)
     bodyMass: 11800, bodyInertia: [60000, 66000, 13500], com: [0, 1.12, 0.10], aero: { cdA: 6.0 },
     wheelbase: 4.44, track: 2.313,
+    archTop: 1.22,   // the lowest hull over the tyres, axle 1 (1.24-1.28 behind it; tools/rigview.html measureArches)
     // front two axles steer; centre-diff outputs: axles 1 + 3 (group 0) and 2 + 4 (group 1)
     axles: [
       { ...CORNER, ...TWO_SHOCKS, z: -2.22, steered: true, group: 0 },
@@ -83,13 +84,28 @@ export default {
     url: 'models/btr80.glb',
     author: 'Goga.Danelia',
     credit: 'BTR 80 by Goga.Danelia, CC BY 4.0, https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce',
-    build: 'btr',                          // its own model builder (btrModel.js): 8 wheels, own suspension, turret
-    wheel: { R: 0.5715, width: 0.40 },     // its own tyre, measured by prepcar
+    // its own tyres (BTR_80_Tire, split off by prepcar: tire_<k> deforms, the rim doesn't), measured by
+    // prepcar; hub_<k> is the inflation valve on the rim face (it spins)
+    wheel: { R: 0.5715, width: 0.40, rim: 0.24, hubSpins: true },
+    // the model's own double wishbones (prepcar parts per corner); the arms' inner pivots on the hull
+    // (hub frame, mirrored): prepcar can't split them, they are the hull
+    suspension: { parts: 'wishbones', pivotLow: [0.600, -0.006], pivotUp: [0.600, 0.190] },
+    // BPU-1 turret: BTR_80_B (yaw about the ring), BTR_80_C (gun cradle: KPVT box, coaxial PKT, searchlight,
+    // pitch about the trunnions) with BTR_80_E (case chute), LULA (the barrel, recoils in the cradle).
+    // Ring centre, trunnion axis, barrel tip, PKT muzzle and searchlight in the hub frame; the gunner's
+    // sight (PP-61AM periscope head on the turret roof, left of the cradle) from the ring.
+    turret: {
+      yaw: 'BTR_80_B_Baked002', pitch: ['BTR_80_E_Baked002', 'BTR_80_C_Baked002'], recoil: 'LULA_Baked002',
+      ring: [-0.018, 1.257, -1.044], trunnion: [-0.023, 1.761, -0.95],
+      muzzles: { muzzle: [-0.023, 1.760, -3.04], pktMuzzle: [0.429, 1.866, -1.32] },
+      lamp: [0.20, 2.03, -0.95], sight: [-0.32, 0.77, -0.15],
+    },
     chase: { dist: 11.5, target: 1.6 },
     eye: [-0.62, 2.22, -2.63],             // driver's hatch, head out (march position)
     hoodEye: [0, 2.05, -2.45],
-    // headlamps on the nose, light bar = the searchlight on the gun cradle, tail lamps
-    lamps: { head: [0, 1.25, -3.95], bar: [0, 2.6, -1.0], rear: [0, 1.25, 3.65] },
+    // headlamps on the nose, light bar = the searchlight on the gun cradle, tail lamps; the model's lenses
+    lamps: { head: [0, 1.25, -3.95], bar: [0, 2.6, -1.0], rear: [0, 1.25, 3.65],
+      lenses: { head: '^Headlights', amber: 'Blinkers_Yellow', tail: 'Blinkers_Red', brake: 'Blinkers_Red' } },
   },
 
   tests: {},   // no 0-100 band: its own scenario (npm run simtest btr)

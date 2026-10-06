@@ -1,4 +1,4 @@
-// Prepare a downloaded car (Sketchfab GLB) for vehicle/cars.js: bake the vehicle frame into it (+x right,
+// Prepare a downloaded car (Sketchfab GLB) for the model builder (vehicle/model/): bake the vehicle frame into it (+x right,
 // -z forward, hub centre at y 0, mid-wheelbase at z 0, metres) and split the wheels off the body into
 // nodes the game mounts on its own axles: wheel_<corner> (tyre, rim, disc: spins) and hub_<corner>
 // (parts off the hub centre, e.g. calipers: steers, doesn't spin). Prints the body outline per 10 cm of

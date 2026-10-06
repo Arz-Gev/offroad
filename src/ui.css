@@ -179,6 +179,7 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 #h-diffs .df.locked { fill: var(--amber); stroke: var(--amber); }
 /* self-locking (cam / limited slip) axle diff: half filled */
 #h-diffs .df.lsd { fill: rgba(255, 179, 71, 0.35); }
+#h-diffs .df.off { opacity: 0.2; }
 .diff-txt { display: flex; flex-direction: column; gap: calc(4 * var(--u)); min-width: 0; }
 .diff-txt b { font: 700 calc(11.5 * var(--u))/1.1 var(--sans); color: var(--dim); white-space: nowrap; }
 .diff-txt b.locked { color: var(--amber); }

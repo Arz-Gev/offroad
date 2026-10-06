@@ -13,6 +13,11 @@ export function axleShares(P) {
   return A.map(a => 1 / n + (P.com[2] - zm) * (a.z - zm) / Szz);
 }
 
+// Wheel / corner names: FL FR RL RR on two axles, 1L 1R 2L 2R ... from the front on more. Wheel i is
+// axle i >> 1, left (even) or right (odd); the model files name their wheel nodes the same way.
+export const wheelName = (i, nA) => nA === 2 ? ['FL', 'FR', 'RL', 'RR'][i] : `${(i >> 1) + 1}${i % 2 ? 'R' : 'L'}`;
+export const cornerName = (a, side, nA) => wheelName(2 * a + (side > 0 ? 1 : 0), nA);
+
 // Ackermann steering. Every steered wheel turns about one point on the line z = steer.centreZ (body
 // frame); without centreZ that is the rear axle of a 4x4 and the reference length is the wheelbase.
 // The driver's angle d is the angle of a virtual wheel on the centreline of the first steered axle.
