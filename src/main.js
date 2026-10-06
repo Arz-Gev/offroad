@@ -21,10 +21,11 @@ import { buildCarModel } from './vehicle/model/index.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';
+import { missingControls } from './vehicle/controls.js';
 import { CameraRig, CAM_NAMES, camModesFor } from './cameraRig.js';
 import { Turret } from './vehicle/turret.js';
 import { Gunnery } from './weapons.js';
-import { Input, capsHTML } from './input.js';
+import { Input, setCarControls, hasControl, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
@@ -141,6 +142,8 @@ async function main() {
   const colliderView = new ColliderView(scene, model, vehicle);
   const d = vehicle.drivetrain;
 
+
+  setCarControls(missingControls(vehicle, model));   // before the HUD, touch controls and menu list them
 
   const rig = new CameraRig(camera, terrain);
   if (model.chaseDist) rig.dist = model.chaseDist;
@@ -411,10 +414,7 @@ async function main() {
     pressureDown: () => changePressure(-2),
     pressureUp: () => changePressure(2),
     headlights: () => setHeadlights((view.lights.head + 1) % 3),
-    lightBar: () => {
-      if (!model.lights.bar) { say('bar', `The ${carDef(car).label} has no light bar`); return; }
-      view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Light bar on' : 'Light bar off');
-    },
+    lightBar: () => { view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Extra lamps on' : 'Extra lamps off'); },
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
     camera: () => settings.set('camera', next(camModes, rig.mode)),
@@ -444,7 +444,8 @@ async function main() {
     telemetry: () => toggle('telemetry'),
     tuning: () => tuning.toggle(),
   };
-  input.onAction = id => { if (ACTIONS[id]) ACTIONS[id](); };
+  // only the controls this car has run, from the keys, the pad, the touch controls, the menu or the console
+  input.onAction = id => { if (ACTIONS[id] && hasControl(id)) ACTIONS[id](); };
   game.action = id => input.onAction(id);
 
   // ---------------------------------------------------------------- pause menu + welcome card
@@ -472,7 +473,6 @@ async function main() {
         case 'pressureText': return fmtPressure(vehicle.pressure, settings.get('pressureUnit'));
         case 'headlights': return view.lights.head;
         case 'lightBar': return view.lights.bar;
-        case 'hasLightBar': return !!model.lights.bar;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;

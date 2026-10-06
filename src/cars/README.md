@@ -7,6 +7,11 @@ suspension, a turret) is a field here with a default that leaves the other cars 
 
 Recipe for adding a car, with the checks: `.claude/skills/add-car/SKILL.md`.
 
+The driver's controls aren't listed here: `src/vehicle/controls.js` works them out from the car (low range
+from `transfer.low`, the centre lock from an open centre diff, lockers, a 2WD switch, extra lamps from
+`lightBar` / `lamps.bar`, a turret), and the keys, pad, touch drawer, menu, controls page and hints show
+only those. Give a car only what the real one has.
+
 ```js
 export default {
   id: 'gclass',              // settings, saved setups, multiplayer

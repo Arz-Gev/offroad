@@ -121,7 +121,8 @@ function fill(base, s) {
   const g = s.gearbox || {};
   for (const k of ['auto', 'manual']) if (Array.isArray(g[k]) && g[k].length === out.gearbox[k].length) out.gearbox[k] = g[k].map((v, i) => num(v, 'gearbox.ratio', out.gearbox[k][i]));
   for (const k of ['autoRev', 'manualRev']) out.gearbox[k] = num(g[k], 'gearbox.ratio', out.gearbox[k]);
-  for (const k of ['final', 'high', 'low']) out.gearbox[k] = num(g[k], 'gearbox.' + k, out.gearbox[k]);
+  // a car without low range (no stock low ratio) doesn't get one from an old or foreign setup
+  for (const k of ['final', 'high', 'low']) if (out.gearbox[k] !== undefined) out.gearbox[k] = num(g[k], 'gearbox.' + k, out.gearbox[k]);
   const t = s.tyres || {};
   out.tyres.size = Math.round(2 * num(t.size, 'tyres.size', out.tyres.size)) / 2;
   out.tyres.width = num(t.width, 'tyres.width', out.tyres.width);
@@ -380,8 +381,9 @@ export function analyze(P, setup, gearbox = 'auto') {
   const R = P.tire.radius, Re = R - 0.012;
   const box = gearbox === 'manual' ? P.manual.ratios : P.auto.ratios;
   const vAt = (ratio, tr) => (P.engine.limiterRpm * Math.PI / 30) / (ratio * tr * P.finalDrive) * Re * 3.6;
-  out.gears = box.map(g => ({ ratio: g, high: vAt(g, P.transfer.high), low: vAt(g, P.transfer.low) }));
-  out.crawl = box[0] * P.transfer.low * P.finalDrive;
+  // (no low column on a car without low range: its crawl ratio is first gear in high)
+  out.gears = box.map(g => ({ ratio: g, high: vAt(g, P.transfer.high), low: P.transfer.low ? vAt(g, P.transfer.low) : null }));
+  out.crawl = box[0] * (P.transfer.low || P.transfer.high) * P.finalDrive;
   // top speed: power against drag + rolling resistance, capped by the limiter in top gear
   const crr = 0.026 * Math.sqrt(28 / Math.max(t.pressF, 4));
   let vmax = 0;

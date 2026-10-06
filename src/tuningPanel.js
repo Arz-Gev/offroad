@@ -5,6 +5,7 @@ import { makeCarParams } from './vehicle/carParams.js';
 import { getCar, carDef } from './cars/index.js';
 import { storage } from './settings.js';
 import { escapeHTML, fmtPressure } from './hud.js';
+import { hasControl } from './input.js';
 import './tuning.css';
 
 // In-game tuning panel (Tab). The game keeps running: the mouse works the panel, the driving keys
@@ -133,7 +134,7 @@ export class TuningPanel {
         sl(`gearbox.${box}Rev`, 'Reverse', 'gearbox.ratio', f2, ''),
         sl('gearbox.final', 'Final drive', 'gearbox.final', f2, 'Axle ratio. 4.10 or 4.75 is the usual fix for big tyres.'),
         sl('gearbox.high', 'Transfer high', 'gearbox.high', v => v.toFixed(3), ''),
-        sl('gearbox.low', 'Transfer low', 'gearbox.low', f2, 'Low range: a bigger number crawls slower and climbs harder.'),
+        ...(STOCK.gearbox.low ? [sl('gearbox.low', 'Transfer low', 'gearbox.low', f2, 'Low range: a bigger number crawls slower and climbs harder.')] : []),
         { type: 'gears' },
         { type: 'live' },
       ] },
@@ -204,10 +205,10 @@ export class TuningPanel {
     }
     if (r.type === 'gears') return `<div class="tn-row"><div class="tn-gears"></div></div>`;
     if (r.type === 'live') {
-      // only the switches this car has (the BTR-80: no lockers, self-locking axle diffs; no 2WD; the Lancia:
-      // a viscous centre, no lockers, no 2WD)
-      const d = this.v.drivetrain;
-      const sw = [['range', 'Low range'], ...(d.canLockCentre ? [['centreLock', 'Centre lock']] : []), ...(d.canLock ? [['rearLock', 'Rear locker'], ['frontLock', 'Front locker']] : []), ['traction', 'Traction ctl'], ['abs', 'ABS'], ...(d.layout.rwd?.length ? [['rwd', '2WD']] : [])];
+      // only the switches this car has (input.js hasControl: the BTR-80 has no lockers and no 2WD, the Lancia
+      // a viscous centre, no lockers and no 2WD, a car without low range no range switch)
+      const sw = [['range', 'Low range', 'range'], ['centreLock', 'Centre lock', 'centreLock'], ['rearLock', 'Rear locker', 'lockers'],
+        ['frontLock', 'Front locker', 'lockers'], ['traction', 'Traction ctl', 'traction'], ['abs', 'ABS', 'abs'], ['rwd', '2WD', 'rwd']].filter(([, , id]) => hasControl(id));
       return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
       ${sw.map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
@@ -484,7 +485,8 @@ export class TuningPanel {
       ['Crawl ratio', `${f1(A.crawl)}:1${vs(A.crawl, S.crawl, 1)}`],
     ]));
     const gt = el.querySelector('.tn-gears');
-    if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th><th>low</th></tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td><td>${f0(g.low)}</td></tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
+    const lo = !!P.transfer.low;
+    if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th>${lo ? '<th>low</th>' : ''}</tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td>${lo ? `<td>${f0(g.low)}</td>` : ''}</tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
     this.refreshLive();
     const geo = A.geo, arch = geo.arch;
     const archTxt = a => !a ? '—' : a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;

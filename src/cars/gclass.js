@@ -31,8 +31,8 @@ export default {
     transfer: { high: 1.0, low: 2.93 },
     finalDrive: 3.70,
     // permanent 4MATIC: the centre diff splits 40 : 60 front / rear (the W463 before 2018: 50 : 50); three
-    // lockers (centre, rear, front) like the Defender's
-    drive: { centreSplit: 0.4 },
+    // lockers (centre, rear, front); no 2WD switch: the real car can't disconnect the front axle
+    drive: { centreSplit: 0.4, rwd: [] },
     colliders: [   // [cx, cy, cz, hx, hy, hz, rounding], body frame at static ride (ground y 0), measured off the shell
       ['Cabin and rear body', [0, 1.30, 0.825, 0.90, 0.68, 1.325, 0.06]],      // sill 0.62 to roof 1.98, windscreen top to rear face 2.15
       ['Bonnet and wings', [0, 0.96, -1.325, 0.90, 0.34, 0.825, 0.06]],        // 0.62 to bonnet 1.30, bumper back to the windscreen

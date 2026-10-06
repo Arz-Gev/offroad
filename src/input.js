@@ -2,7 +2,9 @@
 // Touch (touch.js) writes analog pedals / steering into Input.touch; they count while the device is 'touch'.
 //
 // BINDINGS is the single source of truth for every control: main.js dispatches the discrete actions,
-// and the HUD hints, the welcome card and the menu's controls page are all generated from it.
+// and the HUD hints, the welcome card and the menu's controls page are all generated from it. A car
+// without some of them (no low range, no light bar, no turret: vehicle/controls.js) sets them aside with
+// setCarControls: they don't run and aren't shown.
 // Discrete actions fire immediately from the key/pad event (onAction), not from the game loop.
 // While a menu is open, uiHandler receives the keys / pad buttons instead of the game.
 
@@ -35,7 +37,7 @@ export const BINDINGS = [
   { id: 'pressureDown', group: 'Vehicle', label: 'Tyre pressure down (air down for grip)', codes: ['BracketLeft'], keys: ['['], touch: 'Tyres −' },
   { id: 'pressureUp', group: 'Vehicle', label: 'Tyre pressure up', codes: ['BracketRight'], keys: [']'], touch: 'Tyres +' },
   { id: 'headlights', group: 'Vehicle', label: 'Headlights off / low / high', codes: ['KeyL'], keys: ['L'], pad: 'D-pad ↑', button: PAD.UP, touch: 'Lights' },
-  { id: 'lightBar', group: 'Vehicle', label: 'Roof light bar', codes: ['KeyJ'], keys: ['J'] },
+  { id: 'lightBar', group: 'Vehicle', label: 'Extra lamps: the roof light bar, driving lamps or searchlight', codes: ['KeyJ'], keys: ['J'] },
   { id: 'hazards', group: 'Vehicle', label: 'Hazard lights', codes: ['KeyG'], keys: ['G'] },
   { id: 'recover', group: 'Vehicle', label: 'Recover: put the truck back on its wheels', codes: ['KeyR'], keys: ['R'], pad: 'B', button: PAD.B, touch: 'Recover' },
 
@@ -59,6 +61,13 @@ export const BINDINGS = [
 ];
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));
+
+// the controls this car doesn't have (vehicle/controls.js missingControls); set once, before the HUD,
+// the touch controls and the menu are built
+const MISSING = new Set();
+export function setCarControls(missing) { MISSING.clear(); for (const id of missing) MISSING.add(id); }
+export const hasControl = id => !MISSING.has(id);
+export const carBindings = () => BINDINGS.filter(b => hasControl(b.id));
 const KEY_ACTION = {};
 const PAD_ACTION = {};
 for (const b of BINDINGS) {
