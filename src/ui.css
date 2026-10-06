@@ -589,5 +589,4 @@ body.touch-ui .tab { padding: 14px 12px 15px; }
 .gb-row.reloading .gb-ammo { color: var(--amber); }
 .gb-foot { display: flex; align-items: center; gap: calc(8 * var(--u)); margin-top: calc(5 * var(--u)); font: 600 calc(11 * var(--u))/1 var(--sans); color: var(--dim); white-space: nowrap; }
 .gb-foot #h-gunelev { width: calc(30 * var(--u)); font-family: var(--mono); color: var(--txt); }
-.gb-foot .cap { transform: scale(0.85); }
 body.touch-ui .gunbox { bottom: auto; left: max(var(--gap), env(safe-area-inset-left)); transform: none; top: calc(max(var(--gap), env(safe-area-inset-top)) + 44 * var(--u)); }

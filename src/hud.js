@@ -84,7 +84,7 @@ export class HUD {
         </svg>
         <div class="gb-main">
           <div class="gb-rows" id="h-gunrows"></div>
-          <div class="gb-foot"><span id="h-gunelev">0°</span><span class="sep"></span><span id="h-gunkeys"></span></div>
+          <div class="gb-foot"><span id="h-gunelev">0°</span></div>
         </div>
       </div>
       <div class="hud-panel susp" id="h-susp" hidden>
@@ -154,7 +154,7 @@ export class HUD {
       tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
-    Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev'), gunKeys: $('h-gunkeys') });
+    Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev') });
     this.sctx = $('h-suspcv').getContext('2d');
     this.c = {};                       // last written values
     this.opts = { speedUnit: 'kmh', pressureUnit: 'psi', cluster: 'auto', hudScale: 1, hints: true, suspension: false, telemetry: false, fps: false };
@@ -529,7 +529,6 @@ export class HUD {
       c.gunRowsFor = S;
       e.gunRows.innerHTML = S.weapons.map((w, i) => `<div class="gb-row" data-w="${i}"><b>${w.short}</b><span class="gb-cal">${w.calibre}</span><span class="gb-ammo">0</span><span class="gb-res">/ 0</span><i class="gb-rl"><i></i></i></div>`).join('');
       c.gunRow = [...e.gunRows.children].map(r => ({ r, ammo: r.querySelector('.gb-ammo'), res: r.querySelector('.gb-res'), rl: r.querySelector('.gb-rl > i'), k: {} }));
-      c.gunKeysDev = null;
     }
     T.guns.forEach((gun, i) => {
       const row = c.gunRow[i], w = S.weapons[i], k = row.k;
@@ -546,10 +545,6 @@ export class HUD {
     if (yawQ !== c.gunYaw) { c.gunYaw = yawQ; e.gunRot.setAttribute('transform', `rotate(${yawQ} 22 22)`); }
     const el = Math.round(T.pitch * 180 / Math.PI);
     if (el !== c.gunEl) { c.gunEl = el; e.gunElev.textContent = `${el > 0 ? '+' : ''}${el}°`; }
-    if (c.gunKeysDev !== this.device) {
-      c.gunKeysDev = this.device;
-      e.gunKeys.innerHTML = this.device === 'touch' ? '' : `${capsHTML('fire', this.device)} fire · ${capsHTML(this.device === 'pad' ? 'camera' : 'gunner', this.device)} sight`;
-    }
     // the sight: reticle redrawn only when the view, the field of view or the gun changes
     e.sight.hidden = !g.sight;
     if (!g.sight) return;
