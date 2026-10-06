@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { D } from './truckDims.js';
-import { mesh, rbox, span, bar, pipe, extrudeProfile, plate, frame } from './geom.js';
+import { D } from './dims.js';
+import { mesh, rbox, span, bar, pipe, extrudeProfile, plate, frame } from '../geom.js';
 
 // Defender cabin, left-hand drive. Laid out from the driver's eye (D.DX, 1.78, 0.10):
 // the dash top sits at the windscreen base (~25° below the eye line), the instrument pod looks over the

@@ -1,4 +1,4 @@
-// Turret and guns of a vehicle (P.turret, carSpecs.js): traverse and elevation driven like the BPU-1's hand
+// Turret and guns of a vehicle (P.turret, the car's file in src/cars/): traverse and elevation driven like the BPU-1's hand
 // wheels (rate and acceleration limited, no stabiliser: the gun moves with the hull), the guns' rate of
 // fire, belts and reloads, barrel recoil, and the ballistics shared by the game (weapons.js) and the tests.
 //

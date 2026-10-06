@@ -1,7 +1,11 @@
-import { STOCK, ENGINES, ENGINE_ORDER, RANGES, TYRE_SIZES, TYRE_WIDTHS, sanitize, clone, applySetup, analyze, exportJSON, netTorque, tyreRadius, wheelMass } from './vehicle/tuning.js';
-import { makeCarParams, getCar } from './vehicle/carSpecs.js';
+import { STOCK, ENGINE_ORDER, RANGES, TYRE_SIZES, TYRE_WIDTHS, sanitize, clone, applySetup, analyze, exportJSON, netTorque, wheelMass } from './vehicle/tuning.js';
+import { ENGINES } from './vehicle/engines.js';
+import { tyreRadius } from './vehicle/tire.js';
+import { makeCarParams } from './vehicle/carParams.js';
+import { getCar, carDef } from './cars/index.js';
 import { storage } from './settings.js';
 import { escapeHTML, fmtPressure } from './hud.js';
+import { hasControl } from './input.js';
 import './tuning.css';
 
 // In-game tuning panel (Tab). The game keeps running: the mouse works the panel, the driving keys
@@ -11,8 +15,8 @@ import './tuning.css';
 // The setup, the saved setups and the panel state live in localStorage (offroad.tuning.v1).
 
 const KEY_BASE = 'offroad.tuning.v1';
-// each car keeps its own setup and saved setups (the Defender keeps the original key)
-const carKey = () => getCar() === 'defender' ? KEY_BASE : KEY_BASE + '.' + getCar();
+// each car keeps its own setup and saved setups (a car whose setups predate this keeps its key: saveKey)
+const carKey = () => carDef(getCar()).saveKey ?? KEY_BASE + '.' + getCar();
 const DEG = Math.PI / 180;
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const set = (o, path, v) => { const ks = path.split('.'), last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
@@ -130,7 +134,7 @@ export class TuningPanel {
         sl(`gearbox.${box}Rev`, 'Reverse', 'gearbox.ratio', f2, ''),
         sl('gearbox.final', 'Final drive', 'gearbox.final', f2, 'Axle ratio. 4.10 or 4.75 is the usual fix for big tyres.'),
         sl('gearbox.high', 'Transfer high', 'gearbox.high', v => v.toFixed(3), ''),
-        sl('gearbox.low', 'Transfer low', 'gearbox.low', f2, 'Low range: a bigger number crawls slower and climbs harder.'),
+        ...(STOCK.gearbox.low ? [sl('gearbox.low', 'Transfer low', 'gearbox.low', f2, 'Low range: a bigger number crawls slower and climbs harder.')] : []),
         { type: 'gears' },
         { type: 'live' },
       ] },
@@ -201,9 +205,10 @@ export class TuningPanel {
     }
     if (r.type === 'gears') return `<div class="tn-row"><div class="tn-gears"></div></div>`;
     if (r.type === 'live') {
-      // only the switches this car has (the BTR-80: no lockers, self-locking axle diffs; no 2WD)
-      const d = this.v.drivetrain;
-      const sw = [['range', 'Low range'], ['centreLock', 'Centre lock'], ...(d.canLock ? [['rearLock', 'Rear locker'], ['frontLock', 'Front locker']] : []), ['traction', 'Traction ctl'], ['abs', 'ABS'], ...(d.layout.rwd?.length ? [['rwd', '2WD']] : [])];
+      // only the switches this car has (input.js hasControl: the BTR-80 has no lockers and no 2WD, the Lancia
+      // a viscous centre, no lockers and no 2WD, a car without low range no range switch)
+      const sw = [['range', 'Low range', 'range'], ['centreLock', 'Centre lock', 'centreLock'], ['rearLock', 'Rear locker', 'lockers'],
+        ['frontLock', 'Front locker', 'lockers'], ['traction', 'Traction ctl', 'traction'], ['abs', 'ABS', 'abs'], ['rwd', '2WD', 'rwd']].filter(([, , id]) => hasControl(id));
       return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
       ${sw.map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
@@ -480,22 +485,24 @@ export class TuningPanel {
       ['Crawl ratio', `${f1(A.crawl)}:1${vs(A.crawl, S.crawl, 1)}`],
     ]));
     const gt = el.querySelector('.tn-gears');
-    if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th><th>low</th></tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td><td>${f0(g.low)}</td></tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
+    const lo = !!P.transfer.low;
+    if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th>${lo ? '<th>low</th>' : ''}</tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td>${lo ? `<td>${f0(g.low)}</td>` : ''}</tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
     this.refreshLive();
     const geo = A.geo, arch = geo.arch;
-    const archTxt = a => a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;
+    const archTxt = a => !a ? '—' : a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;
     ss('tyres', `${s.tyres.size}×${s.tyres.width} · ${fmtPressure(v.pressure, this.api.settings.get('pressureUnit'))}`);
     ro('tyres', kv([
       ['Axle clearance', `${cm(geo.diffClear)}${vs(geo.diffClear * 100, S.geo.diffClear * 100, 0)}`],
       ['Gearing', s.tyres.size === STOCK.tyres.size ? 'stock' : `${pct(tyreRadius(s.tyres.size), tyreRadius(STOCK.tyres.size))} taller`],
-      ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[1])],
+      ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[arch.length - 1])],
     ]));
-    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[1].f)} Hz`);
+    const rA = A.susp.length - 1;   // the rear: the last axle
+    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[rA].f)} Hz`);
     const freq = i => `${f2(A.susp[i].f)} Hz <em class="${A.susp[i].f > S.susp[i].f + 0.005 ? 'up' : A.susp[i].f < S.susp[i].f - 0.005 ? 'dn' : ''}">${A.susp[i].f > S.susp[i].f + 0.005 ? 'stiffer' : A.susp[i].f < S.susp[i].f - 0.005 ? 'softer' : 'stock'}</em>`;
     const zeta = z => `${f2(z)} ${z < 0.25 ? '<span class="bad">bouncy</span>' : z < 0.4 ? '<span class="warn">soft</span>' : z > 0.9 ? '<span class="warn">harsh</span>' : ''}`;
     ro('susp', kv([
-      ['Ride F', freq(0)], ['Ride R', freq(1)],
-      ['Damping F', zeta(A.susp[0].zeta)], ['Damping R', zeta(A.susp[1].zeta)],
+      ['Ride F', freq(0)], ['Ride R', freq(rA)],
+      ['Damping F', zeta(A.susp[0].zeta)], ['Damping R', zeta(A.susp[rA].zeta)],
       ['Body clearance', `${cm(geo.bodyClear)}${vs(geo.bodyClear * 100, S.geo.bodyClear * 100, 0)}`], ['Axle clearance', cm(geo.diffClear)],
       ['Approach', `${f0(geo.approach)}°${vs(geo.approach, S.geo.approach, 0)}`], ['Departure', `${f0(geo.departure)}°${vs(geo.departure, S.geo.departure, 0)}`],
       ['Breakover', `${f0(geo.breakover)}°${vs(geo.breakover, S.geo.breakover, 0)}`], ['Centre of mass', `${cm(A.comH)} up`],
@@ -549,7 +556,7 @@ export class TuningPanel {
   // driveline switches and the collider contact list, 5 times a second while open
   refreshLive() {
     const d = this.v.drivetrain, v = this.v, el = this.el;
-    const st = { range: d.range === 'low', centreLock: d.centerLock, rearLock: d.rearLock, frontLock: d.frontLock, traction: v.tc, abs: v.abs, rwd: d.rwd };
+    const st = { range: d.range === 'low', centreLock: d.centreLocked, rearLock: d.rearLock, frontLock: d.frontLock, traction: v.tc, abs: v.abs, rwd: d.rwd };
     for (const b of el.querySelectorAll('[data-live]')) b.setAttribute('aria-checked', !!st[b.dataset.live]);
     const tc = el.querySelector('.tn-touch');
     if (tc) {

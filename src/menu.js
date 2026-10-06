@@ -1,6 +1,6 @@
-import { BINDINGS, capsHTML, padCapHTML, touchCapHTML } from './input.js';
+import { carBindings, hasControl, capsHTML, padCapHTML, touchCapHTML } from './input.js';
 import { escapeHTML } from './hud.js';
-import { CARS } from './vehicle/cars.js';
+import { CAR_LIST } from './cars/index.js';
 
 // Pause menu (Locations / Settings / Controls) and the first-start welcome card.
 // Both pause the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
@@ -17,12 +17,12 @@ const TABS = [
   { id: 'controls', label: 'Controls', hot: 'controls' },
 ];
 
-const MODEL_CREDITS = Object.values(CARS).filter(c => c.author).map(c => `${c.label} by ${c.author}`).join(', ');
+const MODEL_CREDITS = CAR_LIST.filter(c => c.look.author).map(c => `${c.label} by ${c.look.author}`).join(', ');
 const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
-    row('car', 'Vehicle', 'seg', { options: Object.entries(CARS).map(([id, c]) => [id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
+    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),
@@ -42,7 +42,7 @@ const SECTIONS = [
   ] },
   { title: 'Vehicle', rows: [
     row('headlights', 'Headlights', 'seg', { hot: 'headlights', options: [[0, 'Off'], [1, 'Low'], [2, 'High']] }),
-    row('lightBar', 'Light bar', 'switch', { hot: 'lightBar' }),
+    row('lightBar', 'Extra lamps', 'switch', { hot: 'lightBar' }),
     row('hazards', 'Hazard lights', 'switch', { hot: 'hazards' }),
   ] },
   { title: 'Units', rows: [
@@ -111,6 +111,17 @@ const GFX_SECTIONS = [
   ] },
 ];
 
+// what to do when stuck, with only this car's controls: low range, the diff locks, airing down
+function stuckSteps(k, tyres) {
+  const s = [];
+  if (hasControl('range')) s.push(`shift to low range (${k('range')})`);
+  const locks = [hasControl('centreLock') && `the centre diff (${k('centreLock')})`, hasControl('lockers') && `the axle lockers (${k('lockers')})`].filter(Boolean);
+  if (locks.length) s.push(`lock ${locks.join(' and ')}`);
+  if (tyres) s.push(`air the tyres down (${k('pressureDown')})`);
+  if (!s.length) return 'Stop, back up and take a run at it.';
+  const list = s.length === 1 ? s[0] : `${s.slice(0, -1).join(', ')}, then ${s[s.length - 1]}`;
+  return `Stop, ${list}.`;
+}
 const hotHTML = hot => [].concat(hot || []).map(id => capsHTML(id, 'kb')).join('');
 
 export class Menu {
@@ -209,7 +220,7 @@ export class Menu {
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
       <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
-        <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}">
+        <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
         </div>`).join('')}</div>`).join('')}</div>`;
@@ -218,17 +229,19 @@ export class Menu {
   // third column: the gamepad, or the on-screen controls on a touch screen
   buildControls(touch = false) {
     this.ctlTouch = touch;
-    const groups = [...new Set(BINDINGS.map(b => b.group))];
+    // only this car's controls (no Turret section without a turret, no low range without one, ...)
+    const bindings = carBindings();
+    const groups = [...new Set(bindings.map(b => b.group))];
     const third = touch ? touchCapHTML : padCapHTML, dev = touch ? 'touch' : 'kb';
     this.panes.controls.innerHTML = `
       <div class="ctl-cols">${groups.map(g => `
         <div class="ctl-sec">
           <div class="ctl-row head"><h2>${g}</h2><span>Keyboard</span><span class="ctl-p">${touch ? 'Touch' : 'Gamepad'}</span></div>
-          <div class="ctl-table">${BINDINGS.filter(b => b.group === g).map(b => `
+          <div class="ctl-table">${bindings.filter(b => b.group === g).map(b => `
             <div class="ctl-row"><span class="ctl-a">${escapeHTML(b.label)}</span><span class="ctl-k">${capsHTML(b.id, 'kb', { all: true })}</span><span class="ctl-p">${third(b.id)}</span></div>`).join('')}
           </div></div>`).join('')}
       </div>
-      <div class="callout"><b>Getting stuck?</b> Stop, shift to low range (${capsHTML('range', dev)}), lock the centre diff (${capsHTML('centreLock', dev)}) and the axle lockers (${capsHTML('lockers', dev)}), and air the tyres down (${capsHTML('pressureDown', dev)}). ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds the range, diff lock, drive, engine, light and tyre controls.' : ''}</div>`;
+      <div class="callout"><b>Getting stuck?</b> ${stuckSteps(id => capsHTML(id, dev), true)} ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds this car\'s drive, engine, light and tyre controls.' : ''}</div>`;
   }
 
   // device-dependent labels: header buttons, footer hints, welcome card
@@ -500,7 +513,7 @@ export class Menu {
         <h1 id="intro-title">Take it off the road</h1>
         <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
         <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> Stop, press ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs.${dev === 'pad' ? '' : ` ${k('pressureDown')} airs the tyres down.`}</div>
+        <div class="callout"><b>Hard obstacle?</b> ${stuckSteps(k, dev !== 'pad')}</div>
         <div class="intro-foot">
           <span class="fine">${dev === 'pad' ? `${k('menu')} opens the menu at any time.` : `${k('controls')} shows every control at any time.`}</span>
           <button class="btn primary big" type="button" data-act="start">Start driving ${startCap}</button>

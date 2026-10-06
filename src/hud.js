@@ -1,5 +1,6 @@
 import { capsHTML } from './input.js';
 import { storage } from './settings.js';
+import { wheelName } from './vehicle/suspension.js';
 
 const FULL_SEEN_KEY = 'offroad.fullscreenUsed.v1';
 
@@ -15,14 +16,13 @@ export const fmtPressure = (psi, unit) => unit === 'bar' ? `${(psi * 0.0689476).
 export const speedUnit = u => SPEED_UNITS[u] || SPEED_UNITS.kmh;
 
 const AUTO_STRIP = ['P', 'R', 'N', 'D'];
-const MAN_STRIP = ['R', 'N', '1', '2', '3', '4', '5'];
 const DIAL = 156;          // css px at scale 1
 const SUSP = 216;
-const MAX_RPM = 6000;
+// the rpm scale: the engine's limiter rounded up to a whole thousand (a 2900 rpm diesel reads to 3, a
+// 6800 rpm petrol to 7)
+const dialMax = E => Math.max(3000, Math.ceil(E.limiterRpm / 1000) * 1000);
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-// wheel names: FL FR RL RR on a 4x4, axle number + side on more axles (1L 1R 2L ...)
-export const wheelName = (i, nA) => nA === 2 ? ['FL', 'FR', 'RL', 'RR'][i] : `${(i >> 1) + 1}${i % 2 ? 'R' : 'L'}`;
 
 // The drivetrain diagram of the cluster: wheels, shafts, an axle diff per axle and the centre diff, in a
 // fixed 64 x 72 box. Two axles: the original drawing. More axles get smaller wheels down the same box.
@@ -100,14 +100,14 @@ export class HUD {
           <span class="tt amber" id="t-tc" hidden>TC</span>
           <span class="tt blue" id="t-rwd" hidden>2WD</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
-          <span class="tt amber" id="t-bar" hidden>LIGHT BAR</span>
+          <span class="tt amber" id="t-bar" hidden>EXTRA LAMPS</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
         </div>
         <div class="cl-body">
           <div class="cl-side">
             <div class="cl-mode"><b id="h-mode">AUTO</b><span id="h-modesub"></span></div>
             <div class="strip" id="h-strip"></div>
-            <div class="cl-kv"><span class="k">Range</span><span class="seg2" id="h-range"><i data-v="high">HI</i><i data-v="low">LO</i></span></div>
+            <div class="cl-kv" id="h-rangerow"><span class="k">Range</span><span class="seg2" id="h-range"><i data-v="high">HI</i><i data-v="low">LO</i></span></div>
             <div class="cl-diffs">
               <svg id="h-diffs" viewBox="0 0 64 72" aria-hidden="true">
                 <path class="shaft" d="M14 13H50M14 59H50M32 13V59"/>
@@ -146,7 +146,7 @@ export class HUD {
     this.e = {
       menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'),
       toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
-      cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'),
+      cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'), rangeRow: $('h-rangerow'),
       diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')], diffTxt: $('h-difftxt'),
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
@@ -326,7 +326,9 @@ export class HUD {
       // a manual-only car (BTR-80) in "automatic": its manual box picks the gears itself
       e.mode.textContent = manual && !d.autoShift ? 'MANUAL' : 'AUTO';
       e.modeSub.textContent = manual ? (d.autoShift ? 'auto-shift' : d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : `${v.P.auto.ratios.length}-speed`;
-      e.strip.innerHTML = (manual ? MAN_STRIP : AUTO_STRIP).map(g => `<i>${g}</i>`).join('');
+      // the manual strip: R, N and this car's gears
+      const strip = manual ? ['R', 'N', ...v.P.manual.ratios.map((r, i) => String(i + 1))] : AUTO_STRIP;
+      e.strip.innerHTML = strip.map(g => `<i>${g}</i>`).join('');
       e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist && !d.autoShift));
     }
     const stripIdx = manual ? d.manualGear + 1 : AUTO_STRIP.indexOf(d.selector);
@@ -342,6 +344,8 @@ export class HUD {
 
     // transfer case + diffs
     if (d.range !== c.range) { c.range = d.range; e.range.dataset.v = d.range; }
+    const low = !!v.P.transfer?.low;   // no HI / LO row on a car without low range
+    if (low !== c.low) { c.low = low; e.rangeRow.hidden = !low; }
     const nA = v.axles.length;
     if (nA !== c.nA) {
       // the diagram for this car's axle count (self-locking axle diffs drawn half filled)
@@ -351,29 +355,41 @@ export class HUD {
       e.diffs = [...svg.querySelectorAll('.df')];
       e.wheels = [...svg.querySelectorAll('.w')];
       for (let i = 0; i < e.wheels.length; i++) c['w' + i] = undefined;
-      if (nA !== 2) d.layout.axles.forEach((ax, a) => e.diffs[a].classList.toggle('lsd', ax.diff === 'lsd'));
+      // 2 axles: front, centre, rear; more: the axles, then the centre
+      e.axleDf = a => nA === 2 ? e.diffs[a === 0 ? 0 : 2] : e.diffs[a];
+      e.centreDf = e.diffs[nA === 2 ? 1 : nA];
+      d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('lsd', ax.diff === 'lsd'));
+      e.centreDf.classList.toggle('lsd', d.layout.centre === 'viscous');
+    }
+    // diffs of axles not driven now (front- / rear-wheel drive, 2WD) and a centre diff that isn't there
+    const driven = d.layout.axles.reduce((m, ax, a) => m | (d.isDriven(a) ? 1 << a : 0), 0) | (d.layout.centre === 'none' || d.rwd ? 0 : 1 << 16);
+    if (driven !== c.driven) {
+      c.driven = driven;
+      d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('off', !d.isDriven(a)));
+      e.centreDf.classList.toggle('off', !(driven >> 16));
     }
     if (nA === 2) {
-      const locks = (d.frontLock ? 1 : 0) | (d.centerLock ? 2 : 0) | (d.rearLock ? 4 : 0);
+      const locks = (d.frontLock ? 1 : 0) | (d.centreLocked ? 2 : 0) | (d.rearLock ? 4 : 0);
       if (locks !== c.locks) {
         c.locks = locks;
         e.diffs[0].classList.toggle('locked', d.frontLock);
-        e.diffs[1].classList.toggle('locked', d.centerLock);
+        e.diffs[1].classList.toggle('locked', d.centreLocked);
         e.diffs[2].classList.toggle('locked', d.rearLock);
-        const names = [d.centerLock && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
+        const names = [d.centreLocked && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
         // short enough for one line; the icon shows exactly which diff is locked
-        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || 'Open';
+        const self = !d.canLockCentre || d.layout.axles.some(a => a.diff === 'lsd');
+        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || (self ? 'Self-lock' : 'Open');
         e.diffTxt.classList.toggle('locked', names.length > 0);
       }
     } else {
-      let locks = d.centerLock ? 1 : 0;
+      let locks = d.centreLocked ? 1 : 0;
       d.locks.forEach((l, a) => { if (l) locks |= 2 << a; });
       if (locks !== c.locks) {
         c.locks = locks;
         d.locks.forEach((l, a) => e.diffs[a].classList.toggle('locked', l));
-        e.diffs[nA].classList.toggle('locked', d.centerLock);
+        e.diffs[nA].classList.toggle('locked', d.centreLocked);
         const nl = d.locks.filter(Boolean).length, lsd = d.layout.axles.some(a => a.diff === 'lsd');
-        e.diffTxt.textContent = d.centerLock && nl === nA ? 'All locked' : d.centerLock ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
+        e.diffTxt.textContent = d.centreLocked && nl === nA ? 'All locked' : d.centreLocked ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
         e.diffTxt.classList.toggle('locked', !!locks);
       }
     }
@@ -437,7 +453,7 @@ export class HUD {
     el.style.transform = `scaleY(${q / 100})`;
   }
   rpmBar(rpm, E) {
-    const q = Math.round(clamp(rpm / MAX_RPM, 0, 1) * 100);
+    const q = Math.round(clamp(rpm / dialMax(E), 0, 1) * 100);
     if (q !== this.c.rpmQ) { this.c.rpmQ = q; this.e.rpmBar.style.transform = `scaleX(${q / 100})`; }
     const zone = rpm >= E.redlineRpm ? 'red' : rpm >= E.redlineRpm - 700 ? 'amber' : '';
     if (zone !== this.c.rpmZone) { this.c.rpmZone = zone; this.e.rpmBar.className = zone; }
@@ -461,9 +477,10 @@ export class HUD {
     else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Gearbox in neutral. Press ${k('shiftUp')} for 1st, ${k('shiftDown')} for reverse.` : `Selector in ${d.selector}. Press ${k('shiftUp')} for Drive${d.selector === 'P' ? ` (reverse: ${k('shiftUp')} once)` : ''}.`; }
     else if (stuck > 3) {
       const s = [];
-      if (d.range === 'high') s.push(`${k('range')} low range`);
-      if (!d.centerLock) s.push(`${k('centreLock')} centre lock`);
-      if (!(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
+      if (d.rwd) s.push(`${k('rwd')} 4WD`);
+      if (d.range === 'high' && d.P.transfer.low) s.push(`${k('range')} low range`);
+      if (!d.centerLock && d.canLockCentre) s.push(`${k('centreLock')} centre lock`);
+      if (d.canLock && !(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
       key = 'stuck:' + s.length;
       html = `Stuck? ${s.length ? 'Try ' + s.join(', ') + ', or' : 'Pick another line, or'} ${k('recover')} to recover.`;
     }
@@ -474,12 +491,15 @@ export class HUD {
 
   // ------------------------------------------------------------------ rpm dial
   drawDial(rpm, E) {
+    // the scale follows the engine (tuning can swap it while driving)
+    const max = dialMax(E), scale = `${max} ${E.redlineRpm}`;
+    if (scale !== this.dialScale) { this.dialScale = scale; this.dialStatic = null; this.c.rpmQ = undefined; }
     const q = Math.round(rpm / 20);
     if (q === this.c.rpmQ) return;
     this.c.rpmQ = q;
     const g = this.dctx, px = this.e.dial.width, k = px / DIAL;
     const cx = DIAL / 2, cy = DIAL / 2, r = DIAL / 2 - 9;
-    const ang = x => A0 + (A1 - A0) * clamp(x, 0, MAX_RPM) / MAX_RPM;
+    const ang = x => A0 + (A1 - A0) * clamp(x, 0, max) / max;
     if (!this.dialStatic) {
       const s = document.createElement('canvas');
       s.width = s.height = px;
@@ -491,7 +511,7 @@ export class HUD {
       h.strokeStyle = 'rgba(255,90,69,0.6)';
       h.beginPath(); h.arc(cx, cy, r, ang(E.redlineRpm), A1); h.stroke();
       h.lineCap = 'round';
-      for (let x = 0; x <= MAX_RPM; x += 500) {
+      for (let x = 0; x <= max; x += 500) {
         const a = ang(x), major = x % 1000 === 0;
         const r0 = r - (major ? 15 : 11), r1 = r - 7;
         h.strokeStyle = x >= E.redlineRpm ? 'rgba(255,110,90,0.9)' : major ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';

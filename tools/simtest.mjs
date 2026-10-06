@@ -9,9 +9,9 @@
 // stock truck, so with TUNE the numbers are printed but only the sanity checks (settles, no stall) count.
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams, CAR_SPECS } from '../src/vehicle/carSpecs.js';
-import '../src/vehicle/cars.js';   // throws if its CARS and CAR_SPECS list different cars
+import { makeCarParams, paramsFromDef } from '../src/vehicle/carParams.js';
+import { CAR_IDS, carDef } from '../src/cars/index.js';
+import '../src/vehicle/model/index.js';   // the model builder loads (the car files are checked by src/cars/index.js)
 import * as tuning from '../src/vehicle/tuning.js';
 import { Turret, trajectory } from '../src/vehicle/turret.js';
 const { sanitize, applySetup, useCar } = tuning;
@@ -73,7 +73,7 @@ function check(label, value, lo, hi, { unit = '', baseline = true } = {}) {
 
 const test = process.argv[2] || 'all';
 const want = name => test === name || test === 'all';
-const P = TUNED ? applySetup(makeDefenderParams(), sanitize(JSON.parse(process.env.TUNE))) : makeDefenderParams();
+const P = TUNED ? applySetup(makeCarParams('defender'), sanitize(JSON.parse(process.env.TUNE))) : makeCarParams('defender');
 if (TUNED) console.log('setup', process.env.TUNE);
 
 if (want('settle')) {
@@ -203,10 +203,10 @@ if (want('manual')) {
   check('speed after 20 s', v.speed * 3.6, 120, 145, { unit: ' km/h' });
 }
 
-// every car in carSpecs.js settles on its springs with the ground at y 0 and accelerates in its own range
+// every car in src/cars/ settles on its springs with the ground at y 0 and accelerates in its own range
 if (want('cars') && !TUNED) {
-  const T100 = { defender: [8.2, 9.3], gclass: [4.7, 6], lancia: [4.9, 6.3] };   // real cars: 0-100 in 5.4 s (G 500), 5.7 s (Delta Evo 2)
-  for (const id of Object.keys(CAR_SPECS)) {
+  for (const id of CAR_IDS) {
+    const t100Band = carDef(id).tests.t100;   // the car file's 0-100 band (around the real car's time)
     console.log(`--- ${id}: settle and 0-100`);
     const world = makeWorld();
     useCar(id);   // as main.js builds the car: its stock setup (engine curve, tyres) applied to its params
@@ -215,11 +215,11 @@ if (want('cars') && !TUNED) {
     run(v, world, 3, raw(), 0.5, status);
     const sumFn = v.wheels.reduce((a, w) => a + w.FnAvg, 0);
     check(`${id}: tyre load sum / weight`, sumFn / (v.totalMass * 9.81), 0.99, 1.01, { baseline: false });
-    check(`${id}: ride height error`, Math.abs(v.pos.y - (CAR_SPECS[id]?.raise || 0)) * 100, 0, 3, { unit: ' cm' });
-    if (!T100[id]) continue;   // heavy trucks: own scenario (btr80 below)
+    check(`${id}: ride height error`, Math.abs(v.pos.y - (Pc.raise || 0)) * 100, 0, 3, { unit: ' cm' });
+    if (!t100Band) continue;   // heavy trucks: own scenario (btr80 below)
     let t100 = null;
     run(v, world, 20, (t, veh) => { if (t100 === null && veh.speed >= 100 / 3.6) t100 = t; return raw({ throttle: 1 }); }, 2, status);
-    check(`${id}: 0-100 km/h`, t100, ...T100[id], { unit: ' s' });
+    check(`${id}: 0-100 km/h`, t100, ...t100Band, { unit: ' s' });
   }
   useCar('defender');
 }
@@ -227,6 +227,72 @@ if (want('cars') && !TUNED) {
 // BTR-80 (8x8, independent torsion-bar corners, 13.6 t). Bands from the real vehicle where published
 // (80 km/h on the road, 30° climb, 25° side slope, turning radius 13.2 m, clearance 475 mm) and sanity
 // elsewhere; the numbers are in DEVNOTES "Baselines".
+// suspension types on a two-axle car: the Defender with an independent front, the Lancia independent all
+// round (variants of their files, built like any car: carParams.paramsFromDef). It settles at its ride
+// height, corners without rolling over, and accelerates.
+if (want('suspension') && !TUNED) {
+  const indep = (a, rc, gain) => { Object.assign(a, { type: 'independent', rcHeight: rc, camberGain: gain }); for (const k of ['springTrack', 'damperTrack', 'droopY', 'rollInertia', 'rollSteer']) delete a[k]; };
+  const variants = [
+    ['defender, double wishbones in front', 'defender', ph => indep(ph.axles[0], 0.10, -0.3)],
+    ['lancia, struts all round', 'lancia', ph => { indep(ph.axles[0], 0.06, -0.5); indep(ph.axles[1], 0.10, -0.4); }],
+  ];
+  for (const [label, id, change] of variants) {
+    console.log(`--- ${label}`);
+    const def = JSON.parse(JSON.stringify(carDef(id)));
+    change(def.physics);
+    const Pv = paramsFromDef(def);
+    const world = makeWorld();
+    const v = new Vehicle(RAPIER, world, Pv, { position: { x: 0, y: 0.1, z: 500 } });
+    run(v, world, 3, raw(), 0.5, status);
+    const sumFn = v.wheels.reduce((a, w) => a + w.FnAvg, 0);
+    check(`${label}: tyre load sum / weight`, sumFn / (v.totalMass * 9.81), 0.99, 1.01, { baseline: false });
+    check(`${label}: ride height error`, Math.abs(v.pos.y - (Pv.raise || 0)) * 100, 0, 3, { unit: ' cm', baseline: false });
+    let lat = 0, minUp = 1;
+    run(v, world, 10, (t, veh) => {
+      if (t > 6) { lat = Math.max(lat, Math.abs(veh.accel.dot(veh.right)) / 9.81); minUp = Math.min(minUp, veh.up.y); }
+      return raw({ throttle: veh.speed < 40 / 3.6 ? 0.5 : 0.1, steer: t > 4 ? 0.5 : 0 });
+    });
+    check(`${label}: lateral g in a 40 km/h turn`, lat, 0.3, 1.0, { unit: ' g', baseline: false });
+    check(`${label}: stays upright (up.y)`, minUp, 0.8, 1, { baseline: false });
+  }
+  useCar('defender');
+}
+
+// drive layouts (vehicle/drivetrain.js driveLayout): the Defender as permanent 4WD, part-time 4WD, rear- and
+// front-wheel drive: who gets the drive torque from a full-throttle start, and that it drives; a part-time
+// box in 4WD turns the front with the rear
+if (want('layouts') && !TUNED) {
+  const SHARE = { awd: [0.48, 0.52], parttime: [0, 0.001], rwd: [0, 0.001], fwd: [0.999, 1] };
+  for (const layout of ['awd', 'parttime', 'rwd', 'fwd']) {
+    console.log(`--- layout ${layout}: full throttle from rest`);
+    const world = makeWorld();
+    useCar('defender');
+    const Pl = applySetup(makeCarParams('defender'), tuning.STOCK);
+    Pl.drive = { ...Pl.drive, layout };
+    const v = new Vehicle(RAPIER, world, Pl, { position: { x: 0, y: 0.1, z: 500 } });
+    run(v, world, 1, raw());
+    let f = 0, t = 0;
+    run(v, world, 4, (time, veh) => {
+      if (time > 1) for (let a = 0; a < 2; a++) { const T = veh.drivetrain.axleDrive[a]; t += T; if (a === 0) f += T; }
+      return raw({ throttle: 1 });
+    }, 1, status);
+    check(`${layout}: front share of the drive torque`, f / t, ...SHARE[layout], { baseline: false });
+    check(`${layout}: speed after 4 s`, v.speed * 3.6, layout === 'fwd' ? 30 : 35, 75, { unit: ' km/h' });
+    if (layout === 'parttime') {
+      // 4WD: front and rear prop speeds stay together through a slalom (no centre diff)
+      v.drivetrain.toggleRwd(0);
+      let maxD = 0;
+      const w = v.drivetrain.w;
+      run(v, world, 4, time => {
+        if (time > 0.5) maxD = Math.max(maxD, Math.abs((w[2] + w[3]) / 2 - (w[4] + w[5]) / 2));   // after it engaged
+        return raw({ throttle: 0.4, steer: Math.sin(time * 2) * 0.6 });
+      });
+      check('parttime 4WD: front - rear wheel speed (rad/s)', maxD, 0, 0.05, { baseline: false });
+    }
+  }
+  useCar('defender');
+}
+
 if (want('btr') && !TUNED) {
   useCar('btr80');
   const PB = () => applySetup(makeCarParams('btr80'), tuning.STOCK);
