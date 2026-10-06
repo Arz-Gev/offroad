@@ -7,6 +7,7 @@ Technical notes live in `DEVNOTES.md`.
 
 | Task | Notes |
 |---|---|
+| ✅ WebGPU renderer (asked Oct 6) | The game runs on WebGPU (Chrome, Edge, Safari 26, Firefox on Windows / new Macs) and falls back to WebGL 2 elsewhere. Grass and bushes are culled on the GPU, tree crowns cast cheaper shadows, leaves let a low sun through. Forest on High 27 -> 10.5 ms per frame, on Ultra 70 -> ~25 ms. Anti-aliasing choices are now Off / FXAA / SMAA / MSAA 4x (WebGPU has no 2x). Next: weather (rain, wet ground, mist), birds, falling leaves, fireflies, fake GI, denser vegetation in the presets. |
 | ✅ Seats looked reversed | Seat backs leaned forward; tilt sign fixed (front seats and rear bench). |
 | ✅ ABS on / off | Key **B**; HUD shows "ABS OFF". |
 | ✅ Truck creeps / accelerates with the handbrake on | At a stop the handbrake now also holds the transfer output, so the front can't pull through an open centre diff. Holds at full throttle, also on a 20° slope. |

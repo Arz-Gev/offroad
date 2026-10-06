@@ -95,14 +95,10 @@ async function main() {
   const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
-  const CORE = /[?&]core=1\b/.test(location.search);   // TEMP while porting
-  const PARTS = new URLSearchParams(location.search).get('parts');
-  const want = n => PARTS !== null ? PARTS.split(',').includes(n) : !CORE;
-  const stubPart = () => ({ group: new THREE.Group(), configure() {}, update() {}, setPushers() {}, updatePhysics() {}, shared: { uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) }, uCam: { value: new THREE.Vector3() } } });
-  const grass = !want('grass') ? stubPart() : buildGrass(terrainView, renderer);
+  const grass = buildGrass(terrainView, renderer);
   scene.add(grass.group);
   scenery.parts.push(grass);
-  const water = !want('water') ? stubPart() : buildWater(terrain, terrainView, renderer);
+  const water = buildWater(terrain, terrainView, renderer);
   scene.add(water.group);
   scenery.parts.push(water);
 
@@ -111,10 +107,10 @@ async function main() {
   const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }));
   scene.add(props);
   setLoading('Growing the forest…', 0.58); await frame();
-  const trees = !want('trees') ? stubPart() : buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
+  const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
   scene.add(trees.group);
   scenery.parts.push(trees);
-  const undergrowth = !want('under') ? stubPart() : buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind, renderer, grass.shared.uCam);
+  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind, renderer, grass.shared.uCam);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
@@ -148,7 +144,7 @@ async function main() {
   const touch = new TouchControls({ input, canvas, hud, action: id => input.onAction(id) });
   hud.setDevice(input.device);   // touch.js picks 'touch' on a phone or tablet
   const audio = new GameAudio();
-  const dust = !want('dust') ? { setViewport() {}, setEnabled() {}, spawnFromVehicle() {}, update() {}, enabled: false } : new Dust(scene);
+  const dust = new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
