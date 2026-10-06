@@ -33,7 +33,7 @@ export const DEFAULTS = {
   renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
   // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
   gDpr: 1.5,                // device pixel ratio cap
-  gAA: 'msaa2',             // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
+  gAA: 'smaa',              // 'off' | 'fxaa' | 'smaa' | 'msaa4' (WebGPU multisampling is 1x or 4x only)
   gShadows: 'high',         // 'off' | 'low' | 'medium' | 'high' | 'ultra'
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
   gBloom: true,
@@ -73,7 +73,7 @@ const CHOICES = {
   touchControls: ['auto', 'on', 'off'],
   touchSteer: ['stick', 'tilt'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
-  gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
+  gAA: ['off', 'fxaa', 'smaa', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
   gTerrain: [0, 1, 2],

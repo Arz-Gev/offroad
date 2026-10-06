@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 // Truck lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
 // cut-off: very little light goes steeply down (near field), most goes just below the horizon (far
@@ -13,22 +13,8 @@ import * as THREE from 'three';
 //   rear  - one small dim spot for tail/brake glow and the reversing lamps
 // Lens glow comes from emissive materials; there are no point lights.
 
-// Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a
-// tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3);
-// with a fixed exposure it blows out and blooms over the whole windscreen when you drive at a slope.
-// The eye adapts locally; this emulates it with a soft cap on each lamp's irradiance: E -> E/sqrt(1+(E/K)^2).
-// Road irradiance from the beams is ~1-7 (scene units), so the far throw is untouched.
-export const LAMP_KNEE = 9.0;
-function installLampShoulder() {
-  const C = THREE.ShaderChunk;
-  if (C.lights_fragment_begin.includes('tkLampE')) return;
-  const spotRE = /(\t\tgetSpotLightInfo\( spotLight, geometryPosition, directLight \);\n)([\s\S]*?)(\t\tRE_Direct\( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight \);\n)/;
-  if (!spotRE.test(C.lights_fragment_begin)) { console.warn('truckLights: lights_fragment_begin layout changed, lamp shoulder disabled'); return; }
-  const k = (1 / (LAMP_KNEE * LAMP_KNEE)).toFixed(6);
-  const glsl = `\t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n`;
-  C.lights_fragment_begin = C.lights_fragment_begin.replace(spotRE, (m, a, body, re) => `${a}${body}${glsl}${re}`);
-}
-installLampShoulder();
+// The lamps' irradiance shoulder (a soft cap on very close, bright surfaces) is in render/lamps.js.
+export { LAMP_KNEE } from '../render/lamps.js';
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 

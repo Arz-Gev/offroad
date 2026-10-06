@@ -87,7 +87,7 @@ const GFX_SECTIONS = [
   { title: 'Lighting and effects', rows: [
     row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
     row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']], note: 'SSAO: contact shading in corners, under the truck and between rocks. About 1–2 ms.' }),
-    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharper, FXAA is cheaper.' }),
+    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharpest, SMAA a good middle, FXAA the cheapest.' }),
     row('gBloom', 'Bloom', 'switch', { note: 'Glow around lamps and the sun.' }),
     row('dust', 'Dust, mud and splashes', 'switch', { note: 'Clouds and spray kicked up by the tyres.' }),
   ] },

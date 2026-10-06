@@ -1,4 +1,9 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, If, uniform, texture, varyingProperty, vec2, vec3, vec4, float, positionGeometry, cameraPosition, cameraViewMatrix,
+  cameraProjectionMatrix, normalize, cross, dot, abs, sqrt, max, cos, sin, select, mix, smoothstep, length, floor, fract,
+} from 'three/tsl';
+import { spriteCloud } from './render/sprites.js';
 import { ballisticStep, trajectory } from './vehicle/turret.js';
 import { SURFACES } from './vehicle/tire.js';
 
@@ -46,55 +51,48 @@ class MuzzleFlash {
     g.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1], 3));
     g.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
     const T = flashTextures();
-    this.u = {
-      tSide: { value: T.side }, tFront: { value: T.front },
-      uO: { value: new THREE.Vector3() }, uA: { value: new THREE.Vector3(0, 0, -1) },
-      uLen: { value: 1 }, uWid: { value: 0.5 }, uFront: { value: 0.4 }, uRot: { value: 0 }, uFlip: { value: 1 },
-      uRow: { value: 0 }, uCell: { value: 0 }, uI: { value: 0 }, uFrontI: { value: 1 }, uTint: { value: new THREE.Color(1, 1, 1) },
+    const u = this.u = {
+      uO: uniform(new THREE.Vector3()), uA: uniform(new THREE.Vector3(0, 0, -1)),
+      uLen: uniform(1), uWid: uniform(0.5), uFront: uniform(0.4), uRot: uniform(0), uFlip: uniform(1),
+      uRow: uniform(0), uCell: uniform(0), uI: uniform(0), uFrontI: uniform(1), uTint: uniform(new THREE.Color(1, 1, 1)),
     };
-    const mat = new THREE.ShaderMaterial({
-      uniforms: this.u,
-      vertexShader: `uniform vec3 uO, uA; uniform float uLen, uWid, uFront, uRot, uFlip;
-        varying vec2 vUv; varying float vKind, vW;
-        void main() {
-          vec3 V = normalize(cameraPosition - uO);
-          float facing = abs(dot(V, uA));
-          vec3 P;
-          if (position.z < 0.5) {
-            vec3 side = cross(uA, V);
-            side = dot(side, side) > 1e-8 ? normalize(side) : vec3(0.0, 1.0, 0.0);
-            P = uO + uA * (position.x * uLen) + side * (position.y * uWid * 0.5);
-            vUv = vec2(position.x, position.y * uFlip * 0.5 + 0.5);
-            vW = sqrt(max(0.0, 1.0 - facing * facing));          // edge-on down the bore: the strip is a line, fade it
-          } else {
-            vec3 r = normalize(cross(abs(V.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), V)), up = cross(V, r);
-            float c = cos(uRot), s = sin(uRot);
-            vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y);
-            float sz = uFront * (0.35 + 0.65 * facing);            // from the side only a small hot core at the muzzle
-            P = uO + uA * (sz * 0.3) + (r * q.x + up * q.y) * sz;
-            vUv = position.xy * 0.5 + 0.5;
-            vW = 0.05 + 0.95 * facing * facing * facing;
-          }
-          vKind = position.z;
-          gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
-        }`,
-      fragmentShader: `uniform sampler2D tSide, tFront; uniform float uRow, uCell, uI, uFrontI; uniform vec3 uTint;
-        varying vec2 vUv; varying float vKind, vW;
-        void main() {
-          vec3 c;
-          if (vKind < 0.5) c = texture2D(tSide, vec2(vUv.x, (3.0 - uRow + vUv.y) * 0.25)).rgb;
-          else {
-            c = texture2D(tFront, (vUv + vec2(mod(uCell, 2.0), 1.0 - floor(uCell * 0.5))) * 0.5).rgb * uFrontI;
-            // seen from the side only the hot middle of the front view is left (no jets)
-            c *= 1.0 - smoothstep(0.08, 0.35, length(vUv - 0.5)) * (1.0 - vW);
-          }
-          // the photos clip to white in the core: keep that hot, and let the thinner parts fall off to orange
-          float l = max(c.r, max(c.g, c.b));
-          c = mix(vec3(1.0, 0.45, 0.12) * l, c, smoothstep(0.35, 0.95, l));
-          gl_FragColor = vec4(c * uTint * (uI * vW * (0.35 + 0.9 * l * l)), 1.0);
-        }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide,
-    });
+    const vUv = varyingProperty('vec2', 'vFUv'), vKind = varyingProperty('float', 'vFKind'), vW = varyingProperty('float', 'vFW');
+    const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    mat.fog = false;
+    mat.vertexNode = Fn(() => {
+      const pos = positionGeometry;
+      const V = normalize(cameraPosition.sub(u.uO));
+      const facing = abs(dot(V, u.uA));
+      const P = vec3(0).toVar();
+      If(pos.z.lessThan(0.5), () => {
+        const s0 = cross(u.uA, V);
+        const side = select(dot(s0, s0).greaterThan(1e-8), normalize(s0), vec3(0.0, 1.0, 0.0));
+        P.assign(u.uO.add(u.uA.mul(pos.x.mul(u.uLen))).add(side.mul(pos.y.mul(u.uWid).mul(0.5))));
+        vUv.assign(vec2(pos.x, pos.y.mul(u.uFlip).mul(0.5).add(0.5)));
+        vW.assign(sqrt(max(0.0, float(1).sub(facing.mul(facing)))));   // edge-on down the bore: the strip is a line, fade it
+      }).Else(() => {
+        const r = normalize(cross(select(abs(V.y).lessThan(0.99), vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0)), V)), up = cross(V, r);
+        const c = cos(u.uRot), sn = sin(u.uRot);
+        const q = vec2(c.mul(pos.x).sub(sn.mul(pos.y)), sn.mul(pos.x).add(c.mul(pos.y)));
+        const sz = u.uFront.mul(facing.mul(0.65).add(0.35));            // from the side only a small hot core at the muzzle
+        P.assign(u.uO.add(u.uA.mul(sz.mul(0.3))).add(r.mul(q.x).add(up.mul(q.y)).mul(sz)));
+        vUv.assign(pos.xy.mul(0.5).add(0.5));
+        vW.assign(facing.mul(facing).mul(facing).mul(0.95).add(0.05));
+      });
+      vKind.assign(pos.z);
+      return cameraProjectionMatrix.mul(cameraViewMatrix).mul(vec4(P, 1.0));
+    })();
+    mat.colorNode = Fn(() => {
+      const side = texture(T.side, vec2(vUv.x, float(3.0).sub(u.uRow).add(vUv.y).mul(0.25))).rgb;
+      const cell = vec2(u.uCell.sub(floor(u.uCell.mul(0.5)).mul(2.0)), float(1.0).sub(floor(u.uCell.mul(0.5))));
+      // seen from the side only the hot middle of the front view is left (no jets)
+      const front = texture(T.front, vUv.add(cell).mul(0.5)).rgb.mul(u.uFrontI).mul(float(1).sub(smoothstep(0.08, 0.35, length(vUv.sub(0.5))).mul(float(1).sub(vW))));
+      const c0 = select(vKind.lessThan(0.5), side, front);
+      // the photos clip to white in the core: keep that hot, and let the thinner parts fall off to orange
+      const l = max(c0.r, max(c0.g, c0.b));
+      const c = mix(vec3(1.0, 0.45, 0.12).mul(l), c0, smoothstep(0.35, 0.95, l));
+      return c.mul(u.uTint).mul(u.uI.mul(vW).mul(l.mul(l).mul(0.9).add(0.35)));
+    })();
     this.mesh = new THREE.Mesh(g, mat);
     this.mesh.frustumCulled = false; this.mesh.visible = false; this.mesh.renderOrder = 5;
     scene.add(this.mesh);
@@ -140,28 +138,13 @@ class MuzzleFlash {
 class Fx {
   constructor(scene, additive) {
     const n = MAX_FX;
-    this.pos = new Float32Array(n * 3); this.vel = new Float32Array(n * 3); this.col = new Float32Array(n * 3);
-    this.size = new Float32Array(n); this.alpha = new Float32Array(n); this.life = new Float32Array(n); this.max = new Float32Array(n);
+    // nothing big right in front of the camera (the sight is 2 m from the muzzle)
+    this.cloud = spriteCloud(n, { near: [3, 12], shape: additive ? 'hot' : 'smoke', blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, fog: !additive, lit: !additive });
+    this.pos = this.cloud.pos; this.col = this.cloud.color; this.size = this.cloud.size; this.alpha = this.cloud.alpha;
+    this.vel = new Float32Array(n * 3); this.life = new Float32Array(n); this.max = new Float32Array(n);
     this.grav = new Float32Array(n); this.drag = new Float32Array(n); this.grow = new Float32Array(n);
     this.next = 0; this.live = 0;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { uHalfH: { value: 360 }, uLight: { value: 1 } },
-      vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying float vA; varying vec3 vC; uniform float uHalfH;
-        void main() { vA = alpha; vC = color; vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          vA *= smoothstep(3.0, 12.0, -mv.z);   // nothing big right in front of the camera (the sight is 2 m from the muzzle)
-          gl_PointSize = max(1.5, size * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z)); gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: `varying float vA; varying vec3 vC; uniform float uLight;
-        void main() { vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.0) discard;
-          float a = vA * (1.0 - r); gl_FragColor = vec4(vC * ${additive ? '1.0' : 'uLight'}, ${additive ? 'a' : '0.38 * a * exp(-2.5 * r)'}); }`,
-      transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-    });
-    this.points = new THREE.Points(g, this.mat);
-    this.points.frustumCulled = false;
+    this.points = this.cloud.mesh;
     scene.add(this.points);
   }
   emit(x, y, z, vx, vy, vz, size, life, r, g, b, grav = 1, drag = 0, grow = 0) {
@@ -185,9 +168,8 @@ class Fx {
       this.alpha[i] = Math.min(1, f * 1.6);
     }
     if (!any) this.live = 0;
-    this.mat.uniforms.uLight.value = light;
-    const a = this.points.geometry.attributes;
-    a.position.needsUpdate = a.size.needsUpdate = a.alpha.needsUpdate = a.color.needsUpdate = true;
+    this.cloud.light.value = light;
+    this.cloud.commit(any ? MAX_FX : 0);
   }
 }
 
@@ -224,7 +206,7 @@ export class Gunnery {
     this.recoilForce = 0;
   }
 
-  setViewport(h) { this.sparks.mat.uniforms.uHalfH.value = h / 2; this.smoke.mat.uniforms.uHalfH.value = h / 2; }
+  setViewport() {}   // particle sizes are in metres (render/sprites.js)
 
 
   // gun muzzle and barrel direction in the world, from a vehicle pose and the turret angles (physics rate:

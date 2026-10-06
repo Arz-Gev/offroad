@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { D } from './truckDims.js';
 
 // X-ray view of the physics: chassis collision boxes, wheel side cylinders, tyre outlines against the

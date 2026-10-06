@@ -1,9 +1,8 @@
-import * as THREE from 'three';
-import { SunLight } from 'three/examples/jsm/lights/SunLight.js';
+import * as THREE from 'three/webgpu';
 import { Sky } from './sky.js';
 import { scatter, transmittance } from './atmosphere.js';
-import { ATMO, setVec4 } from '../render/shaderPatches.js';
-import { CascadedSunShadow, installCascadeShadowChunks } from '../render/cascadeShadow.js';
+import { ATMO, setVec4, makeFogNode } from '../render/fog.js';
+import { SunShadows } from '../render/shadows.js';
 
 // Time of day: sun / moon light (cascaded shadows), physically based sky + clouds + stars, height fog and
 // aerial perspective matched to the sky, image-based ambient light from the sky, and the post-processing
@@ -141,28 +140,17 @@ export class Environment {
     this.envJob = null;                // the probe refresh in progress (see updateProbe)
     this.slicedProbe = true;
 
-    // sun by day, moon by night: one cascaded-shadow light (2-4 cascades, see render/cascadeShadow.js)
-    this.sun = new SunLight(0xffffff, 3);
-    this.sun.castShadow = true;
-    if (installCascadeShadowChunks()) {
-      this.sun.shadow = new CascadedSunShadow();
-      this.sun.shadow.attach(renderer);
-      this.sun.shadow.bias = 1.0;         // texels of the cascade
-      this.sun.shadow.normalBias = 1.5;   // texels of the cascade
-      this.sun.shadow.radius = 0.04;      // filter blur (m)
-    } else {                                // three's own two cascades, bias in depth units
-      this.sun.shadow.bias = -0.0004;
-      this.sun.shadow.normalBias = 0.05;
-      this.sun.shadow.radius = 1.6;
-    }
-    this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.camera.far = 170;   // shadow range (m)
-    this.sun.shadow.camera.near = 20;   // caster ceiling above the view slice
-    scene.add(this.sun);
+    // sun by day, moon by night: one cascaded-shadow light (2-4 cascades, see render/shadows.js)
+    this.sun = new THREE.DirectionalLight(0xffffff, 3);
+    this.sun.target.position.set(0, 0, 0);
+    this.shadows = new SunShadows(this.sun);
+    scene.add(this.sun, this.sun.target);
     // faint ground bounce for surfaces facing down (the sky probe covers the upper hemisphere)
     this.hemi = new THREE.HemisphereLight(0x000000, 0x5d4d36, 0);
     scene.add(this.hemi);
-    scene.fog = new THREE.FogExp2(0xc3d3e3, 0.002);
+    scene.fogNode = makeFogNode();
+    // weather (weather.js drives it): rain 0..1 darkens and greys the light, thickens the fog and the clouds
+    this.weather = { rain: 0, mist: 0 };
 
     // the hour being shown, the hour it is heading for, and the sweep between them (N key)
     this.hour = QUICK_HOURS.day;
@@ -240,7 +228,7 @@ export class Environment {
     if (this.lightDir.lengthSq() < 1e-12) this.lightDir.copy(this.sunDir); else this.lightDir.normalize();
     // keep the shadow camera above the horizon (long dusk shadows stay bounded)
     if (this.lightDir.y < 0.1) { this.lightDir.y = 0.1; this.lightDir.normalize(); }
-    this.sun.position.copy(this.lightDir);
+    this.sun.position.copy(this.lightDir).multiplyScalar(400);
 
     // sky LUT
     const sky = this.sky, S = c.skyScale;
@@ -282,8 +270,8 @@ export class Environment {
     setVec4(ATMO.atmoSide, side[0] * k, side[1] * k, side[2] * k, c.haze);
     setVec4(ATMO.atmoToward, toward[0] * k, toward[1] * k, toward[2] * k, c.fogMax);
     setVec4(ATMO.atmoGlow, 0, 0, 0, 0.75);
-    this.scene.fog.density = c.fogD;
-    this.scene.fog.color.setRGB(side[0], side[1], side[2]);
+    ATMO.fogParams.value.x = c.fogD;
+    this.fogColor = new THREE.Color(side[0], side[1], side[2]);
 
     // clouds lit by the sun (moon) colour above the haze; ambient from the zenith sky
     const cloudSun = sstep(c.sunElev, -8, 1.5);
@@ -292,6 +280,10 @@ export class Environment {
     su.uCloudAmb.value.set(zen[0] * 3.2 + side[0] * 0.8, zen[1] * 3.2 + side[1] * 0.8, zen[2] * 3.2 + side[2] * 0.8);
     su.uGround.value.set(side[0] * 0.25 + 0.002, side[1] * 0.25 + 0.002, side[2] * 0.25 + 0.0015);
     su.uSunSize.value = 0.0125 * (1 + (1 - sstep(c.sunElev, 0, 15)) * 0.4);
+
+    // sun shafts (post.js): the sun's own colour, only while it is up
+    this.shaftColor = (this.shaftColor || new THREE.Color()).setRGB(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(0.3 * sunUp);
+    this.shaftVis = sunUp * sstep(c.sunElev, -1, 6);
 
     this.hemi.groundColor.setRGB(0.36, 0.30, 0.22);
     this.hemi.intensity = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04;
@@ -322,7 +314,10 @@ export class Environment {
       this.dirty = true;
     }
     if (this.dirty) this.flush();
-    if (camera) this.sky.update(dt, camera);
+    if (camera) {
+      this.sky.update(dt, camera);
+      this.pipeline?.setSun?.(this.sunDir, this.shaftColor, this.shaftVis * (1 - 0.85 * this.weather.rain));
+    }
     this.updateProbe(dt);
   }
 
@@ -342,12 +337,21 @@ export class Environment {
   }
 
   probeSync() {
-    this.setProbe(this.pmrem.fromScene(this.sky.envScene, 0, 0.1, 1000));
+    const rt = this.probeTarget();
+    this.pmrem.fromScene(this.sky.envScene, 0, 0.1, 1000, { size: 256, renderTarget: rt });
+    this.setProbe(rt);
     this.envDirty = false;
   }
 
+  // two probe targets used in turn: the one being filtered is never the one the materials sample
+  probeTarget() {
+    this.probeRT = this.probeRT || [null, null];
+    this.probeI = 1 - (this.probeI || 0);
+    if (!this.probeRT[this.probeI]) { this.pmrem._setSize(256); this.probeRT[this.probeI] = this.pmrem._allocateTarget(true); }
+    return this.probeRT[this.probeI];
+  }
+
   setProbe(rt) {
-    if (this.envRT) this.envRT.dispose();
     this.envRT = rt;
     this.scene.environment = rt.texture;
     this.scene.environmentIntensity = this.cur.env;
@@ -356,10 +360,10 @@ export class Environment {
 
   probeStart() {
     const p = this.pmrem;
-    if (this.slicedProbe === false || !p._setSize || !p._allocateTargets || !p._sceneToCubeUV || !p._applyGGXFilter) return false;
+    if (this.slicedProbe === false || !p._setSize || !p._init || !p._sceneToCubeUV || !p._applyGGXFilter) return false;
     p._setSize(256);
-    const rt = p._allocateTargets();
-    rt.depthBuffer = true;
+    const rt = this.probeTarget();
+    p._init(rt);
     this.envJob = { rt, step: 0 };
     return true;
   }
@@ -373,7 +377,7 @@ export class Environment {
     } catch (e) {
       console.warn('sliced PMREM failed, using fromScene', e);
       this.slicedProbe = false; this.envJob = null; r.autoClear = autoClear; r.setRenderTarget(prevRT, face, mip);
-      job.rt.dispose(); this.probeSync();
+      this.probeSync();
       return;
     }
     r.autoClear = autoClear;

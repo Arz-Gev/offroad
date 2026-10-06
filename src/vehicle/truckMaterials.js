@@ -1,126 +1,89 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, uniform, vec3, vec4, float, positionGeometry, normalGeometry, positionViewDirection, normalView, frontFacing, output,
+  floor, fract, mix, clamp, smoothstep, dot, abs, pow, length, fwidth, normalize, bumpMap, materialRoughness, materialColor,
+  materialOpacity,
+} from 'three/tsl';
+import { premultipliedFog } from '../render/fog.js';
 
-// Truck materials. All of them share a few uniforms driven by VehicleView:
-//   uEnvSpec  - multiplier on the specular environment reflection (scene.environmentIntensity is kept
-//               low for the terrain, which leaves glass and clear coat looking dead without this)
+// Truck materials (node materials). All of them share a few uniforms driven by VehicleView:
+//   uEnvSpec  - reflections at night (kept for the view's API; the environment probe lights them)
 //   uDirt     - overall dirt amount (dust on the lower body, film on flat tops)
-// Shader patches are small string injections into the stock MeshStandard/MeshPhysical programs.
-
-const NOISE = /* glsl */`
-float tk_hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float tk_noise(vec3 x) {
-  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(tk_hash(i), tk_hash(i + vec3(1,0,0)), f.x), mix(tk_hash(i + vec3(0,1,0)), tk_hash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(tk_hash(i + vec3(0,0,1)), tk_hash(i + vec3(1,0,1)), f.x), mix(tk_hash(i + vec3(0,1,1)), tk_hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-}
-`;
+//   uCabinAO  - interior ambient occlusion (the cabin hides most of the sky)
+//   uWet      - rain on the body (weather.js): darker dirt, glossy paint
 
 export const shared = {
-  uEnvSpec: { value: 1.0 },
-  uDirt: { value: 1.0 },
-  uCabinAO: { value: 1.0 },
+  uEnvSpec: uniform(1.0),
+  uDirt: uniform(1.0),
+  uCabinAO: uniform(1.0),
+  uWet: uniform(0.0),
 };
 
-// opts: dirt (0..1 how much this material collects dirt), env (use uEnvSpec), ao (cabin occlusion), grain
+const tkHash = Fn(([p0]) => {
+  const p = fract(p0.mul(0.3183099).add(0.1)).mul(17.0);
+  return fract(p.x.mul(p.y).mul(p.z).mul(p.x.add(p.y).add(p.z)));
+});
+const tkNoise = Fn(([x]) => {
+  const i = floor(x), f0 = fract(x);
+  const f = f0.mul(f0).mul(vec3(3.0).sub(f0.mul(2.0)));
+  const h = (o) => tkHash(i.add(vec3(...o)));
+  return mix(mix(mix(h([0, 0, 0]), h([1, 0, 0]), f.x), mix(h([0, 1, 0]), h([1, 1, 0]), f.x), f.y),
+    mix(mix(h([0, 0, 1]), h([1, 0, 1]), f.x), mix(h([0, 1, 1]), h([1, 1, 1]), f.x), f.y), f.z);
+});
+
+// opts: dirt (0..1 how much this material collects dirt), env (kept), ao (cabin occlusion), grain, glass
 function patch(mat, opts) {
-  const { dirt = 0, env = 0, ao = false, glass = false, grain = 0, dirtTint = [0.13, 0.095, 0.065] } = opts;
-  const key = `tk-${dirt}-${env}-${ao}-${glass}-${grain}`;
-  mat.customProgramCacheKey = () => key;
-  mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uEnvSpec = shared.uEnvSpec;
-    sh.uniforms.uDirt = shared.uDirt;
-    sh.uniforms.uCabinAO = shared.uCabinAO;
-    const needPos = dirt > 0 || grain > 0;
-    if (needPos) {
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vTkPos;\nvarying vec3 vTkNrm;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTkPos = transformed;\nvTkNrm = objectNormal;');
-    }
-    let frag = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform float uEnvSpec;
-uniform float uDirt;
-uniform float uCabinAO;
-${needPos ? 'varying vec3 vTkPos;\nvarying vec3 vTkNrm;' : ''}
-${NOISE}`);
-    if (dirt > 0) {
-      frag = frag.replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-float tkDirt;
-{
-  vec3 p = vTkPos;
-  float n1 = tk_noise(p * vec3(3.1, 2.3, 3.1));
-  float n2 = tk_noise(p * vec3(11.0, 4.0, 11.0) + 7.3);
-  float streak = tk_noise(vec3(p.x * 9.0 + p.z * 9.0, p.y * 0.8, p.z * 2.0));
-  // splash from the tyres: lower body, worst near the bottom
-  float low = 1.0 - smoothstep(0.5, 0.92 + 0.16 * n1, p.y + 0.10 * streak);
-  // fine dust film on upward-facing surfaces
-  float up = smoothstep(0.6, 0.95, normalize(vTkNrm).y) * smoothstep(0.35, 0.8, n2);
-  tkDirt = clamp(low * (0.35 + 0.6 * n1 * n1 + 0.2 * n2) + up * 0.18, 0.0, 1.0) * uDirt * ${dirt.toFixed(3)};
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${dirtTint.map(v => v.toFixed(3)).join(', ')}) * (0.8 + 0.4 * n2), tkDirt * 0.8);
-  roughnessFactor = mix(roughnessFactor, 0.93, tkDirt);
-  roughnessFactor = clamp(roughnessFactor + (n2 - 0.5) * 0.06, 0.03, 1.0);
-}`);
-      frag = frag.replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
-#ifdef USE_CLEARCOAT
-  material.clearcoat *= 1.0 - tkDirt;
-#endif`);
-    }
-    if (grain > 0) {
-      // fine moulded grain on plastics: object-space noise bump, faded out where it would alias
-      frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-{
-  vec3 gp = vTkPos * 420.0;
-  float fw = length(fwidth(gp));
-  float amp = ${(grain * 0.002).toFixed(5)} * (1.0 - smoothstep(0.15, 0.5, fw));
-  if (amp > 0.0) {
-    float h = tk_noise(gp) * 0.6 + tk_noise(gp * 2.3) * 0.4;
-    vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
-    float dhx = dFdx(h) * amp, dhy = dFdy(h) * amp;
-    vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
-    float det = dot(dpx, r1) * faceDirection;
-    vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-    vec3 nn = abs(det) * normal - grad;
-    float ln = length(nn);
-    if (abs(det) > 1e-14 && ln > 1e-14) normal = nn / ln;
+  const { dirt = 0, ao = false, glass = false, grain = 0, dirtTint = [0.13, 0.095, 0.065] } = opts;
+  const p = positionGeometry, n = normalGeometry;
+  const base = materialColor;   // (vertex colours, if any, are multiplied in by the material)
+  if (dirt > 0) {
+    const n1 = tkNoise(p.mul(vec3(3.1, 2.3, 3.1)));
+    const n2 = tkNoise(p.mul(vec3(11.0, 4.0, 11.0)).add(7.3));
+    const streak = tkNoise(vec3(p.x.mul(9.0).add(p.z.mul(9.0)), p.y.mul(0.8), p.z.mul(2.0)));
+    // splash from the tyres: lower body, worst near the bottom
+    const low = float(1).sub(smoothstep(0.5, n1.mul(0.16).add(0.92), p.y.add(streak.mul(0.10))));
+    // fine dust film on upward-facing surfaces
+    const up = smoothstep(0.6, 0.95, normalize(n).y).mul(smoothstep(0.35, 0.8, n2));
+    const d = clamp(low.mul(n1.mul(n1).mul(0.6).add(0.35).add(n2.mul(0.2))).add(up.mul(0.18)), 0.0, 1.0).mul(shared.uDirt).mul(dirt).toVar('tkDirt');
+    // rain washes the film darker (wet mud) and glossy
+    const tint = vec3(...dirtTint).mul(n2.mul(0.4).add(0.8)).mul(float(1).sub(shared.uWet.mul(0.35)));
+    mat.colorNode = vec4(mix(base.rgb, tint, d.mul(0.8)), materialOpacity);
+    mat.roughnessNode = clamp(mix(materialRoughness, mix(0.93, 0.45, shared.uWet), d).add(n2.sub(0.5).mul(0.06)), 0.03, 1.0).mul(float(1).sub(shared.uWet.mul(0.35)).max(0.04));
+    if (mat.isMeshPhysicalNodeMaterial) mat.clearcoatNode = float(mat.clearcoat).mul(float(1).sub(d));
+  } else if (!glass) {
+    mat.roughnessNode = materialRoughness.mul(float(1).sub(shared.uWet.mul(0.3)));
   }
-}`);
-    }
-    // scale reflections / occlusion after the environment has been sampled
-    let post = '';
-    if (env) post += `radiance *= uEnvSpec * ${(+env).toFixed(3)};
-#ifdef USE_CLEARCOAT
-  clearcoatRadiance *= uEnvSpec * ${(+env).toFixed(3)};
-#endif
-`;
-    if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance *= uCabinAO * ${(+ao).toFixed(3)}; radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
-    if (post) frag = frag.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${post}`);
-    if (glass) {
-      // The pane is a closed slab (two caps). Drawing both attenuated the view through it twice
-      // (0.26^2 = 7% transmission: opaque blue-black), so only the cap facing the viewer is drawn.
-      // Premultiplied output: tinted body is attenuated by alpha, reflections are not. Alpha rises
-      // towards grazing angles (Fresnel), so the glass is clearest head-on and mirror-like at a slant.
-      frag = frag
-        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (!gl_FrontFacing) discard;')
-        .replace('#include <opaque_fragment>', `float tkNV = abs(dot(normalize(vViewPosition), normal));
-float tkFr = pow(1.0 - tkNV, 3.0);
-float tkA = mix(diffuseColor.a, 1.0, tkFr * 0.55);
-gl_FragColor = vec4( totalDiffuse * tkA + totalSpecular + totalEmissiveRadiance, tkA );`)
-        .replace('#include <fog_fragment>', `#ifdef USE_FOG
-  #ifdef FOG_EXP2
-    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
-  #else
-    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
-  #endif
-  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor * gl_FragColor.a, fogFactor );
-#endif`)
-        .replace('#include <premultiplied_alpha_fragment>', '');
-    }
-    sh.fragmentShader = frag;
-  };
+  if (grain > 0) {
+    // fine moulded grain on plastics: object-space noise bump, faded out where it would alias
+    const gp = p.mul(420.0);
+    const fw = length(fwidth(gp));
+    const amp = float(grain * 0.002).mul(float(1).sub(smoothstep(0.15, 0.5, fw)));
+    const h = tkNoise(gp).mul(0.6).add(tkNoise(gp.mul(2.3)).mul(0.4));
+    mat.normalNode = bumpMap(h, amp);
+  }
+  if (ao) mat.aoNode = shared.uCabinAO.mul(ao);
+  if (glass) {
+    // The pane is a closed slab (two caps). Drawing both attenuated the view through it twice, so only
+    // the cap facing the viewer is drawn. Premultiplied output: the tinted body is attenuated by alpha,
+    // reflections are not. Alpha rises towards grazing angles (Fresnel).
+    mat.maskNode = frontFacing;
+    const NV = abs(dot(positionViewDirection, normalView));
+    const Fr = pow(float(1).sub(NV), 3.0);
+    const a = mix(materialOpacity, 1.0, Fr.mul(0.55)).toVar('tkA');
+    mat.colorNode = vec4(base.rgb.mul(a), 1.0);
+    mat.opacityNode = float(1);
+    mat.fog = false;
+    mat.blending = THREE.CustomBlending;
+    mat.blendSrc = THREE.OneFactor; mat.blendDst = THREE.OneMinusSrcAlphaFactor;
+    mat.blendSrcAlpha = THREE.OneFactor; mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+    mat.outputNode = premultipliedFog(vec4(output.rgb, a));
+  }
   return mat;
 }
 
-const std = (o, p = {}) => patch(new THREE.MeshStandardMaterial(o), p);
-const phys = (o, p = {}) => patch(new THREE.MeshPhysicalMaterial(o), p);
+const toNode = (Cls, o) => { const m = new Cls(); for (const k in o) { if (k === 'premultipliedAlpha') continue; if (m[k]?.isColor) m[k].set(o[k]); else m[k] = o[k]; } return m; };
+const std = (o, p = {}) => patch(toNode(THREE.MeshStandardNodeMaterial, o), p);
+const phys = (o, p = {}) => patch(toNode(THREE.MeshPhysicalNodeMaterial, o), p);
 
 export function createMaterials() {
   const m = {

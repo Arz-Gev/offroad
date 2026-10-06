@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { shared } from './truckMaterials.js';
 import { setTireContact } from './tireMaterial.js';
 

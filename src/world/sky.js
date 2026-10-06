@@ -1,6 +1,10 @@
-import * as THREE from 'three';
-import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { ATMOSPHERE_GLSL } from './atmosphere.js';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, If, Loop, Continue, uniform, texture, vec2, vec3, vec4, float, int, uv, positionLocal, positionWorld, cameraPosition,
+  normalize, dot, length, sqrt, exp, pow, max, min, abs, clamp, mix, smoothstep, step, sign, asin, acos, atan, sin, cos,
+  fract, floor, fwidth, cross, select, varying, modelWorldMatrix, cameraProjectionMatrix, cameraViewMatrix,
+} from 'three/tsl';
+import { ATM } from './atmosphere.js';
 import { mulberry32 } from './noise.js';
 
 // Sky: a 256x128 sky-view LUT rendered with single scattering whenever the light changes (time-of-day
@@ -8,142 +12,70 @@ import { mulberry32 } from './noise.js';
 // cloud layer. The same dome (without the sun disc) renders into the PMREM environment map.
 
 const LUT_W = 256, LUT_H = 128;
+const PIf = 3.14159265;
 
-const LUT_FRAG = /* glsl */`
-${ATMOSPHERE_GLSL}
-uniform vec3 uSunDir, uMoonDir;
-uniform vec3 uSunE, uMoonE, uNightBase;
-varying vec2 vUv;
-void main() {
-  float az = vUv.x * 6.2831853;
-  float t = vUv.y * 2.0 - 1.0;
-  float el = sign(t) * t * t * 1.5707963;
-  vec3 v = vec3(cos(el) * sin(az), sin(el), cos(el) * cos(az));
-  vec3 c = vec3(0.0);
-  if (dot(uSunE, uSunE) > 0.0) c += aScatter(v, uSunDir, 1.0) * uSunE;
-  if (dot(uMoonE, uMoonE) > 0.0) c += aScatter(v, uMoonDir, 1.0) * uMoonE;
-  // airglow / light pollution: a faint floor so the night sky is deep blue rather than black
-  c += uNightBase * (0.55 + 0.45 * pow(1.0 - max(v.y, 0.0), 3.0));
-  gl_FragColor = vec4(c, 1.0);
-}`;
+// ---- single scattering (same constants as atmosphere.js, which does the CPU side)
+// R2: the sphere's squared radius
+const aRaySphere = Fn(([o, d, R2]) => {
+  const b = dot(o, d);
+  const c = dot(o, o).sub(R2);
+  const disc = b.mul(b).sub(c);
+  const s = sqrt(max(disc, 0.0));
+  return select(disc.lessThan(0.0), vec2(-1.0, -1.0), vec2(b.negate().sub(s), b.negate().add(s)));
+});
 
-const LUT_VERT = /* glsl */`
-varying vec2 vUv;
-void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const aLightDepth = Fn(([p, l]) => {
+  // xy: optical depth (Rayleigh, Mie), z: 1 if the light reaches p (0 if the planet blocks it)
+  const g = aRaySphere(p, l, float(ATM.Re * ATM.Re));
+  const t = aRaySphere(p, l, float(ATM.Ra * ATM.Ra)).y;
+  const ds = t.div(8.0);
+  const od = vec2(0).toVar();
+  Loop(8, ({ i }) => {
+    const q = p.add(l.mul(ds.mul(float(i).add(0.5))));
+    const h = length(q).sub(ATM.Re);
+    od.addAssign(vec2(exp(h.negate().div(ATM.Hr)), exp(h.negate().div(ATM.Hm))).mul(ds));
+  });
+  return vec3(od, select(g.x.greaterThan(0.0), float(0), float(1)));
+});
 
-const DOME_VERT = /* glsl */`
-varying vec3 vDir;
-void main() {
-  vDir = position;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_Position = projectionMatrix * mv;
-  gl_Position.z = gl_Position.w * 0.99999;
-}`;
+const aScatter = Fn(([v, l]) => {
+  const o = vec3(0.0, ATM.Re + ATM.eyeH, 0.0);
+  const tmax = aRaySphere(o, v, float(ATM.Ra * ATM.Ra)).y.toVar();
+  const gr = aRaySphere(o, v, float(ATM.Re * ATM.Re));
+  If(gr.x.greaterThan(0.0), () => { tmax.assign(min(tmax, gr.x)); });
+  const mu = dot(v, l);
+  const pr = float(3.0 / (16.0 * PIf)).mul(mu.mul(mu).add(1.0));
+  const g = ATM.g;
+  const pm = float(3.0 / (8.0 * PIf)).mul((1 - g * g)).mul(mu.mul(mu).add(1.0)).div(pow(float(1 + g * g).sub(mu.mul(2 * g)), 1.5).mul(2 + g * g));
+  const od = vec2(0).toVar();
+  const sR = vec3(0).toVar(), sM = vec3(0).toVar();
+  const tPrev = float(0).toVar();
+  const betaR = vec3(...ATM.betaR);
+  const STEPS = 24;
+  Loop(STEPS, ({ i }) => {
+    const f = float(i).add(1).div(STEPS);
+    const t1 = tmax.mul(f).mul(f);
+    // toVar: TSL expressions are generated where they are first used, so anything read after
+    // tPrev changes must be pinned before the assignment
+    const ds = t1.sub(tPrev).toVar();
+    const s = tPrev.add(ds.mul(0.5)).toVar();
+    tPrev.assign(t1);
+    const p = o.add(v.mul(s));
+    const h = length(p).sub(ATM.Re);
+    const hr = exp(h.negate().div(ATM.Hr)).mul(ds), hm = exp(h.negate().div(ATM.Hm)).mul(ds);
+    od.addAssign(vec2(hr, hm));
+    const ld = aLightDepth(p, l);
+    If(ld.z.greaterThan(0.5), () => {
+      const tau = betaR.mul(od.x.add(ld.x)).add(float(ATM.betaM * ATM.mieExt).mul(od.y.add(ld.y)));
+      const a = exp(tau.negate());
+      sR.addAssign(a.mul(hr)); sM.addAssign(a.mul(hm));
+    });
+  });
+  return sR.mul(betaR).mul(pr).add(sM.mul(ATM.betaM).mul(pm));
+});
 
-const DOME_FRAG = /* glsl */`
-uniform sampler2D tLUT, tNoise;
-uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround;
-uniform vec3 uCloudLit, uCloudAmb;
-uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase;
-uniform vec2 uWind;
-uniform vec3 uCamPos;
-varying vec3 vDir;
-
-vec3 lut(vec3 d) {
-  float el = asin(clamp(d.y, -1.0, 1.0));
-  float t = sign(el) * sqrt(abs(el) / 1.5707963);
-  float az = atan(d.x, d.z);
-  return texture2D(tLUT, vec2(fract(az / 6.2831853), t * 0.5 + 0.5)).rgb;
-}
-float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
-vec3 hash33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
-
-float cloudDensity(vec2 p) {
-  vec4 n = texture2D(tNoise, p);
-  vec4 n2 = texture2D(tNoise, p * 3.1 + vec2(0.37, 0.71) + uWind * uTime * 0.6);
-  float f = n.r * 0.55 + n.g * 0.25 + n2.b * 0.14 + n2.a * 0.06;
-  return smoothstep(1.0 - uCover, 1.0 - uCover + 0.32, f);
-}
-
-float stars(vec3 d) {
-  float s = 0.0;
-  for (int k = 0; k < 2; k++) {
-    float scale = k == 0 ? 160.0 : 330.0;
-    vec3 p = d * scale;
-    vec3 cell = floor(p);
-    vec3 h = hash33(cell);
-    float b = pow(hash13(cell + 7.0), k == 0 ? 18.0 : 30.0);
-    vec3 c = cell + 0.2 + h * 0.6;
-    float dd = length(p - c) / scale;
-    float px = fwidth(dd) * 1.2 + 1e-5;
-    float tw = 0.75 + 0.25 * sin(uTime * (2.0 + h.x * 4.0) + h.y * 40.0);
-    s += b * tw * smoothstep(px * 1.6, 0.0, dd) * 12.0;
-  }
-  return s;
-}
-
-void main() {
-  vec3 d = normalize(vDir);
-  vec3 col = lut(d);
-  float up = d.y;
-
-  // below the horizon (seen only from high ground, mostly hidden by terrain): dark ground haze
-  col = mix(col, uGround + col * 0.6, smoothstep(0.0, -0.08, up));
-
-  // night sky: stars + Milky Way band, faded near the horizon by the atmosphere
-  if (uStars > 0.001 && up > -0.02) {
-    float hz = smoothstep(-0.02, 0.25, up);
-    vec3 gal = normalize(vec3(0.35, 0.55, -0.76));
-    float band = exp(-pow(dot(d, gal) / 0.16, 2.0));
-    vec2 bp = vec2(atan(d.x, d.z), asin(d.y)) * 2.0;
-    float mw = band * (0.45 + 0.55 * texture2D(tNoise, bp * 0.35).g) * (0.6 + 0.4 * texture2D(tNoise, bp * 1.3).r);
-    col += vec3(0.55, 0.6, 0.8) * mw * 0.0016 * uStars * hz;
-    col += vec3(0.85, 0.9, 1.0) * stars(d) * 0.012 * uStars * hz;
-  }
-
-  // sun disc (limb darkened) and the moon
-  #ifndef NO_SUN
-  float cs = dot(d, uSunDir);
-  float r = acos(clamp(cs, -1.0, 1.0)) / uSunSize;
-  if (r < 1.0) { float mu = sqrt(1.0 - r * r); col += uSunDisc * (0.4 + 0.6 * mu) * smoothstep(1.0, 0.9, r); }
-  float cm = dot(d, uMoonDir);
-  float rm = acos(clamp(cm, -1.0, 1.0)) / 0.0105;
-  if (rm < 1.0) {
-    // crude phase + maria from the noise texture
-    vec3 mx = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0)));
-    vec3 my = cross(mx, uMoonDir);
-    vec2 q = vec2(dot(d - uMoonDir, mx), dot(d - uMoonDir, my)) / 0.0105;
-    float z = sqrt(max(0.0, 1.0 - dot(q, q)));
-    float lit = clamp(dot(normalize(vec3(q, z)), normalize(vec3(uMoonPhase, 0.25, 0.6))) * 1.2 + 0.15, 0.0, 1.0);
-    float maria = 0.75 + 0.25 * texture2D(tNoise, q * 0.18 + 0.5).r;
-    col += uMoonDisc * lit * maria * smoothstep(1.0, 0.94, rm);
-  }
-  col += uMoonDisc * 0.0009 * exp(-max(rm - 1.0, 0.0) * 0.12);
-  #endif
-
-  // clouds: a layer at ~1.8 km, lit from the sun/moon direction, fading into the haze at the horizon
-  if (up > 0.0 && uCloudAlpha > 0.001) {
-    float h = 1800.0;
-    vec2 p = (d.xz * (h / max(up, 0.02)) + uCamPos.xz) / 9000.0 + uWind * uTime;
-    float den = cloudDensity(p);
-    if (den > 0.001) {
-      vec3 L = uSunDir.y > -0.05 ? uSunDir : uMoonDir;
-      vec2 lo = normalize(L.xz + 1e-4) * 0.018;
-      float shade = cloudDensity(p + lo) * 0.7 + cloudDensity(p + lo * 2.2) * 0.3;
-      float light = exp(-shade * 2.4) * (1.0 - den * 0.35);
-      float mu = dot(d, L);
-      float g = 0.55;
-      float phase = 0.35 + (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5) * 0.12;
-      vec3 cc = uCloudAmb * (0.75 + 0.25 * up) + uCloudLit * light * phase;
-      float fade = smoothstep(0.0, 0.18, up);
-      float a = den * fade * uCloudAlpha;
-      // far clouds take on the sky colour behind them
-      cc = mix(cc, col, (1.0 - fade) * 0.5);
-      col = mix(col, cc, a);
-    }
-  }
-  gl_FragColor = vec4(col, 1.0);
-}`;
+const hash13 = Fn(([p0]) => { const p = fract(p0.mul(0.1031)).toVar(); p.addAssign(dot(p, p.zyx.add(31.32))); return fract(p.x.add(p.y).mul(p.z)); });
+const hash33 = Fn(([p0]) => { const p = fract(p0.mul(vec3(0.1031, 0.1030, 0.0973))).toVar(); p.addAssign(dot(p, p.yxz.add(33.33))); return fract(p.xxy.add(p.yxx).mul(p.zyx)); });
 
 function makeNoiseTexture(size = 256) {
   // tileable value-noise fbm, four independent channels (r: big shapes, g: mid, b/a: detail)
@@ -180,45 +112,155 @@ function makeNoiseTexture(size = 256) {
 export class Sky {
   constructor(renderer) {
     this.renderer = renderer;
-    this.lut = new THREE.WebGLRenderTarget(LUT_W, LUT_H, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    this.lut = new THREE.RenderTarget(LUT_W, LUT_H, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     this.lut.texture.wrapS = THREE.RepeatWrapping;
-    this.lutMat = new THREE.ShaderMaterial({
-      vertexShader: LUT_VERT, fragmentShader: LUT_FRAG, depthTest: false, depthWrite: false,
-      uniforms: { uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uSunE: { value: new THREE.Vector3() }, uMoonE: { value: new THREE.Vector3() }, uNightBase: { value: new THREE.Vector3() } },
-    });
-    this.quad = new FullScreenQuad(this.lutMat);
-    this.noise = makeNoiseTexture();
-    this.uniforms = {
-      tLUT: { value: this.lut.texture }, tNoise: { value: this.noise },
-      uSunDir: this.lutMat.uniforms.uSunDir, uMoonDir: this.lutMat.uniforms.uMoonDir,
-      uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) },
-      uCloudLit: { value: new THREE.Vector3(1, 1, 1) }, uCloudAmb: { value: new THREE.Vector3(0.3, 0.33, 0.4) },
-      uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
-      uWind: { value: new THREE.Vector2(0.0011, 0.0004) }, uCamPos: { value: new THREE.Vector3() },
+    const U = this.uniforms = {
+      uSunDir: uniform(new THREE.Vector3(0, 1, 0)), uMoonDir: uniform(new THREE.Vector3(0, 1, 0)),
+      uSunE: uniform(new THREE.Vector3()), uMoonE: uniform(new THREE.Vector3()), uNightBase: uniform(new THREE.Vector3()),
+      uSunDisc: uniform(new THREE.Vector3()), uMoonDisc: uniform(new THREE.Vector3()), uGround: uniform(new THREE.Vector3(0.02, 0.02, 0.018)),
+      uCloudLit: uniform(new THREE.Vector3(1, 1, 1)), uCloudAmb: uniform(new THREE.Vector3(0.3, 0.33, 0.4)),
+      uTime: uniform(0), uCover: uniform(0.45), uStars: uniform(0), uSunSize: uniform(0.0125), uCloudAlpha: uniform(1), uMoonPhase: uniform(0.6),
+      uWind: uniform(new THREE.Vector2(0.0011, 0.0004)), uCamPos: uniform(new THREE.Vector3()),
+      uRain: uniform(0),
     };
-    this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
-      vertexShader: DOME_VERT, fragmentShader: DOME_FRAG, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, fog: false,
-    }));
+    this.noise = makeNoiseTexture();
+
+    // ---- the LUT pass
+    const lutMat = new THREE.NodeMaterial();
+    lutMat.fragmentNode = Fn(() => {
+      const az = uv().x.mul(6.2831853);
+      const t = uv().y.mul(2.0).sub(1.0);
+      const el = sign(t).mul(t).mul(t).mul(1.5707963);
+      const v = vec3(cos(el).mul(sin(az)), sin(el), cos(el).mul(cos(az)));
+      const c = vec3(0).toVar();
+      If(dot(U.uSunE, U.uSunE).greaterThan(0.0), () => { c.addAssign(aScatter(v, U.uSunDir).mul(U.uSunE)); });
+      If(dot(U.uMoonE, U.uMoonE).greaterThan(0.0), () => { c.addAssign(aScatter(v, U.uMoonDir).mul(U.uMoonE)); });
+      // airglow / light pollution: a faint floor so the night sky is deep blue rather than black
+      c.addAssign(U.uNightBase.mul(pow(float(1).sub(max(v.y, 0.0)), 3.0).mul(0.45).add(0.55)));
+      return vec4(c, 1.0);
+    })();
+    this.lutQuad = new THREE.QuadMesh(lutMat);
+
+    // ---- the dome
+    const tLUT = texture(this.lut.texture), tNoise = texture(this.noise);
+    const lut = Fn(([d]) => {
+      const el = asin(clamp(d.y, -1.0, 1.0));
+      const t = sign(el).mul(sqrt(abs(el).div(1.5707963)));
+      const az = atan(d.x, d.z);
+      return tLUT.sample(vec2(fract(az.div(6.2831853)), t.mul(0.5).add(0.5))).rgb;
+    });
+    const cloudDensity = Fn(([p]) => {
+      const n = tNoise.sample(p);
+      const n2 = tNoise.sample(p.mul(3.1).add(vec2(0.37, 0.71)).add(U.uWind.mul(U.uTime).mul(0.6)));
+      const f = n.r.mul(0.55).add(n.g.mul(0.25)).add(n2.b.mul(0.14)).add(n2.a.mul(0.06));
+      const cover = U.uCover;
+      return smoothstep(float(1).sub(cover), float(1).sub(cover).add(0.32), f);
+    });
+    const stars = Fn(([d]) => {
+      const s = float(0).toVar();
+      for (const [scale, pw] of [[160.0, 18.0], [330.0, 30.0]]) {
+        const p = d.mul(scale);
+        const cell = floor(p);
+        const h = hash33(cell);
+        const b = pow(hash13(cell.add(7.0)), pw);
+        const c = cell.add(0.2).add(h.mul(0.6));
+        const dd = length(p.sub(c)).div(scale);
+        const px = fwidth(dd).mul(1.2).add(1e-5);
+        const tw = sin(U.uTime.mul(h.x.mul(4.0).add(2.0)).add(h.y.mul(40.0))).mul(0.25).add(0.75);
+        s.addAssign(b.mul(tw).mul(smoothstep(px.mul(1.6), 0.0, dd)).mul(12.0));
+      }
+      return s;
+    });
+    const domeColor = (withSun) => Fn(() => {
+      const d = normalize(positionLocal);
+      const col = lut(d).toVar();
+      const up = d.y;
+      // below the horizon (seen only from high ground, mostly hidden by terrain): dark ground haze
+      col.assign(mix(col, U.uGround.add(col.mul(0.6)), smoothstep(0.0, -0.08, up)));
+      // night sky: stars + Milky Way band, faded near the horizon by the atmosphere
+      If(U.uStars.greaterThan(0.001).and(up.greaterThan(-0.02)), () => {
+        const hz = smoothstep(-0.02, 0.25, up);
+        const gal = vec3(0.35, 0.55, -0.76).normalize();
+        const band = exp(pow(dot(d, gal).div(0.16), 2.0).negate());
+        const bp = vec2(atan(d.x, d.z), asin(d.y)).mul(2.0);
+        const mw = band.mul(tNoise.sample(bp.mul(0.35)).g.mul(0.55).add(0.45)).mul(tNoise.sample(bp.mul(1.3)).r.mul(0.4).add(0.6));
+        col.addAssign(vec3(0.55, 0.6, 0.8).mul(mw).mul(0.0016).mul(U.uStars).mul(hz));
+        col.addAssign(vec3(0.85, 0.9, 1.0).mul(stars(d)).mul(0.012).mul(U.uStars).mul(hz));
+      });
+      if (withSun) {
+        // sun disc (limb darkened) and the moon
+        const cs = dot(d, U.uSunDir);
+        const r = acos(clamp(cs, -1.0, 1.0)).div(U.uSunSize);
+        If(r.lessThan(1.0), () => {
+          const mu = sqrt(float(1).sub(r.mul(r)));
+          col.addAssign(U.uSunDisc.mul(mu.mul(0.6).add(0.4)).mul(smoothstep(1.0, 0.9, r)).mul(float(1).sub(U.uRain.mul(0.9))));
+        });
+        const cm = dot(d, U.uMoonDir);
+        const rm = acos(clamp(cm, -1.0, 1.0)).div(0.0105);
+        If(rm.lessThan(1.0), () => {
+          const mx = normalize(cross(U.uMoonDir, vec3(0.0, 1.0, 0.0)));
+          const my = cross(mx, U.uMoonDir);
+          const q = vec2(dot(d.sub(U.uMoonDir), mx), dot(d.sub(U.uMoonDir), my)).div(0.0105);
+          const z = sqrt(max(0.0, float(1).sub(dot(q, q))));
+          const lit = clamp(dot(normalize(vec3(q, z)), normalize(vec3(U.uMoonPhase, 0.25, 0.6))).mul(1.2).add(0.15), 0.0, 1.0);
+          const maria = tNoise.sample(q.mul(0.18).add(0.5)).r.mul(0.25).add(0.75);
+          col.addAssign(U.uMoonDisc.mul(lit).mul(maria).mul(smoothstep(1.0, 0.94, rm)));
+        });
+        col.addAssign(U.uMoonDisc.mul(0.0009).mul(exp(max(rm.sub(1.0), 0.0).mul(-0.12))));
+      }
+      // clouds: a layer at ~1.8 km, lit from the sun/moon direction, fading into the haze at the horizon
+      If(up.greaterThan(0.0).and(U.uCloudAlpha.greaterThan(0.001)), () => {
+        const p = d.xz.mul(float(1800.0).div(max(up, 0.02))).add(U.uCamPos.xz).div(9000.0).add(U.uWind.mul(U.uTime));
+        const den = cloudDensity(p);
+        If(den.greaterThan(0.001), () => {
+          const L = select(U.uSunDir.y.greaterThan(-0.05), U.uSunDir, U.uMoonDir);
+          const lo = normalize(L.xz.add(1e-4)).mul(0.018);
+          const shade = cloudDensity(p.add(lo)).mul(0.7).add(cloudDensity(p.add(lo.mul(2.2))).mul(0.3));
+          const light = exp(shade.mul(-2.4)).mul(float(1).sub(den.mul(0.35)));
+          const mu = dot(d, L);
+          const g = 0.55;
+          const phase = float(1 - g * g).div(pow(float(1 + g * g).sub(mu.mul(2 * g)), 1.5)).mul(0.12).add(0.35);
+          // rain: grey, heavy, less light through
+          const cc0 = U.uCloudAmb.mul(up.mul(0.25).add(0.75)).add(U.uCloudLit.mul(light).mul(phase).mul(float(1).sub(U.uRain.mul(0.7))));
+          const fade = smoothstep(0.0, 0.18, up);
+          const a = den.mul(fade).mul(U.uCloudAlpha);
+          const cc = mix(cc0, col, float(1).sub(fade).mul(0.5));
+          col.assign(mix(col, cc, a));
+        });
+      });
+      return col;
+    })();
+
+    const domeMat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+    domeMat.colorNode = domeColor(true);
+    // push the dome to the far plane (inside the frustum): every terrain pixel in front of it wins early-z
+    domeMat.vertexNode = Fn(() => {
+      const p = cameraProjectionMatrix.mul(cameraViewMatrix).mul(modelWorldMatrix).mul(vec4(positionLocal, 1.0)).toVar();
+      p.z.assign(p.w.mul(0.99999));
+      return p;
+    })();
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), domeMat);
     this.dome.frustumCulled = false;
-    this.dome.renderOrder = 1e6;   // after the opaque world: early-z skips everything the terrain covers
+    this.dome.renderOrder = 1e6;
     this.dome.scale.setScalar(2500);
+    this.dome.castShadow = this.dome.receiveShadow = false;
     // environment version: no sun disc (the sun's direct light is the directional light)
     this.envScene = new THREE.Scene();
-    this.envDome = new THREE.Mesh(this.dome.geometry, new THREE.ShaderMaterial({
-      vertexShader: DOME_VERT, fragmentShader: DOME_FRAG, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, defines: { NO_SUN: '' },
-    }));
+    const envMat = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+    envMat.colorNode = domeColor(false);
+    this.envDome = new THREE.Mesh(this.dome.geometry, envMat);
     this.envDome.scale.setScalar(100);
     this.envScene.add(this.envDome);
   }
 
   // sunE / moonE: illuminance (rgb) at the top of the atmosphere times the sky brightness scale
   updateLUT(sunDir, sunE, moonDir, moonE, nightBase) {
-    const u = this.lutMat.uniforms;
+    const u = this.uniforms;
     u.uSunDir.value.copy(sunDir); u.uMoonDir.value.copy(moonDir);
     u.uSunE.value.copy(sunE); u.uMoonE.value.copy(moonE); u.uNightBase.value.copy(nightBase);
     const r = this.renderer, prev = r.getRenderTarget();
     r.setRenderTarget(this.lut);
-    this.quad.render(r);
+    this.lutQuad.render(r);
     r.setRenderTarget(prev);
   }
 

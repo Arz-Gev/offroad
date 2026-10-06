@@ -1,7 +1,7 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { installShaderPatches } from './render/shaderPatches.js';
-import { RenderPipeline } from './render/pipeline.js';
+import { createRenderer } from './render/gpu.js';
+import { RenderPipeline } from './render/post.js';
 import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 
 import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
@@ -33,8 +33,6 @@ import { Dust, Tracks } from './effects.js';
 import { Multiplayer, roomFromURL } from './multiplayer.js';
 import './ui.css';
 
-installShaderPatches();     // before any material compiles: atmosphere fog, light skipping
-
 const H = 1 / 240;          // physics step
 const MAX_STEPS = 16;
 
@@ -57,14 +55,14 @@ const frame = () => new Promise(r => {
 function showError(e) {
   console.error(e);
   const msg = String(e && e.message || e);
-  const webgl = /webgl|context/i.test(msg);
+  const webgl = /webgl|webgpu|context|adapter/i.test(msg);
   loading.classList.remove('done');
   loading.classList.add('error');
   setLoading('Could not start the game');
   const box = loading.querySelector('.ld-err');
   box.hidden = false;
   box.innerHTML = (webgl
-    ? 'WebGL is not available. Turn on hardware acceleration in the browser settings, or try another browser.'
+    ? 'Neither WebGPU nor WebGL 2 is available. Turn on hardware acceleration in the browser settings, or try another browser.'
     : escapeHTML(msg)) + '<br><button type="button">Reload</button>';
   box.querySelector('button').addEventListener('click', () => location.reload());
 }
@@ -74,14 +72,12 @@ async function main() {
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
-  // the scene renders into the pipeline's HDR target (MSAA there); the canvas only gets the final pass
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  // WebGPU when the browser has it, else the same renderer on WebGL 2 (?webgl=1 forces that)
+  setLoading('Starting the graphics…', 0.12); await frame();
+  const forceWebGL = /[?&]webgl=1\b/.test(location.search);
+  const renderer = await createRenderer(canvas, { forceWebGL });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = THREE.NoToneMapping;     // tone mapping happens in the pipeline's composite pass
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 6000);
@@ -99,10 +95,14 @@ async function main() {
   const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
-  const grass = buildGrass(terrainView);
+  const CORE = /[?&]core=1\b/.test(location.search);   // TEMP while porting
+  const PARTS = new URLSearchParams(location.search).get('parts');
+  const want = n => PARTS !== null ? PARTS.split(',').includes(n) : !CORE;
+  const stubPart = () => ({ group: new THREE.Group(), configure() {}, update() {}, setPushers() {}, updatePhysics() {}, shared: { uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) }, uCam: { value: new THREE.Vector3() } } });
+  const grass = !want('grass') ? stubPart() : buildGrass(terrainView, renderer);
   scene.add(grass.group);
   scenery.parts.push(grass);
-  const water = buildWater(terrain, terrainView, renderer);
+  const water = !want('water') ? stubPart() : buildWater(terrain, terrainView, renderer);
   scene.add(water.group);
   scenery.parts.push(water);
 
@@ -111,10 +111,10 @@ async function main() {
   const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }));
   scene.add(props);
   setLoading('Growing the forest…', 0.58); await frame();
-  const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
+  const trees = !want('trees') ? stubPart() : buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
   scene.add(trees.group);
   scenery.parts.push(trees);
-  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
+  const undergrowth = !want('under') ? stubPart() : buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind, renderer, grass.shared.uCam);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
@@ -148,13 +148,13 @@ async function main() {
   const touch = new TouchControls({ input, canvas, hud, action: id => input.onAction(id) });
   hud.setDevice(input.device);   // touch.js picks 'touch' on a phone or tablet
   const audio = new GameAudio();
-  const dust = new Dust(scene);
+  const dust = !want('dust') ? { setViewport() {}, setEnabled() {}, spawnFromVehicle() {}, update() {}, enabled: false } : new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
   // the sight: the pointer locks to the view, so the mouse turns the turret (the first click in the sight)
   input.sightLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed: drag to aim, Enter fires */ } };
-  const tracks = new Tracks(terrainView.material);
+  const tracks = new Tracks(terrainView);
 
 
   // interpolated body pose
@@ -237,22 +237,10 @@ async function main() {
     }
     q = { ...q, vegetation: settings.get('vegetation') };
     gfx.q = q;
-    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
+    pipeline.configure({ msaa: q.msaa >= 2 ? 4 : 0, aa: q.msaa ? 'off' : q.aa || (q.fxaa ? 'fxaa' : 'off'), ssao: q.ssao });
     pipeline.params.bloom = q.bloom !== false;
     applyResolution();
-    const S = SHADOWS[q.shadows], sh = env.sun.shadow;
-    env.sun.castShadow = !!S;
-    if (S) {
-      // a new map size or atlas layout: drop the old depth atlas (a new one is made on the next frame)
-      const ext = sh.getFrameExtents(), ex = ext.x, ey = ext.y;
-      if (sh.configure) sh.configure(S.cascades, S.splits);
-      if (sh.mapSize.x !== S.map || ext.x !== ex || ext.y !== ey) {
-        sh.mapSize.set(S.map, S.map);
-        if (sh.map) { sh.map.depthTexture?.dispose(); sh.map.dispose(); sh.map = null; }
-      }
-      sh.camera.far = S.far;
-      sh.radius = sh.configure ? S.soft : 1.4;
-    }
+    env.shadows.configure(SHADOWS[q.shadows]);
     scenery.configure(q);
     game.redraw = 3;
   }
@@ -648,36 +636,43 @@ async function main() {
 
   // compile for the pipeline's HDR target: the program variant depends on the output colour space
   // (compiling for the canvas gave sRGB-output programs that are never used)
+  // compile for the pipeline's scene target: the pipeline state depends on its format and sample count
   const compileScene = () => {
     const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(pipeline.hdr);
+    const sp = pipeline.scenePass;
+    if (sp) { sp.setSize(_db.x || 1, _db.y || 1); renderer.setRenderTarget(sp.renderTarget); }
     const p = renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(prev);
     return p;
   };
   setLoading('Compiling shaders…', 0.86); await frame();
-  // Warm-up behind the loading screen. The lamps change the lights hash (shadow-casting head spot, lamp
-  // visibility at night), so first a frame with every lamp on (compile + one real draw, which also builds
-  // the GPU pipeline states and the lamp shadow map: switching on the lamps at night stalled ~200 ms
-  // without it), then the real state. One frame without drawing comes first, so the compile sees the
-  // lights as they are.
+  // Warm-up behind the loading screen: the pipelines for the scene as it is now (the lamps' visibility is
+  // part of every lit material's variant), then one real frame (post passes, shadow passes, eye adaptation).
+  // The other lamp state (night with lamps / day without) is compiled in the background once the game runs,
+  // so the first dusk does not stall. compileAsync builds the shaders synchronously and the GPU pipelines
+  // asynchronously, so the lamps can be put back right after the call.
   try {
-    const ls = view.lights, head = ls.head, bar = ls.bar;
-    ls.head = 1; ls.bar = true;
     tick(1 / 60, false);
-    view.update(rPos, rQ, 0, { night: true, shadows: true });
-    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
-    // the eye-adaptation pass only runs at dusk and night: compile it here too, not at the first sunset
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 8000))]);
+    loadLog.push(['compiled', Math.round(performance.now())]);
+    // the eye-adaptation pass only runs at dusk and night: draw it once here too
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
     pipeline.render(1 / 60);
     pp.autoExposure = ae; pp.auto = au;
     pipeline.resetExposure = true;
-    ls.head = head; ls.bar = bar;
-    tick(1 / 60, false);
-    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    loadLog.push(['first frame', Math.round(performance.now())]);
   } catch (e) { console.warn('shader warm-up', e); }
   tick(1 / 60);
+  const warmOtherLamps = () => {
+    const ls = view.lights, head = ls.head, bar = ls.bar, night = env.night;
+    if (!night) { ls.head = 1; ls.bar = true; }
+    view.update(rPos, rQ, 0, { night: !night, darkness: night ? 0 : 1, shadows: true });
+    compileScene().catch(e => console.warn('background warm-up', e));
+    ls.head = head; ls.bar = bar;
+    view.update(rPos, rQ, 0, { night, darkness: env.darkness, shadows: true });
+  };
+  (window.requestIdleCallback || (f => setTimeout(f, 1500)))(warmOtherLamps, { timeout: 4000 });
 
   setLoading('Ready', 1); await frame();
   loading.classList.add('done');
