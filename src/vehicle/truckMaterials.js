@@ -5,9 +5,10 @@ import {
   materialOpacity,
 } from 'three/tsl';
 import { premultipliedFog } from '../render/fog.js';
+import { EnvScaledStandardMaterial, EnvScaledPhysicalMaterial } from '../render/envscale.js';
 
 // Truck materials (node materials). All of them share a few uniforms driven by VehicleView:
-//   uEnvSpec  - reflections at night (kept for the view's API; the environment probe lights them)
+//   uEnvSpec  - strength of the sky reflections (render/envscale.js), a bit more at night
 //   uDirt     - overall dirt amount (dust on the lower body, film on flat tops)
 //   uCabinAO  - interior ambient occlusion (the cabin hides most of the sky)
 //   uWet      - rain on the body (weather.js): darker dirt, glossy paint
@@ -31,9 +32,10 @@ const tkNoise = Fn(([x]) => {
     mix(mix(h([0, 0, 1]), h([1, 0, 1]), f.x), mix(h([0, 1, 1]), h([1, 1, 1]), f.x), f.y), f.z);
 });
 
-// opts: dirt (0..1 how much this material collects dirt), env (kept), ao (cabin occlusion), grain, glass
+// opts: dirt (0..1 how much this material collects dirt), env (sky reflection strength), ao (cabin occlusion), grain, glass
 function patch(mat, opts) {
-  const { dirt = 0, ao = false, glass = false, grain = 0, dirtTint = [0.13, 0.095, 0.065] } = opts;
+  const { dirt = 0, env = 0, ao = false, glass = false, grain = 0, dirtTint = [0.13, 0.095, 0.065] } = opts;
+  if (env) mat.envSpecNode = shared.uEnvSpec.mul(env);
   const p = positionGeometry, n = normalGeometry;
   const base = materialColor;   // (vertex colours, if any, are multiplied in by the material)
   if (dirt > 0) {
@@ -82,8 +84,8 @@ function patch(mat, opts) {
 }
 
 const toNode = (Cls, o) => { const m = new Cls(); for (const k in o) { if (k === 'premultipliedAlpha') continue; if (m[k]?.isColor) m[k].set(o[k]); else m[k] = o[k]; } return m; };
-const std = (o, p = {}) => patch(toNode(THREE.MeshStandardNodeMaterial, o), p);
-const phys = (o, p = {}) => patch(toNode(THREE.MeshPhysicalNodeMaterial, o), p);
+const std = (o, p = {}) => patch(toNode(EnvScaledStandardMaterial, o), p);
+const phys = (o, p = {}) => patch(toNode(EnvScaledPhysicalMaterial, o), p);
 
 export function createMaterials() {
   const m = {

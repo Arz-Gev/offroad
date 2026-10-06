@@ -64,6 +64,8 @@ await evaluate(`new Promise((res, rej) => { const t = Date.now(); (function poll
   if (l && l.classList.contains('error')) return rej(new Error(l.textContent));
   if (Date.now() - t > 110000) return rej(new Error('load timeout'));
   setTimeout(poll, 200); })(); })`);
+// the game compiles the other lamp state in the background after loading: let that finish first
+await new Promise(r => setTimeout(r, 6000));
 const backend = await evaluate(`(() => { const r = game.renderer; return r.backend ? (r.backend.isWebGPUBackend ? 'webgpu' : 'webgl2 (fallback)') : 'webgl (old renderer)'; })()`);
 console.log(`loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s · ${backend} · preset ${preset} · ${sw}x${sh}@${sdpr}`);
 if (out) fs.mkdirSync(out, { recursive: true });

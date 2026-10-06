@@ -119,6 +119,7 @@ export function buildLightRig(root, at) {
   rig.head.shadow.bias = -0.0006;
   rig.head.shadow.normalBias = 0.025;
   rig.head.shadow.camera.near = 0.35;
+  rig.head.shadow.camera.layers.enable(1);   // shadow-only proxies (tree crowns)
   rig.head.shadow.autoUpdate = false;
   rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * cookies.high.userData.peak / cookies.low.userData.peak };
 

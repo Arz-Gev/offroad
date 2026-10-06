@@ -127,7 +127,7 @@ export class Dust {
         this.vel[o] *= drag; this.vel[o + 2] *= drag;
         this.vel[o + 1] = this.vel[o + 1] * drag + 0.15 * dt;
         this.size[i] += dt * 1.1;
-        this.alpha[i] = 0.32 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
+        this.alpha[i] = 0.2 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
       }
       this.pos[o] += this.vel[o] * dt; this.pos[o + 1] += this.vel[o + 1] * dt; this.pos[o + 2] += this.vel[o + 2] * dt;
     }

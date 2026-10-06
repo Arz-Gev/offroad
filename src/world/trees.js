@@ -44,6 +44,40 @@ export const windOffset = (W, objPos, w, base) => {
   return ww.div(base.w);
 };
 
+// A lighter crown for the shadow maps: every other card, each scaled up about its centre so the dappled
+// coverage stays about the same. Crowns casting into three cascades were most of a forest frame's cost
+// (alpha-tested cards, no early depth rejection); half the cards halves that.
+export const SHADOW_LAYER = 1;   // drawn by shadow cameras only (render/shadows.js enables it on them)
+function shadowCrown(geo, scale = 1.35) {
+  const P = geo.attributes.position, N = geo.attributes.normal, UV = geo.attributes.uv, W = geo.attributes.aWind;
+  const cards = P.count / 4, keep = Math.ceil(cards / 2);
+  const pos = new Float32Array(keep * 12), nor = new Float32Array(keep * 12), uvs = new Float32Array(keep * 8), wind = new Float32Array(keep * 4), idx = [];
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  let k = 0;
+  for (let i = 0; i < cards; i += 2, k++) {
+    c.set(0, 0, 0);
+    for (let j = 0; j < 4; j++) c.add(v.fromBufferAttribute(P, i * 4 + j));
+    c.multiplyScalar(0.25);
+    for (let j = 0; j < 4; j++) {
+      const a = i * 4 + j, b = k * 4 + j;
+      v.fromBufferAttribute(P, a).sub(c).multiplyScalar(scale).add(c);
+      pos.set([v.x, v.y, v.z], b * 3);
+      nor.set([N.getX(a), N.getY(a), N.getZ(a)], b * 3);
+      uvs.set([UV.getX(a), UV.getY(a)], b * 2);
+      wind[b] = W.getX(a);
+    }
+    const o = k * 4;
+    idx.push(o, o + 2, o + 1, o + 2, o + 3, o + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  g.setAttribute('aWind', new THREE.BufferAttribute(wind, 1));
+  g.setIndex(idx);
+  return g;
+}
+
 // ---------------------------------------------------------------- impostor baking
 function bakeImpostors(renderer, variants) {
   const rows = variants.length;
@@ -265,13 +299,22 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     const base = new THREE.InstancedBufferAttribute(new Float32Array(MAXN * 4), 4).setUsage(THREE.DynamicDrawUsage);
     const trunk = new THREE.InstancedMesh(v.geo.trunk.clone(), trunkMat, MAXN);
     const crown = new THREE.InstancedMesh(v.geo.crown.clone(), crownMat, MAXN);
-    for (const m of [trunk, crown]) {
+    // the crown's shadow comes from its lighter twin, which only the shadow cameras see
+    const shadowMat = new THREE.MeshBasicNodeMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
+    shadowMat.positionNode = windPos;
+    shadowMat.maskNode = nearMask;
+    const crownShadow = new THREE.InstancedMesh(shadowCrown(v.geo.crown), shadowMat, MAXN);
+    crownShadow.instanceMatrix = trunk.instanceMatrix;
+    crownShadow.layers.set(SHADOW_LAYER);
+    for (const m of [trunk, crown, crownShadow]) {
       m.geometry.setAttribute('aBase', base);
       m.count = 0; m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       group.add(m);
     }
-    return { trunk, crown, crownMat, base, MAXN };
+    crown.castShadow = false;
+    crownShadow.receiveShadow = false;
+    return { trunk, crown, crownShadow, crownMat, base, MAXN };
   });
 
   // ---- impostors (all trees; the mask hides the ones the near meshes cover)
@@ -388,7 +431,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
       }
       near.forEach((n, vi) => {
         n.crown.instanceMatrix.array.set(n.trunk.instanceMatrix.array.subarray(0, counts[vi] * 16));
-        n.trunk.count = n.crown.count = counts[vi];
+        n.trunk.count = n.crown.count = n.crownShadow.count = counts[vi];
         for (const m of [n.trunk, n.crown]) {
           m.instanceMatrix.clearUpdateRanges();
           m.instanceMatrix.addUpdateRange(0, counts[vi] * 16);

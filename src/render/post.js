@@ -135,7 +135,7 @@ export class RenderPipeline {
     if (this.ssao !== 'off') {
       const a = this.aoPass = ao(depth, null, camera);
       a.resolutionScale = 0.5;
-      a.samples.value = this.ssao === 'high' ? 16 : 8;
+      a.samples.value = this.ssao === 'high' ? 12 : 8;
       a.radius.value = this.ssao === 'high' ? 1.4 : 1.0;
       a.distanceFallOff.value = 1.0;
       a.thickness.value = 1.0;
@@ -145,27 +145,32 @@ export class RenderPipeline {
       aoNode = mix(aoNode, float(1), smoothstep(80.0, 160.0, vz));
     } else this.aoPass = null;
 
-    // sun shafts: sky mask (far depth) smeared towards the sun's screen position, 24 taps
+    // sun shafts at quarter resolution: a sky mask (far depth), then the mask smeared towards the sun's
+    // screen position (24 bilinear taps of the mask). Skipped while the sun is out of view.
     let shaftNode = vec3(0);
     if (this.shafts) {
       const SAMPLES = 24;
-      const raw = depth;
-      shaftNode = Fn(() => {
-        const p = screenUV.toVar();
-        const dir = u.sunUV.sub(p).div(SAMPLES).mul(0.85);
-        const acc = float(0).toVar();
-        const wgt = float(1).toVar();
-        const jit = hash(screenCoordinate.xy.add(fract(u.time).mul(61.0)));
-        p.addAssign(dir.mul(jit));
-        Loop(SAMPLES, () => {
-          const sky = step(0.99995, raw.sample(p).r);
-          acc.addAssign(sky.mul(wgt));
-          wgt.mulAssign(0.93);
-          p.addAssign(dir);
+      const q = { type: THREE.HalfFloatType, resolutionScale: 0.25, depthBuffer: false };
+      const mask = rtt(vec4(step(0.99995, depth.sample(screenUV).r), 0, 0, 1), null, null, q);
+      const shafts = rtt(Fn(() => {
+        const out = vec3(0).toVar();
+        If(u.sunVis.greaterThan(0.001), () => {
+          const p = screenUV.toVar();
+          const dir = u.sunUV.sub(p).div(SAMPLES).mul(0.85);
+          const acc = float(0).toVar();
+          const wgt = float(1).toVar();
+          p.addAssign(dir.mul(hash(screenCoordinate.xy.add(fract(u.time).mul(61.0)))));
+          Loop(SAMPLES, () => {
+            acc.addAssign(mask.sample(p).r.mul(wgt));
+            wgt.mulAssign(0.93);
+            p.addAssign(dir);
+          });
+          const r = length(screenUV.sub(u.sunUV).mul(vec2(1.7, 1.0)));
+          out.assign(u.sunCol.mul(acc.div(SAMPLES * 0.45)).mul(u.sunVis).mul(u.shafts).mul(exp(r.mul(r).mul(-2.2))));
         });
-        const r = length(screenUV.sub(u.sunUV).mul(vec2(1.7, 1.0)));
-        return u.sunCol.mul(acc.div(SAMPLES * 0.45)).mul(u.sunVis).mul(u.shafts).mul(exp(r.mul(r).mul(-2.2)));
-      })();
+        return vec4(out, 1);
+      })(), null, null, q);
+      shaftNode = shafts.sample(screenUV).rgb;
     }
 
     // bloom on the exposed picture (the threshold is in display units, as before)

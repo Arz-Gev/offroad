@@ -14,6 +14,8 @@ export class SunShadows {
     this.spec = null;
     light.castShadow = true;
     const sh = light.shadow;
+    // layer 1: shadow-only proxies (the lighter tree crowns, trees.js); CSM clones this camera per cascade
+    sh.camera.layers.enable(1);
     sh.camera.near = 1;
     sh.camera.far = 1200;
     sh.bias = -0.0002;

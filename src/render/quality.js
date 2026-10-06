@@ -54,14 +54,14 @@ export const QUALITY = {
 // far: shadow distance in m, cascades + splits: how many and where they hand over (m from the camera),
 // soft: filter blur in metres. Texel size is about 2.4 * (cascade end distance) / map:
 //   high  2560: 1.3 cm / 4.7 cm / 17 cm, three tiles (105 MB depth atlas)
-//   ultra 4096: 0.7 cm / 2.6 cm / 15 cm, three maps (201 MB); a fourth cascade took the terrain shader past
+//   ultra 3072: 0.9 cm / 3.5 cm / 20 cm, three maps (113 MB); a fourth cascade took the terrain shader past
 //   WebGPU's 16 samplers per stage at night (lamp shadow + cookies)
 export const SHADOWS = {
   off: null,
   low: { map: 1024, far: 90, cascades: 2, splits: [25], soft: 0.08 },
   medium: { map: 2048, far: 130, cascades: 2, splits: [34], soft: 0.06 },
   high: { map: 2560, far: 180, cascades: 3, splits: [13, 48], soft: 0.045 },
-  ultra: { map: 4096, far: 260, cascades: 3, splits: [12, 45], soft: 0.04 },
+  ultra: { map: 3072, far: 260, cascades: 3, splits: [12, 45], soft: 0.04 },
 };
 
 // Settings → Graphics: every option has its own setting (prefix g). Choosing a preset writes the preset's
