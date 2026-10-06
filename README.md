@@ -43,7 +43,7 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 | U |  |  | Suspension and tyre-load panel |
 | F3 or ` |  |  | Telemetry |
 
-**BTR-80 turret** (Turret group in the Controls list): **right mouse** (touch **Sight**) toggles the gunner's sight; click in it and the mouse turns the turret and the gun at the hand-wheel speeds (or arrows / numpad 8 2 4 6, gamepad right stick in the sight); mouse wheel zooms. **Left mouse** or **Enter** (gamepad right stick click, touch **Fire**) fires, **1** switches between the 14.5 mm KPVT and the coaxial 7.62 mm PKT. Belts and reloads are shown in the gun panel.
+**BTR-80 turret** (Turret group in the Controls list): **right mouse** (touch **Sight**) toggles the gunner's sight; click in it and the mouse turns the turret and the gun at the hand-wheel speeds; mouse wheel zooms. The **arrows** (or numpad 8 2 4 6) turn the turret and the gun in any camera, so on the BTR you drive with **W A S D**; gamepad: right stick in the sight. **Left mouse** or **Enter** (gamepad right stick click, touch **Fire**) fires, **1** switches between the 14.5 mm KPVT and the coaxial 7.62 mm PKT. Every round is a tracer. Belts and reloads are shown in the gun panel.
 
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 

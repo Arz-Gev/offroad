@@ -563,6 +563,7 @@ async function main() {
     input.update(dt);
     const gunnerView = rig.mode === 'gunner' && !!vehicle.turret;
     input.gunner = gunnerView;
+    input.turret = !!vehicle.turret;
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
     const paused = game.paused;
     const now = performance.now() / 1000;

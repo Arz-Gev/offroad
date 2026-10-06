@@ -46,7 +46,7 @@ export const BINDINGS = [
   // turret vehicles (BTR-80). fire and aim are held controls (read in Input.update), not dispatched actions
   { id: 'gunner', group: 'Turret', label: 'Gunner\'s sight on / off (click in it to aim with the mouse)', keys: ['Right mouse'], touch: 'Sight' },
   { id: 'fire', group: 'Turret', label: 'Fire (hold)', keys: ['Left mouse', 'Enter'], pad: 'R stick click', touch: 'Fire' },
-  { id: 'aim', group: 'Turret', label: 'Turn the turret and the gun: mouse in the sight, arrows in the sight, or the numpad', keys: ['Mouse', '↑ ↓ ← →'], alt: ['Num 8 2 4 6'], pad: 'R stick (in the sight)', touch: 'Drag' },
+  { id: 'aim', group: 'Turret', label: 'Turn the turret and the gun: arrows (W A S D drive), the numpad, or the mouse in the sight', keys: ['↑ ↓ ← →', 'Mouse'], alt: ['Num 8 2 4 6'], pad: 'R stick (in the sight)', touch: 'Drag' },
   { id: 'weapon', group: 'Turret', label: 'Gun: KPVT 14.5 mm ⇄ coaxial PKT 7.62 mm', codes: ['Digit1'], keys: ['1'], touch: 'Gun' },
 
   { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
@@ -98,7 +98,8 @@ export class Input {
     this.raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, analogSteer: false, fire: 0, aimX: 0, aimY: 0 };
     this.mouse = { dx: 0, dy: 0, wheel: 0, down: false, lastMove: 0, fire: false };
     this.touch = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, fire: 0 };   // written by touch.js
-    this.gunner = false;           // in the gunner's sight (main.js): arrows aim the turret, the mouse aims, LMB fires
+    this.gunner = false;           // in the gunner's sight (main.js): the mouse aims, LMB fires
+    this.turret = false;           // the vehicle has a turret (main.js): the arrows turn it, W A S D drive
     this.sightLock = null;         // () => request pointer lock for the sight (main.js)
     this.device = 'kb';            // last used: 'kb' | 'pad' | 'touch'
     this.onAction = null;          // (id, device) => void
@@ -167,8 +168,8 @@ export class Input {
   // call once per rendered frame
   update(dt) {
     const r = this.raw;
-    // in the gunner's sight the arrows turn the turret (W A S D still drive)
-    const arrows = !this.gunner;
+    // on a turret vehicle the arrows turn the turret (W A S D drive); elsewhere they drive too
+    const arrows = !this.turret;
     const up = this.down('KeyW') || (arrows && this.down('ArrowUp')), dn = this.down('KeyS') || (arrows && this.down('ArrowDown'));
     const lt = this.down('KeyA') || (arrows && this.down('ArrowLeft')), rt = this.down('KeyD') || (arrows && this.down('ArrowRight'));
     const ax = (this.down('Numpad6') || (!arrows && this.down('ArrowRight')) ? 1 : 0) - (this.down('Numpad4') || (!arrows && this.down('ArrowLeft')) ? 1 : 0);

@@ -107,15 +107,15 @@ export const CAR_SPECS = {
     // cranking the hand wheels at ~2-3 turns/s gives ~12°/s traverse and ~8°/s elevation (estimates).
     // KPVT 14.5 mm: B-32 / BZT, 64 g at 1000 m/s, ~770 m/s left at 1000 m (k = ln(1000/770)/1000), 600 rpm,
     // 500 rounds in 10 belts of 50; PKT 7.62 mm coaxial: LPS 9.6 g at 825 m/s, ~560 m/s at 500 m, 750 rpm,
-    // 2000 rounds in belts of 250. Recoil impulse: bullet + powder gases. One tracer in four.
+    // 2000 rounds in belts of 250. Recoil impulse: bullet + powder gases. Every round is drawn as a tracer (a game choice: real belts load one in four or five).
     turret: {
       yawRate: 12 * Math.PI / 180, pitchRate: 8 * Math.PI / 180, yawAccel: 1.0, pitchAccel: 0.8,
       pitchMin: -4 * Math.PI / 180, pitchMax: 60 * Math.PI / 180,
       weapons: [
         { id: 'kpvt', name: 'KPVT 14.5 mm', short: 'KPVT', v0: 1000, mass: 0.064, k: 2.6e-4, rpm: 600, belt: 50, ammo: 500, reload: 8,
-          tracerEvery: 4, recoil: 110, recoilTravel: 0.035, spread: 0.0010, muzzle: 'muzzle', flash: 0.9, calibre: 14.5 },
+          tracerEvery: 1, recoil: 110, recoilTravel: 0.035, spread: 0.0010, muzzle: 'muzzle', flash: 0.9, calibre: 14.5 },
         { id: 'pkt', name: 'PKT 7.62 mm', short: 'PKT', v0: 825, mass: 0.0096, k: 7.7e-4, rpm: 750, belt: 250, ammo: 2000, reload: 6,
-          tracerEvery: 4, recoil: 12, spread: 0.0015, muzzle: 'pktMuzzle', flash: 0.45, calibre: 7.62 },
+          tracerEvery: 1, recoil: 12, spread: 0.0015, muzzle: 'pktMuzzle', flash: 0.45, calibre: 7.62 },
       ],
     },
     // collision boxes in the hub frame (y = 0 at the hub at static ride), measured off the hull (prepcar outline)
