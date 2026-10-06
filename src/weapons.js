@@ -7,7 +7,7 @@ import { SURFACES } from './vehicle/tire.js';
 // covers in a step is ray cast in the Rapier world (our own hull excluded). A hit makes dust, sparks or
 // splinters by surface, pushes a body that can move, and on rock or concrete a shallow hit ricochets.
 // Rounds that cross a water surface splash and stop. The recoil impulse goes into our hull at the
-// trunnions. Visuals: tracers (one round in four, burning ~3 s), muzzle flash and smoke, impact particles.
+// trunnions. Visuals: tracers (rounds with `tracer` set; every round on the BTR, burning ~3 s), muzzle flash and smoke, impact particles.
 // No lights are added (a light changes the lights hash and recompiles every shader): the flash and the
 // tracers are bright additive geometry that bloom picks up at night.
 
