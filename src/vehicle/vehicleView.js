@@ -86,7 +86,7 @@ export class VehicleView {
     // lights only exist in the scene at night or when something is switched on (no cost in the day);
     // at night they stay in the scene with zero intensity, so switching lamps never recompiles shaders
     const live = env.night || head > 0 || ls.bar;
-    for (const l of [L.head, L.bar, L.rear]) l.visible = live;
+    for (const l of [L.head, L.bar, L.rear]) if (l) l.visible = live;
     const amb = this.ambientLevel();
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
@@ -98,8 +98,10 @@ export class VehicleView {
     L.head.shadow.autoUpdate = live && head > 0 && env.shadows !== false;
     // keep the cookie level with the truck, not with the world, when it rolls
     L.head.shadow.camera.up.set(0, 1, 0).applyQuaternion(quat);
-    L.bar.shadow.camera.up.copy(L.head.shadow.camera.up);
-    L.bar.intensity = ls.bar ? L.bar.userData.peak * k : 0;
+    if (L.bar) {
+      L.bar.shadow.camera.up.copy(L.head.shadow.camera.up);
+      L.bar.intensity = ls.bar ? L.bar.userData.peak * k : 0;
+    }
 
     // lens glow by role (a model without a lens for a role skips it; roles sharing a material: the later wins)
     this.blink += dt;

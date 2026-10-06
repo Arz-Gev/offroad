@@ -137,9 +137,12 @@ export function buildLightRig(root, at) {
   rig.head.shadow.autoUpdate = false;
   rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * cookies.high.userData.peak / cookies.low.userData.peak };
 
-  rig.bar = spot(0xeef3ff, at.bar, [0, 0, -1], ANG, 0.08, 240);
-  rig.bar.map = cookies.bar;
-  rig.bar.userData.peak = BEAM.bar;
+  // bar: only a car with a light bar (or driving lamps / a searchlight that stand in for one) has its beam
+  if (at.bar) {
+    rig.bar = spot(0xeef3ff, at.bar, [0, 0, -1], ANG, 0.08, 240);
+    rig.bar.map = cookies.bar;
+    rig.bar.userData.peak = BEAM.bar;
+  }
 
   // rear: tail/brake glow + reversing lamps, aimed back and down
   rig.rear = spot(0xff2a10, at.rear, [0, -0.3, 1], 0.95, 0.8, 11);

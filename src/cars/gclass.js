@@ -58,8 +58,6 @@ export default {
     // y [0.34, 0.47] z [2.14, 2.24]
     lamps: { head: [0, 0.95, -2.42], rear: [0, 0.80, 2.62],
       lenses: { head: '^lens_head', tail: '^lens_tail', brake: '^lens_tail' } },
-    // a roof light bar over the windscreen (the roof top is at 1.98): it carries the bar beam
-    lightBar: { at: [0, 2.08, -0.40], width: 1.1, lamps: 4, roof: 1.98 },
     // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.56, -0.26], [0.82, 1.07],
     // [-0.41, -0.25]] in the model frame); it turns about its own axis
     cockpit: { steeringWheel: 'steering_wheel' },

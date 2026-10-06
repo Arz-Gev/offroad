@@ -80,7 +80,7 @@ and by the axle types, nothing by the car's name). Positions are in the body fra
 | `suspension` | the model's own double wishbones: `{ parts: 'wishbones', pivotLow, pivotUp }` (prepcar `parts` per corner, the arms' inner pivots in the hub frame). Independent corners without parts are drawn by us (`model/independent.js`, by the axle's `linkage`); beam axles are always ours (`model/beamAxle.js`) |
 | `eye`, `hoodEye`, `chase` | cameras: the driver's eye, the hood camera, `{ dist, target }` of the chase camera |
 | `lamps` | beam positions `{ head, bar, rear }` (a procedural body knows its own) and `lenses`: role -> a pattern matched against the material and mesh names (`head`, `side`, `bar`, `work`, `tail`, `brake`, `reverse`, `amber`, `beacon`) |
-| `lightBar` | a roof light bar (`model/accessories.js`): `{ at, width, lamps, roof }`; it carries the bar beam |
+| `lightBar` | optional, only for a car that really carries one: a roof light bar (`model/accessories.js`): `{ at, width, lamps, roof }`; it carries the bar beam. A car with neither `lightBar` nor `lamps.bar` has no bar beam, and the J key and the menu switch say so / hide |
 | `cockpit` | node names of the cabin's moving parts: `steeringWheel`, `gearLever`, `transferLever` (cut out with `tools/cutparts.mjs`); a node turns about its own thin axis |
 | `turret` | a turret of the model's nodes (`model/turretRig.js`): `yaw`, `pitch`, `recoil`, `ring`, `trunnion`, `muzzles`, `lamp`, `sight` (hub frame) |
 | `runningGear` | options of the beam axle kit: `transferCase` (where the prop shafts start) |
