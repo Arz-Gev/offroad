@@ -33,7 +33,7 @@ export default {
     // looser converter: the small engine would stall in D at idle with the default 112
     auto: { ratios: [3.50, 2.20, 1.52, 1.13, 0.93, 0.78], reverse: 3.5, stallK: 165 },
     manual: { ratios: [3.50, 2.18, 1.52, 1.13, 0.93], reverse: 3.55 },
-    transfer: { high: 1.0, low: 1.8 },   // the real car has no low range: a short one for the game
+    transfer: { high: 1.0 },   // no low range, like the real car
     finalDrive: 3.11,
     // permanent 4WD, no driver's locks: an epicyclic centre diff splitting 47 : 53 front / rear (16v and
     // later; the 8v was 56 : 44) behind a Ferguson viscous coupling, an open front diff and the Torsen rear.

@@ -16,10 +16,11 @@ export const fmtPressure = (psi, unit) => unit === 'bar' ? `${(psi * 0.0689476).
 export const speedUnit = u => SPEED_UNITS[u] || SPEED_UNITS.kmh;
 
 const AUTO_STRIP = ['P', 'R', 'N', 'D'];
-const MAN_STRIP = ['R', 'N', '1', '2', '3', '4', '5'];
 const DIAL = 156;          // css px at scale 1
 const SUSP = 216;
-const MAX_RPM = 6000;
+// the rpm scale: the engine's limiter rounded up to a whole thousand (a 2900 rpm diesel reads to 3, a
+// 6800 rpm petrol to 7)
+const dialMax = E => Math.max(3000, Math.ceil(E.limiterRpm / 1000) * 1000);
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
@@ -99,14 +100,14 @@ export class HUD {
           <span class="tt amber" id="t-tc" hidden>TC</span>
           <span class="tt blue" id="t-rwd" hidden>2WD</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
-          <span class="tt amber" id="t-bar" hidden>LIGHT BAR</span>
+          <span class="tt amber" id="t-bar" hidden>EXTRA LAMPS</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
         </div>
         <div class="cl-body">
           <div class="cl-side">
             <div class="cl-mode"><b id="h-mode">AUTO</b><span id="h-modesub"></span></div>
             <div class="strip" id="h-strip"></div>
-            <div class="cl-kv"><span class="k">Range</span><span class="seg2" id="h-range"><i data-v="high">HI</i><i data-v="low">LO</i></span></div>
+            <div class="cl-kv" id="h-rangerow"><span class="k">Range</span><span class="seg2" id="h-range"><i data-v="high">HI</i><i data-v="low">LO</i></span></div>
             <div class="cl-diffs">
               <svg id="h-diffs" viewBox="0 0 64 72" aria-hidden="true">
                 <path class="shaft" d="M14 13H50M14 59H50M32 13V59"/>
@@ -145,7 +146,7 @@ export class HUD {
     this.e = {
       menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'),
       toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
-      cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'),
+      cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'), rangeRow: $('h-rangerow'),
       diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')], diffTxt: $('h-difftxt'),
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
@@ -325,7 +326,9 @@ export class HUD {
       // a manual-only car (BTR-80) in "automatic": its manual box picks the gears itself
       e.mode.textContent = manual && !d.autoShift ? 'MANUAL' : 'AUTO';
       e.modeSub.textContent = manual ? (d.autoShift ? 'auto-shift' : d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : `${v.P.auto.ratios.length}-speed`;
-      e.strip.innerHTML = (manual ? MAN_STRIP : AUTO_STRIP).map(g => `<i>${g}</i>`).join('');
+      // the manual strip: R, N and this car's gears
+      const strip = manual ? ['R', 'N', ...v.P.manual.ratios.map((r, i) => String(i + 1))] : AUTO_STRIP;
+      e.strip.innerHTML = strip.map(g => `<i>${g}</i>`).join('');
       e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist && !d.autoShift));
     }
     const stripIdx = manual ? d.manualGear + 1 : AUTO_STRIP.indexOf(d.selector);
@@ -341,6 +344,8 @@ export class HUD {
 
     // transfer case + diffs
     if (d.range !== c.range) { c.range = d.range; e.range.dataset.v = d.range; }
+    const low = !!v.P.transfer?.low;   // no HI / LO row on a car without low range
+    if (low !== c.low) { c.low = low; e.rangeRow.hidden = !low; }
     const nA = v.axles.length;
     if (nA !== c.nA) {
       // the diagram for this car's axle count (self-locking axle diffs drawn half filled)
@@ -448,7 +453,7 @@ export class HUD {
     el.style.transform = `scaleY(${q / 100})`;
   }
   rpmBar(rpm, E) {
-    const q = Math.round(clamp(rpm / MAX_RPM, 0, 1) * 100);
+    const q = Math.round(clamp(rpm / dialMax(E), 0, 1) * 100);
     if (q !== this.c.rpmQ) { this.c.rpmQ = q; this.e.rpmBar.style.transform = `scaleX(${q / 100})`; }
     const zone = rpm >= E.redlineRpm ? 'red' : rpm >= E.redlineRpm - 700 ? 'amber' : '';
     if (zone !== this.c.rpmZone) { this.c.rpmZone = zone; this.e.rpmBar.className = zone; }
@@ -486,12 +491,15 @@ export class HUD {
 
   // ------------------------------------------------------------------ rpm dial
   drawDial(rpm, E) {
+    // the scale follows the engine (tuning can swap it while driving)
+    const max = dialMax(E), scale = `${max} ${E.redlineRpm}`;
+    if (scale !== this.dialScale) { this.dialScale = scale; this.dialStatic = null; this.c.rpmQ = undefined; }
     const q = Math.round(rpm / 20);
     if (q === this.c.rpmQ) return;
     this.c.rpmQ = q;
     const g = this.dctx, px = this.e.dial.width, k = px / DIAL;
     const cx = DIAL / 2, cy = DIAL / 2, r = DIAL / 2 - 9;
-    const ang = x => A0 + (A1 - A0) * clamp(x, 0, MAX_RPM) / MAX_RPM;
+    const ang = x => A0 + (A1 - A0) * clamp(x, 0, max) / max;
     if (!this.dialStatic) {
       const s = document.createElement('canvas');
       s.width = s.height = px;
@@ -503,7 +511,7 @@ export class HUD {
       h.strokeStyle = 'rgba(255,90,69,0.6)';
       h.beginPath(); h.arc(cx, cy, r, ang(E.redlineRpm), A1); h.stroke();
       h.lineCap = 'round';
-      for (let x = 0; x <= MAX_RPM; x += 500) {
+      for (let x = 0; x <= max; x += 500) {
         const a = ang(x), major = x % 1000 === 0;
         const r0 = r - (major ? 15 : 11), r1 = r - 7;
         h.strokeStyle = x >= E.redlineRpm ? 'rgba(255,110,90,0.9)' : major ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';

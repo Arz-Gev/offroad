@@ -1,4 +1,4 @@
-import { BINDING } from './input.js';
+import { BINDING, hasControl } from './input.js';
 import { fmtPressure } from './hud.js';
 
 // On-screen controls for phones and tablets.
@@ -24,11 +24,12 @@ const TILT_DEAD = 1.5 * Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const label = id => BINDING[id].touch;
 // drawer chips: a fixed label and a state line under it, in a fixed grid, so nothing moves when a state changes
+// (only the chips of the controls this car has: input.js hasControl)
 const CHIP_STATE = {
   range: d => d.range === 'low' ? 'LOW' : 'HIGH',
-  centreLock: d => ({ viscous: 'Viscous', none: '—' })[d.layout.centre] || (d.centreLocked ? 'Locked' : 'Open'),
-  lockers: d => !d.canLock ? 'Self-lock' : d.frontLock && d.rearLock ? (d.nA === 2 ? 'Front + rear' : 'All') : d.rearLock ? 'Rear' : 'Off',
-  rwd: d => !d.layout.rwd.length ? ({ awd: 'AWD', rwd: 'RWD', fwd: 'FWD' })[d.layout.layout] : d.rwd ? '2WD' : '4WD',
+  centreLock: d => d.centreLocked ? 'Locked' : 'Open',
+  lockers: d => d.frontLock && d.rearLock ? (d.nA === 2 ? 'Front + rear' : 'All') : d.rearLock ? 'Rear' : 'Off',
+  rwd: d => d.rwd ? '2WD' : '4WD',
   engineStart: d => d.running ? 'Running' : d.cranking ? 'Starting' : 'Off · tap',
   headlights: (d, view) => ['Off', 'Low beam', 'High beam'][view.lights.head],
   pressureDown: (d, view, v, unit) => fmtPressure(v.pressure, unit),
@@ -53,6 +54,7 @@ export class TouchControls {
     this.steerMode = 'stick';
     this.visible = false;
     this.c = {};                  // last written values
+    this.drawerIds = DRAWER.filter(hasControl);   // this car's: no Range chip without low range, ...
     this.pedals = {};             // name -> { el, fill, id }
     this.stick = { id: null, x0: 0, y0: 0, v: 0 };
     this.looks = new Map();       // pointerId -> { x, y } of fingers on the view
@@ -116,7 +118,7 @@ export class TouchControls {
     drawer.className = 'tc-drawer';
     drawer.hidden = true;
     drawer.innerHTML = `<div class="tc-dh">4×4 · engine · lights · tyres</div>
-      <div class="tc-grid">${DRAWER.map(id => btn(id, 'tc-chip', `<b>${label(id)}</b><small>&nbsp;</small>`, BINDING[id].label)).join('')}</div>`;
+      <div class="tc-grid">${this.drawerIds.map(id => btn(id, 'tc-chip', `<b>${label(id)}</b><small>&nbsp;</small>`, BINDING[id].label)).join('')}</div>`;
     hud.root.querySelector('.tl-row').after(drawer);
     this.tools = tools;
     this.drawer = drawer;
@@ -359,7 +361,7 @@ export class TouchControls {
     if (clutch !== c.clutch) { c.clutch = clutch; this.pedals.clutch.el.hidden = !clutch; if (!clutch) t.clutch = 0; }
     // drawer chips: state line + lit when engaged (only while the drawer is open)
     if (!this.drawer.hidden) {
-      for (const id of DRAWER) {
+      for (const id of this.drawerIds) {
         const ch = this.chips[id], txt = CHIP_STATE[id](d, view, v, this.api.hud.opts.pressureUnit), on = !!CHIP_ON[id]?.(d, view);
         if (txt !== ch.txt) { ch.txt = txt; ch.state.textContent = txt; }
         if (on !== ch.on) { ch.on = on; ch.el.classList.toggle('on', on); }
