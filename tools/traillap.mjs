@@ -4,11 +4,10 @@
 // "digital" mimics keyboard steering (full lock with the game's speed-sensitive limit, on/off).
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
 // CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
-const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
+const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 import { Terrain } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
 await RAPIER.init();

@@ -1,6 +1,6 @@
 import { BINDINGS, capsHTML, padCapHTML, touchCapHTML } from './input.js';
 import { escapeHTML } from './hud.js';
-import { CARS } from './vehicle/cars.js';
+import { CAR_LIST } from './cars/index.js';
 
 // Pause menu (Locations / Settings / Controls) and the first-start welcome card.
 // Both pause the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
@@ -17,12 +17,12 @@ const TABS = [
   { id: 'controls', label: 'Controls', hot: 'controls' },
 ];
 
-const MODEL_CREDITS = Object.values(CARS).filter(c => c.author).map(c => `${c.label} by ${c.author}`).join(', ');
+const MODEL_CREDITS = CAR_LIST.filter(c => c.look.author).map(c => `${c.label} by ${c.look.author}`).join(', ');
 const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
-    row('car', 'Vehicle', 'seg', { options: Object.entries(CARS).map(([id, c]) => [id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
+    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),

@@ -1,5 +1,8 @@
-import { STOCK, ENGINES, ENGINE_ORDER, RANGES, TYRE_SIZES, TYRE_WIDTHS, sanitize, clone, applySetup, analyze, exportJSON, netTorque, tyreRadius, wheelMass } from './vehicle/tuning.js';
-import { makeCarParams, getCar } from './vehicle/carSpecs.js';
+import { STOCK, ENGINE_ORDER, RANGES, TYRE_SIZES, TYRE_WIDTHS, sanitize, clone, applySetup, analyze, exportJSON, netTorque, wheelMass } from './vehicle/tuning.js';
+import { ENGINES } from './vehicle/engines.js';
+import { tyreRadius } from './vehicle/tire.js';
+import { makeCarParams } from './vehicle/carParams.js';
+import { getCar, carDef } from './cars/index.js';
 import { storage } from './settings.js';
 import { escapeHTML, fmtPressure } from './hud.js';
 import './tuning.css';
@@ -11,8 +14,8 @@ import './tuning.css';
 // The setup, the saved setups and the panel state live in localStorage (offroad.tuning.v1).
 
 const KEY_BASE = 'offroad.tuning.v1';
-// each car keeps its own setup and saved setups (the Defender keeps the original key)
-const carKey = () => getCar() === 'defender' ? KEY_BASE : KEY_BASE + '.' + getCar();
+// each car keeps its own setup and saved setups (a car whose setups predate this keeps its key: saveKey)
+const carKey = () => carDef(getCar()).saveKey ?? KEY_BASE + '.' + getCar();
 const DEG = Math.PI / 180;
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const set = (o, path, v) => { const ks = path.split('.'), last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };

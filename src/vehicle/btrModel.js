@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { buildLightRig } from './truckLights.js';
 import { createTireMaterial, makeTireMesh } from './tireMaterial.js';
-import { makeCarParams } from './carSpecs.js';
+import { makeCarParams } from './carParams.js';
 import { staticRide } from './tuning.js';
 
 // The BTR-80 model (public/models/btr80.glb, made by tools/prepcar.mjs from Goga.Danelia's BTR 80, CC BY):

@@ -38,6 +38,11 @@ export const latPeak = (surf, Fn, ref = FN_REF) => surf.aPeak * Math.pow(Math.ma
 
 // Radial stiffness (N/m) as a function of pressure (psi): carcass + air, for the 33x10.5 tyre the numbers
 // were set on; kScale scales it for a bigger or smaller tyre (P.tire.kScale, 1 by default).
+// Nominal tyre size (inches) -> metres: the radius and the tread width the physics uses. Calibrated on
+// the 33x10.5 mud tyre (R 0.42, width 0.27); every car's tyre goes through these (carParams, tuning).
+export const tyreRadius = inches => 0.42 * inches / 33;
+export const tyreWidth = inches => 0.27 * inches / 10.5;
+
 export function tireRadialStiffness(psi, kScale = 1) {
   return (46000 + 6300 * psi) * kScale;
 }

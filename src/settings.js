@@ -1,4 +1,4 @@
-import { CAR_SPECS } from './vehicle/carSpecs.js';
+import { CAR_IDS, DEFAULT_CAR } from './cars/index.js';
 
 // Player settings, persisted in localStorage. Every storage access is wrapped: private windows,
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
@@ -7,7 +7,7 @@ const KEY = 'offroad.settings.v1';
 const INTRO_KEY = 'offroad.introSeen.v1';
 
 export const DEFAULTS = {
-  car: 'defender',          // vehicle/cars.js; changing it reloads the game
+  car: DEFAULT_CAR,         // src/cars/; changing it reloads the game
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
   arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
@@ -62,7 +62,7 @@ export const DEFAULTS = {
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
-  car: Object.keys(CAR_SPECS),
+  car: CAR_IDS,
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],

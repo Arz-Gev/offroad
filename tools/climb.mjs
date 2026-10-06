@@ -3,7 +3,7 @@
 // For each slope and diff setting: metres climbed in 12 s at full throttle (auto box).
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { SURFACES } from '../src/vehicle/tire.js';
 await RAPIER.init();
 const H = 1 / 240;
@@ -19,7 +19,7 @@ function climb(deg, setup) {
   }
   world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }));
   world.step();
-  const P = makeDefenderParams();
+  const P = makeCarParams('defender');
   const a = deg * Math.PI / 180;
   const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: 0.25, z: 0 }, surfaceAt: () => surf });
   v.body.setRotation({ x: Math.sin(a / 2), y: 0, z: 0, w: Math.cos(a / 2) }, true);

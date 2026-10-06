@@ -1,9 +1,9 @@
-// Geometry shared by the physics (Vehicle.js), the tuning readouts (tuning.js), the car data (carSpecs.js)
+// Geometry shared by the physics (Vehicle.js), the tuning readouts (tuning.js), the car params (carParams.js)
 // and the view: how the sprung weight splits over N axles, Ackermann steering about one turning centre,
 // and the kinematic curves of an independent (double wishbone) corner.
 
 // Share of the sprung weight on each axle. Two axles: the lever rule. More axles are statically
-// indeterminate; this is the split of a rigid body on equal springs (carSpecs sets each axle's droop
+// indeterminate; this is the split of a rigid body on equal springs (carParams sets each axle's droop
 // height from it, so the body sits level at this split whatever the spring rates).
 export function axleShares(P) {
   const A = P.axles, n = A.length;

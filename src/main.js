@@ -17,8 +17,9 @@ import { applySetup, rideRaise, useCar } from './vehicle/tuning.js';
 import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
-import { buildCarModel, CARS } from './vehicle/cars.js';
-import { makeCarParams } from './vehicle/carSpecs.js';
+import { buildCarModel } from './vehicle/cars.js';
+import { makeCarParams } from './vehicle/carParams.js';
+import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';
 import { CameraRig, CAM_NAMES, camModesFor } from './cameraRig.js';
 import { Turret } from './vehicle/turret.js';
@@ -689,7 +690,7 @@ async function main() {
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
   if (!settings.introSeen) menu.openIntro();
-  else say('welcome', `${escapeHTML(CARS[car]?.label || 'Offroad')} · ${d.gearboxSetting === 'auto' ? (vehicle.P.manualOnly ? 'auto-shift' : 'automatic') : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
+  else say('welcome', `${escapeHTML(carDef(car).label)} · ${d.gearboxSetting === 'auto' ? (vehicle.P.manualOnly ? 'auto-shift' : 'automatic') : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
 
   let last = performance.now();
   function loop(now) {
