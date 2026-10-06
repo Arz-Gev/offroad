@@ -21,10 +21,12 @@ export const CAR_SPECS = {
     wheelbase: 2.907, track: 1.635,
     bodyMass: 2050, axleMass: [205, 195], inertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], cdA: 1.65,
     // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
-    // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60
+    // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60.
+    // Front spring stiff enough that the static ride uses ~40 % of the travel (47000 sat at 45 %, 8 cm to the
+    // bump rubber); the front bar gave back the roll stiffness the spring added
     tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 20 },
     axles: [
-      { k: 47000, bump: 4100, rebound: 6500, arb: 13000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
+      { k: 54000, bump: 4400, rebound: 7000, arb: 9000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
       { k: 51000, bump: 4300, rebound: 6800, arb: 4500, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
     ],
     steer: { maxAngle: 0.58, ratio: 15.5, kingpinTrack: 1.45 },
@@ -49,7 +51,9 @@ export const CAR_SPECS = {
     bodyMass: 1170, axleMass: [88, 82], inertia: [1450, 1900, 450], com: [0, 0.50, -0.22], cdA: 0.68,
     // character: a gravel rally car: light, very quick steering, grippy rally tyres, a rear bar that helps it
     // turn in. Soft, long travel and 6 cm higher than the road car (road springs and 17 cm of travel scraped
-    // and crashed over the trail bumps above 60)
+    // and crashed over the trail bumps above 60). The static ride uses half the travel (6 cm to the bump
+    // rubbers) and it stays so: the rubbers keep the low floor off the ground. Stiffer springs (40000 / 28000,
+    // 9 cm to the rubbers) let the floor strike over the crests at 70+ (tools/traillap.mjs)
     raise: 0.06,
     tire: { size: 23.5, widthIn: 9.5, rimRadius: 0.203, inertia: 1.0, pressure: 22, grip: 1.12 },
     axles: [
@@ -85,7 +89,9 @@ export const CAR_SPECS = {
     // 33" tyre's stiffness curve x 1.7 (wider, bigger: ~3 cm static deflection at 2.5 kgf/cm², ~11 at 0.5)
     tire: { size: 45, widthIn: 15.5, rimRadius: 0.2286, inertia: 25, pressure: 36, minPressure: 7, maxPressure: 43, kScale: 1.7, hubDrag: 9, hubDragV: 4.5, fnRef: 16000 },
     // torsion bars as wheel rates: 1.15 Hz heave with the tyre in series, zeta ~0.25 (twice the damping on
-    // the axles with two shocks); 0.32 m of wheel travel from full droop, bump rubbers 5 cm before the stop
+    // the axles with two shocks); 0.32 m of wheel travel from full droop, bump rubbers 5 cm before the stop.
+    // The static ride uses about half of it and leaves 10-12 cm to the rubbers; stiffer bars (110000) cost
+    // articulation (least loaded wheel on the diagonal blocks 24 -> 16 % of the mean, simtest btr)
     axles: [
       { type: 'independent', k: 90000, bump: 6000, rebound: 11000, steered: true, group: 0 },
       { type: 'independent', k: 90000, bump: 3000, rebound: 5500, steered: true, group: 1 },

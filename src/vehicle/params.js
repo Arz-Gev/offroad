@@ -24,13 +24,16 @@ export function makeDefenderParams() {
     // y values are the axle centre height (local) at full droop; c is compression measured at the springs.
     axles: [
       {
-        name: 'front', z: -wheelbase / 2, droopY: 0.275, travel: 0.24,
+        // springs: the static ride uses ~40 % of the travel, so ~60 % is left for bumps (the softer 43000
+        // spring sat at 46 % with 8 cm to the bump rubber; droopY moved up with it, same ride height)
+        name: 'front', z: -wheelbase / 2, droopY: 0.29, travel: 0.24,
         mass: 185, rollInertia: 75,
-        springTrack: 1.0, k: 43000, preload: 0.0,
+        springTrack: 1.0, k: 50000, preload: 0.0,
         // dampers sit outboard, close to the wheels; digressive above the knee (m/s)
-        damperTrack: 1.24, bump: 3800, rebound: 6000, damperKnee: 0.22, damperHigh: 0.55,
+        damperTrack: 1.24, bump: 4100, rebound: 6500, damperKnee: 0.22, damperHigh: 0.55,
         // roll stiffness ~53 % front, a little over its weight share: a stable, mildly understeering truck
-        arb: 11000,
+        // (the bar gave back what the stiffer springs added)
+        arb: 7500,
         steered: true,
       },
       {
