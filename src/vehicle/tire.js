@@ -42,6 +42,17 @@ export function tireRadialStiffness(psi, kScale = 1) {
   return (46000 + 6300 * psi) * kScale;
 }
 
+// Radial damping (N·s/m): the rubber and cords losing energy as the carcass flexes; the air inside is an
+// almost lossless spring. Real tyres (drop and drum tests) damp more at lower pressure (the carcass flexes
+// more) and several times more standing or creeping than rolling: it falls over the first few km/h and is
+// about flat above ~15 km/h. P.tire.damping is the rolling tyre at 20 psi; kScale scales it with the tyre
+// (same loss factor: damping grows with stiffness). treadSpeed: the tread's speed round the hub (m/s).
+export function tireRadialDamping(tire, psi, treadSpeed) {
+  const pressure = Math.pow(20 / Math.max(psi, 4), 0.6);           // 10 psi x1.52, 32 psi x0.75
+  const rolling = 1 + 2 * Math.exp(-Math.abs(treadSpeed) / 1.5);   // standing x3, 5 km/h x2.6, 15 km/h x1.1
+  return (tire.damping ?? 650) * (tire.kScale ?? 1) * pressure * rolling;
+}
+
 // Per-wheel tyre parameters that depend on pressure and surface. Cheap enough to call every substep.
 export function tireCoefs(tire, psi, surf, out) {
   const low = Math.max(0, Math.min(1, (30 - psi) / 24)); // 0 at 30 psi, 1 at 6 psi

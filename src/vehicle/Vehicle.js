@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Drivetrain } from './drivetrain.js';
-import { SURFACES, tireCoefs, tireForces, tireRelax, tireRadialStiffness, TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET, TIRE_SUB, TIRE_BELT } from './tire.js';
+import { SURFACES, tireCoefs, tireForces, tireRelax, tireRadialStiffness, tireRadialDamping, TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET, TIRE_SUB, TIRE_BELT } from './tire.js';
 import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.js';
 
 // Physics model
@@ -103,7 +103,7 @@ export class Vehicle {
         rayPen: new Float32Array(TIRE_ROWS.length * NF).fill(-1), rayT: new Float64Array(TIRE_ROWS.length * NF),
         rayN: new Float64Array(TIRE_ROWS.length * NF), rayCol: new Array(TIRE_ROWS.length * NF).fill(null),
         raySurfs: new Array(TIRE_ROWS.length * NF).fill(SURFACES.dirt), raySurfAt: new Int32Array(TIRE_ROWS.length * NF).fill(-1),
-        F0: 0, kEff: 0, pen0: 0, muRatio: 1, crrRatio: 1,
+        F0: 0, kEff: 0, pen0: 0, muRatio: 1, crrRatio: 1, ct: 0,
         // independent corner: compression, absolute vertical speed, mount speed, spring + damper sums, camber
         c: ax.c, vz: 0, vMountU: 0, accS: 0, accD: 0, Qc: 0, camber: 0, out: 0,
       });
@@ -631,7 +631,9 @@ export class Vehicle {
     const R0 = this.R;
     for (const w of this.wheels) {
       this.castContact(w);
-      tireCoefs(T, this.pressures[w.axle.front ? 0 : 1], w.surf, w.co);
+      const psi = this.pressures[w.axle.front ? 0 : 1];
+      tireCoefs(T, psi, w.surf, w.co);
+      w.ct = tireRadialDamping(T, psi, dt.w[2 + w.i] * R0);
       // a patch over two surfaces grips and rolls by the load on each (tyre v2)
       if (w.muRatio !== 1) w.co.mu *= w.muRatio;
       if (w.crrRatio !== 1) w.co.crr *= w.crrRatio;
@@ -699,7 +701,7 @@ export class Vehicle {
         this.hubPenDot(w);
         if (w.contact && (w.F0 > 0 || w.pen > 0)) {
           // the patch force at the cast, following the hub with the patch's stiffness; radial damping
-          let Fn = Math.max(0, w.F0 + w.kEff * (w.pen - w.pen0)) + T.damping * w.penDot;
+          let Fn = Math.max(0, w.F0 + w.kEff * (w.pen - w.pen0)) + w.ct * w.penDot;
           // the rim strikes where the ground reaches deepest (a rock edge, a step)
           const rimLim = (this.R - T.rimRadius * this.R / T.radius) * 0.62;
           if (w.pen > rimLim) Fn += 2.5e6 * (w.pen - rimLim) + 3000 * Math.max(0, w.penDot);

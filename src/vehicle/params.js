@@ -52,7 +52,8 @@ export function makeDefenderParams() {
       inertia: 3.3,            // wheel + tyre + hub + half shaft
       pressure: 20,            // psi (default, adjustable in game)
       minPressure: 6, maxPressure: 38,
-      damping: 650,            // radial damping N*s/m
+      damping: 650,            // radial damping N*s/m, rolling at 20 psi (tire.js tireRadialDamping: more when
+                               // aired down, ~3x when standing or creeping)
       relaxX: 0.22,            // longitudinal relaxation length (m) at reference pressure
       relaxY: 0.55,            // lateral relaxation length (m)
     },
