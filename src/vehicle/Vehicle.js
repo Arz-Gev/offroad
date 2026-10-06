@@ -242,12 +242,6 @@ export class Vehicle {
     }
   }
 
-  // ground height in the body frame at static ride, relative to stock: bigger tyres and lift raise the body
-  get rideRaise() {
-    const base = 0.42;
-    return (this.P.tire.radius - base) + (0.275 - this.P.axles[0].droopY);
-  }
-
   // ------------------------------------------------------------------ driver input
   // one number for the HUD and the keys: the mean of the axles; setting it keeps the front / rear split
   get pressure() { return (this.pressures[0] + this.pressures[1]) / 2; }
