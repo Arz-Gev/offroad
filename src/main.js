@@ -623,7 +623,7 @@ async function main() {
       dust.spawnFromVehicle(vehicle, dt);
       dust.update(dt, 1 - 0.88 * env.darkness);
     }
-    if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness);
+    if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);
     audio.listener = camera.position;
     mark('dust');
     audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit' });

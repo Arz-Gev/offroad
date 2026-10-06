@@ -8,36 +8,132 @@ import { SURFACES } from './vehicle/tire.js';
 // splinters by surface, pushes a body that can move, and on rock or concrete a shallow hit ricochets.
 // Rounds that cross a water surface splash and stop. The recoil impulse goes into our hull at the
 // trunnions. Visuals: tracers (rounds with `tracer` set; every round on the BTR, burning ~3 s), muzzle flash and smoke, impact particles.
-// No lights are added (a light changes the lights hash and recompiles every shader): the flash and the
-// tracers are bright additive geometry that bloom picks up at night.
+// The muzzle flash is real photographed flames (public/fx, cut out of night photos by assets-src/muzzleflash/key.py)
+// on a strip that starts at the rendered muzzle and turns about the bore to face the camera, plus a front view
+// seen down the barrel. Each shot picks a flame, flip, length, width and rotation at random. Two lights flash
+// with it (always in the scene at intensity 0 between shots, so the lights hash never changes):
+//   - a wide spot from the gas ball, aimed along the bore and down: it lights the ground ahead and around the
+//     nose, trees and banks. Behind and beside the light the hull blocks the flash on the real vehicle; the
+//     cone leaves that out, which a point light could only do with a cube shadow (one texture unit too many
+//     for the terrain shader, which already binds 14 of the 16)
+//   - a short-range point light: the barrel, the turret front and the hull roof right under the muzzle
+// No shadows. By day they keep FLASH_DAY of their night strength.
 
 const MAX_ROUNDS = 400, MAX_TRACERS = 160, MAX_FX = 1600;
 const TRACER_BURN = 3.0;          // s (BZT tracer burns out at ~2 km)
+const FLASH_ROWS = 3, FLASH_FRONTS = 3;   // flames in public/fx/muzzle-side.png (rows of 4) and muzzle-front.png (2x2)
+// candela at full flash (KPVT; scaled by the weapon's `flash`): spot and near glow, ranges, daylight share
+const FLASH_CD = 200, GLOW_CD = 3, FLASH_RANGE = 45, GLOW_RANGE = 3.5, FLASH_DAY = 0.12;
+const FLASH_ANGLE = 80 * Math.PI / 180;   // cone half-angle about the bore tilted ~40 deg down
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new THREE.Vector3();
 const Z = new THREE.Vector3(0, 0, 1), AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
 const _qa = new THREE.Quaternion(), _qy = new THREE.Quaternion(), _qg = new THREE.Quaternion(), _t = new THREE.Vector3(), _t2 = new THREE.Vector3();
 
-// radial star for the muzzle flash (canvas once)
-function flashTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, 'rgba(255,255,240,1)'); grd.addColorStop(0.18, 'rgba(255,220,140,0.95)');
-  grd.addColorStop(0.45, 'rgba(255,140,40,0.35)'); grd.addColorStop(1, 'rgba(255,90,20,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-  // spikes: the gas jets out of the flash hider
-  g.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 6; i++) {
-    const a = i / 6 * Math.PI * 2 + 0.3;
-    g.save(); g.translate(64, 64); g.rotate(a);
-    const s = g.createLinearGradient(0, 0, 60, 0);
-    s.addColorStop(0, 'rgba(255,230,160,0.9)'); s.addColorStop(1, 'rgba(255,120,30,0)');
-    g.fillStyle = s; g.beginPath(); g.moveTo(0, -5); g.lineTo(62, 0); g.lineTo(0, 5); g.fill();
-    g.restore();
+let flashMaps = null;
+function flashTextures() {
+  if (flashMaps) return flashMaps;
+  const L = new THREE.TextureLoader(), base = import.meta.env.BASE_URL + 'fx/';
+  const load = f => { const t = L.load(base + f); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  return (flashMaps = { side: load('muzzle-side.png'), front: load('muzzle-front.png') });
+}
+
+// one muzzle's flash: two quads placed in the vertex shader (world space, from uniforms)
+//   kind 0: the flame strip, x 0..1 from the muzzle along the bore, y -1..1 across it, turned to the camera
+//   kind 1: the front view, a camera-facing quad just ahead of the muzzle, seen when looking down the bore
+class MuzzleFlash {
+  constructor(scene) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+    const T = flashTextures();
+    this.u = {
+      tSide: { value: T.side }, tFront: { value: T.front },
+      uO: { value: new THREE.Vector3() }, uA: { value: new THREE.Vector3(0, 0, -1) },
+      uLen: { value: 1 }, uWid: { value: 0.5 }, uFront: { value: 0.4 }, uRot: { value: 0 }, uFlip: { value: 1 },
+      uRow: { value: 0 }, uCell: { value: 0 }, uI: { value: 0 }, uFrontI: { value: 1 }, uTint: { value: new THREE.Color(1, 1, 1) },
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.u,
+      vertexShader: `uniform vec3 uO, uA; uniform float uLen, uWid, uFront, uRot, uFlip;
+        varying vec2 vUv; varying float vKind, vW;
+        void main() {
+          vec3 V = normalize(cameraPosition - uO);
+          float facing = abs(dot(V, uA));
+          vec3 P;
+          if (position.z < 0.5) {
+            vec3 side = cross(uA, V);
+            side = dot(side, side) > 1e-8 ? normalize(side) : vec3(0.0, 1.0, 0.0);
+            P = uO + uA * (position.x * uLen) + side * (position.y * uWid * 0.5);
+            vUv = vec2(position.x, position.y * uFlip * 0.5 + 0.5);
+            vW = sqrt(max(0.0, 1.0 - facing * facing));          // edge-on down the bore: the strip is a line, fade it
+          } else {
+            vec3 r = normalize(cross(abs(V.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), V)), up = cross(V, r);
+            float c = cos(uRot), s = sin(uRot);
+            vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y);
+            float sz = uFront * (0.35 + 0.65 * facing);            // from the side only a small hot core at the muzzle
+            P = uO + uA * (sz * 0.3) + (r * q.x + up * q.y) * sz;
+            vUv = position.xy * 0.5 + 0.5;
+            vW = 0.05 + 0.95 * facing * facing * facing;
+          }
+          vKind = position.z;
+          gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
+        }`,
+      fragmentShader: `uniform sampler2D tSide, tFront; uniform float uRow, uCell, uI, uFrontI; uniform vec3 uTint;
+        varying vec2 vUv; varying float vKind, vW;
+        void main() {
+          vec3 c;
+          if (vKind < 0.5) c = texture2D(tSide, vec2(vUv.x, (3.0 - uRow + vUv.y) * 0.25)).rgb;
+          else {
+            c = texture2D(tFront, (vUv + vec2(mod(uCell, 2.0), 1.0 - floor(uCell * 0.5))) * 0.5).rgb * uFrontI;
+            // seen from the side only the hot middle of the front view is left (no jets)
+            c *= 1.0 - smoothstep(0.08, 0.35, length(vUv - 0.5)) * (1.0 - vW);
+          }
+          // the photos clip to white in the core: keep that hot, and let the thinner parts fall off to orange
+          float l = max(c.r, max(c.g, c.b));
+          c = mix(vec3(1.0, 0.45, 0.12) * l, c, smoothstep(0.35, 0.95, l));
+          gl_FragColor = vec4(c * uTint * (uI * vW * (0.35 + 0.9 * l * l)), 1.0);
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(g, mat);
+    this.mesh.frustumCulled = false; this.mesh.visible = false; this.mesh.renderOrder = 5;
+    scene.add(this.mesh);
+    this.age = 0; this.frames = 0; this.on = false; this.peak = 0; this.last = -1;
   }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  // a shot: new random flame. size = the weapon's `flash` (KPVT 0.9 -> a ~1.2 m flame)
+  fire(anchor, size) {
+    const u = this.u, rnd = Math.random;
+    let row = Math.floor(rnd() * FLASH_ROWS);
+    if (row === this.last) row = (row + 1 + Math.floor(rnd() * (FLASH_ROWS - 1))) % FLASH_ROWS;
+    this.last = row;
+    u.uRow.value = row; u.uCell.value = Math.floor(rnd() * FLASH_FRONTS);
+    u.uFlip.value = rnd() < 0.5 ? 1 : -1; u.uRot.value = rnd() * Math.PI * 2;
+    this.len = size * 1.35 * (0.7 + rnd() * 0.6);
+    this.wid = size * 0.8 * (0.75 + rnd() * 0.5);
+    this.front = size * 0.62 * (0.75 + rnd() * 0.5);
+    this.peak = 0.8 + rnd() * 0.45;
+    u.uTint.value.setRGB(1, 0.86 + rnd() * 0.14, 0.7 + rnd() * 0.3);
+    this.anchor = anchor; this.size = size;
+    this.age = 0; this.frames = 0; this.on = true;
+  }
+  // per frame: follow the rendered muzzle. The flash lives ~1 ms; a frame holds all of it, so the first frame
+  // after the shot shows it at full, later frames (high refresh rates) only a fading remnant. Returns the
+  // brightness (0 = off) for the light.
+  update(dt, near = 1) {
+    if (!this.on) return 0;
+    if (this.frames > 0) this.age += dt;
+    if (this.frames > 0 && this.age > 0.02) { this.on = false; this.mesh.visible = false; return 0; }
+    const k = this.frames === 0 ? 1 : 0.35 * Math.exp(-this.age / 0.012);
+    const grow = 1 + this.age * 8;   // the gas keeps expanding
+    this.frames++;
+    const u = this.u;
+    this.anchor.getWorldPosition(u.uO.value);
+    this.anchor.getWorldDirection(u.uA.value).negate();   // the muzzle looks down -z
+    u.uLen.value = this.len * grow; u.uWid.value = this.wid * grow; u.uFront.value = this.front * grow * (0.4 + 0.6 * near);
+    u.uI.value = this.peak * k; u.uFrontI.value = 0.2 + 0.8 * near;
+    this.mesh.visible = true;
+    return this.peak * k;
+  }
 }
 
 // impact and smoke particles (their own pool: hit feedback is gameplay, not the Dust graphics option)
@@ -116,18 +212,20 @@ export class Gunnery {
     this.tracers = new THREE.InstancedMesh(geo, this.tracerMat, MAX_TRACERS);
     this.tracers.frustumCulled = false; this.tracers.count = 0;
     S.add(this.tracers);
-    const ft = flashTexture();
-    this.flashes = this.spec.weapons.map(() => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ft, color: new THREE.Color(5, 3.6, 2.2), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
-      sp.visible = false; sp.userData.t = 0; S.add(sp);
-      return sp;
-    });
+    this.flashes = this.spec.weapons.map(() => new MuzzleFlash(S));
+    this.friendFlash = null;   // made on a friend's first shot
+    // the flash lights: warm (~2200 K), inverse square
+    const warm = new THREE.Color(1, 0.62, 0.32);
+    this.light = new THREE.SpotLight(warm, 0, FLASH_RANGE, FLASH_ANGLE, 0.5, 2);
+    this.glow = new THREE.PointLight(warm, 0, GLOW_RANGE, 2);
+    S.add(this.light, this.light.target, this.glow);
     this.sparks = new Fx(S, true);
     this.smoke = new Fx(S, false);
     this.recoilForce = 0;
   }
 
   setViewport(h) { this.sparks.mat.uniforms.uHalfH.value = h / 2; this.smoke.mat.uniforms.uHalfH.value = h / 2; }
+
 
   // gun muzzle and barrel direction in the world, from a vehicle pose and the turret angles (physics rate:
   // the model's scene graph is only updated per frame)
@@ -171,8 +269,8 @@ export class Gunnery {
     v.body.applyImpulseAtPoint({ x: -dir.x * w.recoil, y: -dir.y * w.recoil, z: -dir.z * w.recoil }, { x: trun.x, y: trun.y, z: trun.z }, true);
     this.recoilForce += w.recoil;
     // flash + smoke at the muzzle (drawn at the rendered muzzle in update), sound
-    const f = this.flashes[e.weapon];
-    f.userData.t = 0.035; f.userData.p = p.clone(); f.userData.dir = dir.clone();
+    const M = this.model.turret;
+    this.flashes[e.weapon].fire(M[w.muzzle] || M.muzzle, w.flash);
     // a wisp of powder smoke (one per KPVT round, one per three of the PKT's)
     if (e.weapon === 0 || this.T.gun.count % 3 === 0) {
       const s = 0.4 + Math.random() * 0.6;
@@ -276,7 +374,7 @@ export class Gunnery {
   }
 
   // per frame: tracers, flashes, particles (camera: tracer width so they stay visible far away)
-  update(dt, camera, light = 1) {
+  update(dt, camera, light = 1, darkness = 0) {
     // tracers: the last stretch of every burning tracer round
     let n = 0;
     const cp = camera.position;
@@ -295,22 +393,27 @@ export class Gunnery {
     }
     this.tracers.count = n;
     if (n) this.tracers.instanceMatrix.needsUpdate = true;
-    // muzzle flashes at the rendered muzzles (the model's turret groups, interpolated pose)
-    const M = this.model.turret;
-    this.flashes.forEach((f, i) => {
-      if (f.userData.t <= 0) { f.visible = false; return; }
-      f.userData.t -= dt;
-      const w = this.spec.weapons[i], muz = M[w.muzzle] || M.muzzle;
-      muz.getWorldPosition(f.position);
-      muz.getWorldDirection(_v).negate();   // the muzzle looks down -z
-      f.position.addScaledVector(_v, 0.25 * w.flash);
-      // full size from a few metres away; small from the gunner's sight just behind the muzzle
-      const near = Math.min(1, Math.max(0.12, (camera.position.distanceTo(f.position) - 1) / 8));
-      const s = w.flash * (0.8 + Math.random() * 0.5) * near;
-      f.scale.set(s, s, 1);
-      f.material.rotation = Math.random() * Math.PI;
-      f.visible = true;
+    // muzzle flashes at the rendered muzzles (the model's turret groups, interpolated pose), and their light
+    let li = 0, lf = null;
+    this.flashes.forEach(f => {
+      if (!f.on) return;
+      // from the gunner's sight just behind the muzzle the front view would fill the eyepiece: tone it down
+      const near = Math.min(1, Math.max(0, (camera.position.distanceTo(f.u.uO.value) - 2) / 6));
+      const k = f.update(dt, near) * f.size;
+      if (k > li) { li = k; lf = f; }
     });
+    if (this.friendFlash?.on) this.friendFlash.update(dt, 1);
+    const L = this.light, G = this.glow;
+    if (lf) {
+      // both sit in the gas ball a third of the way along the flame; the spot looks along the bore and down
+      const u = lf.u, day = FLASH_DAY + (1 - FLASH_DAY) * darkness;
+      L.position.copy(u.uO.value).addScaledVector(u.uA.value, u.uLen.value * 0.3);
+      G.position.copy(L.position);
+      L.target.position.copy(u.uA.value).add(_v.set(0, -0.8, 0)).add(L.position);
+      L.target.updateMatrixWorld();
+      L.intensity = FLASH_CD * li * day;
+      G.intensity = GLOW_CD * li * day;
+    } else L.intensity = G.intensity = 0;
     this.sparks.update(dt, 1);
     this.smoke.update(dt, light);
   }
@@ -325,6 +428,8 @@ export class Gunnery {
       M.muzzle.getWorldPosition(p); M.muzzle.getWorldDirection(d).negate();
       this.rounds.push({ p, prev: p.clone(), v: d.multiplyScalar(w.v0), w: { ...w, mass: 0, recoil: 0 }, tracer: true, age: 0, bounces: 9, ghost: true });
     }
+    // their flash (no light: ours is the only one, a second would change the lights hash)
+    (this.friendFlash ||= new MuzzleFlash(this.scene)).fire(M.muzzle, w.flash);
     this.audio?.gunshot?.('far');
   }
 }
