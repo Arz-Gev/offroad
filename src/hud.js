@@ -351,7 +351,10 @@ export class HUD {
       e.diffs = [...svg.querySelectorAll('.df')];
       e.wheels = [...svg.querySelectorAll('.w')];
       for (let i = 0; i < e.wheels.length; i++) c['w' + i] = undefined;
-      if (nA !== 2) d.layout.axles.forEach((ax, a) => e.diffs[a].classList.toggle('lsd', ax.diff === 'lsd'));
+      // 2 axles: front, centre, rear; more: the axles, then the centre
+      const axleDf = a => nA === 2 ? e.diffs[a === 0 ? 0 : 2] : e.diffs[a];
+      d.layout.axles.forEach((ax, a) => axleDf(a).classList.toggle('lsd', ax.diff === 'lsd'));
+      e.diffs[nA === 2 ? 1 : nA].classList.toggle('lsd', !d.canLockCentre);
     }
     if (nA === 2) {
       const locks = (d.frontLock ? 1 : 0) | (d.centerLock ? 2 : 0) | (d.rearLock ? 4 : 0);
@@ -362,7 +365,8 @@ export class HUD {
         e.diffs[2].classList.toggle('locked', d.rearLock);
         const names = [d.centerLock && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
         // short enough for one line; the icon shows exactly which diff is locked
-        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || 'Open';
+        const self = !d.canLockCentre || d.layout.axles.some(a => a.diff === 'lsd');
+        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || (self ? 'Self-lock' : 'Open');
         e.diffTxt.classList.toggle('locked', names.length > 0);
       }
     } else {
@@ -462,8 +466,8 @@ export class HUD {
     else if (stuck > 3) {
       const s = [];
       if (d.range === 'high') s.push(`${k('range')} low range`);
-      if (!d.centerLock) s.push(`${k('centreLock')} centre lock`);
-      if (!(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
+      if (!d.centerLock && d.canLockCentre) s.push(`${k('centreLock')} centre lock`);
+      if (d.canLock && !(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
       key = 'stuck:' + s.length;
       html = `Stuck? ${s.length ? 'Try ' + s.join(', ') + ', or' : 'Pick another line, or'} ${k('recover')} to recover.`;
     }
