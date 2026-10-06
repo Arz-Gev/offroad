@@ -25,6 +25,9 @@ export const CAR_SPECS = {
     // Front spring stiff enough that the static ride uses ~40 % of the travel (47000 sat at 45 %, 8 cm to the
     // bump rubber); the front bar gave back the roll stiffness the spring added
     tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 20 },
+    // permanent 4MATIC: the centre diff splits 40 : 60 front / rear (the W463 before 2018: 50 : 50); three
+    // lockers (centre, rear, front) like the Defender's
+    drive: { centreSplit: 0.4 },
     axles: [
       { k: 54000, bump: 4400, rebound: 7000, arb: 9000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
       { k: 51000, bump: 4300, rebound: 6800, arb: 4500, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
@@ -56,9 +59,13 @@ export const CAR_SPECS = {
     // 9 cm to the rubbers) let the floor strike over the crests at 70+ (tools/traillap.mjs)
     raise: 0.06,
     tire: { size: 23.5, widthIn: 9.5, rimRadius: 0.203, inertia: 1.0, pressure: 22, grip: 1.12 },
+    // permanent 4WD, no driver's locks: an epicyclic centre diff splitting 47 : 53 front / rear (16v and
+    // later; the 8v was 56 : 44) behind a Ferguson viscous coupling, an open front diff and a Torsen rear
+    // (up to 70 : 30 across the axle: diffLock 0.4). Viscous: ~150 Nm at 100 rpm of prop shaft slip (estimate)
+    drive: { centreSplit: 0.47, centre: 'viscous', viscous: 1.5, lockers: false, rwd: [] },
     axles: [
       { k: 30000, bump: 2300, rebound: 3700, arb: 6000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
-      { k: 22000, bump: 1700, rebound: 2700, arb: 5000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
+      { k: 22000, bump: 1700, rebound: 2700, arb: 5000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10, diff: 'lsd', diffLock: 0.4 },
     ],
     steer: { maxAngle: 0.56, ratio: 12, kingpinTrack: 1.27 },
     brakes: { front: 2000, rear: 1000, handbrake: 1600 },
@@ -154,6 +161,7 @@ export function makeCarParams(id = current) {
     rimRadius: c.tire.rimRadius, inertia: c.tire.inertia, pressure: c.tire.pressure, grip: c.tire.grip ?? 1 });
   Object.assign(P.steer, c.steer);
   Object.assign(P.brakes, c.brakes);
+  if (c.drive) P.drive = { ...c.drive };
   const g = c.gearbox;
   P.auto.ratios = [...g.auto]; P.auto.reverse = g.autoRev;
   P.manual.ratios = [...g.manual]; P.manual.reverse = g.manualRev;

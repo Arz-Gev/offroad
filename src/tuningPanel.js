@@ -201,9 +201,10 @@ export class TuningPanel {
     }
     if (r.type === 'gears') return `<div class="tn-row"><div class="tn-gears"></div></div>`;
     if (r.type === 'live') {
-      // only the switches this car has (the BTR-80: no lockers, self-locking axle diffs; no 2WD)
+      // only the switches this car has (the BTR-80: no lockers, self-locking axle diffs; no 2WD; the Lancia:
+      // a viscous centre, no lockers, no 2WD)
       const d = this.v.drivetrain;
-      const sw = [['range', 'Low range'], ['centreLock', 'Centre lock'], ...(d.canLock ? [['rearLock', 'Rear locker'], ['frontLock', 'Front locker']] : []), ['traction', 'Traction ctl'], ['abs', 'ABS'], ...(d.layout.rwd?.length ? [['rwd', '2WD']] : [])];
+      const sw = [['range', 'Low range'], ...(d.canLockCentre ? [['centreLock', 'Centre lock']] : []), ...(d.canLock ? [['rearLock', 'Rear locker'], ['frontLock', 'Front locker']] : []), ['traction', 'Traction ctl'], ['abs', 'ABS'], ...(d.layout.rwd?.length ? [['rwd', '2WD']] : [])];
       return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
       ${sw.map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
