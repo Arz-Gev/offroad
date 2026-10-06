@@ -19,6 +19,7 @@ import { setCar, carDef, DEFAULT_CAR } from '../cars/index.js';
 import { ENGINES, ROAD_ENGINES, engineFriction } from './engines.js';
 import { tireRadialStiffness, tyreRadius, tyreWidth } from './tire.js';
 import { axleShares, steerRefLength } from './suspension.js';
+import { driveLayout } from './drivetrain.js';
 
 const G = 9.81;
 const DEG = Math.PI / 180;
@@ -425,7 +426,10 @@ export function estimateAccel(P, gearbox = 'auto', psi = 20) {
   const mt = totalMass(P);
   const Re = P.tire.radius - 0.012, tr = P.transfer.high * P.finalDrive;
   const crr = 0.026 * Math.sqrt(28 / Math.max(psi, 4));
-  const traction = 0.76 * mt * G * (P.tire.grip ?? 1);       // what traction control lets through on dirt
+  // what traction control lets through on dirt: the static load on the driven axles (2WD: the ones it keeps)
+  const L = driveLayout(P), shares = axleShares(P), unsprung = P.axles.map(a => a.mass);
+  const drivenLoad = P.axles.reduce((s, a, i) => s + (L.axles[i].driven && (L.layout !== 'parttime' || L.rwd.includes(i)) ? P.bodyMass * shares[i] + unsprung[i] : 0), 0);
+  const traction = 0.76 * drivenLoad * G * (P.tire.grip ?? 1);
   const toRpm = 30 / Math.PI;
   let v = 0, t = 0, gi = 0, shift = 0, t60 = null, we = E.idleRpm / toRpm;
   while (t < 60 && v < 100 / 3.6) {

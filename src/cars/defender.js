@@ -69,7 +69,7 @@ export default {
     // switch (front prop shaft disconnected, a game addition) (defaults, vehicle/drivetrain.js driveLayout)
     drive: {},
 
-    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (truckBody.js)
+    // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (model/defender/body.js)
     // on Oct 3: the old front bumper box sat 10 cm lower and 11 cm further forward than the bumper you see
     // (an invisible nose: approach 32° instead of 38°).
     colliders: [

@@ -554,7 +554,7 @@ export class TuningPanel {
   // driveline switches and the collider contact list, 5 times a second while open
   refreshLive() {
     const d = this.v.drivetrain, v = this.v, el = this.el;
-    const st = { range: d.range === 'low', centreLock: d.centerLock, rearLock: d.rearLock, frontLock: d.frontLock, traction: v.tc, abs: v.abs, rwd: d.rwd };
+    const st = { range: d.range === 'low', centreLock: d.centreLocked, rearLock: d.rearLock, frontLock: d.frontLock, traction: v.tc, abs: v.abs, rwd: d.rwd };
     for (const b of el.querySelectorAll('[data-live]')) b.setAttribute('aria-checked', !!st[b.dataset.live]);
     const tc = el.querySelector('.tn-touch');
     if (tc) {

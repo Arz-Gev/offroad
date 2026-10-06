@@ -42,17 +42,34 @@ class Row {
   bound(b) { this.lo = -b; this.hi = b; return this; }
 }
 
-// drive layout of a car (P.axles, P.drive): which axles are driven, which centre-diff output (group) each
-// one hangs on, the axle diff type, which axles 2WD drives and which axles the handbrake holds, the centre
-// diff's torque split and type, and whether the axles have lockers
+// The drive layout of a car (P.drive, P.axles). P.drive.layout says what kind of drive it is:
+//   'awd'      permanent all-wheel drive (the default): every axle driven through a centre diff, `centre`
+//              'open' (the driver can lock it) or 'viscous' (a viscous coupling across it); a 2WD switch
+//              where drive.rwd lists the axles 2WD keeps ([] = none)
+//   'parttime' selectable 4WD without a centre diff (Jimny, Hilux, Wrangler): it starts in 2WD (the rear
+//              half); 4WD engages the front, which then turns with the rear (no diff between them)
+//   'rwd'      rear-wheel drive: the rear half of the axles only
+//   'fwd'      front-wheel drive: the front half only
+// An axle's own `driven` overrides the layout. Also: which centre-diff output (group) each axle hangs on,
+// its diff type, which axles the handbrake holds, the centre diff's split, the lockers.
 export function driveLayout(P) {
-  const n = P.axles.length, D = P.drive || {};
+  const n = P.axles.length, D = P.drive || {}, layout = D.layout || 'awd';
+  const front = i => i < n / 2;
+  const axles = P.axles.map((a, i) => ({
+    driven: a.driven ?? (layout === 'fwd' ? front(i) : layout === 'rwd' ? !front(i) : true),
+    group: a.group ?? (front(i) ? 0 : 1), diff: a.diff || 'open', lock: a.diffLock ?? 0.35,
+  }));
+  const groups = new Set(axles.filter(a => a.driven).map(a => a.group));
+  const rear = P.axles.map((a, i) => i).filter(i => !front(i));
   return {
-    axles: P.axles.map((a, i) => ({ driven: a.driven !== false, group: a.group ?? (i < n / 2 ? 0 : 1), diff: a.diff || 'open', lock: a.diffLock ?? 0.35 })),
-    rwd: D.rwd ?? [n - 1],              // axles that stay driven in 2WD
+    layout, axles,
+    // axles that stay driven in 2WD (empty: no 2WD switch)
+    rwd: layout === 'parttime' ? rear : layout === 'awd' ? (D.rwd ?? [n - 1]) : [],
     handbrake: D.handbrake ?? [n - 1],  // axles the handbrake holds (transmission brake behind them)
     split: D.centreSplit ?? 0.5,        // group 0's share of the drive torque through the open centre diff
-    centre: D.centre || 'open',         // 'open' (lockable) | 'viscous' (a viscous coupling, no lock)
+    // 'open' (lockable) | 'viscous' (a viscous coupling, no lock) | 'locked' (part-time: no centre diff) |
+    // 'none' (one output driven: front- or rear-wheel drive)
+    centre: groups.size < 2 ? 'none' : layout === 'parttime' ? 'locked' : (D.centre || 'open'),
     viscous: D.viscous ?? 0,            // viscous coupling: Nm per rpm of prop shaft slip
     lockers: D.lockers !== false,       // axle lockers on the open axle diffs
   };
@@ -76,7 +93,7 @@ export class Drivetrain {
     this.nW = 2 * this.nA;
     this.nB = 2 + this.nW;          // rotating bodies
     this.locks = new Array(this.nA).fill(false);   // axle lockers
-    this.rwd = false;               // front prop shaft disconnected: rear-wheel drive only (high range)
+    this.rwd = this.layout.layout === 'parttime';   // 2WD: only the axles in layout.rwd driven (high range)
 
     this.w = new Float64Array(this.nB);
     this.inv = new Float64Array(this.nB);
@@ -133,7 +150,9 @@ export class Drivetrain {
   // axles that take drive right now (2WD drops the others)
   isDriven(a) { const L = this.layout; return L.axles[a].driven && (!this.rwd || L.rwd.includes(a)); }
   get canLock() { return this.layout.lockers && this.layout.axles.some(a => a.driven && a.diff !== 'lsd'); }
-  get canLockCentre() { return this.layout.centre !== 'viscous'; }
+  get canLockCentre() { return this.layout.centre === 'open'; }
+  // front and rear turn together: the driver's centre lock, or a part-time box in 4WD
+  get centreLocked() { return this.centerLock || (this.layout.centre === 'locked' && !this.rwd); }
 
   updateInertia() {
     const P = this.P;
@@ -197,7 +216,7 @@ export class Drivetrain {
     this.manualGear = 0; this.selector = 'N'; this.autoGear = 1; this.shift = null; this.lockup = 0;
     this.updateInertia();
     this.w[1] = this.w[0];
-    this.say(this.mode === 'auto' ? 'Automatic (6-speed, torque converter)' : 'Manual 5-speed' + (this.clutchAssist ? ' (auto clutch)' : ' (clutch pedal: Shift)'));
+    this.say(this.mode === 'auto' ? `Automatic (${this.P.auto.ratios.length}-speed, torque converter)` : `Manual ${this.P.manual.ratios.length}-speed` + (this.clutchAssist ? ' (auto clutch)' : ' (clutch pedal: Shift)'));
   }
   toggleClutchAssist() {
     this.clutchAssist = !this.clutchAssist;
@@ -205,17 +224,22 @@ export class Drivetrain {
   }
   toggleRange(speed) {
     if (Math.abs(speed) > 1.5) { this.say('Stop to change transfer range'); return; }
+    if (!this.P.transfer.low) { this.say('No low range on this car'); return; }
     if (this.rwd && this.range === 'high') { this.say('Select 4WD before LOW range'); return; }
     this.range = this.range === 'high' ? 'low' : 'high';
     this.say(this.range === 'low' ? 'LOW range engaged' : 'HIGH range engaged');
   }
   toggleCenterLock() {
-    if (!this.canLockCentre) { this.say('Viscous centre coupling: it locks by itself'); return; }
+    if (!this.canLockCentre) {
+      this.say({ viscous: 'Viscous centre coupling: it locks by itself', locked: 'Part-time 4WD: no centre diff, front and rear turn together in 4WD',
+        none: 'No centre diff: one axle drives' }[this.layout.centre]);
+      return;
+    }
     if (this.rwd) { this.say('Centre lock needs 4WD'); return; }
     this.centerLock = !this.centerLock; this.say(this.centerLock ? 'Centre diff LOCKED' : 'Centre diff open');
   }
   toggleRwd(speed) {
-    if (!this.layout.rwd?.length) { this.say('Permanent all-wheel drive'); return; }
+    if (!this.layout.rwd.length) { this.say({ awd: 'Permanent all-wheel drive', rwd: 'Rear-wheel drive', fwd: 'Front-wheel drive' }[this.layout.layout]); return; }
     if (!this.rwd && this.range === 'low') { this.say('RWD only in HIGH range'); return; }
     if (Math.abs(speed) > 8) { this.say('Slow down to change 2WD / 4WD'); return; }
     this.rwd = !this.rwd;
@@ -504,14 +528,16 @@ export class Drivetrain {
       if (cap > 0) { const r = R.clutch.clear(); r.j[0] = 1; r.j[1] = -1; A.push(r.bound(cap * h)); } else R.clutch.lambda = 0;
       if (this.selector === 'P') A.push(spread(R.park, 1).bound(Infinity));
     }
-    // centre lock: mean speed of group 0 = mean speed of group 1 (driven axles only). The row's impulse is
-    // the torque (at the wheels) it moves from one group to the other.
+    // centre lock (the driver's, or a part-time box in 4WD: no centre diff at all): mean speed of group 0 =
+    // mean speed of group 1 (driven axles only). The row's impulse is the torque (at the wheels) it moves
+    // from one group to the other.
+    const lockC = this.centreLocked;
     const across = r => { r.clear(); for (let a = 0; a < nA; a++) if (this.isDriven(a)) { const v = L.axles[a].group === 0 ? 1 / n0 : -1 / n1; r.j[2 + 2 * a] = v; r.j[3 + 2 * a] = v; } return r; };
-    if (this.centerLock) {
+    if (lockC) {
       if (n0 && n1) A.push(across(R.center).bound(Infinity)); else R.center.lambda = 0;
     }
     // viscous coupling: torque grows with the prop shafts' speed difference (wheel speeds x final drive)
-    const visc = !this.centerLock && L.centre === 'viscous' && n0 && n1;
+    const visc = !lockC && L.centre === 'viscous' && n0 && n1;
     if (visc) {
       const r = across(R.visc);
       let dv = 0;
@@ -572,13 +598,13 @@ export class Drivetrain {
     // ---- outputs
     this.engineAlpha = (w[0] - w0Old) / h;
     const lg = G !== 0 ? R.gear.lambda : 0;
-    const lc = this.centerLock ? R.center.lambda : 0;
+    const lc = lockC ? R.center.lambda : 0;
     const lh = hbT > 0 && !hbMulti ? R.hb.lambda : 0;
     const lo = holdT > 0 && !hbMulti ? R.hold.lambda : 0;
     const gj = R.gear.j, cj = R.center.j, hj = R.hb.j, oj = R.hold.j;
     for (let i = 0; i < nW; i++) {
       const b = 2 + i;
-      let t = (G !== 0 ? gj[b] * lg : 0) + (this.centerLock ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0);
+      let t = (G !== 0 ? gj[b] * lg : 0) + (lockC ? cj[b] * lc : 0) + (hbT > 0 ? hj[b] * lh : 0) + (holdT > 0 ? oj[b] * lo : 0);
       if (visc) t += R.visc.j[b] * R.visc.lambda;
       for (let a = 0; a < nA; a++) { const r = R.links[a]; if (r.lambda !== 0) t += r.j[b] * r.lambda; }
       if (hbMulti) for (let a = 0; a < nA; a++) { const r = R.hbAx[a]; if (r.lambda !== 0) t += r.j[b] * r.lambda; }

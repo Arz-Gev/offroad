@@ -14,7 +14,7 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vecto
 const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
 
 // helical coil spring of unit height, scaled in y at runtime
-function coilGeometry(radius, wire, turns) {
+export function coilGeometry(radius, wire, turns) {
   const pts = [];
   const n = turns * 24;
   for (let i = 0; i <= n; i++) {

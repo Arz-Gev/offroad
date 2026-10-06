@@ -13,7 +13,7 @@ export const D = {
   SCREEN: -0.70,    // windscreen base / bulkhead
   RAKE: 0.17,       // windscreen top is this much further back than its base
   ARCH_F: -1.397, ARCH_R: 1.397,
-  ARCH_TOP: 1.03,   // top of the wheel arch openings (truckBody.js ATOP)
+  ARCH_TOP: 1.03,   // top of the wheel arch openings (body.js ATOP)
   FLOOR: 0.78,      // cabin floor top
   DX: -0.42,        // driver seat centre (left-hand drive)
 };

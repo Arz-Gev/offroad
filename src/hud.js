@@ -351,32 +351,40 @@ export class HUD {
       e.wheels = [...svg.querySelectorAll('.w')];
       for (let i = 0; i < e.wheels.length; i++) c['w' + i] = undefined;
       // 2 axles: front, centre, rear; more: the axles, then the centre
-      const axleDf = a => nA === 2 ? e.diffs[a === 0 ? 0 : 2] : e.diffs[a];
-      d.layout.axles.forEach((ax, a) => axleDf(a).classList.toggle('lsd', ax.diff === 'lsd'));
-      e.diffs[nA === 2 ? 1 : nA].classList.toggle('lsd', !d.canLockCentre);
+      e.axleDf = a => nA === 2 ? e.diffs[a === 0 ? 0 : 2] : e.diffs[a];
+      e.centreDf = e.diffs[nA === 2 ? 1 : nA];
+      d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('lsd', ax.diff === 'lsd'));
+      e.centreDf.classList.toggle('lsd', d.layout.centre === 'viscous');
+    }
+    // diffs of axles not driven now (front- / rear-wheel drive, 2WD) and a centre diff that isn't there
+    const driven = d.layout.axles.reduce((m, ax, a) => m | (d.isDriven(a) ? 1 << a : 0), 0) | (d.layout.centre === 'none' || d.rwd ? 0 : 1 << 16);
+    if (driven !== c.driven) {
+      c.driven = driven;
+      d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('off', !d.isDriven(a)));
+      e.centreDf.classList.toggle('off', !(driven >> 16));
     }
     if (nA === 2) {
-      const locks = (d.frontLock ? 1 : 0) | (d.centerLock ? 2 : 0) | (d.rearLock ? 4 : 0);
+      const locks = (d.frontLock ? 1 : 0) | (d.centreLocked ? 2 : 0) | (d.rearLock ? 4 : 0);
       if (locks !== c.locks) {
         c.locks = locks;
         e.diffs[0].classList.toggle('locked', d.frontLock);
-        e.diffs[1].classList.toggle('locked', d.centerLock);
+        e.diffs[1].classList.toggle('locked', d.centreLocked);
         e.diffs[2].classList.toggle('locked', d.rearLock);
-        const names = [d.centerLock && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
+        const names = [d.centreLocked && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
         // short enough for one line; the icon shows exactly which diff is locked
         const self = !d.canLockCentre || d.layout.axles.some(a => a.diff === 'lsd');
         e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || (self ? 'Self-lock' : 'Open');
         e.diffTxt.classList.toggle('locked', names.length > 0);
       }
     } else {
-      let locks = d.centerLock ? 1 : 0;
+      let locks = d.centreLocked ? 1 : 0;
       d.locks.forEach((l, a) => { if (l) locks |= 2 << a; });
       if (locks !== c.locks) {
         c.locks = locks;
         d.locks.forEach((l, a) => e.diffs[a].classList.toggle('locked', l));
-        e.diffs[nA].classList.toggle('locked', d.centerLock);
+        e.diffs[nA].classList.toggle('locked', d.centreLocked);
         const nl = d.locks.filter(Boolean).length, lsd = d.layout.axles.some(a => a.diff === 'lsd');
-        e.diffTxt.textContent = d.centerLock && nl === nA ? 'All locked' : d.centerLock ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
+        e.diffTxt.textContent = d.centreLocked && nl === nA ? 'All locked' : d.centreLocked ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
         e.diffTxt.classList.toggle('locked', !!locks);
       }
     }
@@ -464,7 +472,8 @@ export class HUD {
     else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Gearbox in neutral. Press ${k('shiftUp')} for 1st, ${k('shiftDown')} for reverse.` : `Selector in ${d.selector}. Press ${k('shiftUp')} for Drive${d.selector === 'P' ? ` (reverse: ${k('shiftUp')} once)` : ''}.`; }
     else if (stuck > 3) {
       const s = [];
-      if (d.range === 'high') s.push(`${k('range')} low range`);
+      if (d.rwd) s.push(`${k('rwd')} 4WD`);
+      if (d.range === 'high' && d.P.transfer.low) s.push(`${k('range')} low range`);
       if (!d.centerLock && d.canLockCentre) s.push(`${k('centreLock')} centre lock`);
       if (d.canLock && !(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
       key = 'stuck:' + s.length;

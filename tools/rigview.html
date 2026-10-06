@@ -7,11 +7,13 @@
      http://localhost:5174/tools/rigview.html?car=btr80   then from CDP / Playwright:
        pose({ c: [per wheel compression from full droop, m], steer: rad, pen: [per wheel tyre intrusion, m] })
        hide('hull' | 'wheels' | 'turret', true|false), view([eye], [target], fov), turret(yaw, pitch),
-       measureArches() (the car's physics.archTop) -->
+       measureArches() (the car's physics.archTop)
+     ?patch={json}: a variant of the car (merged into its file's definition), e.g. other axle types -->
 <script type="module">
 import * as THREE from 'three';
-import { buildCarModel } from '/src/vehicle/model/index.js';
-import { makeCarParams } from '/src/vehicle/carParams.js';
+import { buildModel } from '/src/vehicle/model/index.js';
+import { carDef } from '/src/cars/index.js';
+import { paramsFromDef } from '/src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK } from '/src/vehicle/tuning.js';
 import { cornerKin, ackermann, steerRefLength } from '/src/vehicle/suspension.js';
 import { VehicleView } from '/src/vehicle/vehicleView.js';
@@ -32,9 +34,12 @@ const fill = new THREE.DirectionalLight(0xffffff, 0.9); fill.position.set(-4, -2
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x9a8a72, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.02, 200);
+// ?patch={"physics":{"axles":[{"type":"independent"}]}}: a variant of the car (deep-merged into a copy of its file)
+const merge = (a, b) => { for (const k in b) a[k] = b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) ? merge(a[k] || {}, b[k]) : Array.isArray(b[k]) ? b[k].map((x, i) => x && typeof x === 'object' ? merge({ ...(a[k]?.[i] || {}) }, x) : x) : b[k]; return a; };
+const def = q.get('patch') ? merge(JSON.parse(JSON.stringify(carDef(car))), JSON.parse(q.get('patch'))) : carDef(car);
 useCar(car);
-const P = applySetup(makeCarParams(car), STOCK);
-const model = await buildCarModel(car);
+const P = q.get('patch') ? paramsFromDef(def) : applySetup(paramsFromDef(def), STOCK);
+const model = await buildModel(def);
 scene.add(model.root);
 // fake vehicle: just what VehicleView reads
 const nA = P.axles.length;

@@ -31,7 +31,12 @@ function merge(into, from) {
 }
 
 export function makeCarParams(id = getCar()) {
-  const def = carDef(id), c = def.physics;
+  return paramsFromDef(carDef(id));
+}
+
+// the params of a car definition (a car file's default export, or a variant of one: tests, tools)
+export function paramsFromDef(def) {
+  const c = def.physics;
   const { engine, axles, tire, colliders, load, ...rest } = c;
   const P = merge(clone(PARAM_DEFAULTS), rest);
   P.car = def.id;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { carDef } from '../../cars/index.js';
-import { makeCarParams } from '../carParams.js';
+import { paramsFromDef } from '../carParams.js';
 import { staticRide } from '../tuning.js';
 import { createMaterials } from './materials.js';
 import { buildLightRig, modelLenses } from './lamps.js';
@@ -8,6 +8,7 @@ import { loadShell, placeShell, take } from './shell.js';
 import { steelWheel, modelWheels } from './wheels.js';
 import { beamAxle } from './beamAxle.js';
 import { wishboneCorners } from './wishbones.js';
+import { independentCorners } from './independent.js';
 import { turretRig } from './turretRig.js';
 import { cockpitKit, pivotFromNode } from './cockpit.js';
 import { defenderBody } from './defender/index.js';
@@ -17,8 +18,9 @@ import { lightBar } from './accessories.js';
 // steps for every car, each part chosen by data.
 //   body      look.body 'defender' (the procedural Defender) or look.url (a downloaded shell)
 //   wheels    the shell's own (look.wheel, model/wheels.js) or our steel wheels
-//   running   per axle by its physics type: a beam axle kit (beamAxle.js), or the model's own wishbones
-//   gear      (look.suspension, wishbones.js)
+//   running   per axle by its physics type: a beam axle kit (beamAxle.js); independent corners from the
+//   gear      model's own wishbones (look.suspension, wishbones.js), else drawn by us (independent.js:
+//             double wishbones or a strut, by the axle's linkage)
 //   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js)
 //   cockpit   the cabin's moving parts: the procedural body's, or the shell's nodes (look.cockpit)
 //   extras    a turret (look.turret, turretRig.js), a roof light bar (look.lightBar, accessories.js)
@@ -28,8 +30,13 @@ import { lightBar } from './accessories.js';
 // +y up, -z forward, y 0 the ground at static ride, z 0 mid-wheelbase.
 
 export async function buildCarModel(id) {
-  const car = carDef(id), look = car.look;
-  const P = makeCarParams(car.id);   // stock: the view scales the wheels and follows the lift
+  return buildModel(carDef(id));
+}
+
+// the model of a car definition (a car file's default export, or a variant of one: tools)
+export async function buildModel(car) {
+  const look = car.look;
+  const P = paramsFromDef(car);   // stock: the view scales the wheels and follows the lift
   const ride = staticRide(P);
   const nA = P.axles.length;
   const mats = createMaterials();
@@ -66,7 +73,10 @@ export async function buildCarModel(id) {
       for (const w of ws) { w.steer.position.set(w.side * P.track / 2, ride[ai].hubY, ap.z); root.add(w.steer); }
     } else model.kits.push(beamAxle(root, mats, P, ai, ws, look.runningGear));
   }
-  if (look.suspension?.parts === 'wishbones' && shell) model.kits.push(wishboneCorners(root, shell, P, wheels, look.suspension, take, hubY));
+  const own = look.suspension?.parts === 'wishbones' && shell ? wishboneCorners(root, shell, P, wheels, look.suspension, take, hubY) : null;
+  if (own) model.kits.push(own);
+  const drawn = independentCorners(root, mats, P, wheels, ride, new Set((own?.corners || []).map(c => wheels[c.wheel])));
+  if (drawn.corners.length) model.kits.push(drawn);
 
   // ---------------- extras
   if (look.turret && shell) {
