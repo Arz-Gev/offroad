@@ -64,3 +64,6 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 - Lancia Delta HF Integrale Evo 2 model: [TARANTULA on Sketchfab](https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7), CC BY 4.0. Same treatment (`public/models/lancia-delta.glb`).
 - BTR-80 model: ["BTR 80" by Goga.Danelia on Sketchfab](https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce), CC BY 4.0. Scaled, wheels, tyres and the suspension parts split off, compressed (`public/models/btr80.glb`; source and steps in `assets-src/btr80/`).
 - Muzzle flashes: real photos, keyed in `assets-src/muzzleflash/`: "Muzzle flash VFX" 1–5 by ZunterPHOTO on Wikimedia Commons (CC0) and "Light 'Em Up" by the US Marines (public domain).
+
+## License
+The code is [MIT](LICENSE): use it, fork it, change it, ship it. The third-party models and images above keep their own licenses.
