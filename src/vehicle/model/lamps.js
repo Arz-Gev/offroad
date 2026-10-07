@@ -18,8 +18,8 @@ import * as THREE from 'three';
 // tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3);
 // with a fixed exposure it blows out and blooms over the whole windscreen when you drive at a slope.
 // The eye adapts locally; this emulates it with a soft cap on each lamp's irradiance: E -> E/sqrt(1+(E/K)^2).
-// Road irradiance from the beams is ~1-7 (scene units), so the far throw is untouched.
-export const LAMP_KNEE = 9.0;
+// Road irradiance from the beams is ~0.6-4.5 (scene units), so the far throw is barely touched.
+export const LAMP_KNEE = 6.0;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
@@ -35,7 +35,9 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
 
 // Cookie texture covering the spot's projection (fov = 2 * angle, square). fn(elev, azim) -> intensity.
 // Stored as half floats: the near-field values are 1/100 .. 1/1000 of the peak and band in 8 bits.
-function makeCookie(fn, angle, N = 512) {
+// The edge of the cone fades out over the last `soft` radians, so a bank or a tree beside the truck shows a
+// gradient, not a line where the cone ends.
+function makeCookie(fn, angle, N = 512, soft = 0.32) {
   const T = Math.tan(angle);
   const vals = new Float32Array(N * N);
   let max = 0;
@@ -46,7 +48,7 @@ function makeCookie(fn, angle, N = 512) {
       const az = Math.atan(tx);
       const el = Math.atan2(ty, Math.sqrt(1 + tx * tx));
       const off = Math.acos(1 / Math.sqrt(1 + tx * tx + ty * ty));
-      const v = fn(el, az) * smooth(angle, angle - 0.1, off);
+      const v = fn(el, az) * smooth(angle, angle - soft, off);
       vals[j * N + i] = v;
       if (v > max) max = v;
     }
@@ -69,16 +71,19 @@ function makeCookie(fn, angle, N = 512) {
 }
 
 // European-style low beam (right-hand traffic): flat cut-off just below the horizon on the left, 15°
-// kick-up on the right, hot zone right under the cut-off, wide soft foreground.
+// kick-up on the right, hot zone right under the cut-off, wide soft foreground. The cut-off stays level
+// but fades over a band that widens to the sides: ahead it lies on the far road (a narrow band keeps the
+// throw), to the sides it lands on banks and trunks a few metres away, where a narrow band reads as a line.
 function lowBeam(el, az) {
   const d = -el; // depression below the horizon
   const base = 0.009;
   const kick = az > 0.02 ? Math.min((az - 0.02) * 0.27, 0.026) : 0;
   const cut = base - kick;                            // the kick-up only raises the edge
-  const below = smooth(cut - 0.004, cut + 0.008, d);
+  const band = 0.016 + 0.11 * Math.min(1, Math.abs(az) / 0.6);
+  const below = smooth(cut - 0.3 * band, cut + band, d);
   const dd = Math.max(0, d - base);
   const v = 1 / (1 + Math.pow(dd / 0.026, 2.6));
-  const w = 0.24 + 0.8 * Math.min(1, dd / 0.22);
+  const w = 0.24 + 0.45 * Math.min(1, dd / 0.22);
   const h = 0.3 * Math.exp(-((az / 0.09) ** 2)) + 0.7 * Math.exp(-((az / w) ** 2));
   const near = 1 - smooth(0.32, 0.5, d);              // the bumper hides the steepest rays anyway
   const stray = 0.014 * Math.exp(-((el / 0.3) ** 2)) * Math.exp(-((az / 0.5) ** 2));
@@ -88,12 +93,12 @@ function lowBeam(el, az) {
 function highBeam(el, az) {
   const hot = 1.5 * Math.exp(-(((el - 0.004) / 0.035) ** 2)) * Math.exp(-((az / 0.14) ** 2));
   const fill = 0.45 * Math.exp(-((el / 0.09) ** 2)) * Math.exp(-((az / 0.34) ** 2));
-  return lowBeam(el, az) + hot + fill * (el > -0.3 ? 1 : 0);
+  return lowBeam(el, az) + hot + fill * smooth(-0.42, -0.2, el);
 }
 
 // Roof bar: four square lamps, two spot + two flood. Wide, long throw, little light straight down.
 function barBeam(el, az) {
-  const h = 0.5 * Math.exp(-((az / 0.11) ** 2)) + 0.5 * Math.exp(-((az / 0.52) ** 2));
+  const h = 0.5 * Math.exp(-((az / 0.11) ** 2)) + 0.5 * Math.exp(-((az / 0.42) ** 2));
   let v;
   if (el > -0.005) v = Math.exp(-(((el + 0.005) / 0.05) ** 2));
   else v = 1 / (1 + Math.pow((-el - 0.005) / 0.05, 2.8));
@@ -103,10 +108,12 @@ function barBeam(el, az) {
 
 export const BEAM = {
   // peak intensities (candela in scene units; the scene is not photometric, these are tuned against the
-  // night preset so the road stays readable to ~60 m on low beam and ~150 m on high beam)
-  low: 45000,
-  highGain: 1.0,  // high beam peak follows from the cookie (low peak * cookie max ratio)
-  bar: 85000,
+  // night preset so the road stays readable to ~60 m on low beam and ~150 m on high beam). Total light
+  // (Oct 7, cut from 45000 / 1.0 / 85000 as too harsh): low ~0.7x, high ~0.6x, bar ~0.55x of before; the bar
+  // still puts out a little more than the high beam, spread wider.
+  low: 36000,
+  highGain: 0.68, // high beam peak = low peak * cookie max ratio * highGain
+  bar: 55000,
 };
 
 export function buildLightRig(root, at) {
@@ -135,7 +142,7 @@ export function buildLightRig(root, at) {
   rig.head.shadow.normalBias = 0.025;
   rig.head.shadow.camera.near = 0.35;
   rig.head.shadow.autoUpdate = false;
-  rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * cookies.high.userData.peak / cookies.low.userData.peak };
+  rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * BEAM.highGain * cookies.high.userData.peak / cookies.low.userData.peak };
 
   // bar: only a car with a light bar (or driving lamps / a searchlight that stand in for one) has its beam
   if (at.bar) {
