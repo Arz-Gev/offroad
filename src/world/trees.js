@@ -83,7 +83,7 @@ function bakeImpostors(renderer, variants) {
   const rows = variants.length;
   const W = VIEWS * CELL_W, Hh = rows * CELL_H;
   const mk = (type) => {
-    const rt = new THREE.RenderTarget(W, Hh, { type, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
+    const rt = new THREE.RenderTarget(W, Hh, { type, depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
     rt.texture.anisotropy = 4;
     return rt;
   };
@@ -102,9 +102,12 @@ function bakeImpostors(renderer, variants) {
     for (let r = 0; r < rows; r++) {
       const v = variants[r];
       const mat = (map, alphaTest) => {
-        const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest });
+        // every pixel that is drawn is written opaque (cut by the mask): the impostor's mips then keep the
+        // crown's coverage instead of fading it below the alpha test at a distance
+        const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
         const tex = texture(map, uv());
-        m.colorNode = mode === 0 ? tex : vec4(normalGeometry.normalize().mul(0.5).add(0.5), tex.a);
+        if (alphaTest > 0) m.maskNode = tex.a.greaterThanEqual(alphaTest);
+        m.colorNode = mode === 0 ? vec4(tex.rgb, 1.0) : vec4(normalGeometry.normalize().mul(0.5).add(0.5), 1.0);
         return m;
       };
       const mats = [mat(v.barkTex, 0), mat(v.atlas, 0.45)];
@@ -128,7 +131,7 @@ function bakeImpostors(renderer, variants) {
   renderer.setRenderTarget(prevRT);
   renderer.autoClear = prevAuto;
   renderer.setClearColor(prevClear, prevAlpha);
-  for (const rt of [albedo, normal]) { rt.texture.generateMipmaps = true; rt.texture.needsUpdate = true; renderer.initRenderTarget?.(rt); }
+  // (no needsUpdate on these: WebGPU would recreate the textures and lose the bake; the mips are made after each render)
   return { albedo: albedo.texture, normal: normal.texture, rows, targets: [albedo, normal] };
 }
 
@@ -344,7 +347,11 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     const H = uImpH.element(int(vr)).mul(A.w);
     const right = normalize(vec3(toCam.z, 0.0, toCam.x.negate()));
     vImpYaw.assign(yaw);
-    vImpUv.assign(vec2(view.add(positionGeometry.x).add(0.5).div(VIEWS), float(variants.length - 1).sub(vr).add(positionGeometry.y).div(variants.length)));
+    // WebGPU textures start at the top row (WebGL at the bottom): the same bake is read with v from the top
+    const v = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem
+      ? float(variants.length).sub(vr).sub(positionGeometry.y)
+      : float(variants.length - 1).sub(vr).add(positionGeometry.y);
+    vImpUv.assign(vec2(view.add(positionGeometry.x).add(0.5).div(VIEWS), v.div(variants.length)));
     return ip.add(right.mul(positionGeometry.x).mul(H).mul(0.5)).add(vec3(0.0, positionGeometry.y.mul(H), 0.0));
   })();
   const tImpA = texture(imp.albedo), tImpN = texture(imp.normal);
@@ -397,7 +404,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   let lastX = 1e9, lastZ = 1e9, nearR = 50; // full-detail tree radius (m); beyond it trees are impostors
   const counts = new Int32Array(variants.length);
   const api = {
-    group, trees, logs, variants, near, impMesh, atlas, fade, updatePhysics,
+    group, trees, logs, variants, near, impMesh, imp, atlas, fade, updatePhysics,
     get colliderCount() { let n = 0; for (const l of activeChunks.values()) n += l.length; return n; },
     configure(q) {
       const r = q.treeNear || 50; // presets: 40 m low/medium, 50 m otherwise

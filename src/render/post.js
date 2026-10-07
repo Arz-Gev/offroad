@@ -139,10 +139,25 @@ export class RenderPipeline {
       a.radius.value = this.ssao === 'high' ? 1.4 : 1.0;
       a.distanceFallOff.value = 1.0;
       a.thickness.value = 1.0;
-      aoNode = a.getTextureNode().sample(screenUV).r;
+      // GTAO's noise repeats every 5x5 pixels: a depth-aware 5x5 box blur at the AO's resolution averages
+      // exactly one period (without it the AO showed as grain around the wheels and under the trees)
+      const aoTex = a.getTextureNode();
+      const near = float(camera.near), far = float(camera.far);
+      const vz = uvv => perspectiveDepthToViewZ(depth.sample(uvv).r, near, far).negate();
+      const aoBlur = rtt(Fn(() => {
+        const texel = vec2(1.0).div(vec2(aoTex.size(0)));
+        const z0 = vz(screenUV);
+        const sum = float(0).toVar(), wsum = float(0).toVar();
+        for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+          const o = screenUV.add(texel.mul(vec2(i, j)));
+          const w = max(0.0, float(1).sub(abs(vz(o).sub(z0)).div(z0.mul(0.04).add(0.05))));
+          sum.addAssign(aoTex.sample(o).r.mul(w)); wsum.addAssign(w);
+        }
+        return vec4(select(wsum.greaterThan(0.0), sum.div(wsum), float(1)), 0, 0, 1);
+      })(), null, null, { type: THREE.HalfFloatType, resolutionScale: 0.5, depthBuffer: false });
+      aoNode = aoBlur.sample(screenUV).r;
       // fade it out with distance (it is a near-field effect; far terrain got blotchy)
-      const vz = perspectiveDepthToViewZ(depth.sample(screenUV).r, float(camera.near), float(camera.far)).negate();
-      aoNode = mix(aoNode, float(1), smoothstep(80.0, 160.0, vz));
+      aoNode = mix(aoNode, float(1), smoothstep(80.0, 160.0, vz(screenUV)));
     } else this.aoPass = null;
 
     // sun shafts at quarter resolution: a sky mask (far depth), then the mask smeared towards the sun's
