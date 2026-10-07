@@ -494,29 +494,45 @@ export class Menu {
   }
 
   renderIntro() {
-    const dev = this.api.device(), k = id => capsHTML(id, dev);
+    const dev = this.api.device();
     if (dev === 'touch') { this.renderTouchIntro(); return; }
-    const or = '<span class="or">/</span>';
-    const kb = l => `<kbd class="cap">${l}</kbd>`;
+    if (dev === 'pad') { this.renderPadIntro(); return; }
+    // keyboard: the keys drawn where they sit on a keyboard (x, y in key widths), a word next to each group
+    const key = (l, x, y, w = 1) => `<kbd class="kk" style="--x:${x};--y:${y};--w:${w}">${l}</kbd>`;
+    const word = (t, x, y) => `<span class="kw" style="--x:${x};--y:${y}">${t}</span>`;
+    this.introRoot.innerHTML = `
+      <div class="card intro kbmap" role="dialog" aria-modal="true" aria-label="Controls">
+        <div class="kb">
+          ${key('Esc', 0, 0)}${word('menu', 1.2, 0)}
+          ${key('W', 2.5, 1.3)}${key('R', 4.5, 1.3)}${word('recover', 5.7, 1.3)}
+          ${key('A', 1.75, 2.3)}${key('S', 2.75, 2.3)}${key('D', 3.75, 2.3)}${word('controls', 4.95, 2.3)}
+          ${key('Space', 2.75, 3.6, 4.5)}${word('handbrake', 7.45, 3.6)}
+        </div>
+        <button class="btn primary big start" type="button" data-act="start">START</button>
+      </div>`;
+  }
+
+  // welcome card for a gamepad
+  renderPadIntro() {
+    const k = id => capsHTML(id, 'pad');
     const rows = [
-      [dev === 'pad' ? k('throttle') + k('brake') : kb('W') + kb('S') + or + kb('↑') + kb('↓'), 'Throttle and brake. Hold brake at a stop to reverse.'],
-      [dev === 'pad' ? k('steer') : kb('A') + kb('D') + or + kb('←') + kb('→'), 'Steer'],
+      [k('throttle') + k('brake'), 'Throttle and brake. Hold brake at a stop to reverse.'],
+      [k('steer'), 'Steer'],
       [k('handbrake'), 'Handbrake'],
-      [k('camera'), dev === 'pad' ? 'Change camera · right stick looks around' : 'Change camera · drag the mouse to look around'],
+      [k('camera'), 'Change camera · right stick looks around'],
       [k('recover'), 'Recover when stuck or upside down'],
       [k('menu'), 'Menu: locations, settings, all controls'],
     ];
-    const startCap = dev === 'pad' ? '<kbd class="cap pad pad-a">A</kbd>' : '<kbd class="cap">Enter</kbd>';
     this.introRoot.innerHTML = `
       <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
         <div class="eyebrow">Offroad</div>
         <h1 id="intro-title">Take it off the road</h1>
         <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
         <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> ${stuckSteps(k, dev !== 'pad')}</div>
+        <div class="callout"><b>Hard obstacle?</b> ${stuckSteps(k, false)}</div>
         <div class="intro-foot">
-          <span class="fine">${dev === 'pad' ? `${k('menu')} opens the menu at any time.` : `${k('controls')} shows every control at any time.`}</span>
-          <button class="btn primary big" type="button" data-act="start">Start driving ${startCap}</button>
+          <span class="fine">${k('menu')} opens the menu at any time.</span>
+          <button class="btn primary big" type="button" data-act="start">Start driving <kbd class="cap pad pad-a">A</kbd></button>
         </div>
       </div>`;
   }
