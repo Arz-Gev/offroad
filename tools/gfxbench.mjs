@@ -6,9 +6,11 @@
 // 1. A dev server (npx vite --port 5181 --strictPort) and a headless Chrome with a real GPU:
 //    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --remote-debugging-port=9341 \
 //      --user-data-dir=/tmp/offroad-chrome-9341 --no-first-run --enable-unsafe-webgpu about:blank &
-// 2. node tools/gfxbench.mjs [preset=high] [views=all|forest,meadow,...] [frames=90] [out=dir] [size=1920x1080@2]
+// 2. node tools/gfxbench.mjs [preset=high] [views=all|forest,meadow,...] [frames=90] [out=dir] [size=1920x1080@2] [dust=0]
 //    env: CDP_PORT (9341), URL (http://localhost:5181/), PARAMS (extra query string, e.g. "webgl=1")
 // Prints one line per view: median / p90 frame ms (of the 10-frame batches), draw calls, triangles; writes <out>/<view>.jpg.
+// The drive views keep the truck moving on the main trail (an autopilot, physics running) so the dust is in
+// the air while measuring; they also print how many dust particles are alive.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -32,6 +34,9 @@ const VIEWS = {
   lookout: { tp: 'Lookout', hour: 13 },
   hill: { tp: 'The big hill', hour: 10 },
   forestNight: { tp: 'Pine forest', hour: 23, lights: 2 },
+  // driving along the main trail (km/h, start this far along the loop): dust behind the wheels
+  drive: { trail: 0.0, kmh: 50, hour: 13 },
+  donut: { trail: 0.0, kmh: 0, hour: 17, donut: true },   // full lock + full throttle on the trail: the camera in a dust cloud
 };
 const names = !args.views || args.views === 'all' ? Object.keys(VIEWS) : args.views.split(',');
 
@@ -81,16 +86,41 @@ for (const name of names) {
     };
     g.menu.isOpen && g.menu.close?.();
     g.setPaused(false);
-    const t = g.teleports.find(t => t.name === ${JSON.stringify(v.tp)});
     g.settings.set('time', ${v.hour}, { silent: true });
     g.settings.set('camera', ${JSON.stringify(v.cam || 'chase')}, { silent: true });
     g.view.lights.head = ${v.lights ?? 0};
-    g.placeVehicle(t.x, t.z, t.yaw);
-    g.env.settle?.();
-    for (let i = 0; i < 90; i++) { g.tick(1 / 60); if (i % 10 === 9) await sync(); }
-    g.env.settle?.();
-    g.setPaused(true); g.redraw = 1e9;
-    for (let i = 0; i < 20; i++) { g.tick(1 / 60); await sync(); }
+    const drive = ${JSON.stringify(v.trail !== undefined ? v : null)};
+    g.autopilot = null;
+    g.dust.setEnabled(${args.dust !== '0'});
+    if (drive) {
+      // pure pursuit along the main trail (tools/browser-snippets.js trailDriver), or circles on full lock
+      const curve = g.terrain.trailCurves[0], N = 2000, pts = curve.getSpacedPoints(N), seg = curve.getLength() / N;
+      const i0 = Math.floor(drive.trail * N), a = pts[i0], b = pts[i0 + 4];
+      g.placeVehicle(a.x, a.z, 0);
+      const v = g.vehicle, fx = b.x - a.x, fz = b.z - a.z;
+      const yaw = Math.atan2(fx, fz);
+      g.placeVehicle(a.x, a.z, yaw);
+      if (v.fwd.x * fx + v.fwd.z * fz < 0) g.placeVehicle(a.x, a.z, yaw + Math.PI);
+      g.autopilot = drive.donut ? () => ({ throttle: 1, brake: 0, steer: 1, clutch: 0, handbrake: 0, analogSteer: true }) : (v) => {
+        let best = 0, bd = 1e9;
+        for (let i = 0; i < N; i += 2) { const d = (pts[i].x - v.pos.x) ** 2 + (pts[i].z - v.pos.z) ** 2; if (d < bd) { bd = d; best = i; } }
+        const tgt = pts[(best + Math.round(Math.max(8, Math.abs(v.speed) * 0.9) / seg)) % N];
+        const dx = tgt.x - v.pos.x, dz = tgt.z - v.pos.z;
+        const steer = Math.max(-1, Math.min(1, Math.atan2(dx * v.right.x + dz * v.right.z, dx * v.fwd.x + dz * v.fwd.z) * 2));
+        const sp = v.speed * 3.6;
+        return { throttle: sp < drive.kmh ? 0.75 : 0, brake: sp > drive.kmh + 8 ? 0.5 : 0, steer, clutch: 0, handbrake: 0, analogSteer: true };
+      };
+      // get up to speed and fill the air with dust
+      for (let i = 0; i < 480; i++) { g.tick(1 / 60); if (i % 10 === 9) await sync(); }
+    } else {
+      const t = g.teleports.find(t => t.name === ${JSON.stringify(v.tp)});
+      g.placeVehicle(t.x, t.z, t.yaw);
+      g.env.settle?.();
+      for (let i = 0; i < 90; i++) { g.tick(1 / 60); if (i % 10 === 9) await sync(); }
+      g.env.settle?.();
+      g.setPaused(true); g.redraw = 1e9;
+      for (let i = 0; i < 20; i++) { g.tick(1 / 60); await sync(); }
+    }
     // batches of 10 frames, one wait per batch: the GPU queue stays fed, a vsync-bound wait counts once
     const ts = [];
     for (let b = 0; b < ${frames} / 10; b++) {
@@ -101,9 +131,13 @@ for (const name of names) {
     }
     ts.sort((a, b) => a - b);
     const info = g.renderer.info.render;
-    return { med: ts[Math.floor(ts.length / 2)], p90: ts[Math.floor(ts.length * 0.9)], calls: info.drawCalls ?? info.calls, tris: info.triangles };
+    let dust = 0;
+    for (let i = 0; i < g.dust.max; i++) if (g.dust.life[i] > 0) dust++;
+    const kmh = g.vehicle.speed * 3.6;
+    g.autopilot = null;
+    return { med: ts[Math.floor(ts.length / 2)], p90: ts[Math.floor(ts.length * 0.9)], calls: info.drawCalls ?? info.calls, tris: info.triangles, dust, kmh, drive: !!drive };
   })()`);
-  console.log(`${name.padEnd(14)} median ${res.med.toFixed(1).padStart(5)} ms  p90 ${res.p90.toFixed(1).padStart(5)} ms  calls ${String(res.calls).padStart(4)}  tris ${(res.tris / 1e6).toFixed(2)} M`);
+  console.log(`${name.padEnd(14)} median ${res.med.toFixed(1).padStart(5)} ms  p90 ${res.p90.toFixed(1).padStart(5)} ms  calls ${String(res.calls).padStart(4)}  tris ${(res.tris / 1e6).toFixed(2)} M${res.drive ? `  ${res.kmh.toFixed(0)} km/h, dust ${res.dust}` : ''}`);
   if (out) {
     const r = await send('Page.captureScreenshot', { format: 'jpeg', quality: 85 });
     fs.writeFileSync(path.join(out, name + '.jpg'), Buffer.from(r.result.data, 'base64'));

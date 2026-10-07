@@ -50,18 +50,19 @@ export const QUALITY = {
   },
 };
 
-// Sun shadow per level ('off': the sun casts no shadows). map: texels per cascade (the atlas holds 2-4 tiles),
-// far: shadow distance in m, cascades + splits: how many and where they hand over (m from the camera),
-// soft: filter blur in metres. Texel size is about 2.4 * (cascade end distance) / map:
-//   high  2560: 1.3 cm / 4.7 cm / 17 cm, three tiles (105 MB depth atlas)
-//   ultra 3072: 0.9 cm / 3.5 cm / 20 cm, three maps (113 MB); a fourth cascade took the terrain shader past
-//   WebGPU's 16 samplers per stage at night (lamp shadow + cookies)
+// Sun shadow per level ('off': the sun casts no shadows), render/shadows.js:
+// the world: map texels per cascade, far: shadow distance in m, cascades + splits: how many and where they
+// hand over (m from the camera), soft: filter width in metres (soft like real tree shadows). Texel size is
+// about 2.4 * (cascade end distance) / map: high 2560 → 4.5 cm / 17 cm.
+// car: texels of the car's own sharp map (only the player's car is drawn into it, ~1 cm texels at 1024).
+// Shadow maps count against WebGPU's 16 samplers per stage at night (lamp shadow + cookies): at most 2
+// world cascades + the car map.
 export const SHADOWS = {
   off: null,
-  low: { map: 1024, far: 90, cascades: 2, splits: [25], soft: 0.08 },
-  medium: { map: 2048, far: 130, cascades: 2, splits: [34], soft: 0.06 },
-  high: { map: 2560, far: 180, cascades: 3, splits: [13, 48], soft: 0.045 },
-  ultra: { map: 3072, far: 260, cascades: 3, splits: [12, 45], soft: 0.04 },
+  low: { map: 1024, far: 90, cascades: 2, splits: [28], soft: 0.1, car: 512 },
+  medium: { map: 2048, far: 130, cascades: 2, splits: [38], soft: 0.08, car: 1024 },
+  high: { map: 2560, far: 180, cascades: 2, splits: [48], soft: 0.07, car: 1024 },
+  ultra: { map: 3072, far: 260, cascades: 2, splits: [52], soft: 0.06, car: 2048 },
 };
 
 // Settings → Graphics: every option has its own setting (prefix g). Choosing a preset writes the preset's

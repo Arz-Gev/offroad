@@ -132,6 +132,7 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
+  env.shadows.setCar(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
   // a turret (BTR-80): its state lives on the vehicle (the view, the HUD and the network read it)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
