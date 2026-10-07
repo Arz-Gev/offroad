@@ -193,16 +193,96 @@ async function main() {
     { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
     { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
   ];
-  const placeVehicle = (x, z, yaw, lift = 0.5) => {
-    let y = terrain.heightAt(x, z);
-    for (const dx of [-1.5, 1.5]) for (const dz of [-2.2, 2.2]) y = Math.max(y, terrain.heightAt(x + dx, z + dz));
+  const streamAround = (x, z) => {
     trees.updatePhysics(x, z);
     props.userData.stream.update(x, z);
     world.step();   // scene queries see the streamed colliders only after a step
-    vehicle.reset({ x, y: y + lift + rideRaise(vehicle.P), z }, yaw);
+  };
+  const afterPlace = () => {
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
     game.redraw = 3;
+  };
+  const placeVehicle = (x, z, yaw, lift = 0.5) => {
+    let y = terrain.heightAt(x, z);
+    for (const dx of [-1.5, 1.5]) for (const dz of [-2.2, 2.2]) y = Math.max(y, terrain.heightAt(x + dx, z + dz));
+    streamAround(x, z);
+    vehicle.reset({ x, y: y + lift + rideRaise(vehicle.P), z }, yaw);
+    afterPlace();
+  };
+
+  // How the truck would stand at (x, z) facing yaw: the ground plane fitted under its wheels, tilted
+  // to match, the body just above the tyres' touch (a bump under the wheels or the belly lifts it).
+  const _sR = new THREE.Vector3(), _sB = new THREE.Vector3(), _sU = new THREE.Vector3(), _sM = new THREE.Matrix4();
+  const standAt = (x, z, yaw) => {
+    const P = vehicle.P, s = Math.sin(yaw), c = Math.cos(yaw), t2 = P.track / 2;
+    const h = (lx, lz) => terrain.heightAt(x + lx * c + lz * s, z - lx * s + lz * c);   // body frame -> ground
+    // plane h = a + b * lx + d * lz: b from the side-to-side tilt of each axle, d from the axles' heights
+    const ax = P.axles.map(a => ({ z: a.z, l: h(-t2, a.z), r: h(t2, a.z) }));
+    const n = ax.length, mz = ax.reduce((m, a) => m + a.z, 0) / n, mh = ax.reduce((m, a) => m + (a.l + a.r) / 2, 0) / n;
+    const b = ax.reduce((m, a) => m + (a.r - a.l) / P.track, 0) / n;
+    let num = 0, den = 0;
+    for (const a of ax) { num += (a.z - mz) * ((a.l + a.r) / 2 - mh); den += (a.z - mz) ** 2; }
+    const d = den > 0 ? num / den : 0, a0 = mh - d * mz;
+    const plane = (lx, lz) => a0 + b * lx + d * lz;
+    // ground above the plane under a wheel would bury the tyre; under the belly it's fine up to ~25 cm
+    let lift = 0, rough = 0;
+    for (const a of ax) for (const [lx, gh] of [[-t2, a.l], [t2, a.r]]) { const r = gh - plane(lx, a.z); lift = Math.max(lift, r); rough = Math.max(rough, Math.abs(r)); }
+    const zF = Math.min(...ax.map(a => a.z)), zB = Math.max(...ax.map(a => a.z));
+    for (const [lx, lz] of [[0, 0], [0, zF], [0, zB], [-t2, 0], [t2, 0]]) {
+      const r = h(lx, lz) - plane(lx, lz);
+      lift = Math.max(lift, r - 0.25); rough = Math.max(rough, Math.abs(r));
+    }
+    _sR.set(c, b, -s).normalize(); _sB.set(s, d, c).normalize();
+    _sU.crossVectors(_sB, _sR).normalize();
+    _sR.addScaledVector(_sU, -_sR.dot(_sU)).normalize();
+    _sB.crossVectors(_sR, _sU);
+    const quat = new THREE.Quaternion().setFromRotationMatrix(_sM.makeBasis(_sR, _sU, _sB));
+    const up = 0.12 + rideRaise(P) + 0.1 + lift;   // 0.12 + rideRaise: the spawn height over flat ground
+    const pos = { x: x + _sU.x * up, y: a0 + _sU.y * up, z: z + _sU.z * up };
+    return { pos, quat, ground: a0, slope: Math.acos(Math.min(1, _sU.y)) * 180 / Math.PI, rough };
+  };
+
+  // the body's box (all chassis colliders), raised off the ground a bit: anything in it is in the way
+  const blocked = st => {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (const [cx, cy, cz, hx, hy, hz] of vehicle.P.colliders) {
+      x0 = Math.min(x0, cx - hx); x1 = Math.max(x1, cx + hx);
+      y0 = Math.min(y0, cy - hy); y1 = Math.max(y1, cy + hy);
+      z0 = Math.min(z0, cz - hz); z1 = Math.max(z1, cz + hz);
+    }
+    y0 += 0.3;
+    const ctr = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2).applyQuaternion(st.quat);
+    const box = new RAPIER.Cuboid((x1 - x0) / 2, Math.max(0.1, (y1 - y0) / 2), (z1 - z0) / 2);
+    return !!world.intersectionWithShape({ x: st.pos.x + ctr.x, y: st.pos.y + ctr.y, z: st.pos.z + ctr.z }, st.quat, box,
+      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, undefined, vehicle.body);
+  };
+
+  // Recover: back on the wheels at the flattest clear spot within ~12 m (same heading), sitting on the
+  // slope's angle and only just above the ground, so it settles instead of dropping and rolling again.
+  const RECOVER_RINGS = [[0, 1], [3, 8], [6, 12], [9, 16], [12, 20]];
+  const recoverSpot = () => {
+    const x = vehicle.pos.x, z = vehicle.pos.z, yaw = vehicle.yaw(), here = terrain.heightAt(x, z);
+    streamAround(x, z);
+    let best = null, bestScore = Infinity;
+    for (const [r, n] of RECOVER_RINGS) for (let i = 0; i < n; i++) {
+      const t = (i + 0.5 * (r / 3 % 2)) / n * Math.PI * 2;
+      const st = standAt(x + Math.cos(t) * r, z + Math.sin(t) * r, yaw);
+      // degrees of slope, plus bumps, plus how far (sideways and up or down) it moves the truck
+      const score = st.slope + st.rough * 20 + r * 0.5 + Math.abs(st.ground - here) * 1.5;
+      if (score >= bestScore || blocked(st)) continue;
+      best = st; bestScore = score;
+    }
+    return best;
+  };
+  const recover = () => {
+    const st = recoverSpot();
+    if (st) {
+      streamAround(st.pos.x, st.pos.z);
+      vehicle.reset(st.pos, 0, st.quat);
+      afterPlace();
+    } else placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);   // boxed in everywhere: the old way
+    say('place', 'Recovered', 'good');
   };
 
   const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
@@ -376,10 +456,6 @@ async function main() {
     if (p === before) { say('pressure', `Tyres at the ${delta < 0 ? 'minimum' : 'maximum'}: ${fmtPressure(p, u)}`, 'warn'); return; }
     const note = p <= 14 ? ' · aired down: big footprint, more grip off-road' : p >= 32 ? ' · road pressure: firm, less grip on loose ground' : '';
     say('pressure', `Tyres ${fmtPressure(p, u)}${note}`);
-  };
-  const recover = () => {
-    placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);
-    say('place', 'Recovered', 'good');
   };
   const teleport = i => {
     const t = teleports[i];
