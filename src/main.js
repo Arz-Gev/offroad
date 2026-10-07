@@ -631,6 +631,19 @@ async function main() {
     input.endFrame();
   }
   game.tick = tick;
+  // tools (gfxbench, gfxprofile) drive the frames themselves: holdLoop stops the rAF loop, and frame() is one
+  // whole frame. three advances its node frame once per animation frame, and the scene pass, AO, bloom and
+  // the other FRAME-updated passes render once per node frame: ticks in a row without it skip the scene.
+  game.holdLoop = false;
+  game.frame = (dt = 1 / 60) => {
+    const A = renderer._animation;
+    if (A?.nodes) {
+      if (renderer.info.autoReset) renderer.info.reset();
+      A.nodes.nodeFrame.update();
+      renderer.info.frame = A.nodes.nodeFrame.frameId;
+    }
+    tick(dt);
+  };
 
   // apply the saved settings without toasts, then warm up the shaders behind the loading screen
   settings.applyAll({ startup: true });
@@ -694,7 +707,7 @@ async function main() {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1;
-    if (dt <= 0) return;
+    if (dt <= 0 || game.holdLoop) return;
     tick(dt);
   }
   requestAnimationFrame(loop);

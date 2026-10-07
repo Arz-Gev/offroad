@@ -26,10 +26,12 @@ await evaluate(`(async () => {
   const t = g.teleports.find(t => t.name === ${JSON.stringify(tp)});
   g.placeVehicle(t.x, t.z, t.yaw);
   window.__sync = async () => { const r = g.renderer; if (r.backend.device) await r.backend.device.queue.onSubmittedWorkDone(); };
-  for (let i = 0; i < 90; i++) { g.tick(1 / 60); if (i % 10 === 9) await __sync(); }
+  // game.frame: a whole frame (three renders the scene pass once per node frame, see main.js); the rAF loop holds
+  g.holdLoop = true;
+  for (let i = 0; i < 90; i++) { g.frame(1 / 60); if (i % 10 === 9) await __sync(); }
   g.env.settle(); g.setPaused(true); g.redraw = 1e9;
-  window.__measure = async () => { g.redraw = 1e9; for (let i = 0; i < 10; i++) { g.tick(1 / 60); } await __sync(); const ts = [];
-    for (let b = 0; b < ${frames} / 10; b++) { const a = performance.now(); for (let i = 0; i < 10; i++) g.tick(1 / 60); await __sync(); ts.push((performance.now() - a) / 10); }
+  window.__measure = async () => { g.redraw = 1e9; for (let i = 0; i < 10; i++) { g.frame(1 / 60); } await __sync(); const ts = [];
+    for (let b = 0; b < ${frames} / 10; b++) { const a = performance.now(); for (let i = 0; i < 10; i++) g.frame(1 / 60); await __sync(); ts.push((performance.now() - a) / 10); }
     ts.sort((a, b) => a - b); return ts[ts.length >> 1]; };
 })()`);
 const toggles = [

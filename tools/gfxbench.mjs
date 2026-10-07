@@ -79,11 +79,28 @@ for (const name of names) {
   const v = VIEWS[name];
   if (!v) { console.log(`unknown view ${name}`); continue; }
   const res = await evaluate(`(async () => {
-    const g = game, sync = async () => {
-      const r = g.renderer;
-      if (r.backend && r.backend.device) await r.backend.device.queue.onSubmittedWorkDone();
-      else { const gl = r.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); }
+    const g = game, r = g.renderer;
+    // wait until the GPU has finished: WebGPU's queue, or a 1-pixel read from a framebuffer of our own (WebGL)
+    const gl = r.backend ? r.backend.gl : r.getContext();
+    if (gl && !window.__syncFb) {
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      const prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+      window.__syncFb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, window.__syncFb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, prev); gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+    const sync = async () => {
+      if (r.backend && r.backend.device) return r.backend.device.queue.onSubmittedWorkDone();
+      const prev = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, window.__syncFb);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prev);
     };
+    // one whole frame (game.frame advances three's node frame like a browser frame does; the old renderer has no such gate)
+    // the old renderer resets its counters on every render call (the last one is the post quad): count whole frames
+    const step = () => { if (g.frame) return g.frame(1 / 60); r.info.autoReset = false; r.info.reset(); g.tick(1 / 60); };
+    g.holdLoop = true;
     g.menu.isOpen && g.menu.close?.();
     g.setPaused(false);
     g.settings.set('time', ${v.hour}, { silent: true });
@@ -111,33 +128,39 @@ for (const name of names) {
         return { throttle: sp < drive.kmh ? 0.75 : 0, brake: sp > drive.kmh + 8 ? 0.5 : 0, steer, clutch: 0, handbrake: 0, analogSteer: true };
       };
       // get up to speed and fill the air with dust
-      for (let i = 0; i < 480; i++) { g.tick(1 / 60); if (i % 10 === 9) await sync(); }
+      for (let i = 0; i < 480; i++) { step(); if (i % 10 === 9) await sync(); }
     } else {
       const t = g.teleports.find(t => t.name === ${JSON.stringify(v.tp)});
       g.placeVehicle(t.x, t.z, t.yaw);
       g.env.settle?.();
-      for (let i = 0; i < 90; i++) { g.tick(1 / 60); if (i % 10 === 9) await sync(); }
+      for (let i = 0; i < 90; i++) { step(); if (i % 10 === 9) await sync(); }
       g.env.settle?.();
       g.setPaused(true); g.redraw = 1e9;
-      for (let i = 0; i < 20; i++) { g.tick(1 / 60); await sync(); }
+      for (let i = 0; i < 20; i++) { step(); await sync(); }
     }
     // batches of 10 frames, one wait per batch: the GPU queue stays fed, a vsync-bound wait counts once
     const ts = [];
+    // check: how many times per frame the scene itself is drawn (view + shadow maps), so a skipped frame shows
+    let scenes = 0; const own = Object.prototype.hasOwnProperty.call(r, 'render'), render0 = r.render; r.render = function (s, c) { if (s === g.scene) scenes++; return render0.call(this, s, c); };
+    let last = null;
     for (let b = 0; b < ${frames} / 10; b++) {
       const a = performance.now();
-      for (let i = 0; i < 10; i++) g.tick(1 / 60);
+      for (let i = 0; i < 10; i++) step();
+      const ri = r.info.render; last = { calls: ri.drawCalls ?? ri.calls, tris: ri.triangles };   // before an animation frame resets it
       await sync();
       ts.push((performance.now() - a) / 10);
     }
+    if (own) r.render = render0; else delete r.render;   // the old WebGLRenderer sets render in its constructor
     ts.sort((a, b) => a - b);
-    const info = g.renderer.info.render;
+    r.info.autoReset = true;
     let dust = 0;
     for (let i = 0; i < g.dust.max; i++) if (g.dust.life[i] > 0) dust++;
     const kmh = g.vehicle.speed * 3.6;
     g.autopilot = null;
-    return { med: ts[Math.floor(ts.length / 2)], p90: ts[Math.floor(ts.length * 0.9)], calls: info.drawCalls ?? info.calls, tris: info.triangles, dust, kmh, drive: !!drive };
+    g.holdLoop = false;
+    return { med: ts[Math.floor(ts.length / 2)], p90: ts[Math.floor(ts.length * 0.9)], calls: last.calls, tris: last.tris, dust, kmh, drive: !!drive, scenes: scenes / ${frames} };
   })()`);
-  console.log(`${name.padEnd(14)} median ${res.med.toFixed(1).padStart(5)} ms  p90 ${res.p90.toFixed(1).padStart(5)} ms  calls ${String(res.calls).padStart(4)}  tris ${(res.tris / 1e6).toFixed(2)} M${res.drive ? `  ${res.kmh.toFixed(0)} km/h, dust ${res.dust}` : ''}`);
+  console.log(`${name.padEnd(14)} median ${res.med.toFixed(1).padStart(5)} ms  p90 ${res.p90.toFixed(1).padStart(5)} ms  calls ${String(res.calls).padStart(4)}  tris ${(res.tris / 1e6).toFixed(2)} M  scene ${res.scenes.toFixed(1)}x${res.drive ? `  ${res.kmh.toFixed(0)} km/h, dust ${res.dust}` : ''}`);
   if (out) {
     const r = await send('Page.captureScreenshot', { format: 'jpeg', quality: 85 });
     fs.writeFileSync(path.join(out, name + '.jpg'), Buffer.from(r.result.data, 'base64'));
