@@ -911,10 +911,10 @@ export class Vehicle {
     }
   }
 
-  // put the truck back on its wheels
-  reset(position, yaw) {
+  // put the truck back on its wheels (level, or tilted by `rot` to sit on a slope)
+  reset(position, yaw, rot = null) {
     const b = this.body;
-    const q = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
+    const q = rot || new THREE.Quaternion().setFromAxisAngle(Y, yaw);
     b.setTranslation(position, true);
     b.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     b.setLinvel({ x: 0, y: 0, z: 0 }, true);
