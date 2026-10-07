@@ -2,12 +2,11 @@ import { carBindings, hasControl, capsHTML, padCapHTML, touchCapHTML } from './i
 import { escapeHTML } from './hud.js';
 import { CAR_LIST } from './cars/index.js';
 
-// Pause menu (Locations / Settings / Controls) and the first-start welcome card.
-// Both pause the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
+// Pause menu (Locations / Settings / Controls). It pauses the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
 // locations, Esc) and gamepad (d-pad / left stick, A, B, LB/RB, Menu) via Input.uiHandler.
 //
 // The menu holds no game state: it reads and writes through `api`
-// ({ get, set, action, locations, teleport, recover, onPause, introDone, device }) supplied by main.js.
+// ({ get, set, action, locations, teleport, recover, onPause, device }) supplied by main.js.
 
 const TABS = [
   { id: 'locations', label: 'Locations', hot: 'locations' },
@@ -128,15 +127,13 @@ export class Menu {
   constructor(api) {
     this.api = api;
     this.root = document.getElementById('menu');
-    this.introRoot = document.getElementById('intro');
     this.tab = 'locations';
     this.isOpen = false;
-    this.introOpen = false;
     this.pending = {};            // choices waiting for their Apply button (the car)
     this.build();
   }
 
-  get blocking() { return this.isOpen || this.introOpen; }
+  get blocking() { return this.isOpen; }
 
   // ------------------------------------------------------------------ build
   build() {
@@ -188,7 +185,6 @@ export class Menu {
     });
     // keyboard / pad focus ring only after keyboard or pad navigation
     r.addEventListener('pointerdown', () => this.sheet.classList.remove('kbnav'));
-    this.introRoot.addEventListener('click', e => { if (e.target.closest('[data-act="start"]')) this.closeIntro(); });
   }
 
   buildLocations() {
@@ -244,13 +240,12 @@ export class Menu {
       <div class="callout"><b>Getting stuck?</b> ${stuckSteps(id => capsHTML(id, dev), true)} ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds this car\'s drive, engine, light and tyre controls.' : ''}</div>`;
   }
 
-  // device-dependent labels: header buttons, footer hints, welcome card
+  // device-dependent labels: header buttons, footer hints
   renderDevice() {
     const dev = this.api.device();
     for (const el of this.root.querySelectorAll('[data-cap]')) el.innerHTML = dev === 'touch' ? '' : capsHTML(el.dataset.cap, dev);
     if ((dev === 'touch') !== this.ctlTouch) this.buildControls(dev === 'touch');
     this.renderFoot();
-    if (this.introOpen) this.renderIntro();
   }
 
   renderFoot() {
@@ -333,8 +328,7 @@ export class Menu {
       else Promise.resolve(d.documentElement.requestFullscreen?.({ navigationUI: 'hide' }))
         .then(() => this.api.device() === 'touch' ? screen.orientation?.lock?.('landscape') : navigator.keyboard?.lock?.(['Escape']))
         .catch(() => {}).then(done);
-    } else if (a === 'intro') { this.close(); this.openIntro(); return; }
-    else if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
+    } else if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
     else if (a === 'resetSettings') this.api.set('resetSettings', true);
     else this.api.action(a);
     this.refresh();
@@ -342,7 +336,6 @@ export class Menu {
 
   // ------------------------------------------------------------------ open / close
   open(tab) {
-    if (this.introOpen) return;
     if (!this.isOpen) {
       this.isOpen = true;
       this.root.hidden = false;
@@ -434,11 +427,6 @@ export class Menu {
   handle(ev) {
     if (ev.type === 'pad') { this.handlePad(ev.btn); return true; }
     const e = ev.e, code = e.code;
-    if (this.introOpen) {
-      if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space' || code === 'Escape') { if (!e.repeat) this.closeIntro(); return true; }
-      if (code === 'KeyH') { this.closeIntro(); this.open('controls'); return true; }
-      return code === 'Tab' || DRIVE_KEYS.has(code);                     // focus stays on the card
-    }
     if (!this.isOpen) return false;
     const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter', 'Space'];
     if (nav.includes(code)) this.sheet.classList.add('kbnav');
@@ -462,7 +450,6 @@ export class Menu {
   }
 
   handlePad(btn) {
-    if (this.introOpen) { if (btn === 'accept' || btn === 'back' || btn === 'menu') this.closeIntro(); return; }
     if (!this.isOpen) return;
     this.sheet.classList.add('kbnav');
     const el = document.activeElement;
@@ -473,79 +460,6 @@ export class Menu {
     else if (btn === 'back' || btn === 'menu') this.close();
     else if (btn === 'prevTab') { this.cycleTab(-1); this.focusFirst(); }
     else if (btn === 'nextTab') { this.cycleTab(1); this.focusFirst(); }
-  }
-
-  // ------------------------------------------------------------------ welcome card
-  openIntro() {
-    this.introOpen = true;
-    this.renderIntro();
-    this.introRoot.hidden = false;
-    this.api.onPause(true);
-    this.introRoot.querySelector('[data-act="start"]').focus({ preventScroll: true });
-  }
-
-  closeIntro() {
-    if (!this.introOpen) return;
-    this.introOpen = false;
-    this.introRoot.hidden = true;
-    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    this.api.introDone();
-    this.api.onPause(this.blocking);
-  }
-
-  renderIntro() {
-    const dev = this.api.device(), k = id => capsHTML(id, dev);
-    if (dev === 'touch') { this.renderTouchIntro(); return; }
-    const or = '<span class="or">/</span>';
-    const kb = l => `<kbd class="cap">${l}</kbd>`;
-    const rows = [
-      [dev === 'pad' ? k('throttle') + k('brake') : kb('W') + kb('S') + or + kb('↑') + kb('↓'), 'Throttle and brake. Hold brake at a stop to reverse.'],
-      [dev === 'pad' ? k('steer') : kb('A') + kb('D') + or + kb('←') + kb('→'), 'Steer'],
-      [k('handbrake'), 'Handbrake'],
-      [k('camera'), dev === 'pad' ? 'Change camera · right stick looks around' : 'Change camera · drag the mouse to look around'],
-      [k('recover'), 'Recover when stuck or upside down'],
-      [k('menu'), 'Menu: locations, settings, all controls'],
-    ];
-    const startCap = dev === 'pad' ? '<kbd class="cap pad pad-a">A</kbd>' : '<kbd class="cap">Enter</kbd>';
-    this.introRoot.innerHTML = `
-      <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad</div>
-        <h1 id="intro-title">Take it off the road</h1>
-        <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
-        <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> ${stuckSteps(k, dev !== 'pad')}</div>
-        <div class="intro-foot">
-          <span class="fine">${dev === 'pad' ? `${k('menu')} opens the menu at any time.` : `${k('controls')} shows every control at any time.`}</span>
-          <button class="btn primary big" type="button" data-act="start">Start driving ${startCap}</button>
-        </div>
-      </div>`;
-  }
-
-  // welcome card for phones and tablets: the on-screen controls (touch.js)
-  renderTouchIntro() {
-    const k = id => capsHTML(id, 'touch');
-    const tilt = this.api.get('touchSteer') === 'tilt';
-    const rows = [
-      [k('throttle') + k('brake'), 'Right thumb. Higher up the pedal is more.'],
-      [k('steer'), tilt ? 'Tilt the screen like a wheel.' : 'Left thumb: touch the lower left, slide sideways.'],
-      [k('shiftUp') + k('shiftDown'), 'Gear selector: ▲ to D, ▼ to R and P.'],
-      [k('handbrake'), 'Handbrake'],
-      [k('camera'), 'Camera · drag the view to look, pinch to zoom'],
-      [k('recover'), 'Recover when stuck or upside down'],
-      [k('menu'), 'Locations, settings (tilt steering), all controls'],
-    ];
-    this.introRoot.innerHTML = `
-      <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad</div>
-        <h1 id="intro-title">Take it off the road</h1>
-        <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
-        <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> Stop, open <kbd class="cap touch">Vehicle</kbd> next to the menu button, tap ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs. ${k('pressureDown')} airs the tyres down.</div>
-        <div class="intro-foot">
-          <span class="fine">Best in landscape and full screen.</span>
-          <button class="btn primary big" type="button" data-act="start">Start driving</button>
-        </div>
-      </div>`;
   }
 }
 

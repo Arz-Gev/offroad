@@ -4,7 +4,6 @@ import { CAR_IDS, DEFAULT_CAR } from './cars/index.js';
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
 
 const KEY = 'offroad.settings.v1';
-const INTRO_KEY = 'offroad.introSeen.v1';
 
 export const DEFAULTS = {
   car: DEFAULT_CAR,         // src/cars/; changing it reloads the game
@@ -128,7 +127,4 @@ export class Settings {
   applyAll(opts = {}) { for (const k in this.v) for (const f of this.subs) f(k, this.v[k], { silent: true, ...opts }); }
   save() { storage.set(KEY, JSON.stringify(this.v)); }
   reset() { for (const k in DEFAULTS) this.set(k, DEFAULTS[k], { silent: true, reset: true }); }
-
-  get introSeen() { return storage.get(INTRO_KEY) === '1'; }
-  set introSeen(v) { if (v) storage.set(INTRO_KEY, '1'); else storage.remove(INTRO_KEY); }
 }
