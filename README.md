@@ -8,8 +8,6 @@ npm run dev        # http://localhost:5174
 npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual, cars, btr)
 ```
 
-**Where the game is going**: `docs/` (vision, physics, car pipeline, world, graphics, UI, audio, modes, tech, roadmap, known issues), starting with `docs/00-vision.md`.
-
 See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
 
 ## Controls
