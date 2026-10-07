@@ -29,7 +29,7 @@ import { Input, setCarControls, hasControl, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
-import { Settings } from './settings.js';
+import { Settings, storage } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
 import { Multiplayer, roomFromURL } from './multiplayer.js';
@@ -375,6 +375,59 @@ async function main() {
     R.raised = next > gfx.dyn;
     if (next !== gfx.dyn) { gfx.dyn = next; R.skip = 1; applyResolution(); }
   }
+  // Auto quality by measurement (Quality: Auto, not on phones: Mobile has its dynamic resolution). The first
+  // start uses the GPU-name guess, then watches the frame rate while the game runs: 3 s to settle after each
+  // change (shader compiles), then 4 s measured (median frame time, so a hitch doesn't count; under 40 fps
+  // it decides after 1 s, so a step up that fails shows only briefly). Under 45 fps
+  // it steps one preset down; at 57+ fps (a 60 Hz screen at full rate) it tries one step up and keeps it
+  // only if it holds 50. The result is saved per graphics chip and screen; later starts begin there and
+  // only step down. Picking Auto in the menu measures again from the guess.
+  const AUTO_LADDER = ['low', 'medium', 'high', 'ultra'], AUTO_KEY = 'offroad.autoQuality.v1';
+  const autoSig = `${gfx.auto.gpu}|${Math.round(screen.width * screen.height * (window.devicePixelRatio || 1) ** 2 / 1e5)}`;
+  const autoSaved = () => { try { return JSON.parse(storage.get(AUTO_KEY) || '{}'); } catch { return {}; } };
+  gfx.auto.guess = gfx.auto.preset;
+  const tune = { on: false, t: 0, dts: [], ceil: AUTO_LADDER.length - 1, raised: false, measured: false };
+  function startAutoTune(fresh) {
+    const saved = autoSaved()[autoSig];
+    tune.on = AUTO_LADDER.includes(gfx.auto.guess);
+    tune.t = 0; tune.dts.length = 0; tune.raised = false; tune.measured = false;
+    tune.ceil = AUTO_LADDER.length - 1;
+    if (!tune.on) return;
+    if (!fresh && AUTO_LADDER.includes(saved)) {
+      gfx.auto.preset = saved; tune.measured = true;
+      tune.ceil = AUTO_LADDER.indexOf(saved);            // a measured result: only step down from here
+    } else gfx.auto.preset = gfx.auto.guess;
+  }
+  function saveAutoTune() {
+    const all = autoSaved();
+    all[autoSig] = gfx.auto.preset;
+    storage.set(AUTO_KEY, JSON.stringify(all));
+    tune.measured = true;
+  }
+  function updateAutoQuality(dt) {
+    if (!tune.on || settings.get('quality') !== 'auto' || game.paused || document.hidden || !started) return;
+    tune.t += dt;
+    if (tune.t < 3) return;
+    tune.dts.push(dt);
+    if (tune.t < 4) return;
+    const s = tune.dts.slice().sort((a, b) => a - b), fps = 1 / s[s.length >> 1];
+    if (tune.t < 7 && fps >= 40) return;          // clearly too slow after 1 s: decide now (a bad step up shows briefly)
+    tune.t = 0; tune.dts.length = 0;
+    const i = AUTO_LADDER.indexOf(gfx.auto.preset);
+    let next = i;
+    if (tune.raised && fps < 50) { next = i - 1; tune.ceil = next; }   // the step up didn't hold: back, and stay
+    else if (fps < 45 && i > 0) { next = i - 1; tune.ceil = next; }
+    else if (fps >= 57 && i < tune.ceil) next = i + 1;
+    tune.raised = next > i;
+    if (next === i) { tune.on = false; saveAutoTune(); return; }   // settled
+    gfx.auto.preset = AUTO_LADDER[next];
+    applyGraphics();
+    if (next < i) saveAutoTune();      // a step down is a result already, even if the page closes now
+    say('quality', `Graphics: ${QUALITY[gfx.auto.preset].label}${next < i ? ' for a steadier frame rate' : ' (testing)'}`, '', 2.5);
+  }
+  startAutoTune(false);
+  game.autoTune = tune;
+
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
   game.dynRes = dynRes; game.updateDynamicResolution = updateDynamicResolution;   // console / tests
@@ -424,7 +477,10 @@ async function main() {
     },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
-    quality: () => applyGraphics(),
+    quality(v, o) {
+      if (v === 'auto' && !o.startup && !o.reset) startAutoTune(true);   // picked in the menu: measure again
+      applyGraphics();
+    },
     ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
       if (o.sync || o.startup || o.reset) return;
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
@@ -556,7 +612,8 @@ async function main() {
         case 'qualityNote': {
           const sel = settings.get('quality'), auto = QUALITY[gfx.auto.preset].label;
           const dyn = gfx.q?.dynamicDpr ? ` Pixel density adjusts itself between 100 and 150 % to hold 45–60 fps (now ${Math.round(Math.min(gfx.dyn, window.devicePixelRatio || 1) * 100)} %).` : '';
-          return (sel === 'auto' ? `Auto: ${auto} for this ${gfx.auto.preset === 'mobile' ? 'device' : 'graphics chip'}.` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`) + dyn;
+          const how = gfx.auto.preset === 'mobile' ? 'for this device.' : tune.on ? 'measuring the frame rate while you drive…' : tune.measured ? 'measured on this computer. Pick another preset and Auto again to measure again.' : 'for this graphics chip.';
+          return (sel === 'auto' ? `Auto: ${auto}, ${how}` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`) + dyn;
         }
         default: return settings.get(key);
       }
@@ -777,6 +834,7 @@ async function main() {
     last = now;
     if (dt > 0.1) dt = 0.1;
     if (dt <= 0) return;
+    updateAutoQuality(dt);
     tick(dt);
   }
   requestAnimationFrame(loop);
