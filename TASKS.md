@@ -56,5 +56,6 @@ Technical notes live in `DEVNOTES.md`.
 
 | Task | Notes |
 |---|---|
+| ⏸ Suspension / landing / body impact sounds | Removed Oct 7: the old knock sounded like a toy and also fired on every landing. A Freesound recording and nine synthesised versions were tried; none sounded right. The game has no impact sounds for now. Details in `DEVNOTES.md` → Impact sounds. |
 | ⏸ Lake physics (driving into water) | Not a priority. |
 | ⏸ Short hitch on the first switch to night | Not a priority. |
