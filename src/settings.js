@@ -16,7 +16,7 @@ export const DEFAULTS = {
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
-  volume: 1,                // 0..1 (1 = the original mix level)
+  volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud (player, Oct 7)
   speedUnit: 'kmh',         // 'kmh' | 'mph'
   pressureUnit: 'psi',      // 'psi' | 'bar'
   cluster: 'auto',          // 'auto' (compact in cockpit / small windows) | 'full' | 'compact'
