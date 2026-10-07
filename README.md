@@ -31,7 +31,7 @@ See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow an
 | I | Left stick click | Vehicle → Engine | Start engine |
 | O |  |  | Stop engine |
 | L | D-pad ↑ | Vehicle → Lights | Headlights off / low / high |
-| J |  |  | Extra lamps (light bar, driving lamps, searchlight), on a car that has them |
+| J |  |  | Extra lamps (light bar, driving lamps, searchlights), on a car that has them |
 | G |  |  | Hazard lights |
 | R | B | Recover | Recover (back on the wheels) |
 | C | Y | Cam | Camera: chase, cockpit, hood, wheel, orbit |

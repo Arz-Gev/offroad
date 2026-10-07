@@ -154,7 +154,7 @@ export function createMaterials() {
     cabinMetal: std({ color: 0x8e9196, roughness: 0.35, metalness: 0.9 }, { ao: 0.6 }),
     // lamp lenses (emissive driven by VehicleView)
     headLens: std({ color: 0xc9cfd4, roughness: 0.08, metalness: 0.2, emissive: 0xfff1de, emissiveIntensity: 0 }, { env: 1.0 }),
-    barLens: std({ color: 0xb8bec4, roughness: 0.08, metalness: 0.2, emissive: 0xf2f6ff, emissiveIntensity: 0 }, { env: 1.0 }),
+    auxLens: std({ color: 0xb8bec4, roughness: 0.08, metalness: 0.2, emissive: 0xf2f6ff, emissiveIntensity: 0 }, { env: 1.0 }),
     workLens: std({ color: 0xb8bec4, roughness: 0.1, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 0 }, { env: 1.0 }),
     sideLens: std({ color: 0xd6d9dc, roughness: 0.1, metalness: 0.1, emissive: 0xfff4e0, emissiveIntensity: 0 }, { env: 1.0 }),
     tail: std({ color: 0x4a0604, roughness: 0.22, emissive: 0xff1a08, emissiveIntensity: 0 }, { env: 1.0 }),

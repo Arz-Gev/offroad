@@ -3,7 +3,7 @@
 //
 // BINDINGS is the single source of truth for every control: main.js dispatches the discrete actions,
 // and the HUD hints and the menu's controls page are all generated from it. A car
-// without some of them (no low range, no light bar, no turret: vehicle/controls.js) sets them aside with
+// without some of them (no low range, no extra lamps, no turret: vehicle/controls.js) sets them aside with
 // setCarControls: they don't run and aren't shown.
 // Discrete actions fire immediately from the key/pad event (onAction), not from the game loop.
 // While a menu is open, uiHandler receives the keys / pad buttons instead of the game.
@@ -37,7 +37,7 @@ export const BINDINGS = [
   { id: 'pressureDown', group: 'Vehicle', label: 'Tyre pressure down (air down for grip)', codes: ['BracketLeft'], keys: ['['], touch: 'Tyres −' },
   { id: 'pressureUp', group: 'Vehicle', label: 'Tyre pressure up', codes: ['BracketRight'], keys: [']'], touch: 'Tyres +' },
   { id: 'headlights', group: 'Vehicle', label: 'Headlights off / low / high', codes: ['KeyL'], keys: ['L'], pad: 'D-pad ↑', button: PAD.UP, touch: 'Lights' },
-  { id: 'lightBar', group: 'Vehicle', label: 'Extra lamps: the roof light bar, driving lamps or searchlight', codes: ['KeyJ'], keys: ['J'] },
+  { id: 'auxLights', group: 'Vehicle', label: 'Extra lamps: a roof light bar, driving lamps or searchlights', codes: ['KeyJ'], keys: ['J'] },
   { id: 'hazards', group: 'Vehicle', label: 'Hazard lights', codes: ['KeyG'], keys: ['G'] },
   { id: 'recover', group: 'Vehicle', label: 'Recover: put the truck back on its wheels', codes: ['KeyR'], keys: ['R'], pad: 'B', button: PAD.B, touch: 'Recover' },
 

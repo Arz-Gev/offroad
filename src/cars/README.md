@@ -8,9 +8,9 @@ suspension, a turret) is a field here with a default that leaves the other cars 
 Recipe for adding a car, with the checks: `.claude/skills/add-car/SKILL.md`.
 
 The driver's controls aren't listed here: `src/vehicle/controls.js` works them out from the car (low range
-from `transfer.low`, the centre lock from an open centre diff, lockers, a 2WD switch, extra lamps from
-`lightBar` / `lamps.bar`, a turret), and the keys, pad, touch drawer, menu, controls page and hints show
-only those. Give a car only what the real one has.
+from `transfer.low`, the centre lock from an open centre diff, lockers, a 2WD switch, extra lamps
+(the J key) from `lamps.aux`, `lightBar` or `searchlights`, a turret), and the keys, pad, touch drawer, menu,
+controls page and hints show only those. Give a car only what the real one has.
 
 ```js
 export default {
@@ -84,10 +84,11 @@ and by the axle types, nothing by the car's name). Positions are in the body fra
 | `wheel` | the model's own wheels: `{ R, width }` (its tyre, measured by prepcar), `rim` (radius that stays round, default the physics rim), `hubSpins` (hub_<k> is on the rim and spins, not a caliper). A body without wheels gets our steel wheels |
 | `suspension` | the model's own double wishbones: `{ parts: 'wishbones', pivotLow, pivotUp }` (prepcar `parts` per corner, the arms' inner pivots in the hub frame). Independent corners without parts are drawn by us (`model/independent.js`, by the axle's `linkage`); beam axles are always ours (`model/beamAxle.js`) |
 | `eye`, `hoodEye`, `chase` | cameras: the driver's eye, the hood camera, `{ dist, target }` of the chase camera |
-| `lamps` | beam positions `{ head, bar, rear }` (a procedural body knows its own) and `lenses`: role -> a pattern matched against the material and mesh names (`head`, `side`, `bar`, `work`, `tail`, `brake`, `reverse`, `amber`, `beacon`) |
-| `lightBar` | optional, only for a car that really carries one: a roof light bar (`model/accessories.js`): `{ at, width, lamps, roof }`; it carries the bar beam. A car with neither `lightBar` nor `lamps.bar` has no bar beam, and the J key and the menu switch say so / hide |
+| `lamps` | beam positions `{ head, aux, rear }` (a procedural body knows its own; `aux`, the extra lamps on the J key, is optional: one point or a list) and `lenses`: role -> a pattern matched against the material and mesh names (`head`, `side`, `aux`, `work`, `tail`, `brake`, `reverse`, `amber`, `beacon`). A mesh name pattern picks a lamp out of a shared material (cut it out first with `tools/cutparts.mjs` if it is one mesh with others) |
+| `lightBar` | optional, only for a car that really carries one: a roof light bar (`model/accessories.js`): `{ at, width, lamps, roof }`; it carries an aux beam |
+| `searchlights` | optional: round lamps whose model has the cover shut, drawn open with a clear lens (`model/accessories.js` `searchlight`): `[{ at (the face centre, hub frame), r (lens), rim, turret (rides the gun cradle), cone }]`; each carries a narrow aux beam. A car with no aux beam at all (no `lamps.aux`, `lightBar` or `searchlights`) has no extra lamps: the J key and the menu switch hide |
 | `cockpit` | node names of the cabin's moving parts: `steeringWheel`, `gearLever`, `transferLever` (cut out with `tools/cutparts.mjs`); a node turns about its own thin axis |
-| `turret` | a turret of the model's nodes (`model/turretRig.js`): `yaw`, `pitch`, `recoil`, `ring`, `trunnion`, `muzzles`, `lamp`, `sight` (hub frame) |
+| `turret` | a turret of the model's nodes (`model/turretRig.js`): `yaw`, `pitch`, `recoil`, `ring`, `trunnion`, `muzzles`, `sight` (hub frame) |
 | `runningGear` | options of the beam axle kit: `transferCase` (where the prop shafts start) |
 
 Variants (other axle types, another drive layout) without a new file: `carParams.paramsFromDef(def)` and

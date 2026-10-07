@@ -6,10 +6,11 @@ import * as THREE from 'three';
 // blown-out pool at the bumper and nothing further away. Here every beam is a SpotLight with a
 // light cookie (SpotLight.map) that encodes the angular intensity distribution I(elevation, azimuth).
 //
-// Lights (all on the vehicle root, only made visible at night or when something is switched on, so the
+// Lights (on the vehicle root, a turret's searchlight on its gun cradle; only made visible at night or when something is switched on, so the
 // day scene pays nothing for them), at the car's lamp positions (look.lamps, or its procedural body's):
 //   head  - one spot between the headlamps, low/high beam cookies, the only shadow caster
-//   bar   - roof light bar, wide long-range flood, no shadow (the source is above the eye anyway)
+//   aux   - the extra lamps (J): a roof light bar or driving lamps (a wide long-range flood) and searchlights
+//           (a narrow cone, maybe riding a turret); one spot per lamp place, no shadow
 //   rear  - one small dim spot for tail/brake glow and the reversing lamps
 // Lens glow comes from emissive materials (lensRoles: the lamps' roles -> materials); there are no point
 // lights.
@@ -96,8 +97,8 @@ function highBeam(el, az) {
   return lowBeam(el, az) + hot + fill * smooth(-0.42, -0.2, el);
 }
 
-// Roof bar: four square lamps, two spot + two flood. Wide, long throw, little light straight down.
-function barBeam(el, az) {
+// Extra lamps (a roof bar's two spot + two flood, driving lamps): wide, long throw, little light straight down.
+function auxBeam(el, az) {
   const h = 0.5 * Math.exp(-((az / 0.11) ** 2)) + 0.5 * Math.exp(-((az / 0.42) ** 2));
   let v;
   if (el > -0.005) v = Math.exp(-(((el + 0.005) / 0.05) ** 2));
@@ -109,11 +110,12 @@ function barBeam(el, az) {
 export const BEAM = {
   // peak intensities (candela in scene units; the scene is not photometric, these are tuned against the
   // night preset so the road stays readable to ~60 m on low beam and ~150 m on high beam). Total light
-  // (Oct 7, cut from 45000 / 1.0 / 85000 as too harsh): low ~0.7x, high ~0.6x, bar ~0.55x of before; the bar
-  // still puts out a little more than the high beam, spread wider.
+  // (Oct 7, cut from 45000 / 1.0 / 85000 as too harsh): low ~0.7x, high ~0.6x, aux ~0.55x of before; the aux
+  // flood still puts out a little more than the high beam, spread wider.
   low: 36000,
   highGain: 0.68, // high beam peak = low peak * cookie max ratio * highGain
-  bar: 55000,
+  aux: 55000,
+  searchlight: 100000,   // a narrow cone, no cookie
 };
 
 export function buildLightRig(root, at) {
@@ -121,15 +123,15 @@ export function buildLightRig(root, at) {
   const cookies = {
     low: makeCookie(lowBeam, ANG),
     high: makeCookie(highBeam, ANG),
-    bar: makeCookie(barBeam, ANG, 256),
+    aux: makeCookie(auxBeam, ANG, 256),
   };
   const rig = { cookies };
 
-  const spot = (color, pos, dir, angle, penumbra, dist) => {
+  const spot = (color, pos, dir, angle, penumbra, dist, parent = root) => {
     const L = new THREE.SpotLight(color, 0, dist, angle, penumbra, 2);
     L.position.set(...pos);
     L.target.position.set(pos[0] + dir[0] * 10, pos[1] + dir[1] * 10, pos[2] + dir[2] * 10);
-    root.add(L); root.add(L.target);
+    parent.add(L); parent.add(L.target);
     L.visible = false;
     return L;
   };
@@ -144,19 +146,23 @@ export function buildLightRig(root, at) {
   rig.head.shadow.autoUpdate = false;
   rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * BEAM.highGain * cookies.high.userData.peak / cookies.low.userData.peak };
 
-  // bar: only a car with a light bar (or driving lamps / a searchlight that stand in for one) has its beam
-  if (at.bar) {
-    rig.bar = spot(0xeef3ff, at.bar, [0, 0, -1], ANG, 0.08, 240);
-    rig.bar.map = cookies.bar;
-    rig.bar.userData.peak = BEAM.bar;
-  }
+  // aux: only a car with extra lamps has their beams (at.aux: points on the root, or Object3Ds the beam rides,
+  // aimed along their -z). A searchlight (userData.cone: its half angle) is a plain narrow cone: every cookie
+  // takes a texture unit in every lit material, and 16 is all most GPUs have
+  rig.aux = (at.aux || []).map(p => {
+    const cone = p.userData?.cone;
+    const L = p.isObject3D ? spot(0xeef3ff, [0, 0, 0], [0, 0, -1], cone || ANG, cone ? 0.5 : 0.08, 300, p) : spot(0xeef3ff, p, [0, 0, -1], ANG, 0.08, 240);
+    if (!cone) L.map = cookies.aux;
+    L.userData.peak = cone ? BEAM.searchlight : BEAM.aux;
+    return L;
+  });
 
   // rear: tail/brake glow + reversing lamps, aimed back and down
   rig.rear = spot(0xff2a10, at.rear, [0, -0.3, 1], 0.95, 0.8, 11);
   return rig;
 }
 
-// The lens roles VehicleView drives: head, side (side lamps), bar (light bar), work (reversing work lamps),
+// The lens roles VehicleView drives: head, side (side lamps), aux (extra lamps), work (reversing work lamps),
 // tail, brake, reverse, amber (indicators / hazards), beacon; each role is a list of materials. A downloaded
 // model names its lenses by role (look.lamps.lenses: role -> a pattern matched against the material name
 // and the mesh name, e.g. the nodes tools/cutparts.mjs cut out). Every source material under a pattern

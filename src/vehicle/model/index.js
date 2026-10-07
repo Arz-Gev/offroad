@@ -12,7 +12,7 @@ import { independentCorners } from './independent.js';
 import { turretRig } from './turretRig.js';
 import { cockpitKit, pivotFromNode } from './cockpit.js';
 import { defenderBody } from './defender/index.js';
-import { lightBar } from './accessories.js';
+import { lightBar, searchlight } from './accessories.js';
 
 // A car's model, built from its file's look (src/cars/<id>.js) and its physics (the axle types): the same
 // steps for every car, each part chosen by data.
@@ -21,9 +21,11 @@ import { lightBar } from './accessories.js';
 //   running   per axle by its physics type: a beam axle kit (beamAxle.js); independent corners from the
 //   gear      model's own wishbones (look.suspension, wishbones.js), else drawn by us (independent.js:
 //             double wishbones or a strut, by the axle's linkage)
-//   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js)
+//   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js); the extra
+//             lamps (aux, the J key): look.lamps.aux, a roof light bar (look.lightBar) and searchlights
+//             (look.searchlights: the model's covered lamps opened, accessories.js)
 //   cockpit   the cabin's moving parts: the procedural body's, or the shell's nodes (look.cockpit)
-//   extras    a turret (look.turret, turretRig.js), a roof light bar (look.lightBar, accessories.js)
+//   extras    a turret (look.turret, turretRig.js)
 //   cameras   look.eye / hoodEye / chase
 // The result is what VehicleView drives: { root, wheels, kits (each with update(view, v, dt)), cockpit,
 // lenses, lights, driverEye, hoodEye, chaseDist, chaseTarget, turret, shell }. Body frame: +x right,
@@ -85,15 +87,27 @@ export async function buildModel(car) {
     model.kits.push(t);
   }
 
-  // ---------------- lamps (a light bar carries the bar beam and its lenses)
+  // ---------------- lamps (the extra lamps: look.lamps.aux, a light bar, searchlights, each with its beam and lens)
   const lamps = { ...(look.lamps || src.lamps) };
+  const aux = !lamps.aux ? [] : typeof lamps.aux[0] === 'number' ? [lamps.aux] : [...lamps.aux];
   model.lenses = src ? src.lenses : modelLenses(shell, look.lamps?.lenses);
+  const addLenses = ls => { for (const [role, m] of Object.entries(ls)) model.lenses[role] = [...new Set([...(model.lenses[role] || []), ...m])]; };
   if (look.lightBar) {
     const lb = lightBar(mats, look.lightBar);
     root.add(lb.group);
-    lamps.bar = lb.beam;
-    for (const [role, mats_] of Object.entries(lb.lenses)) model.lenses[role] = [...(model.lenses[role] || []), ...mats_];
+    aux.push(lb.beam);
+    addLenses(lb.lenses);
   }
+  // searchlights at their faces (hub frame), on the hull or riding the gun cradle (turret: true)
+  root.updateMatrixWorld(true);
+  for (const s of look.searchlights || []) {
+    const sl = searchlight(mats, s), parent = s.turret ? model.turret.pitch : root;
+    parent.add(sl.group);
+    sl.group.position.copy(parent.worldToLocal(new THREE.Vector3(s.at[0], s.at[1] + hubY, s.at[2])));
+    aux.push(sl.beam);
+    addLenses(sl.lenses);
+  }
+  lamps.aux = aux;
   model.lights = buildLightRig(root, lamps);
 
   // ---------------- cockpit and cameras

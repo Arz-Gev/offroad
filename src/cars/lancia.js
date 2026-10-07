@@ -59,10 +59,15 @@ export default {
     chase: { dist: 5.6, target: 0.85 },   // 0.7 m shorter and 0.6 m lower than the Defender: the camera comes closer
     eye: [-0.38, 1.10, 0.15],
     hoodEye: [0, 1.02, -1.05],
-    // beams (the bar beam from the driving lamps in the grille: no roof bar); the model's lamp inserts glow
-    // (behind the clear glass): LightBump (headlamps), LightBump_rear (tail and brake)
-    lamps: { head: [0, 0.62, -2.08], bar: [0, 0.62, -2.10], rear: [0, 0.75, 2.0],
-      lenses: { head: '^LightBump$', tail: '^LightBump_rear$', brake: '^LightBump_rear$' } },
+    // beams: the head beam just ahead of the four headlamps (hub y 0.36, faces at z -1.89), the extra lamps' (J)
+    // from the block of four driving lamps in the grille (hub y 0.40, faces at z -2.05; no roof bar). The model's
+    // lamp inserts glow behind the clear glass, picked by mesh name: the driving lamps' were cut out of the
+    // LightBump mesh (tools/cutparts.mjs, material LightBump, box [[-0.34, 0.34], [0.32, 0.48], [-2.06, -2.025]]);
+    // the rest of it is the headlamps and fog lamps; the LightBump rear meshes are the tail and brake lamps
+    // (Bump001) and the front indicators (Bump002)
+    lamps: { head: [0, 0.64, -2.08], aux: [0, 0.68, -2.09], rear: [0, 0.75, 2.0],
+      lenses: { head: '^Light_Glass_Bump_LightBump_0$', aux: '^driving_lamps', tail: 'Bump001_LightBump_rear',
+        brake: 'Bump001_LightBump_rear', amber: 'Bump002_LightBump_rear' } },
     // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.52, -0.12], [0.34, 0.68],
     // [-0.63, -0.40]] in the model frame); it turns about its own axis
     cockpit: { steeringWheel: 'steering_wheel' },

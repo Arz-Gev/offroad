@@ -41,7 +41,7 @@ const SECTIONS = [
   ] },
   { title: 'Vehicle', rows: [
     row('headlights', 'Headlights', 'seg', { hot: 'headlights', options: [[0, 'Off'], [1, 'Low'], [2, 'High']] }),
-    row('lightBar', 'Extra lamps', 'switch', { hot: 'lightBar' }),
+    row('auxLights', 'Extra lamps', 'switch', { hot: 'auxLights' }),
     row('hazards', 'Hazard lights', 'switch', { hot: 'hazards' }),
   ] },
   { title: 'Units', rows: [
