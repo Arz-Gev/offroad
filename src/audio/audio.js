@@ -145,11 +145,13 @@ export class GameAudio {
     const amb = inside ? 0.7 : 1;
     // levels were set on 4 wheels: per wheel more wheels make more noise, but not twice as much (8 wheels: x1.4)
     const nW = v.wheels.length, wk = Math.sqrt(nW / 4) / nW;
-    this.gravel.g.gain.setTargetAtTime(m * amb * 0.09 * rough * wk, t, 0.05);
+    // tyre roll and mud are broadband hiss: the player found both annoying (Oct 7), so the tyres are at a third (~10 dB down,
+    // was 0.09) and the mud 8 dB down (was 0.25). The skid stays as it was (player: fine).
+    this.gravel.g.gain.setTargetAtTime(m * amb * 0.03 * rough * wk, t, 0.05);
     this.gravel.f.frequency.setTargetAtTime(500 + speed * 25, t, 0.1);
     this.rumble.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, speed / 15) * (contact / nW), t, 0.05);
     this.skid.g.gain.setTargetAtTime(m * 0.06 * Math.min(1.5, skid), t, 0.03);
-    this.mud.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, mud), t, 0.05);
+    this.mud.g.gain.setTargetAtTime(m * 0.1 * Math.min(1, mud), t, 0.05);
     this.wind.g.gain.setTargetAtTime(m * amb * Math.min(0.35, speed * speed * 0.00025), t, 0.1);
     this.wind.f.frequency.setTargetAtTime(300 + speed * 30, t, 0.2);
     // whine from the transfer gears in low range, proportional to prop speed and torque
