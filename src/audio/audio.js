@@ -1,4 +1,5 @@
-// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, bump-stop knocks, transfer whine.
+// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine.
+// No suspension / impact sound on purpose: see DEVNOTES.md "Impact sounds" before adding one.
 // Started on the first user gesture (browsers block audio before that).
 
 export class GameAudio {
@@ -8,7 +9,6 @@ export class GameAudio {
     this.muted = false;
     this.volume = 1;              // player volume 0..1 on top of the mix level
     this.paused = false;          // game paused: master faded out, synthesis keeps running
-    this.knockCooldown = 0;
     this.lastGrind = 0;
   }
 
@@ -71,28 +71,8 @@ export class GameAudio {
     this.ready = true;
   }
 
-  knock(strength) {
-    if (!this.ready || this.knockCooldown > 0) return;
-    this.knockCooldown = 0.12;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(95, t);
-    o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(Math.min(0.9, 0.25 + strength), t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    o.connect(g).connect(this.master);
-    o.start(t); o.stop(t + 0.2);
-    const n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
-    const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 900; nf.Q.value = 1;
-    const ng = ctx.createGain(); ng.gain.setValueAtTime(Math.min(0.5, strength * 0.6), t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    n.connect(nf).connect(ng).connect(this.master);
-    n.start(t, Math.random()); n.stop(t + 0.08);
-  }
-
   // Gunfire (weapons.js). The KPVT: a sharp crack over a deep chest thump and the bolt's clank; the PKT: the
-  // same, higher and shorter; 'far': a friend's gun, muffled. Synthesised like the knock (noise + sine).
+  // same, higher and shorter; 'far': a friend's gun, muffled. Synthesised (noise + sine).
   gunshot(kind) {
     if (!this.ready) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.003;
@@ -187,24 +167,13 @@ export class GameAudio {
       this.grind.g.gain.setTargetAtTime(m * 0.16 * (0.6 + 0.4 * Math.random()) * Math.min(1, d.grind / 0.15), t, 0.015);
     }
     this.lastGrind = d.grind;
-    // bump stops / landing knocks
-    this.knockCooldown -= dt;
-    for (const ax of v.axles) {
-      for (let s = 0; s < 2; s++) {
-        // beam axle: heave and roll at the spring; independent corner: its own compression and speed
-        const w = v.wheels[ax.i * 2 + s];
-        const comp = ax.ind ? w.c : ax.c + (s ? 1 : -1) * ax.p.springTrack / 2 * Math.sin(ax.phi);
-        const rate = ax.ind ? w.vz - w.vMountU : ax.vz - ax.vMountU;
-        if ((comp > ax.p.travel - 0.025 || comp < 0.005) && Math.abs(rate) > 0.6) this.knock(Math.min(1, Math.abs(rate) / 3));
-      }
-    }
   }
 
   toggleMute() { this.setMuted(!this.muted); return this.muted; }
   setMuted(m) { this.muted = !!m; this.applyMaster(); }
 
   // UI controls: they only scale the master gain, the mix itself is unchanged.
-  // Mute also closes the master so one-shots (bump-stop knocks) are silenced too.
+  // Mute also closes the master so one-shots (gunfire, impacts) are silenced too.
   masterLevel() { return this.paused || this.muted ? 0 : 0.8 * this.volume; }
   applyMaster() { if (this.master) this.master.gain.setTargetAtTime(this.masterLevel(), this.ctx.currentTime, 0.04); }
   setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); this.applyMaster(); }
