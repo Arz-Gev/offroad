@@ -2,7 +2,7 @@
 // Touch (touch.js) writes analog pedals / steering into Input.touch; they count while the device is 'touch'.
 //
 // BINDINGS is the single source of truth for every control: main.js dispatches the discrete actions,
-// and the HUD hints, the welcome card and the menu's controls page are all generated from it. A car
+// and the HUD hints and the menu's controls page are all generated from it. A car
 // without some of them (no low range, no light bar, no turret: vehicle/controls.js) sets them aside with
 // setCarControls: they don't run and aren't shown.
 // Discrete actions fire immediately from the key/pad event (onAction), not from the game loop.

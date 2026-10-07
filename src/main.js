@@ -448,7 +448,7 @@ async function main() {
   input.onAction = id => { if (ACTIONS[id] && hasControl(id)) ACTIONS[id](); };
   game.action = id => input.onAction(id);
 
-  // ---------------------------------------------------------------- pause menu + welcome card
+  // ---------------------------------------------------------------- pause menu
   function setPaused(p) {
     if (game.paused === p) return;
     game.paused = p;
@@ -510,7 +510,6 @@ async function main() {
     // the car is built at startup: save the choice and start again with it
     applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
     onPause: setPaused,
-    introDone: () => { settings.introSeen = true; },
   });
   game.menu = menu;
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
@@ -693,8 +692,7 @@ async function main() {
   const inviteRoom = roomFromURL();
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 
-  if (!settings.introSeen) menu.openIntro();
-  else say('welcome', `${escapeHTML(carDef(car).label)} · ${d.gearboxSetting === 'auto' ? (vehicle.P.manualOnly ? 'auto-shift' : 'automatic') : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
+  say('welcome', `${escapeHTML(carDef(car).label)} · ${d.gearboxSetting === 'auto' ? (vehicle.P.manualOnly ? 'auto-shift' : 'automatic') : 'manual'} · ${input.device === 'touch' ? 'Menu at the top left' : `${k('menu')} menu · ${k('controls')} controls`}`, '', 5);
 
   let last = performance.now();
   function loop(now) {

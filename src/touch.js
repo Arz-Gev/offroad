@@ -64,7 +64,7 @@ export class TouchControls {
     this.bindView();
 
     // a finger on the screen makes touch the active device; keys or a pad take over again (input.js).
-    // After the tap, not on touch-down: the switch re-renders the menu and welcome card, which would
+    // After the tap, not on touch-down: the switch re-renders the menu, which would
     // swallow the click on the button under the finger.
     window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') setTimeout(() => this.input.setDevice('touch'), 0); }, true);
     if (window.matchMedia?.('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches) this.input.device = 'touch';
