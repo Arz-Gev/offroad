@@ -4,6 +4,10 @@ import { MAP_SIZE } from './world/terrain.js';
 // Dust / mud particles and water splashes kicked up by the tyres + persistent tyre tracks painted into a
 // map-wide texture.
 
+// Soft dust puffs alive at once. Emission thins out as the count nears it, so spinning the wheels in place
+// leaves a haze rather than a wall, and the heavy clumps and splashes always find room in the buffer.
+const PUFF_CAP = 450;
+
 export class Dust {
   constructor(scene, max = 2400) {
     this.max = max;
@@ -16,6 +20,7 @@ export class Dust {
     this.color = new Float32Array(max * 3);
     this.heavy = new Uint8Array(max);
     this.next = 0;
+    this.puffs = 0;        // live soft particles (counted in update, plus this frame's emits)
     this.enabled = true;   // setting 'dust' (Graphics)
     this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
     const g = new THREE.BufferGeometry();
@@ -72,6 +77,7 @@ export class Dust {
     this.life[i] = life; this.maxLife[i] = life; this.size[i] = size;
     this.color[i * 3] = col[0]; this.color[i * 3 + 1] = col[1]; this.color[i * 3 + 2] = col[2];
     this.heavy[i] = heavy ? 1 : 0;
+    if (!heavy) this.puffs++;
   }
 
   // water: droplets thrown up and back by the tread plus a bow wave to the sides, more with speed and depth
@@ -114,15 +120,28 @@ export class Dust {
       }
       const s = w.surf;
       const roll = Math.abs(w.vcx);
-      const slip = w.slipVel || 0;
-      const intensity = s.mud ? slip * 1.2 + roll * 0.15 : s.dust * (roll * 0.35 + slip * 1.6);
+      const slip = Math.min(w.slipVel || 0, 12);
+      // past ~3 m/s of wheelspin, spinning harder adds little more (a stuck car spins at 10-15 m/s)
+      const slipK = slip < 3 ? slip : 3 + (slip - 3) * 0.25;
+      const room = Math.max(0, 1 - this.puffs / PUFF_CAP);
+      const intensity = s.mud ? slipK * 1.2 + roll * 0.15 : s.dust * (roll * 0.3 + slipK * 1.3) * room;
       let n = intensity * dt * 9;
+      // mud: a thin brown spray mist over the clumps while the tyre slips
+      let m = s.mud ? slipK * 0.6 * room * dt * 9 : 0;
+      while (m > 0) {
+        if (m < 1 && rnd() > m) break;
+        m -= 1;
+        const P = w.P, back = w.fc, k = 0.85 + rnd() * 0.3;
+        this.emit(P.x + (rnd() - 0.5) * 0.4, P.y + 0.15, P.z + (rnd() - 0.5) * 0.4,
+          -back.x * slipK * 0.3 + (rnd() - 0.5) * 0.6 + v.vel.x * 0.25, 0.4 + rnd() * 0.6, -back.z * slipK * 0.3 + (rnd() - 0.5) * 0.6 + v.vel.z * 0.25,
+          0.25 + rnd() * 0.25, 0.8 + rnd() * 0.7, [0.40 * k, 0.29 * k, 0.18 * k], false);
+      }
       while (n > 0) {
         if (n < 1 && rnd() > n) break;
         n -= 1;
         const P = w.P;
         const back = w.fc;
-        const sp = (s.mud ? 0.5 : 0.25) * Math.min(slip, 12);
+        const sp = (s.mud ? 0.5 : 0.25) * slip;
         if (s.mud) {
           const c = 0.3 + rnd() * 0.1;
           this.emit(P.x + (rnd() - 0.5) * 0.3, P.y + 0.12, P.z + (rnd() - 0.5) * 0.3,
@@ -133,7 +152,7 @@ export class Dust {
           const k = 0.85 + rnd() * 0.25;
           this.emit(P.x + (rnd() - 0.5) * 0.4, P.y + 0.1, P.z + (rnd() - 0.5) * 0.4,
             -back.x * sp + (rnd() - 0.5) * 0.8 + v.vel.x * 0.25, 0.4 + rnd() * 0.9, -back.z * sp + (rnd() - 0.5) * 0.8 + v.vel.z * 0.25,
-            0.5 + rnd() * 0.6, 1.6 + rnd() * 1.8, [c[0] * k, c[1] * k, c[2] * k], false);
+            0.35 + rnd() * 0.4, 1.3 + rnd() * 1.4, [c[0] * k, c[1] * k, c[2] * k], false);
         }
       }
     }
@@ -141,6 +160,7 @@ export class Dust {
 
   update(dt, light) {
     this.mat.uniforms.uLight.value = light;
+    let puffs = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
       this.life[i] -= dt;
@@ -153,11 +173,13 @@ export class Dust {
         const drag = Math.exp(-dt * 1.6);
         this.vel[o] *= drag; this.vel[o + 2] *= drag;
         this.vel[o + 1] = this.vel[o + 1] * drag + 0.15 * dt;
-        this.size[i] += dt * 1.1;
-        this.alpha[i] = 0.32 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
+        this.size[i] += dt * 0.75;
+        puffs++;
+        this.alpha[i] = 0.28 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
       }
       this.pos[o] += this.vel[o] * dt; this.pos[o + 1] += this.vel[o + 1] * dt; this.pos[o + 2] += this.vel[o + 2] * dt;
     }
+    this.puffs = puffs;
     const g = this.points.geometry;
     g.attributes.position.needsUpdate = true;
     g.attributes.size.needsUpdate = true;
