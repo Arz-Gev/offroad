@@ -82,7 +82,7 @@ for (const name of names) {
     const g = game, r = g.renderer;
     // wait until the GPU has finished: WebGPU's queue, or a 1-pixel read from a framebuffer of our own (WebGL)
     const gl = r.backend ? r.backend.gl : r.getContext();
-    if (gl && !window.__syncFb) {
+    if (gl && r.backend && !window.__syncFb) {
       const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       const prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
@@ -92,6 +92,7 @@ for (const name of names) {
     }
     const sync = async () => {
       if (r.backend && r.backend.device) return r.backend.device.queue.onSubmittedWorkDone();
+      if (!r.backend) { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); return; }   // old renderer: the canvas
       const prev = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, window.__syncFb);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));

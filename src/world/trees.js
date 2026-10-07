@@ -347,10 +347,9 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     const H = uImpH.element(int(vr)).mul(A.w);
     const right = normalize(vec3(toCam.z, 0.0, toCam.x.negate()));
     vImpYaw.assign(yaw);
-    // WebGPU textures start at the top row (WebGL at the bottom): the same bake is read with v from the top
-    const v = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem
-      ? float(variants.length).sub(vr).sub(positionGeometry.y)
-      : float(variants.length - 1).sub(vr).add(positionGeometry.y);
+    // render-target textures are read with v from the top in both backends (three flips v for them on
+    // WebGPU, and the WebGL backend flips viewports), and the bake puts variant r in row rows-1-r from the top
+    const v = float(variants.length).sub(vr).sub(positionGeometry.y);
     vImpUv.assign(vec2(view.add(positionGeometry.x).add(0.5).div(VIEWS), v.div(variants.length)));
     return ip.add(right.mul(positionGeometry.x).mul(H).mul(0.5)).add(vec3(0.0, positionGeometry.y.mul(H), 0.0));
   })();
