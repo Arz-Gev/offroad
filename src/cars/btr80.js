@@ -90,22 +90,34 @@ export default {
     // the model's own double wishbones (prepcar parts per corner); the arms' inner pivots on the hull
     // (hub frame, mirrored): prepcar can't split them, they are the hull
     suspension: { parts: 'wishbones', pivotLow: [0.600, -0.006], pivotUp: [0.600, 0.190] },
-    // BPU-1 turret: BTR_80_B (yaw about the ring), BTR_80_C (gun cradle: KPVT box, coaxial PKT, searchlight,
+    // BPU-1 turret: BTR_80_B (yaw about the ring), BTR_80_C (gun cradle: KPVT box, coaxial PKT, searchlight;
     // pitch about the trunnions) with BTR_80_E (case chute), LULA (the barrel, recoils in the cradle).
-    // Ring centre, trunnion axis, barrel tip, PKT muzzle and searchlight in the hub frame; the gunner's
+    // Ring centre, trunnion axis, barrel tip and PKT muzzle in the hub frame; the gunner's
     // sight (PP-61AM periscope head on the turret roof, left of the cradle) from the ring.
     turret: {
       yaw: 'BTR_80_B_Baked002', pitch: ['BTR_80_E_Baked002', 'BTR_80_C_Baked002'], recoil: 'LULA_Baked002',
       ring: [-0.018, 1.257, -1.044], trunnion: [-0.023, 1.761, -0.95],
       muzzles: { muzzle: [-0.023, 1.760, -3.04], pktMuzzle: [0.429, 1.866, -1.32] },
-      lamp: [0.20, 2.03, -0.95], sight: [-0.32, 0.77, -0.15],
+      sight: [-0.32, 0.77, -0.15],
     },
     chase: { dist: 11.5, target: 1.6 },
     eye: [-0.62, 2.22, -2.63],             // driver's hatch, head out (march position)
     hoodEye: [0, 2.05, -2.45],
-    // headlamps on the nose, light bar = the searchlight on the gun cradle, tail lamps; the model's lenses
-    lamps: { head: [0, 1.25, -3.95], bar: [0, 2.6, -1.0], rear: [0, 1.25, 3.65],
-      lenses: { head: '^Headlights', amber: 'Blinkers_Yellow', tail: 'Blinkers_Red', brake: 'Blinkers_Red' } },
+    // the head beam at the height of the four round headlamps on the glacis cheeks (two a side, hub y ~1.0,
+    // z -2.7), ahead of the nose so the glacis is not in its light (one beam between the lamps, behind them it
+    // lit the glacis plate white); tail glow at the back. Lenses by mesh name: the headlamps are the model's
+    // IR_Iluminator lenses (three) and its Headlights lens (the right upper one); the small lamps on the nose
+    // are the side lamps and the indicators (Blinkers_Yellow is also the mirrors' and the Headlights lens'
+    // material: the node name picks the indicators alone)
+    lamps: { head: [0, 1.57, -3.90], rear: [0, 1.25, 3.65],
+      lenses: { head: 'IR_Iluminator|Headlights', side: 'Blinkers_Red_0', amber: 'Blinkers_Yellow_0' } },
+    // the extra lamps (J): the two OU-3GA searchlights, one in front of the commander's hatch, one on the gun
+    // cradle (it turns and elevates with the guns); the model has their IR filter covers shut, so they are
+    // drawn open with a clear lens (faces measured off the housings and their cover latches, hub frame)
+    searchlights: [
+      { at: [0.352, 1.459, -2.466], r: 0.083, rim: 0.107 },
+      { at: [-0.025, 1.991, -1.011], r: 0.083, rim: 0.107, turret: true },
+    ],
   },
 
   tests: {},   // no 0-100 band: its own scenario (npm run simtest btr)

@@ -100,7 +100,7 @@ export class HUD {
           <span class="tt amber" id="t-tc" hidden>TC</span>
           <span class="tt blue" id="t-rwd" hidden>2WD</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
-          <span class="tt amber" id="t-bar" hidden>EXTRA LAMPS</span>
+          <span class="tt amber" id="t-aux" hidden>EXTRA LAMPS</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
         </div>
         <div class="cl-body">
@@ -151,7 +151,7 @@ export class HUD {
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
       psi: $('h-psi'), surf: $('h-surf'),
-      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
+      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tAux: $('t-aux'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
     Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev') });
@@ -432,7 +432,7 @@ export class HUD {
       e.tHead.textContent = head === 2 ? 'HIGH BEAM' : 'LOW BEAM';
       e.tHead.className = 'tt ' + (head === 2 ? 'blue' : 'green');
     }
-    this.lamp(e.tBar, 'bar', view.lights.bar);
+    this.lamp(e.tAux, 'aux', view.lights.aux);
     this.lamp(e.tHaz, 'haz', view.lights.hazard);
 
     // context tips (4 Hz)

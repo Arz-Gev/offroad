@@ -198,7 +198,7 @@ export class Multiplayer {
       if (+h.tr) P.tire.radius = +h.tr;
       const model = await buildCarModel(car);
       // no lamp beams for friends (see the header): only the lens glow
-      for (const k of ['head', 'bar', 'rear']) { const L = model.lights[k]; if (!L) continue; L.parent?.remove(L); L.target.parent?.remove(L.target); }
+      for (const L of [model.lights.head, ...model.lights.aux, model.lights.rear]) { L.parent?.remove(L); L.target.parent?.remove(L.target); }
       if (!this.peers.has(p.id)) return;    // left while loading
       this.removeModel(p);
       p.proxy = makeProxy(P);
@@ -384,7 +384,7 @@ export class Multiplayer {
     s[S.rpm] = Math.round(d.rpm);
     s[S.brake] = r3(v.ctl.brake);
     const rev = d.mode === 'manual' ? d.manualGear < 0 : d.selector === 'R';
-    s[S.flags] = ls.head | (ls.bar ? 4 : 0) | (ls.hazard ? 8 : 0) | (d.running ? 16 : 0) | (rev ? 32 : 0) | (d.range === 'low' ? 64 : 0);
+    s[S.flags] = ls.head | (ls.aux ? 4 : 0) | (ls.hazard ? 8 : 0) | (d.running ? 16 : 0) | (rev ? 32 : 0) | (d.range === 'low' ? 64 : 0);
     for (let i = 0; i < 2 * nA; i++) {
       const w = v.wheels[i], k = S.wheels + i * 3;
       s[k] = r4(w.steer); s[k + 1] = r3(w.spin); s[k + 2] = r4(w.contact ? w.pen : -1);
@@ -419,7 +419,7 @@ export class Multiplayer {
       if (shots > T.shots && T.shots > 0) this.api.friendShots?.(p, shots - T.shots);   // muzzle flash + tracer on our side
       T.shots = shots;
     }
-    p.view.lights.head = f & 3; p.view.lights.bar = !!(f & 4); p.view.lights.hazard = !!(f & 8);
+    p.view.lights.head = f & 3; p.view.lights.aux = !!(f & 4); p.view.lights.hazard = !!(f & 8);
     _v.set(s[S.pos], s[S.pos + 1], s[S.pos + 2]);
     _q.set(s[S.quat], s[S.quat + 1], s[S.quat + 2], s[S.quat + 3]).normalize();
     p.model.root.visible = true;

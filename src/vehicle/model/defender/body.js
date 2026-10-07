@@ -441,14 +441,14 @@ export function buildExterior(mats, body) {
   const LBZ = RZ0 - 0.04, LBY = RY0 + 0.05;
   rk(bar([-0.74, LBY - 0.035, LBZ + 0.03], [0.74, LBY - 0.035, LBZ + 0.03], 0.02, mats.blackMetal, 8));
   for (const s of sides) rk(bar([s * 0.74, LBY - 0.035, LBZ + 0.03], [s * RX, RY0, RZ0 + 0.06], 0.018, mats.blackMetal, 8));
-  out.barLens = [];
+  out.auxLens = [];
   for (const x of [-0.56, -0.28, 0.28, 0.56]) {
     rk(rbox(0.18, 0.135, 0.1, 0.02, mats.black, x, LBY + 0.04, LBZ));
     rk(rbox(0.012, 0.05, 0.04, 0.004, mats.black, x, LBY - 0.035, LBZ + 0.02));
     rk(frame(-0.07, -0.051, 0.07, 0.051, 0.01, 0.008, 0.014, mats.chrome)).position.set(x, LBY + 0.04, LBZ - 0.05);
-    const lens = rk(rbox(0.142, 0.104, 0.014, 0.006, mats.barLens, x, LBY + 0.04, LBZ - 0.048));
+    const lens = rk(rbox(0.142, 0.104, 0.014, 0.006, mats.auxLens, x, LBY + 0.04, LBZ - 0.048));
     lens.castShadow = false;
-    out.barLens.push(lens);
+    out.auxLens.push(lens);
   }
   rk(rbox(0.1, 0.03, 0.08, 0.01, mats.black, 0, LBY - 0.01, LBZ + 0.02));
   const bc = rk(mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.075, 18), mats.beacon, 0, LBY + 0.04, LBZ + 0.02));
@@ -476,7 +476,7 @@ export function buildExterior(mats, body) {
 
   out.anchors = {
     head: [0, 1.0, FRONT - 0.31],
-    bar: [0, LBY + 0.04, LBZ - 0.12],
+    aux: [0, LBY + 0.04, LBZ - 0.12],
     rear: [0, 0.82, REAR + 0.3],
   };
   return out;

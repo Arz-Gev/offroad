@@ -18,7 +18,7 @@ export class VehicleView {
     this.m = model;
     this.v = vehicle;
     this.P = vehicle.P;
-    this.lights = { head: 0, bar: false, hazard: false }; // head: 0 off, 1 low, 2 high
+    this.lights = { head: 0, aux: false, hazard: false }; // head: 0 off, 1 low, 2 high
     this.blink = 0;
   }
 
@@ -85,8 +85,8 @@ export class VehicleView {
     const tailOn = head > 0;
     // lights only exist in the scene at night or when something is switched on (no cost in the day);
     // at night they stay in the scene with zero intensity, so switching lamps never recompiles shaders
-    const live = env.night || head > 0 || ls.bar;
-    for (const l of [L.head, L.bar, L.rear]) if (l) l.visible = live;
+    const live = env.night || head > 0 || ls.aux;
+    for (const l of [L.head, ...L.aux, L.rear]) l.visible = live;
     const amb = this.ambientLevel();
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
@@ -98,17 +98,17 @@ export class VehicleView {
     L.head.shadow.autoUpdate = live && head > 0 && env.shadows !== false;
     // keep the cookie level with the truck, not with the world, when it rolls
     L.head.shadow.camera.up.set(0, 1, 0).applyQuaternion(quat);
-    if (L.bar) {
-      L.bar.shadow.camera.up.copy(L.head.shadow.camera.up);
-      L.bar.intensity = ls.bar ? L.bar.userData.peak * k : 0;
+    for (const l of L.aux) {
+      l.shadow.camera.up.copy(L.head.shadow.camera.up);
+      l.intensity = ls.aux ? l.userData.peak * k : 0;
     }
 
     // lens glow by role (a model without a lens for a role skips it; roles sharing a material: the later wins)
     this.blink += dt;
     const blinkOn = ls.hazard && (this.blink % 0.8) < 0.4;
     const glow = this.glow ||= {};
-    glow.head = head === 0 ? 0 : head === 1 ? 2.6 : 5.0; glow.side = tailOn ? 1.2 : 0; glow.bar = ls.bar ? 6.0 : 0;
-    glow.work = ls.bar && reversing ? 4.0 : 0; glow.tail = tailOn ? 1.6 : 0; glow.brake = braking ? 3.2 : tailOn ? 1.0 : 0;
+    glow.head = head === 0 ? 0 : head === 1 ? 2.6 : 5.0; glow.side = tailOn ? 1.2 : 0; glow.aux = ls.aux ? 6.0 : 0;
+    glow.work = ls.aux && reversing ? 4.0 : 0; glow.tail = tailOn ? 1.6 : 0; glow.brake = braking ? 3.2 : tailOn ? 1.0 : 0;
     glow.reverse = reversing ? 4.0 : 0; glow.amber = blinkOn ? 5.0 : 0; glow.beacon = 0;
     for (const role in glow) {
       const mats = lens[role];

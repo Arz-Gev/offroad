@@ -414,7 +414,7 @@ async function main() {
     pressureDown: () => changePressure(-2),
     pressureUp: () => changePressure(2),
     headlights: () => setHeadlights((view.lights.head + 1) % 3),
-    lightBar: () => { view.lights.bar = !view.lights.bar; say('bar', view.lights.bar ? 'Extra lamps on' : 'Extra lamps off'); },
+    auxLights: () => { view.lights.aux = !view.lights.aux; say('aux', view.lights.aux ? 'Extra lamps on' : 'Extra lamps off'); },
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
     camera: () => settings.set('camera', next(camModes, rig.mode)),
@@ -472,7 +472,7 @@ async function main() {
         case 'sound': return !settings.get('muted');
         case 'pressureText': return fmtPressure(vehicle.pressure, settings.get('pressureUnit'));
         case 'headlights': return view.lights.head;
-        case 'lightBar': return view.lights.bar;
+        case 'auxLights': return view.lights.aux;
         case 'hazards': return view.lights.hazard;
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;
@@ -489,7 +489,7 @@ async function main() {
       const silent = { silent: true };
       if (key === 'sound') settings.set('muted', !v, silent);
       else if (key === 'headlights') setHeadlights(v, true);
-      else if (key === 'lightBar') view.lights.bar = !!v && !!model.lights.bar;
+      else if (key === 'auxLights') view.lights.aux = !!v && model.lights.aux.length > 0;
       else if (key === 'hazards') view.lights.hazard = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
@@ -666,8 +666,8 @@ async function main() {
   // without it), then the real state. One frame without drawing comes first, so the compile sees the
   // lights as they are.
   try {
-    const ls = view.lights, head = ls.head, bar = ls.bar;
-    ls.head = 1; ls.bar = !!model.lights.bar;
+    const ls = view.lights, head = ls.head, aux = ls.aux;
+    ls.head = 1; ls.aux = model.lights.aux.length > 0;
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
@@ -677,7 +677,7 @@ async function main() {
     pipeline.render(1 / 60);
     pp.autoExposure = ae; pp.auto = au;
     pipeline.resetExposure = true;
-    ls.head = head; ls.bar = bar;
+    ls.head = head; ls.aux = aux;
     tick(1 / 60, false);
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
   } catch (e) { console.warn('shader warm-up', e); }

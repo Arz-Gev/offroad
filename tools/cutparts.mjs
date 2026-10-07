@@ -1,7 +1,8 @@
 // Cut parts out of a prepared car model (public/models/<id>.glb, the frame prepcar baked: +x right, -z
 // forward, metres, y 0 at the hub) into nodes of their own, so the game can move them: the steering wheel,
 // the gear lever (the car's look.cockpit names them). A part is every connected piece of mesh (vertices
-// welded by position) whose bounding box lies inside the part's box.
+// welded by position) whose bounding box lies inside the part's box; a part with `material` takes only the pieces
+// of that material (the Lancia's driving lamp inserts, not the glass in front of them).
 //   needs (in a scratch dir, not this repo): npm i @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions meshoptimizer
 //   node cutparts.mjs in.glb out.glb '{"parts":[{"name":"steering_wheel","box":[[x0,x1],[y0,y1],[z0,z1]]}]}'
 //   LIST='[cx,cy,cz,r]' node cutparts.mjs in.glb   lists the pieces whose box centre is within r of c (to find the box)
@@ -54,7 +55,7 @@ for (const node of root.listNodes()) {
         if (Math.hypot(c[0] - list[0], c[1] - list[1], c[2] - list[2]) < list[3]) found.push({ node: node.getName(), material: prim.getMaterial()?.getName(), min: b.min.map(x => +x.toFixed(3)), max: b.max.map(x => +x.toFixed(3)), verts: b.n });
         continue;
       }
-      const part = parts.find(p => inside(b, p.box));
+      const part = parts.find(p => inside(b, p.box) && (!p.material || p.material === prim.getMaterial()?.getName()));
       if (part) where.set(r, part.name);
     }
     if (list || !where.size) continue;
