@@ -5,7 +5,8 @@
 export const QUALITY_ORDER = ['mobile', 'low', 'medium', 'high', 'ultra'];
 
 export const QUALITY = {
-  // phones and tablets (Auto picks it there): no anti-aliasing (the pixels are tiny), no shadows, no AO,
+  // Anti-aliasing is off in every preset (the player turns it on under Graphics, which makes the preset Custom).
+  // phones and tablets (Auto picks it there): no shadows, no AO,
   // no grass or bushes. dynamicDpr: the pixel density moves between 1 and `dpr` on its own to hold
   // 45-60 fps (main.js, "dynamic resolution").
   mobile: {
@@ -17,7 +18,7 @@ export const QUALITY = {
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
-    label: 'Low', dpr: 1.0, msaa: 0, fxaa: true, shadows: 'low', ssao: 'off',
+    label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true,
     grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
@@ -25,7 +26,7 @@ export const QUALITY = {
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   medium: {
-    label: 'Medium', dpr: 1.25, msaa: 0, fxaa: true, shadows: 'medium', ssao: 'off',
+    label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true,
     grass: 0.1, grassHeight: 3.25, grassWidth: 1.3, grassRadius: 239, grassNear: 58,
@@ -33,7 +34,7 @@ export const QUALITY = {
     bushes: 0.2, bushHeight: 2.1, bushDist: 1.25,
   },
   high: {
-    label: 'High', dpr: 1.5, msaa: 2, fxaa: false, shadows: 'high', ssao: 'low',
+    label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true,
     grass: 0.15, grassHeight: 3.25, grassWidth: 2, grassRadius: 239, grassNear: 60,
@@ -41,7 +42,7 @@ export const QUALITY = {
     bushes: 0.65, bushHeight: 1.6, bushDist: 1.55,
   },
   ultra: {
-    label: 'Ultra', dpr: 2.0, msaa: 4, fxaa: false, shadows: 'ultra', ssao: 'high',
+    label: 'Ultra', dpr: 2.0, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true,
     grass: 0.8, grassHeight: 2.35, grassWidth: 1.05, grassRadius: 239, grassNear: 60,

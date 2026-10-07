@@ -10,8 +10,8 @@ export const DEFAULTS = {
   car: DEFAULT_CAR,         // src/cars/; changing it reloads the game
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
-  arcadeAuto: false,        // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
-  handbrake: 'hold',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
+  arcadeAuto: true,         // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
+  handbrake: 'auto',        // 'hold' (while pressed) | 'toggle' | 'auto' (tap toggles, long press holds)
   steerAssist: 'strong',    // keyboard steering at speed: 'strong' (~0.75 g) | 'light' (gamepad curve) | 'off' (full lock)
   camera: 'chase',
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
@@ -25,7 +25,7 @@ export const DEFAULTS = {
   hints: true,              // key hints in the top-left corner
   suspension: false,        // wheel load / travel panel
   telemetry: false,
-  fps: false,
+  fps: true,
   autoPause: true,          // open the menu when the window loses focus
   touchControls: 'auto',    // on-screen controls (touch.js): 'auto' (while you use the touch screen) | 'on' | 'off'
   touchSteer: 'stick',      // touch steering: 'stick' (left thumb slides) | 'tilt' (turn the device like a wheel)
@@ -33,7 +33,7 @@ export const DEFAULTS = {
   renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
   // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
   gDpr: 1.5,                // device pixel ratio cap
-  gAA: 'msaa2',             // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
+  gAA: 'off',               // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
   gShadows: 'high',         // 'off' | 'low' | 'medium' | 'high' | 'ultra'
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
   gBloom: true,
