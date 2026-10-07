@@ -3,7 +3,7 @@
 // Per axle: static spring compression (sag) and its share of the travel, droop left, room to the bump rubber
 // (5 cm before the hard stop) and to the stop, the extra load the springs take before the rubber (in g of
 // the static load), the sprung heave frequency (spring only, no tyre), and for 2 axles the roll stiffness
-// share of the front (springs at springTrack + bar). Targets for a new car: .claude/skills/add-car/SKILL.md.
+// share of the front (springs at springTrack + bar). Targets for a new car: src/cars/README.md.
 import { makeCarParams } from '../src/vehicle/carParams.js';
 import { CAR_IDS } from '../src/cars/index.js';
 import { axleShares } from '../src/vehicle/suspension.js';
