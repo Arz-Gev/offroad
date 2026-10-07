@@ -6,7 +6,7 @@
 // The deflection is clamped by the steady-state slip, which stops wind-up when a wheel spins in place.
 
 export const SURFACES = {
-  dirt:     { name: 'Dirt',     mu: 0.72, crr: 0.026, kPeak: 0.15, aPeak: 0.16, C: 1.35, soft: 0.5, dust: 1.0, color: [0.55, 0.45, 0.33] },
+  dirt:     { name: 'Dirt',     mu: 0.72, crr: 0.026, kPeak: 0.15, aPeak: 0.16, C: 1.35, soft: 0.5, dust: 1.0, color: [0.54, 0.40, 0.26] },
   grass:    { name: 'Grass',    mu: 0.58, crr: 0.034, kPeak: 0.14, aPeak: 0.15, C: 1.40, soft: 0.4, dust: 0.25, color: [0.36, 0.40, 0.24] },
   rock:     { name: 'Rock',     mu: 0.98, crr: 0.013, kPeak: 0.11, aPeak: 0.13, C: 1.55, soft: 0.0, dust: 0.15, color: [0.5, 0.5, 0.5] },
   mud:      { name: 'Mud',      mu: 0.42, crr: 0.10,  kPeak: 0.30, aPeak: 0.22, C: 1.05, soft: 1.0, dust: 0.0, mud: 1, color: [0.25, 0.18, 0.11] },
