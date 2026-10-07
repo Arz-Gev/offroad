@@ -8,8 +8,6 @@ npm run dev        # http://localhost:5174
 npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual, cars, btr)
 ```
 
-**Where the game is going**: `docs/` (vision, physics, car pipeline, world, graphics, UI, audio, modes, tech, roadmap, known issues), starting with `docs/00-vision.md`.
-
 See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
 
 ## Controls
@@ -62,7 +60,7 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 - Multiplayer: [Trystero](https://github.com/dmotz/trystero) (MIT).
 - Mercedes-Benz G-Class 2021 model: [ItsDiyor on Sketchfab](https://sketchfab.com/3d-models/1768618c049b49fcb0d09a86d6f67c8d), CC BY 4.0. Wheels split off, compressed and re-framed for the game (`public/models/gclass2021.glb`).
 - Lancia Delta HF Integrale Evo 2 model: [TARANTULA on Sketchfab](https://sketchfab.com/3d-models/85614131e0dc4613a948472aaa935fc7), CC BY 4.0. Same treatment (`public/models/lancia-delta.glb`).
-- BTR-80 model: ["BTR 80" by Goga.Danelia on Sketchfab](https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce), CC BY 4.0. Scaled, wheels, tyres and the suspension parts split off, compressed (`public/models/btr80.glb`; source and steps in `assets-src/btr80/`).
+- BTR-80 model: ["BTR 80" by Goga.Danelia on Sketchfab](https://sketchfab.com/3d-models/2980ab7cbc4d41b7893e3233e9dcc1ce), CC BY 4.0. Scaled, wheels, tyres and the suspension parts split off, compressed (`public/models/btr80.glb`; steps in `assets-src/btr80/`).
 - Muzzle flashes: real photos, keyed in `assets-src/muzzleflash/`: "Muzzle flash VFX" 1–5 by ZunterPHOTO on Wikimedia Commons (CC0) and "Light 'Em Up" by the US Marines (public domain).
 
 ## License
