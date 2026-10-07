@@ -3,7 +3,7 @@
 // Prints body heave / pitch / roll and wheel loads every 50 ms after the front axle hits the bump.
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 await RAPIER.init();
 const kmh = +(process.argv[2] || 40), bh = +(process.argv[3] || 0.10), bl = +(process.argv[4] || 1.0), side = process.argv[5] || 'both';
 const H = 1 / 240, size = 400, n = 1600, N = n + 1;
@@ -19,7 +19,7 @@ for (let c = 0; c < N; c++) for (let r = 0; r < N; r++) {
 }
 world.createCollider(RAPIER.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }));
 world.step();
-const P = makeDefenderParams();
+const P = makeCarParams('defender');
 const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: 0.12, z: 40 } });
 const ctl = (o = {}) => ({ throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, ...o });
 // settle then accelerate to speed, then hold speed with a simple P controller

@@ -1,20 +1,21 @@
 import * as THREE from 'three/webgpu';
 
-// Truck lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
+// Vehicle lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
 // cut-off: very little light goes steeply down (near field), most goes just below the horizon (far
 // field). Ground illuminance from a lamp at height h is E = I * h / r^3, so a plain cone always gives a
 // blown-out pool at the bumper and nothing further away. Here every beam is a SpotLight with a
 // light cookie (SpotLight.map) that encodes the angular intensity distribution I(elevation, azimuth).
 //
-// Lights (all on the truck root, only made visible at night or when something is switched on, so the
-// day scene pays nothing for them):
+// Lights (all on the vehicle root, only made visible at night or when something is switched on, so the
+// day scene pays nothing for them), at the car's lamp positions (look.lamps, or its procedural body's):
 //   head  - one spot between the headlamps, low/high beam cookies, the only shadow caster
 //   bar   - roof light bar, wide long-range flood, no shadow (the source is above the eye anyway)
 //   rear  - one small dim spot for tail/brake glow and the reversing lamps
-// Lens glow comes from emissive materials; there are no point lights.
+// Lens glow comes from emissive materials (lensRoles: the lamps' roles -> materials); there are no point
+// lights.
 
 // The lamps' irradiance shoulder (a soft cap on very close, bright surfaces) is in render/lamps.js.
-export { LAMP_KNEE } from '../render/lamps.js';
+export { LAMP_KNEE } from '../../render/lamps.js';
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -123,11 +124,44 @@ export function buildLightRig(root, at) {
   rig.head.shadow.autoUpdate = false;
   rig.head.userData.peak = { low: BEAM.low, high: BEAM.low * cookies.high.userData.peak / cookies.low.userData.peak };
 
-  rig.bar = spot(0xeef3ff, at.bar, [0, 0, -1], ANG, 0.08, 240);
-  rig.bar.map = cookies.bar;
-  rig.bar.userData.peak = BEAM.bar;
+  // bar: only a car with a light bar (or driving lamps / a searchlight that stand in for one) has its beam
+  if (at.bar) {
+    rig.bar = spot(0xeef3ff, at.bar, [0, 0, -1], ANG, 0.08, 240);
+    rig.bar.map = cookies.bar;
+    rig.bar.userData.peak = BEAM.bar;
+  }
 
   // rear: tail/brake glow + reversing lamps, aimed back and down
   rig.rear = spot(0xff2a10, at.rear, [0, -0.3, 1], 0.95, 0.8, 11);
   return rig;
+}
+
+// The lens roles VehicleView drives: head, side (side lamps), bar (light bar), work (reversing work lamps),
+// tail, brake, reverse, amber (indicators / hazards), beacon; each role is a list of materials. A downloaded
+// model names its lenses by role (look.lamps.lenses: role -> a pattern matched against the material name
+// and the mesh name, e.g. the nodes tools/cutparts.mjs cut out). Every source material under a pattern
+// gets one glowing copy, shared by the roles that name the same pattern (the BTR-80's red lens is tail and
+// brake).
+const LENS_COLOR = { amber: [1, 0.55, 0.1], beacon: [1, 0.55, 0.1], tail: [1, 0.1, 0.05], brake: [1, 0.1, 0.05] };
+export function modelLenses(shell, lenses = {}) {
+  const roles = {}, byPattern = new Map();
+  for (const [role, pattern] of Object.entries(lenses)) {
+    if (!byPattern.has(pattern)) {
+      const re = new RegExp(pattern), copies = new Map();
+      shell.traverse(o => {
+        if (!o.isMesh || !(re.test(o.material.name) || re.test(o.name))) return;
+        let mat = copies.get(o.material);
+        if (!mat) {
+          mat = o.material.clone(); mat.emissive = new THREE.Color(...(LENS_COLOR[role] || [1, 1, 1])); mat.emissiveIntensity = 0;
+          // clear glass: lit from inside it shows its glow (VehicleView raises the opacity with it)
+          if (mat.transparent) mat.userData.clearOpacity = mat.opacity;
+          copies.set(o.material, mat);
+        }
+        o.material = mat;
+      });
+      byPattern.set(pattern, [...copies.values()]);
+    }
+    if (byPattern.get(pattern).length) roles[role] = byPattern.get(pattern);
+  }
+  return roles;
 }

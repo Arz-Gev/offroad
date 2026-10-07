@@ -4,8 +4,8 @@ import {
   floor, fract, mix, clamp, smoothstep, dot, abs, pow, length, fwidth, normalize, bumpMap, materialRoughness, materialColor,
   materialOpacity,
 } from 'three/tsl';
-import { premultipliedFog } from '../render/fog.js';
-import { EnvScaledStandardMaterial, EnvScaledPhysicalMaterial } from '../render/envscale.js';
+import { premultipliedFog } from '../../render/fog.js';
+import { EnvScaledStandardMaterial, EnvScaledPhysicalMaterial } from '../../render/envscale.js';
 
 // Truck materials (node materials). All of them share a few uniforms driven by VehicleView:
 //   uEnvSpec  - strength of the sky reflections (render/envscale.js), a bit more at night

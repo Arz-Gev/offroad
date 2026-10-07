@@ -1,9 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { D } from './truckDims.js';
+import { D } from './dims.js';
 import {
   mesh, rbox, span, bar, pipe, extrudeProfile, extrudeFront, extrudePlan, extrudeShape,
   plate, frame, rrPath, polyShape, polyPath, warpGroup, tumblehome,
-} from './geom.js';
+} from '../geom.js';
 
 // Exterior of the Defender 110 station wagon (reference.webp): lower body with squared arches and
 // black flares, raised-centre bonnet with louvred wing vents, grille + round lamps in square bezels,

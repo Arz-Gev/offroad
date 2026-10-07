@@ -3,7 +3,7 @@ import {
   Fn, If, uniform, uniformArray, texture, vec2, vec3, vec4, float, int, positionGeometry, materialColor,
   cos, sin, atan, length, floor, clamp, smoothstep, select, sign, mix, max, min,
 } from 'three/tsl';
-import { TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET } from './tire.js';
+import { TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET } from '../tire.js';
 
 // Tyre material whose vertex shader deforms the tyre by the physics contact data, ray by ray (tyre v2).
 //

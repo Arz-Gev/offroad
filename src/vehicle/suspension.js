@@ -1,9 +1,9 @@
-// Geometry shared by the physics (Vehicle.js), the tuning readouts (tuning.js), the car data (carSpecs.js)
+// Geometry shared by the physics (Vehicle.js), the tuning readouts (tuning.js), the car params (carParams.js)
 // and the view: how the sprung weight splits over N axles, Ackermann steering about one turning centre,
 // and the kinematic curves of an independent (double wishbone) corner.
 
 // Share of the sprung weight on each axle. Two axles: the lever rule. More axles are statically
-// indeterminate; this is the split of a rigid body on equal springs (carSpecs sets each axle's droop
+// indeterminate; this is the split of a rigid body on equal springs (carParams sets each axle's droop
 // height from it, so the body sits level at this split whatever the spring rates).
 export function axleShares(P) {
   const A = P.axles, n = A.length;
@@ -12,6 +12,11 @@ export function axleShares(P) {
   const Szz = A.reduce((s, a) => s + (a.z - zm) ** 2, 0);
   return A.map(a => 1 / n + (P.com[2] - zm) * (a.z - zm) / Szz);
 }
+
+// Wheel / corner names: FL FR RL RR on two axles, 1L 1R 2L 2R ... from the front on more. Wheel i is
+// axle i >> 1, left (even) or right (odd); the model files name their wheel nodes the same way.
+export const wheelName = (i, nA) => nA === 2 ? ['FL', 'FR', 'RL', 'RR'][i] : `${(i >> 1) + 1}${i % 2 ? 'R' : 'L'}`;
+export const cornerName = (a, side, nA) => wheelName(2 * a + (side > 0 ? 1 : 0), nA);
 
 // Ackermann steering. Every steered wheel turns about one point on the line z = steer.centreZ (body
 // frame); without centreZ that is the rear axle of a 4x4 and the reference length is the wheelbase.

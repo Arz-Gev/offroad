@@ -8,7 +8,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { SURFACES } from '../src/vehicle/tire.js';
 
 const SR = 48000, H = 1 / 240;
@@ -24,7 +24,7 @@ await RAPIER.init();
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 }); world.timestep = H;
 world.createCollider(RAPIER.ColliderDesc.heightfield(20, 20, new Float32Array(21 * 21), { x: 200, y: 1, z: 200 }));
 world.step();
-const v = new Vehicle(RAPIER, world, makeDefenderParams(), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES.dirt });
+const v = new Vehicle(RAPIER, world, makeCarParams('defender'), { position: { x: 0, y: 0.12, z: 0 }, surfaceAt: () => SURFACES.dirt });
 const d = v.drivetrain, raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0 };
 d.setSelector('P');
 for (let i = 0; i < 240; i++) { v.step(H, raw); world.step(); }

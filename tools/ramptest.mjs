@@ -4,7 +4,7 @@
 //   node tools/ramptest.mjs [old|new|both] [deg,deg,...]     TUNE='{"tyres":{"size":35}}' for a setup
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { SURFACES } from '../src/vehicle/tire.js';
 import { STOCK, sanitize, applySetup, geometry } from '../src/vehicle/tuning.js';
 import { touchPoints } from '../src/vehicle/colliderView.js';
@@ -38,7 +38,7 @@ function world(deg) {
 
 function climb(deg, colliders, names) {
   const { w, rise } = world(deg);
-  const P = applySetup(makeDefenderParams(), setup);
+  const P = applySetup(makeCarParams('defender'), setup);
   P.colliders = colliders;
   const v = new Vehicle(RAPIER, w, P, { position: { x: 0, y: 0.15 + (P.tire.radius - 0.42) + P.lift, z: 6 }, surfaceAt: () => SURFACES[process.env.SURF || 'concrete'] });
   const d = v.drivetrain;
@@ -65,10 +65,10 @@ function climb(deg, colliders, names) {
   return `${top ? 'TOP  ' : 'STUCK'} in ${t.toFixed(1)} s, climbed ${maxY.toFixed(2)}/${rise} m; body touched: ${hits}`;
 }
 
-const P0 = applySetup(makeDefenderParams(), setup);
+const P0 = applySetup(makeCarParams('defender'), setup);
 for (const [label, cols, names] of [['old', OLD, OLD_NAMES], ['new', P0.colliders, P0.colliderNames]]) {
   if (which !== 'both' && which !== label) continue;
-  const Pg = applySetup(makeDefenderParams(), setup); Pg.colliders = cols;
+  const Pg = applySetup(makeCarParams('defender'), setup); Pg.colliders = cols;
   const g = geometry(Pg, setup.tyres.pressF, setup.tyres.pressR);
   console.log(`=== ${label} colliders: approach ${g.approach.toFixed(1)}°, departure ${g.departure.toFixed(1)}°, breakover ${g.breakover.toFixed(1)}°`);
   for (const deg of degs) console.log(`${String(deg).padStart(3)}°  ${climb(deg, cols, names)}`);
