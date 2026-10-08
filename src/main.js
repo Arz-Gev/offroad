@@ -4,7 +4,7 @@ import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality, VEG_KEYS, vegToGfx } from './render/quality.js';
 
-import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
+import { Terrain, SPAWN, LANES, HILL, POI, MEADOW } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
@@ -191,6 +191,7 @@ async function main() {
     { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
     { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
     { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
+    ...(MEADOW ? [{ name: 'Meadow', tag: 'Temporary · ?vegtune', title: 'Grass test meadow', desc: 'A flat field of grass for tuning the grass presets.', x: MEADOW.x, z: MEADOW.z, yaw: 0 }] : []),
     { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
   ];
   const streamAround = (x, z) => {
@@ -648,6 +649,14 @@ async function main() {
     onPause: setPaused,
   });
   game.menu = menu;
+  // TEMPORARY: ?vegtune starts on the test meadow with the grass preset tuner (vegTuner.js)
+  if (MEADOW) {
+    placeVehicle(MEADOW.x, MEADOW.z, 0);
+    import('./vegTuner.js').then(m => m.startVegTuner({
+      settings,
+      apply(v) { scenery.configure({ ...gfx.q, ...v, vegetation: true }); game.redraw = 3; },
+    }));
+  }
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { makeSimplex2D, mulberry32, fbm } from './noise.js';
-import { LANES, PAD, SPAWN, SURF, MAP_SIZE, POI } from './terrain.js';
+import { LANES, PAD, SPAWN, SURF, MAP_SIZE, POI, MEADOW } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
@@ -87,7 +87,8 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
     rockGeos.push(g);
   };
   const clear = (x, z, m) => !terrain.isTrail(x, z, m) && !(x > PAD.x0 - m && x < PAD.x1 + m && z > PAD.z0 - m && z < PAD.z1 + m)
-    && Math.hypot(x - SPAWN.x, z - SPAWN.z) > 25 && Math.hypot(x - POI.hut.x, z - POI.hut.z) > 14 && terrain.waterLevelAt(x, z) < -1e8;
+    && Math.hypot(x - SPAWN.x, z - SPAWN.z) > 25 && Math.hypot(x - POI.hut.x, z - POI.hut.z) > 14 && terrain.waterLevelAt(x, z) < -1e8
+    && !(MEADOW && Math.hypot(x - MEADOW.x, z - MEADOW.z) < MEADOW.r + m);
   const slopeAt = (x, z) => Math.hypot(terrain.heightAt(x + 1, z) - terrain.heightAt(x - 1, z), terrain.heightAt(x, z + 1) - terrain.heightAt(x, z - 1)) / 2;
 
   // rock garden in lane C

@@ -1,0 +1,40 @@
+/* TEMPORARY grass preset tuner (vegTuner.js, ?vegtune): a translucent panel on the left over the running game. */
+.vegt {
+  position: fixed; top: 12px; left: 12px; z-index: 10; width: 330px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+  box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 14px; background: rgba(14, 16, 21, 0.82);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  font: 12.5px/1.35 var(--sans); color: var(--txt); -webkit-user-select: none; user-select: none;
+}
+body.paused .vegt { visibility: hidden; }
+.vegt button, .vegt textarea { font-family: inherit; }
+.vt-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 10px 8px 14px; }
+.vt-head b { font: 800 14px/1 var(--sans); }
+.vt-sub { flex: 1; font-size: 11px; color: var(--faint); }
+.vt-x { width: 26px; height: 26px; border: 0; border-radius: 7px; background: none; cursor: pointer; display: grid; place-items: center; }
+.vt-x::before { content: ''; width: 7px; height: 7px; margin-top: 3px; border: solid var(--dim); border-width: 0 2px 2px 0; transform: rotate(-135deg); }
+.vegt.collapsed .vt-x::before { margin-top: -3px; transform: rotate(45deg); }
+.vt-x:hover { background: rgba(255, 255, 255, 0.1); }
+.vegt.collapsed .vt-body { display: none; }
+.vt-body { overflow: auto; padding: 0 14px 12px; }
+.vt-seg { display: flex; padding: 2px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); }
+.vt-seg button { flex: 1; padding: 6px 8px; border: 0; border-radius: 7px; background: none; color: var(--dim); font: 650 12px/1 var(--sans); cursor: pointer; }
+.vt-seg button:hover:not(:disabled) { color: var(--txt); }
+.vt-seg button[aria-checked="true"] { background: rgba(255, 255, 255, 0.17); color: #fff; }
+.vt-seg button:disabled { opacity: 0.35; cursor: default; }
+.vt-presets button.edited::after { content: '•'; margin-left: 4px; color: var(--amber); }
+.vt-bar { display: flex; gap: 6px; margin: 8px 0 2px; }
+.vt-view { flex: 1; }
+.vt-b { flex: none; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.06); color: var(--txt); font: 650 12px/1 var(--sans); cursor: pointer; }
+.vt-b:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); }
+.vt-b:disabled { opacity: 0.35; cursor: default; }
+.vt-b.primary { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); }
+.vegt h3 { margin: 12px 0 2px; font: 700 11px/1.2 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); }
+.vt-row { padding: 3px 0; }
+.vt-l { display: flex; align-items: baseline; gap: 8px; }
+.vt-l span { flex: 1; font-weight: 600; }
+.vt-l output { font: 600 12px/1 var(--mono); }
+.vt-l small { min-width: 70px; text-align: right; font: 500 11px/1 var(--mono); color: var(--faint); }
+.vt-row.mod .vt-l output { color: var(--amber); }
+.vt-row input { width: 100%; margin: 4px 0 0; accent-color: var(--amber); cursor: pointer; }
+.vt-out { width: 100%; height: 110px; margin-top: 10px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--line-2); background: rgba(0, 0, 0, 0.3); color: var(--txt); font: 11px/1.4 var(--mono); }

@@ -24,6 +24,11 @@ export const PAD = { x0: -80, x1: -12, z0: -38, z1: 52 };
 export const LANES = { A: -22, B: -33, C: -44, D: -55, E: -66 };
 export const HILL = { x: 72, z: -30, r: 52, h: 24 };
 
+// TEMPORARY (grass preset tuning, remove with src/vegTuner.js): with ?vegtune in the URL the map gets a flat
+// grass meadow here (no trails or water within 80 m), with no trees or rocks, and the game starts on it
+export const MEADOW = typeof location !== 'undefined' && new URLSearchParams(location.search).has('vegtune')
+  ? { x: 300, z: 340, r: 60, blend: 35 } : null;
+
 // points of interest (teleports in main.js)
 export const POI = {
   lake: { x: 300, z: 70, rx: 82, rz: 58 },
@@ -308,6 +313,17 @@ export class Terrain {
         if (eq < 1.05) { this.surface[i] = slope > 0.45 ? SURF.rock : SURF.sand; continue; }
         if (H[i] > 70 && slope > 0.35) this.surface[i] = SURF.rock;
       }
+    }
+
+    // the test meadow (MEADOW): level at its centre height (keeping the fine bumps), blended into the hills
+    if (MEADOW) {
+      const m = MEADOW, h0 = this.heightAt(m.x, m.z), out = (m.r + m.blend) / m.r;
+      this.stampEllipse(m.x, m.z, m.r, m.r, (x, z, i, e) => {
+        if (e > out) return;
+        const w = smoothstep(out, 1, e);
+        H[i] += (h0 + this.fine(x, z) - H[i]) * w;
+        if (e < 1.15) this.surface[i] = SURF.grass;
+      });
     }
   }
 
