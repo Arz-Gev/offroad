@@ -18,7 +18,8 @@ for (const id of process.argv.slice(2).length ? process.argv.slice(2) : CAR_IDS)
     const sag = load / a.k - (a.preload || 0);
     const hz = Math.sqrt(a.k / (load / G)) / (2 * Math.PI);
     const rubber = a.travel - 0.05 - sag;
-    roll.push(a.k * (a.springTrack ?? P.track) ** 2 / 2 + (a.arb || 0));
+    // bar: beam N·m per rad of axle roll; independent N per m of left-right difference at the wheels (x track²)
+    roll.push(a.k * (a.springTrack ?? P.track) ** 2 / 2 + (a.arb || 0) * (a.type === 'independent' ? P.track ** 2 : 1));
     console.log(`  axle ${a.name.padEnd(5)} ${(a.type || 'beam').padEnd(11)} k ${a.k}  travel ${cm(a.travel)}  sag ${cm(sag)} (${Math.round(100 * sag / a.travel)} %)` +
       `  to rubber ${cm(rubber)}  to stop ${cm(a.travel - sag)} cm  margin ${(a.k * rubber / load).toFixed(2)} g  ${hz.toFixed(2)} Hz`);
   });

@@ -17,6 +17,8 @@ export default {
   id: 'gclass',              // settings, saved setups, multiplayer
   label: 'G-Class',          // menu, HUD, credits
   saveKey: '...',            // optional: a localStorage key from before cars had their own (the Defender)
+  suspensionV: 3,            // optional: setups saved before this setup version take the stock suspension
+                             // (set it to the new setup v when the car's axle types change)
   physics: { ... },          // -> params P (src/vehicle/carParams.js)
   look: { ... },             // -> the model (src/vehicle/model/index.js)
   tests: { t100: [4.7, 6] }, // bands for npm run simtest (0-100 km/h, stock, automatic)
@@ -200,6 +202,11 @@ Tab → Show physics shows the boxes, suspension travel and tyre patches.
 
 Then a line in DEVNOTES.md ("Cars"): sources, the model's measurements (tyre radius, wheelbase, track),
 the numbers from the checks, what differs from the real car and why, and anything found and not fixed.
+
+Changing an existing car's axle types: retune the bars (an independent bar is N per m of left-right
+difference at the wheels, x track² for N·m/rad; a beam bar is N·m/rad already), rerun the checks above, bump
+the setup `v` in `vehicle/tuning.js` and set the car's `suspensionV` to it, or the players' saved setups keep
+the old springs, dampers and bars.
 
 Known limits: beam axles and drawn independent corners are our generic parts (the car's track, travel and
 height, not its own arms); only double wishbones can use the model's own arms (`look.suspension`, the

@@ -15,7 +15,7 @@
 // Nothing needs a new rigid body, so the truck keeps its position and speed through every change.
 
 import { makeCarParams } from './carParams.js';
-import { setCar, carDef, DEFAULT_CAR } from '../cars/index.js';
+import { setCar, getCar, carDef, DEFAULT_CAR } from '../cars/index.js';
 import { ENGINES, ROAD_ENGINES, engineFriction } from './engines.js';
 import { tireRadialStiffness, tyreRadius, tyreWidth } from './tire.js';
 import { axleShares, steerRefLength } from './suspension.js';
@@ -43,7 +43,7 @@ function stockSetup() {
   const names = P.colliderNames;
   const axle = a => ({ k: a.k, bump: a.bump, rebound: a.rebound, arb: a.arb, travel: a.travel });
   return {
-    v: 2,
+    v: 3,
     engine: { preset: P.engine.preset, torque: 1, revs: 0 },
     gearbox: {
       auto: [...P.auto.ratios], autoRev: P.auto.reverse,
@@ -133,6 +133,9 @@ function fill(base, s) {
   // v1 setups carry the Oct 2 anti-roll bars (8000 / 8500, rear-biased: the truck spun out when you lifted
   // off at speed). Untouched stock values there take the current stock bars.
   if (!(s.v >= 2) && su.front?.arb === 8000 && su.rear?.arb === 8500) { delete su.front.arb; delete su.rear.arb; }
+  // the car's suspension changed kind after this setup was saved (its file's suspensionV, e.g. beam axles
+  // became independent: the bars are in other units): the setup takes the stock springs, dampers and bars
+  if (!(s.v >= (carDef(getCar()).suspensionV || 0))) { delete su.front; delete su.rear; }
   out.suspension.lift = num(su.lift, 'suspension.lift', out.suspension.lift);
   for (const ax of ['front', 'rear']) for (const k of ['k', 'bump', 'rebound', 'arb', 'travel']) out.suspension[ax][k] = num(su[ax]?.[k], 'suspension.' + k, out.suspension[ax][k]);
   const b = s.brakes || {};
@@ -375,7 +378,7 @@ export function analyze(P, setup, gearbox = 'auto') {
     const zeta = (a.bump + a.rebound) / (2 * Math.sqrt(2 * a.k * ms)); // two dampers, average of bump/rebound
     // roll stiffness: springs at their track (independent: wheel rates at the wheel track) + bar
     const st = a.type === 'independent' ? P.track : a.springTrack;
-    return { f, zeta, kRide, rollStiff: a.k * st * st / 2 + (a.type === 'independent' ? a.arb * P.track * P.track / 2 : a.arb) };
+    return { f, zeta, kRide, rollStiff: a.k * st * st / 2 + (a.type === 'independent' ? a.arb * P.track * P.track : a.arb) };
   });
   // gearing: road speed at the limiter in every gear, high and low range
   const R = P.tire.radius, Re = R - 0.012;
