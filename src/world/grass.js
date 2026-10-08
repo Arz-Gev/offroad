@@ -207,7 +207,7 @@ vec3 nonPerturbedNormal = normal;`)
       group.visible = enabled;
       scale = q.grass;
       // fewer, wider blades on lower presets; shorter radius
-      const r = q.grassRadius || 48;
+      let r = q.grassRadius || 48;
       const near = layers[0], far = layers[1];
       // density is the cell spacing (1 = a blade in every cell, above 1 closer together, below 1 further apart:
       // thinning by probability instead would still draw, and discard, every cell)
@@ -216,15 +216,17 @@ vec3 nonPerturbedNormal = normal;`)
       near.uniforms.uShape.value.z = 1;
       far.uniforms.uShape.value.z = 1;
       // the near layer's 2-segment blades cost most per square metre (vertex bound): keep it short
-      const rn = q.grassNear > 0 ? Math.min(q.grassNear, r) : Math.min(17 + Math.max(0, r - 46) * 0.12, r * 0.34);
+      const rn = q.grassNear > 0 ? q.grassNear : Math.min(17 + Math.max(0, r - 46) * 0.12, r * 0.34);
+      r = Math.max(r, rn);   // the far layer ends no closer than the dense one
       far.uniforms.uRad.value.set(r * 0.72, r, rn * 0.66, rn * 0.97);
       near.uniforms.uRad.value.set(rn * 0.7, rn, -1, 0);
       // far blades past ~52 m get coarser (wider and further apart) so the blade count grows with the
       // radius, not its square; grassFarGrow is the share of that growth that is applied (0 = none)
       const coarse = Math.max(1, r / 52) ** (q.grassFarGrow ?? 1);
       const hs = q.grassHeight ?? 1.5, ws = q.grassWidth ?? 1;
-      const fw = q.grassFarWidth ?? 1, fsp = q.grassFarSpacing ?? 1;
-      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fineFar * coarse * fsp, coarse * fw]]) {
+      // the far blades' width is their own (farWidth), not a multiple of the near width
+      const fw = q.farWidth ?? ws, fsp = q.grassFarSpacing ?? 1;
+      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fineFar * coarse * fsp, coarse * fw / ws]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;

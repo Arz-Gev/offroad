@@ -97,17 +97,22 @@ const GFX_SECTIONS = [
   ] },
   { title: 'Grass and bushes', rows: [
     row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).' }),
-    row('vegAdvanced', 'Advanced', 'disclose', { note: 'Fine-tune the grass and bushes. Moving a slider makes the preset Custom.' }),
-    row('gGrass', 'Grass density', 'range', { adv: 'vegAdvanced', min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeight', 'Grass height', 'range', { adv: 'vegAdvanced', min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Grass blade width', 'range', { adv: 'vegAdvanced', min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassDist', 'Grass distance', 'range', { adv: 'vegAdvanced', min: 119, max: 287, step: 1, scale: 1, unit: ' m' }),
-    row('gGrassNear', 'Dense grass radius', 'range', { adv: 'vegAdvanced', min: 42, max: 72, step: 1, scale: 1, unit: ' m', note: 'The fine layer around you. The expensive one.' }),
-    row('gGrassFarWidth', 'Far grass blade width', 'range', { adv: 'vegAdvanced', min: 130, max: 360, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFarSpacing', 'Far grass spacing', 'range', { adv: 'vegAdvanced', min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×', note: 'Lower packs more blades into the far layer (slower).' }),
-    row('gBushes', 'Bush density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Bush size', 'range', { adv: 'vegAdvanced', min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushDist', 'Bush distance', 'range', { adv: 'vegAdvanced', min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('vegAdvanced', 'Advanced', 'disclose'),
+    // Advanced: three groups (the heading names the layer, the sliders just say what they change)
+    row('vegSubGrass', 'Grass', 'sub', { adv: 'vegAdvanced' }),
+    row('gGrass', 'Density', 'range', { adv: 'vegAdvanced', min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassHeight', 'Height', 'range', { adv: 'vegAdvanced', min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassNear', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 72, step: 1, scale: 1, unit: ' m' }),
+    row('vegSubFar', 'Far grass', 'sub', { adv: 'vegAdvanced' }),
+    // its lower end follows the near grass distance (refresh)
+    row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 287, step: 1, scale: 1, unit: ' m', minKey: 'gGrassNear' }),
+    row('gFarWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 250, max: 445, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassFarSpacing', 'Spacing', 'range', { adv: 'vegAdvanced', min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
+    row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
   ] },
 ];
 
@@ -220,7 +225,8 @@ export class Menu {
       return '';
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
-      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
+      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => r.type === 'sub' ? `
+        <div class="set-row sub${r.adv ? ' adv' : ''}" data-key="${r.key}"><h3>${r.label}</h3></div>` : `
         <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}${r.type === 'disclose' ? ' disc' : ''}${r.adv ? ' adv' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
@@ -291,6 +297,7 @@ export class Menu {
       } else if (def.type === 'range') {
         const v = Math.round(api.get(key) * def.scale);
         const inp = rowEl.querySelector('input');
+        if (def.minKey) inp.min = Math.round(api.get(def.minKey) * def.scale);
         if (+inp.value !== v) inp.value = v;
         rowEl.querySelector('output').textContent = def.fmt ? def.fmt(v) : (def.dp != null ? (v / def.scale).toFixed(def.dp) : v) + def.unit;
       } else if (def.type === 'stepper') {
