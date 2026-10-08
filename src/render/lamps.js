@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { normalView, dot, max, inverseSqrt, float, If } from 'three/tsl';
+import { normalView, dot, max, abs, inverseSqrt, float, If } from 'three/tsl';
 
 // Spot lights with an irradiance shoulder (only the vehicles and the muzzle flash have spot lights).
 // Inverse-square makes a bank or a tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road
@@ -19,7 +19,9 @@ class LampSpotLightNode extends THREE.SpotLightNode {
   setupDirect(builder) {
     const d = super.setupDirect(builder);
     const c = d.lightColor;
-    const E = max(dot(normalView, d.lightDirection), 0.0).mul(max(c.r, max(c.g, c.b)));
+    // |N.L|: leaves and blades also take the light through their back face (render/foliage.js), so the
+    // cap must hold there too (with max(N.L, 0) a bush facing away got the uncapped lamp, brighter than it)
+    const E = abs(dot(normalView, d.lightDirection)).mul(max(c.r, max(c.g, c.b)));
     d.lightColor = c.mul(inverseSqrt(E.mul(E).mul(1 / (LAMP_KNEE * LAMP_KNEE)).add(1.0)));
     return d;
   }

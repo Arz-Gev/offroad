@@ -188,12 +188,33 @@ export class RenderPipeline {
       shaftNode = shafts.sample(screenUV).rgb;
     }
 
-    // bloom on the exposed picture (the threshold is in display units, as before)
+    // bloom on the exposed picture. three's BloomNode passes everything over its threshold at full
+    // strength, so the input is prefiltered here as the old WebGL chain did: a Karis average of four taps
+    // (one hot pixel cannot flicker the glow), a cap on brightness (the sun disc is thousands of times
+    // brighter than the sky: uncapped it flooded half the screen and vanished at once as it left the view),
+    // and a soft knee that lets through only the part above the threshold (a bush in the headlamps glowed
+    // like the lamp itself). The threshold is in display units, after exposure.
     const P = this.params;
-    const exposed = color.rgb.mul(ex);
-    const bl = this.bloomPass = bloom(vec4(exposed, 1), 1, 0.5, P.bloomThreshold);
-    this.bloomThreshold = bl.threshold;
-    bl.smoothWidth.value = P.bloomKnee;
+    const bu = this.bloomU = { threshold: uniform(P.bloomThreshold), knee: uniform(P.bloomKnee), maxBright: uniform(60) };
+    const luma = c => dot(c, vec3(0.2126, 0.7152, 0.0722));
+    const prefilter = Fn(() => {
+      const t = vec2(1.0).div(vec2(color.size(0)));
+      const sum = vec3(0).toVar(), wsum = float(0).toVar();
+      for (const [i, j] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const c = color.sample(screenUV.add(t.mul(vec2(i, j)))).rgb.mul(ex);
+        const w = float(1).div(luma(c).add(1.0));
+        sum.addAssign(c.mul(w)); wsum.addAssign(w);
+      }
+      const c = sum.div(wsum).toVar();
+      const br = max(c.r, max(c.g, c.b)).toVar();
+      c.mulAssign(min(float(1), bu.maxBright.div(max(br, 1e-4))));
+      br.assign(min(br, bu.maxBright));
+      const soft = clamp(br.sub(bu.threshold).add(bu.knee), 0.0, bu.knee.mul(2.0));
+      const contrib = max(soft.mul(soft).div(bu.knee.mul(4.0).add(1e-4)), br.sub(bu.threshold)).div(max(br, 1e-4));
+      return vec4(c.mul(contrib), 1.0);
+    })();
+    const bl = this.bloomPass = bloom(prefilter, 1, 0.5, 0);
+    bl.smoothWidth.value = 1e-4;
 
     const composite = Fn(() => {
       const c = color.rgb.mul(ex).toVar();
@@ -252,7 +273,7 @@ export class RenderPipeline {
     u.time.value = this.time;
     u.bloom.value = P.bloomStrength * 12;   // BloomNode's chain sums 5 normalised mips: ~12x the old chain's level
     u.bloomOn.value = P.bloom && P.bloomStrength > 0 ? 1 : 0;
-    this.bloomThreshold.value = P.bloomThreshold;
+    this.bloomU.threshold.value = P.bloomThreshold; this.bloomU.knee.value = P.bloomKnee;
     u.vignette.value = P.vignette; u.sat.value = P.saturation; u.contrast.value = P.contrast;
     u.tint.value.copy(P.tint); u.lift.value.copy(P.lift);
     u.aoOn.value = this.ssao !== 'off' ? 1 : 0;
