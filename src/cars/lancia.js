@@ -5,6 +5,7 @@ import { ROAD_ENGINES } from '../vehicle/engines.js';
 export default {
   id: 'lancia',
   label: 'Lancia Delta',
+  suspensionV: 3,           // independent axles since setup v3 (Oct 8): older saved setups take the stock suspension
 
   physics: {
     name: 'Delta HF Integrale',
@@ -18,14 +19,17 @@ export default {
     // rubbers) and it stays so: the rubbers keep the low floor off the ground. Stiffer springs (40000 / 28000,
     // 9 cm to the rubbers) let the floor strike over the crests at 70+ (tools/traillap.mjs)
     raise: 0.06,
-    // Beam axles here (the real car has MacPherson struts all round). The axle roll inertias and the rear
-    // roll steer are the Defender's, kept from when the car was added.
+    // MacPherson struts all round, as the real car. The springs work at the wheel track, so they alone give
+    // more roll stiffness than the old beam axles with their bars: no front bar, a light rear one. Roll
+    // centres 0.12 / 0.16: the 6 cm gravel lift raises them too (lower ones rolled the outer wheels onto the
+    // bump rubbers in every trail corner). Firmer bump damping (2300 / 1700 -> 3000 / 2200) keeps the
+    // rubbers below 2 % of the trail lap; more travel instead let the floor hit the crests again
     axles: [
-      { type: 'beam', steered: true, mass: 88, rollInertia: 75,
-        k: 30000, bump: 2300, rebound: 3700, arb: 6000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
+      { type: 'independent', linkage: 'strut', rcHeight: 0.12, camberGain: -0.5, steered: true, mass: 88,
+        k: 30000, bump: 3000, rebound: 3700, arb: 0, travel: 0.22 },
       // Torsen rear: up to 70 : 30 across the axle (diffLock 0.4)
-      { type: 'beam', mass: 82, rollInertia: 72, rollSteer: 0.06, diff: 'lsd', diffLock: 0.4,
-        k: 22000, bump: 1700, rebound: 2700, arb: 5000, travel: 0.22, springTrack: 0.92, damperTrack: 1.10 },
+      { type: 'independent', linkage: 'strut', rcHeight: 0.16, camberGain: -0.4, mass: 82, diff: 'lsd', diffLock: 0.4,
+        k: 22000, bump: 2200, rebound: 2700, arb: 2000, travel: 0.22 },
     ],
     tire: { size: 23.5, widthIn: 9.5, rimRadius: 0.203, inertia: 1.0, pressure: 22, grip: 1.12 },
     steer: { maxAngle: 0.56, ratio: 12, kingpinTrack: 1.27 },

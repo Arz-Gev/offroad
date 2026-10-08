@@ -4,24 +4,28 @@ import { ROAD_ENGINES } from '../vehicle/engines.js';
 export default {
   id: 'gclass',
   label: 'G-Class',
+  suspensionV: 3,           // independent axles since setup v3 (Oct 8): older saved setups take the stock suspension
 
   physics: {
     name: 'G-Class G 500',
     engine: { preset: 'g500', choices: ROAD_ENGINES },
-    bodyMass: 2050, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
+    bodyMass: 2105, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
     wheelbase: 2.907, track: 1.635,
     archTop: 0.86,   // the lowest body over the tyres (tools/rigview.html measureArches)
     // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
     // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60.
     // Front spring stiff enough that the static ride uses ~40 % of the travel (47000 sat at 45 %, 8 cm to the
-    // bump rubber); the front bar gave back the roll stiffness the spring added.
-    // Beam axles here (the real W463A has double wishbones in front and a five-link beam behind). The axle
-    // roll inertias and the rear roll steer are the Defender's, kept from when the car was added.
+    // bump rubber).
+    // As the real W463A: double wishbones in front, a five-link beam behind (its roll inertia and roll steer
+    // are the Defender's, kept from when the car was added). The front springs work at the wheel track, so
+    // the front alone gives 72 kN·m/rad of roll stiffness (the old front beam with its bar 39): no front bar,
+    // and a stiffer rear bar (4500 -> 20000) so the inner front wheel stays down in a 70 km/h slalom.
+    // Unsprung front 150 kg (estimate: arms, knuckles, wheels, brakes; the diff is in the body now)
     axles: [
-      { type: 'beam', steered: true, mass: 205, rollInertia: 75,
-        k: 54000, bump: 4400, rebound: 7000, arb: 9000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
+      { type: 'independent', linkage: 'wishbones', rcHeight: 0.10, camberGain: -0.3, steered: true, mass: 150,
+        k: 54000, bump: 4400, rebound: 7000, arb: 0, travel: 0.24 },
       { type: 'beam', mass: 195, rollInertia: 72, rollSteer: 0.06,
-        k: 51000, bump: 4300, rebound: 6800, arb: 4500, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
+        k: 51000, bump: 4300, rebound: 6800, arb: 20000, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
     ],
     tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 20 },
     steer: { maxAngle: 0.58, ratio: 15.5, kingpinTrack: 1.45 },
