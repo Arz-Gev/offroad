@@ -99,15 +99,13 @@ const GFX_SECTIONS = [
     row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).', disclose: 'vegAdvanced' }),
     // the arrow next to the preset opens the sliders: three groups (the heading names the layer, the sliders just say what they change)
     row('vegSubGrass', 'Grass', 'sub', { adv: 'vegAdvanced' }),
-    row('gGrass', 'Density', 'range', { adv: 'vegAdvanced', min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeight', 'Height', 'range', { adv: 'vegAdvanced', min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassNear', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 72, step: 1, scale: 1, unit: ' m' }),
-    row('vegSubFar', 'Far grass', 'sub', { adv: 'vegAdvanced' }),
-    row('gFarDensity', 'Density', 'range', { adv: 'vegAdvanced', min: 26, max: 873, step: 1, scale: 1000, dp: 3, unit: '×' }),
-    row('gFarWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 250, max: 445, step: 5, scale: 100, dp: 2, unit: '×' }),
-    // its lower end follows the near grass distance (refresh)
-    row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 287, step: 1, scale: 1, unit: ' m', minKey: 'gGrassNear' }),
+    row('gGrass', 'Density near', 'range', { adv: 'vegAdvanced', min: 4, max: 120, step: 1, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassFar', 'Density far', 'range', { adv: 'vegAdvanced', min: 5, max: 300, step: 1, scale: 1000, dp: 3, unit: '×' }),
+    row('gGrassHeight', 'Height near', 'range', { adv: 'vegAdvanced', min: 80, max: 350, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassHeightFar', 'Height far', 'range', { adv: 'vegAdvanced', min: 100, max: 400, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassWidth', 'Width near', 'range', { adv: 'vegAdvanced', min: 60, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gGrassWidthFar', 'Width far', 'range', { adv: 'vegAdvanced', min: 200, max: 1000, step: 10, scale: 100, dp: 1, unit: '×' }),
+    row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 60, max: 260, step: 5, scale: 1, unit: ' m' }),
     row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
     row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
@@ -297,7 +295,6 @@ export class Menu {
       } else if (def.type === 'range') {
         const v = Math.round(api.get(key) * def.scale);
         const inp = rowEl.querySelector('input');
-        if (def.minKey) inp.min = Math.round(api.get(def.minKey) * def.scale);
         if (+inp.value !== v) inp.value = v;
         rowEl.querySelector('output').textContent = def.fmt ? def.fmt(v) : (def.dp != null ? (v / def.scale).toFixed(def.dp) : v) + def.unit;
       } else if (def.type === 'stepper') {

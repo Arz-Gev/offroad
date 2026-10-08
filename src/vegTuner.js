@@ -8,12 +8,14 @@ import './vegTuner.css';
 // Copy puts all four presets (new where edited) on the clipboard in render/quality.js's format.
 // The edits live in localStorage (offroad.vegtune.v1) so a reload keeps them.
 
-const KEY = 'offroad.vegtune.v1';
+const KEY = 'offroad.vegtune.v2';
 const PRESETS = [['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']];
 // [field in the quality preset, label, min, max, log scale, unit]; ranges are wide on purpose (tuning)
 const GROUPS = [
-  ['Grass', [['grass', 'Density', 0.01, 1.5, true, '×'], ['grassHeight', 'Height', 0.5, 6, false, '×'], ['grassWidth', 'Width', 0.3, 5, false, '×'], ['grassNear', 'Distance', 15, 100, false, ' m']]],
-  ['Far grass', [['farDensity', 'Density', 0.005, 1.5, true, '×'], ['farWidth', 'Width', 0.5, 8, false, '×'], ['grassRadius', 'Distance', 40, 350, false, ' m']]],
+  ['Grass', [['grass', 'Density near', 0.02, 1.5, true, '×'], ['grassFar', 'Density far', 0.002, 0.5, true, '×'],
+    ['grassHeight', 'Height near', 0.5, 5, false, '×'], ['grassHeightFar', 'Height far', 0.5, 6, false, '×'],
+    ['grassWidth', 'Width near', 0.3, 5, false, '×'], ['grassWidthFar', 'Width far', 1, 14, false, '×'],
+    ['grassRadius', 'Distance', 40, 300, false, ' m']]],
   ['Bushes', [['bushes', 'Density', 0.02, 4, true, '×'], ['bushHeight', 'Size', 0.5, 4, false, '×'], ['bushDist', 'Distance', 0.5, 4, false, '×']]],
 ];
 const FIELDS = GROUPS.flatMap(g => g[1]);

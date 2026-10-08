@@ -13,40 +13,35 @@ export const QUALITY = {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off',
-    grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
-    farWidth: 3.7, farDensity: 0.0325, grassFarGrow: 0,
+    grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
-    grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
-    farWidth: 3.7, farDensity: 0.0325, grassFarGrow: 0,
+    grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
-    grass: 0.1, grassHeight: 3.25, grassWidth: 1.3, grassRadius: 239, grassNear: 58,
-    farWidth: 3.12, farDensity: 0.065, grassFarGrow: 0,
+    grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
     bushes: 0.2, bushHeight: 2.1, bushDist: 1.25,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
-    grass: 0.15, grassHeight: 3.25, grassWidth: 2, grassRadius: 239, grassNear: 60,
-    farWidth: 3.3, farDensity: 0.136, grassFarGrow: 0,
+    grass: 0.4, grassHeight: 1.8, grassWidth: 1.1, grassFar: 0.045, grassHeightFar: 2.6, grassWidthFar: 6, grassRadius: 150,
     bushes: 0.65, bushHeight: 1.6, bushDist: 1.55,
   },
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
-    grass: 0.8, grassHeight: 2.35, grassWidth: 1.05, grassRadius: 239, grassNear: 60,
-    farWidth: 3.15, farDensity: 0.727, grassFarGrow: 0,
+    grass: 0.8, grassHeight: 1.8, grassWidth: 1.05, grassFar: 0.08, grassHeightFar: 2.6, grassWidthFar: 5.5, grassRadius: 180,
     bushes: 1.8, bushHeight: 1.4, bushDist: 1.85,
   },
 };
@@ -71,8 +66,8 @@ export function presetToGfx(q) {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gVeg: q.veg,
-    gGrass: q.grass, gGrassHeight: q.grassHeight, gGrassWidth: q.grassWidth, gGrassNear: q.grassNear, gGrassDist: q.grassRadius,
-    gFarWidth: q.farWidth, gFarDensity: q.farDensity, gGrassFarGrow: q.grassFarGrow,
+    gGrass: q.grass, gGrassHeight: q.grassHeight, gGrassWidth: q.grassWidth,
+    gGrassFar: q.grassFar, gGrassHeightFar: q.grassHeightFar, gGrassWidthFar: q.grassWidthFar, gGrassDist: q.grassRadius,
     gBushes: q.bushes, gBushHeight: q.bushHeight, gBushDist: q.bushDist,
   };
 }
@@ -80,7 +75,7 @@ export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
-    grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassNear: g.gGrassNear, farWidth: g.gFarWidth, farDensity: g.gFarDensity, grassFarGrow: g.gGrassFarGrow, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
+    grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassFar: g.gGrassFar, grassHeightFar: g.gGrassHeightFar, grassWidthFar: g.gGrassWidthFar, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
     terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes, bushDist: g.gBushDist, bushHeight: g.gBushHeight,
     veg: g.gVeg,
   };
@@ -88,7 +83,7 @@ export function gfxToQuality(g) {
 
 // Grass and bushes have their own preset too (gVeg: 'off' | a quality level | 'custom'), like the shadows:
 // a level writes that quality preset's grass and bush values into the sliders below it, moving a slider makes it 'custom'.
-export const VEG_KEYS = ['gGrass', 'gGrassHeight', 'gGrassWidth', 'gGrassNear', 'gGrassDist', 'gFarWidth', 'gFarDensity', 'gGrassFarGrow', 'gBushes', 'gBushHeight', 'gBushDist'];
+export const VEG_KEYS = ['gGrass', 'gGrassHeight', 'gGrassWidth', 'gGrassFar', 'gGrassHeightFar', 'gGrassWidthFar', 'gGrassDist', 'gBushes', 'gBushHeight', 'gBushDist'];
 export function vegToGfx(level) {
   const g = presetToGfx(QUALITY[level]);
   return Object.fromEntries(VEG_KEYS.map(k => [k, g[k]]));

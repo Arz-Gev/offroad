@@ -484,8 +484,6 @@ async function main() {
       if (o.sync || o.startup || o.reset) return;
       // a grass or bush slider makes the Grass and bushes preset Custom too
       if (VEG_KEYS.includes(key)) settings.set('gVeg', 'custom', { silent: true, sync: true });
-      // the far grass reaches at least as far as the dense grass
-      if (key === 'gGrassNear' && v > settings.get('gGrassDist')) settings.set('gGrassDist', v, { silent: true, sync: true });
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     // the Grass and bushes preset: a level fills the sliders with that quality preset's grass and bush values

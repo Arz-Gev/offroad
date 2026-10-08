@@ -41,14 +41,13 @@ export const DEFAULTS = {
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   // grass and undergrowth (the High preset's values; render/quality.js has the preset table)
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom' (the sliders below)
-  gGrass: 0.15,             // grass density multiplier (cell spacing; 1 = one blade per 0.1 m cell)
-  gGrassHeight: 3.25,       // blade height multiplier (1 = 0.34 m near blades)
-  gGrassWidth: 2,           // blade width multiplier
-  gGrassNear: 60,           // radius of the dense near grass layer (m)
-  gGrassDist: 239,          // grass radius = where the far layer ends (m), never below gGrassNear
-  gFarWidth: 3.3,           // far grass layer: blade width multiplier (its own, the near width doesn't scale it)
-  gFarDensity: 0.136,       // far grass layer: density (its own; 1 = one blade per 0.24 m cell)
-  gGrassFarGrow: 0,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
+  gGrass: 0.4,              // grass density at the camera (cell spacing; 1 = a blade every 0.1 m)
+  gGrassHeight: 1.8,        // blade height at the camera (1 = 0.34 m)
+  gGrassWidth: 1.1,         // blade width at the camera (1 = 6.5 cm)
+  gGrassFar: 0.045,         // grass density at the grass distance (the grid thins out towards it)
+  gGrassHeightFar: 2.6,     // blade height at the grass distance
+  gGrassWidthFar: 6,        // blade width at the grass distance
+  gGrassDist: 150,          // grass distance (m)
   gBushes: 0.65,            // undergrowth density multiplier
   gBushHeight: 1.6,         // undergrowth size multiplier
   gBushDist: 1.55,          // undergrowth distance multiplier
@@ -81,10 +80,9 @@ const CHOICES = {
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
-  // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js);
-  // the grass distance goes down to the dense radius (the menu moves its lower end with it)
-  gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [42, 287],
-  gFarWidth: [2.5, 4.45], gFarDensity: [0.026, 0.873], gGrassFarGrow: [0, 1.5],
+  // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
+  gGrass: [0.04, 1.2], gGrassHeight: [0.8, 3.5], gGrassWidth: [0.6, 2.4], gGrassFar: [0.005, 0.3], gGrassHeightFar: [1, 4],
+  gGrassWidthFar: [2, 10], gGrassDist: [60, 260],
   gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 2.25],
 };
 
@@ -114,13 +112,6 @@ export class Settings {
           if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
         } else if (saved.quality === 'custom') saved.gVeg = 'custom';   // the sliders hold the player's own values
       }
-      // the far grass width and spacing used to multiply the near width and density; now they are their own (Oct 8)
-      if (typeof saved.gGrassFarSpacing === 'number' && !('gFarDensity' in saved)) {
-        const d = saved.gGrass ?? 0.15;
-        saved.gFarDensity = Math.min(0.873, Math.max(0.026, Math.round((d <= 1 ? d * 1.1 : d) / saved.gGrassFarSpacing ** 2 * 1000) / 1000));
-      }
-      if (typeof saved.gGrassFarWidth === 'number' && !('gFarWidth' in saved))
-        saved.gFarWidth = Math.min(4.45, Math.max(2.5, Math.round(saved.gGrassFarWidth * (saved.gGrassWidth ?? 2) * 100) / 100));
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];
     } catch { /* corrupt entry: keep defaults */ }
     this.subs = [];
