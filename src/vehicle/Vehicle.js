@@ -29,6 +29,7 @@ const X = new V3(1, 0, 0), Y = new V3(0, 1, 0), Z = new V3(0, 0, 1);
 
 // Rapier collision groups: high 16 bits = membership, low 16 bits = filter.
 const GROUND_BIT = 0x0001, WHEEL_BIT = 0x0002;
+const RIM_GIVE_BACK = 0.15;   // share of the rim strike's force on the way back out (crushed rubber)
 export const GROUP_GROUND = (GROUND_BIT << 16) | 0xffff;
 const GROUP_WHEEL_SIDE = (WHEEL_BIT << 16) | (0xffff & ~GROUND_BIT);
 
@@ -487,10 +488,15 @@ export class Vehicle {
     let mu = 0, crr = 0;
     for (let r = 0; r < 3; r++) {
       const row = r - 1, o = row * TIRE_ROW_OFFSET * T.width, Rr = R - (row ? crown : 0);
+      // the tread runs on past the outer rows to its edge: on ground tilted across the wheel (n·axle = s) the
+      // downhill edge sits lower than its row by that overhang x s. Without it a tyre landing tilted sank
+      // ~10 cm into the ground on its shoulder before any ray felt it.
+      const edge = row ? (0.5 - TIRE_ROW_OFFSET) * T.width : 0;
       // the raw profile on the fine grid: the ground between two rays is the straight line through their hits
       let rowMax = -1e9;
       for (let k = 0; k < NF - 1; k++) {
         const i = r * NF + k, t0 = rt[i], t1 = rt[i + 1];
+        const sh = edge && rc[i] && rc[i + 1] ? edge * Math.max(0, -row * 0.5 * (rn[i] + rn[i + 1])) : 0;
         const clear = Math.min(t0, t1) - shift >= Rr + 0.15;   // far from touching even with the belt's spread
         const th0 = FAN[k], th1 = FAN[k + 1];
         const h0x = t0 * Math.sin(th0), h0y = -t0 * Math.cos(th0), ex = t1 * Math.sin(th1) - h0x, ey = -t1 * Math.cos(th1) - h0y;
@@ -500,7 +506,7 @@ export class Vehicle {
           const th = th0 + (m + 0.5) * dth, ux = Math.sin(th), uy = -Math.cos(th);
           const den = ux * ey - uy * ex;
           const t = Math.abs(den) > 1e-9 ? (h0x * ey - h0y * ex) / den : t0 + (t1 - t0) * (m + 0.5) / M;
-          let d = Rr - t;
+          let d = Rr - t + sh;
           if (shift) d += shift * (nu * Math.cos(th) - nf * ux);
           dr[j] = d; tt[j] = t;
           if (d > rowMax) rowMax = d;
@@ -557,8 +563,12 @@ export class Vehicle {
     if (sq <= 0) return 0;
     const F = Math.hypot(fx, fy, fz);
     const n = w.n.set(fx / F, fy / F, fz / F);
-    // the lateral tilt of the actual surface (side slopes, slanted rock faces)
-    n.addScaledVector(sa, snl / sq).normalize();
+    // the lateral tilt of the actual surface (side slopes, slanted rock faces): the rays only see the ground in
+    // the wheel plane, the surface's normal is that direction x cos + the axle x sin of the tilt. (It was
+    // n + axle x sin, which leaves a 56° tilt at 40°: the friction frame then leaned on the axle and a
+    // steeply rolled truck could stand on its tyre shoulders, held up by side grip.)
+    const sl = Math.max(-0.99, Math.min(0.99, snl / sq));
+    n.multiplyScalar(Math.sqrt(1 - sl * sl)).addScaledVector(sa, sl).normalize();
     w.pen = dMax;
     w.latOff = lat / sq;
     w.P.set(w.hub.x + cx / sq, w.hub.y + cy / sq, w.hub.z + cz / sq);
@@ -674,8 +684,10 @@ export class Vehicle {
         const ref = w.contact && w.Fn > 0 ? w.vcx : this.speed;
         const excess = Math.sign(surfV) === Math.sign(ref) || Math.abs(ref) < 0.05 ? Math.abs(surfV) - Math.abs(ref) : Math.abs(surfV) + Math.abs(ref);
         const thr = 0.7 + 0.12 * Math.abs(ref);
-        // full authority while crawling and climbing, fading out at speed
-        const tMax = 2400 * Math.max(0.15, Math.min(1, 1 - (Math.abs(this.speed) - 8) / 12));
+        // full authority while crawling and climbing, fading out at speed; set on the Defender (front brakes
+        // 2700) and scaled by the brakes: the BTR's engine in low range spun all eight wheels through the
+        // Defender's 2400 Nm and it sat on a 30° ramp at full throttle for good
+        const tMax = 2400 * Math.max(1, P.brakes.front / 2700) * Math.max(0.15, Math.min(1, 1 - (Math.abs(this.speed) - 8) / 12));
         if (excess > thr) { T = Math.min(tMax, T + h * 9000 * (excess - thr) + h * 600); this.tcActive = 0.3; }
         else T = Math.max(0, T - h * (excess < thr * 0.5 ? 9000 : 3000));
       } else T = Math.max(0, T - h * 8000);
@@ -694,9 +706,14 @@ export class Vehicle {
         if (w.contact && (w.F0 > 0 || w.pen > 0)) {
           // the patch force at the cast, following the hub with the patch's stiffness; radial damping
           let Fn = Math.max(0, w.F0 + w.kEff * (w.pen - w.pen0)) + w.ct * w.penDot;
-          // the rim strikes where the ground reaches deepest (a rock edge, a step)
+          // the rim strikes where the ground reaches deepest (a rock edge, a step): rubber crushed between the
+          // rim and the ground, stiff and very lossy, so it gives back a fraction of what it took (like the
+          // bump stops). It was a near-elastic spring and a hard landing (R on a hillside) bounced the truck.
           const rimLim = (this.R - T.rimRadius * this.R / T.radius) * 0.62;
-          if (w.pen > rimLim) Fn += 2.5e6 * (w.pen - rimLim) + 3000 * Math.max(0, w.penDot);
+          if (w.pen > rimLim) {
+            const el = 2.5e6 * (w.pen - rimLim);
+            Fn += w.penDot > 0 ? el + 8000 * w.penDot : RIM_GIVE_BACK * el;
+          }
           w.Fn = Math.max(0, Fn);
         } else w.Fn = 0;
       }
