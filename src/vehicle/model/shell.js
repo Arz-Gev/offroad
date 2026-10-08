@@ -20,9 +20,35 @@ export async function loadShell(url) {
     // glass: plain alpha blending (transmission would add a second scene render every frame)
     if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); }
     if (m.transparent) { o.castShadow = false; m.depthWrite = false; }
+    else realBlack(m);
   });
   shell.updateMatrixWorld(true);
   return shell;
+}
+
+// Downloaded cabins came out black: their "black" is far darker than anything real (the Lancia's interior
+// is base colour 0.002 linear, the G-Class atlas has pure 0 tiles) and much of it is flagged metal
+// (glTF metalness 1 x a texture), and a dark metal reflects nothing. Inside the cabin the sun is
+// shadowed, so the sky light is all there is and such a surface stays black at noon. Per pixel:
+// - a "metal" darker than any real metal (they reflect 50 % or more) is plastic, leather or rubber;
+// - nothing is darker than real black (black plastic, leather, rubber reflect 3-5 %).
+// A baked occlusion map (the G-Class) is used at half strength: it was baked for a cabin lit through its
+// windows, and on top of that it took away half of the little sky light left (dashboard 5.7 -> 9.1 of 255).
+// Exterior: the same in chase screenshots, a touch lighter in the darkest trim.
+const BLACK = 0.05;   // linear albedo floor
+const BAKED_AO = 0.5;
+const REAL_BLACK = `#include <metalnessmap_fragment>
+{
+  float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  metalnessFactor *= smoothstep(0.08, 0.25, lum);
+  diffuseColor.rgb = sqrt(diffuseColor.rgb * diffuseColor.rgb + ${(BLACK * BLACK).toFixed(6)});
+}`;
+function realBlack(m) {
+  if (!m.isMeshStandardMaterial) return;
+  if (m.aoMap) m.aoMapIntensity = BAKED_AO;
+  m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', REAL_BLACK); };
+  m.customProgramCacheKey = () => 'real-black';
+  m.userData.realBlack = true;   // createTireMaterial keeps the patch on the deforming copies
 }
 
 // Move a node's meshes into a group, keeping where they are: the group sits at `at` (the frame the node's
