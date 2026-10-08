@@ -47,7 +47,7 @@ export const DEFAULTS = {
   gGrassNear: 60,           // radius of the dense near grass layer (m)
   gGrassDist: 239,          // grass radius = where the far layer ends (m), never below gGrassNear
   gFarWidth: 3.3,           // far grass layer: blade width multiplier (its own, the near width doesn't scale it)
-  gGrassFarSpacing: 1.1,    // far grass layer: cell spacing multiplier
+  gFarDensity: 0.136,       // far grass layer: density (its own; 1 = one blade per 0.24 m cell)
   gGrassFarGrow: 0,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
   gBushes: 0.65,            // undergrowth density multiplier
   gBushHeight: 1.6,         // undergrowth size multiplier
@@ -84,7 +84,7 @@ const RANGES = {
   // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js);
   // the grass distance goes down to the dense radius (the menu moves its lower end with it)
   gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [42, 287],
-  gFarWidth: [2.5, 4.45], gGrassFarSpacing: [0.85, 1.6], gGrassFarGrow: [0, 1.5],
+  gFarWidth: [2.5, 4.45], gFarDensity: [0.026, 0.873], gGrassFarGrow: [0, 1.5],
   gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 2.25],
 };
 
@@ -114,7 +114,11 @@ export class Settings {
           if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
         } else if (saved.quality === 'custom') saved.gVeg = 'custom';   // the sliders hold the player's own values
       }
-      // the far grass width used to multiply the near width (gGrassFarWidth); now it is its own (Oct 8)
+      // the far grass width and spacing used to multiply the near width and density; now they are their own (Oct 8)
+      if (typeof saved.gGrassFarSpacing === 'number' && !('gFarDensity' in saved)) {
+        const d = saved.gGrass ?? 0.15;
+        saved.gFarDensity = Math.min(0.873, Math.max(0.026, Math.round((d <= 1 ? d * 1.1 : d) / saved.gGrassFarSpacing ** 2 * 1000) / 1000));
+      }
       if (typeof saved.gGrassFarWidth === 'number' && !('gFarWidth' in saved))
         saved.gFarWidth = Math.min(4.45, Math.max(2.5, Math.round(saved.gGrassFarWidth * (saved.gGrassWidth ?? 2) * 100) / 100));
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];

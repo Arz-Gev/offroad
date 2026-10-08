@@ -104,10 +104,10 @@ const GFX_SECTIONS = [
     row('gGrassWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gGrassNear', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 72, step: 1, scale: 1, unit: ' m' }),
     row('vegSubFar', 'Far grass', 'sub', { adv: 'vegAdvanced' }),
+    row('gFarDensity', 'Density', 'range', { adv: 'vegAdvanced', min: 26, max: 873, step: 1, scale: 1000, dp: 3, unit: '×' }),
+    row('gFarWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 250, max: 445, step: 5, scale: 100, dp: 2, unit: '×' }),
     // its lower end follows the near grass distance (refresh)
     row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 42, max: 287, step: 1, scale: 1, unit: ' m', minKey: 'gGrassNear' }),
-    row('gFarWidth', 'Width', 'range', { adv: 'vegAdvanced', min: 250, max: 445, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFarSpacing', 'Spacing', 'range', { adv: 'vegAdvanced', min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
     row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),

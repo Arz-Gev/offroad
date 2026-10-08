@@ -212,7 +212,6 @@ vec3 nonPerturbedNormal = normal;`)
       // density is the cell spacing (1 = a blade in every cell, above 1 closer together, below 1 further apart:
       // thinning by probability instead would still draw, and discard, every cell)
       const dens = Math.max(scale, 0.01), fine = 1 / Math.sqrt(dens);
-      const fineFar = 1 / Math.sqrt(scale <= 1 ? Math.max(scale * 1.1, 0.01) : scale);
       near.uniforms.uShape.value.z = 1;
       far.uniforms.uShape.value.z = 1;
       // the near layer's 2-segment blades cost most per square metre (vertex bound): keep it short
@@ -224,9 +223,9 @@ vec3 nonPerturbedNormal = normal;`)
       // radius, not its square; grassFarGrow is the share of that growth that is applied (0 = none)
       const coarse = Math.max(1, r / 52) ** (q.grassFarGrow ?? 1);
       const hs = q.grassHeight ?? 1.5, ws = q.grassWidth ?? 1;
-      // the far blades' width is their own (farWidth), not a multiple of the near width
-      const fw = q.farWidth ?? ws, fsp = q.grassFarSpacing ?? 1;
-      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fineFar * coarse * fsp, coarse * fw / ws]]) {
+      // the far layer has its own density and blade width (farDensity, farWidth), not multiples of the near ones
+      const fw = q.farWidth ?? ws, fineFar = 1 / Math.sqrt(Math.max(q.farDensity ?? scale * 1.1, 0.001));
+      for (const [L, R, mul, wmul] of [[near, rn, fine, 1], [far, r, fineFar * coarse, coarse * fw / ws]]) {
         L.spacing = L.baseSpacing * mul;
         L.k = Math.ceil(R * 2 / L.spacing / TILES);
         L.uniforms.uGrid.value.z = L.spacing;
