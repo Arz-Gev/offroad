@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
-import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
+import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality, VEG_KEYS, vegToGfx } from './render/quality.js';
 
 import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
@@ -316,10 +316,8 @@ async function main() {
       // show the preset's values in the per-option controls
       const g = presetToGfx(q);
       for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
-      // grass and bushes are the player's switch, except Mobile turns them off (turning them on makes it Custom)
-      if (q.vegetation === false) settings.set('vegetation', false, { silent: true, sync: true });
     }
-    q = { ...q, vegetation: settings.get('vegetation') };
+    q = { ...q, vegetation: settings.get('gVeg') !== 'off' };
     gfx.q = q;
     pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
     pipeline.params.bloom = q.bloom !== false;
@@ -483,14 +481,17 @@ async function main() {
     },
     ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
       if (o.sync || o.startup || o.reset) return;
+      // a grass or bush slider makes the Grass and bushes preset Custom too
+      if (VEG_KEYS.includes(key)) settings.set('gVeg', 'custom', { silent: true, sync: true });
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
-    renderScale: () => applyGraphics(),
-    vegetation(v, o) {
-      if (o.sync) return;
-      if (v && !o.startup && !o.reset && gfx.preset === 'mobile') settings.set('quality', 'custom', { silent: true });
-      else applyGraphics();
+    // the Grass and bushes preset: a level fills the sliders with that quality preset's grass and bush values
+    gVeg(v, o) {
+      if (o.sync || o.startup || o.reset) return;
+      if (QUALITY[v]) for (const [k, x] of Object.entries(vegToGfx(v))) settings.set(k, x, { silent: true, sync: true });
+      if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     },
+    renderScale: () => applyGraphics(),
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),

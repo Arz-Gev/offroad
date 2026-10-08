@@ -7,12 +7,12 @@ export const QUALITY_ORDER = ['mobile', 'low', 'medium', 'high', 'ultra'];
 export const QUALITY = {
   // Anti-aliasing is off in every preset (the player turns it on under Graphics, which makes the preset Custom).
   // phones and tablets (Auto picks it there): no shadows, no AO,
-  // no grass or bushes. dynamicDpr: the pixel density moves between 1 and `dpr` on its own to hold
+  // no grass or bushes (veg 'off'). dynamicDpr: the pixel density moves between 1 and `dpr` on its own to hold
   // 45-60 fps (main.js, "dynamic resolution").
   mobile: {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.7, bloom: true, vegetation: false,
+    terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off',
     grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
     grassFarWidth: 1.85, grassFarSpacing: 1.3, grassFarGrow: 0,
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
@@ -20,7 +20,7 @@ export const QUALITY = {
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 0, lodScale: 0.7, bloom: true,
+    terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
     grass: 0.05, grassHeight: 2.25, grassWidth: 2, grassRadius: 149, grassNear: 53,
     grassFarWidth: 1.85, grassFarSpacing: 1.3, grassFarGrow: 0,
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
@@ -28,7 +28,7 @@ export const QUALITY = {
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.85, bloom: true,
+    terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
     grass: 0.1, grassHeight: 3.25, grassWidth: 1.3, grassRadius: 239, grassNear: 58,
     grassFarWidth: 2.4, grassFarSpacing: 1.3, grassFarGrow: 0,
     bushes: 0.2, bushHeight: 2.1, bushDist: 1.25,
@@ -36,7 +36,7 @@ export const QUALITY = {
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true,
+    terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
     grass: 0.15, grassHeight: 3.25, grassWidth: 2, grassRadius: 239, grassNear: 60,
     grassFarWidth: 1.65, grassFarSpacing: 1.1, grassFarGrow: 0,
     bushes: 0.65, bushHeight: 1.6, bushDist: 1.55,
@@ -44,7 +44,7 @@ export const QUALITY = {
   ultra: {
     label: 'Ultra', dpr: 2.0, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true,
+    terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
     grass: 0.8, grassHeight: 2.35, grassWidth: 1.05, grassRadius: 239, grassNear: 60,
     grassFarWidth: 3, grassFarSpacing: 1.1, grassFarGrow: 0,
     bushes: 1.8, bushHeight: 1.4, bushDist: 1.85,
@@ -70,6 +70,7 @@ export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
+    gVeg: q.veg,
     gGrass: q.grass, gGrassHeight: q.grassHeight, gGrassWidth: q.grassWidth, gGrassNear: q.grassNear, gGrassDist: q.grassRadius,
     gGrassFarWidth: q.grassFarWidth, gGrassFarSpacing: q.grassFarSpacing, gGrassFarGrow: q.grassFarGrow,
     gBushes: q.bushes, gBushHeight: q.bushHeight, gBushDist: q.bushDist,
@@ -81,7 +82,16 @@ export function gfxToQuality(g) {
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
     grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassNear: g.gGrassNear, grassFarWidth: g.gGrassFarWidth, grassFarSpacing: g.gGrassFarSpacing, grassFarGrow: g.gGrassFarGrow, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
     terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes, bushDist: g.gBushDist, bushHeight: g.gBushHeight,
+    veg: g.gVeg,
   };
+}
+
+// Grass and bushes have their own preset too (gVeg: 'off' | a quality level | 'custom'), like the shadows:
+// a level writes that quality preset's grass and bush values into the sliders below it, moving a slider makes it 'custom'.
+export const VEG_KEYS = ['gGrass', 'gGrassHeight', 'gGrassWidth', 'gGrassNear', 'gGrassDist', 'gGrassFarWidth', 'gGrassFarSpacing', 'gGrassFarGrow', 'gBushes', 'gBushHeight', 'gBushDist'];
+export function vegToGfx(level) {
+  const g = presetToGfx(QUALITY[level]);
+  return Object.fromEntries(VEG_KEYS.map(k => [k, g[k]]));
 }
 
 // 'auto': pick from the GPU name and the pixel count of the window

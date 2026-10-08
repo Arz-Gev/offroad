@@ -40,6 +40,7 @@ export const DEFAULTS = {
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   // grass and undergrowth (the High preset's values; render/quality.js has the preset table)
+  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom' (the sliders below)
   gGrass: 0.15,             // grass density multiplier (cell spacing; 1 = one blade per 0.1 m cell)
   gGrassHeight: 3.25,       // blade height multiplier (1 = 0.34 m near blades)
   gGrassWidth: 2,           // blade width multiplier
@@ -52,7 +53,6 @@ export const DEFAULTS = {
   gBushHeight: 1.6,         // undergrowth size multiplier
   gBushDist: 1.55,          // undergrowth distance multiplier
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
-  vegetation: true,         // grass and undergrowth on / off (not part of the presets, except Mobile turns it off)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
@@ -75,6 +75,7 @@ const CHOICES = {
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
+  gVeg: ['off', 'low', 'medium', 'high', 'ultra', 'custom'],
   gTerrain: [0, 1, 2],
 };
 const RANGES = {
@@ -105,6 +106,13 @@ export class Settings {
     try {
       const saved = JSON.parse(storage.get(KEY) || '{}');
       if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
+      // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset (Oct 8)
+      if ('vegetation' in saved && !('gVeg' in saved)) {
+        if (saved.vegetation === false) {
+          saved.gVeg = 'off';
+          if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
+        } else if (saved.quality === 'custom') saved.gVeg = 'custom';   // the sliders hold the player's own values
+      }
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];
     } catch { /* corrupt entry: keep defaults */ }
     this.subs = [];
