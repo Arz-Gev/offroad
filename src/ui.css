@@ -322,11 +322,10 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 .switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #cfd5dc; transition: transform 0.15s; }
 .switch[aria-checked="true"] { background: var(--amber); border-color: var(--amber); }
 .switch[aria-checked="true"] .knob { transform: translateX(18px); background: var(--amber-ink); }
-/* Advanced: a row that opens the sliders under a preset, in groups with a small heading each */
-.set-row.disc { cursor: pointer; }
-.set-row.disc .set-t { color: var(--dim); }
-.set-row.disc:hover .set-t { color: var(--txt); }
-.disclose { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.05); cursor: pointer; }
+/* the arrow right of a preset that opens its sliders below, in groups with a small heading each */
+.seg-disc { display: flex; align-items: center; gap: 8px; }
+.disclose { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.05); cursor: pointer; }
+.disclose[hidden] { display: none; }
 .disclose:hover { background: rgba(255, 255, 255, 0.12); }
 .disclose .chev { width: 7px; height: 7px; margin-top: -3px; border: solid var(--dim); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform 0.15s, margin 0.15s; }
 .disclose[aria-expanded="true"] .chev { margin-top: 3px; transform: rotate(-135deg); }
