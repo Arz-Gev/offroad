@@ -83,19 +83,23 @@ export class VehicleView {
     const braking = v.ctl.brake > 0.05;
     const reversing = reversingNow(dt_);
     const tailOn = head > 0;
-    // lights only exist in the scene at night or when something is switched on (no cost in the day);
-    // at night they stay in the scene with zero intensity, so switching lamps never recompiles shaders
-    const live = env.night || head > 0 || ls.bar;
-    for (const l of [L.head, L.bar, L.rear]) if (l) l.visible = live;
+    // the lamps are always in the scene (zero intensity when off) and keep their cookie texture: adding or
+    // removing a light, or giving it another map, changes the lights hash and rebuilds every lit shader
+    // (a 1-2 s freeze on each switch and at dusk)
     const amb = this.ambientLevel();
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
     // head: one beam between the lamps, cookie switches low / high
     const hp = L.head.userData.peak;
-    L.head.map = head === 2 ? L.cookies.high : L.cookies.low;
+    const beam = head === 2 ? 'high' : 'low';
+    if (L.head.userData.beam !== beam) {
+      L.head.userData.beam = beam;
+      L.head.map.image.data.set(L.cookies[beam].image.data);
+      L.head.map.needsUpdate = true;
+    }
     L.head.intensity = head === 0 ? 0 : (head === 1 ? hp.low : hp.high) * k;
     L.head.distance = head === 2 ? 260 : 150;
-    L.head.shadow.autoUpdate = live && head > 0 && env.shadows !== false;
+    L.head.shadow.autoUpdate = head > 0 && env.shadows !== false;
     // keep the cookie level with the truck, not with the world, when it rolls
     L.head.shadow.camera.up.set(0, 1, 0).applyQuaternion(quat);
     if (L.bar) {

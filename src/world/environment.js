@@ -351,9 +351,16 @@ export class Environment {
     return this.probeRT[this.probeI];
   }
 
+  // the finished probe is copied into one target the scene keeps: a different scene.environment texture
+  // rebuilds every lit shader (a freeze per probe refresh while the hour sweeps)
   setProbe(rt) {
     this.envRT = rt;
-    this.scene.environment = rt.texture;
+    const p = this.pmrem;
+    if (!this.envShown && p._allocateTarget) { p._setSize(256); this.envShown = p._allocateTarget(true); }
+    if (this.envShown && this.envShown.width === rt.width && this.envShown.height === rt.height) {
+      this.renderer.copyTextureToTexture(rt.texture, this.envShown.texture);
+      if (this.scene.environment !== this.envShown.texture) this.scene.environment = this.envShown.texture;
+    } else this.scene.environment = rt.texture;
     this.scene.environmentIntensity = this.cur.env;
     this.envTimer = 0.05;
   }

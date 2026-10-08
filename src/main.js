@@ -661,11 +661,9 @@ async function main() {
     return p;
   };
   setLoading('Compiling shaders…', 0.86); await frame();
-  // Warm-up behind the loading screen: the pipelines for the scene as it is now (the lamps' visibility is
-  // part of every lit material's variant), then one real frame (post passes, shadow passes, eye adaptation).
-  // The other lamp state (night with lamps / day without) is compiled in the background once the game runs,
-  // so the first dusk does not stall. compileAsync builds the shaders synchronously and the GPU pipelines
-  // asynchronously, so the lamps can be put back right after the call.
+  // Warm-up behind the loading screen: the pipelines for the scene, then one real frame (post passes,
+  // shadow passes, eye adaptation). The set of lights never changes (the lamps stay in the scene when off,
+  // the reflection probe is copied into one texture), so nothing recompiles later.
   try {
     tick(1 / 60, false);
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 8000))]);
@@ -679,15 +677,6 @@ async function main() {
     loadLog.push(['first frame', Math.round(performance.now())]);
   } catch (e) { console.warn('shader warm-up', e); }
   tick(1 / 60);
-  const warmOtherLamps = () => {
-    const ls = view.lights, head = ls.head, bar = ls.bar, night = env.night;
-    if (!night) { ls.head = 1; ls.bar = !!model.lights.bar; }
-    view.update(rPos, rQ, 0, { night: !night, darkness: night ? 0 : 1, shadows: true });
-    compileScene().catch(e => console.warn('background warm-up', e));
-    ls.head = head; ls.bar = bar;
-    view.update(rPos, rQ, 0, { night, darkness: env.darkness, shadows: true });
-  };
-  (window.requestIdleCallback || (f => setTimeout(f, 1500)))(warmOtherLamps, { timeout: 4000 });
 
   setLoading('Ready', 1); await frame();
   loading.classList.add('done');

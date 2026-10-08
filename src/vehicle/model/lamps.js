@@ -87,6 +87,16 @@ function barBeam(el, az) {
   return h * v * near;
 }
 
+function copyCookie(t) {
+  const c = new THREE.DataTexture(t.image.data.slice(), t.image.width, t.image.height, THREE.RGBAFormat, THREE.HalfFloatType);
+  c.colorSpace = THREE.NoColorSpace;
+  c.magFilter = c.minFilter = THREE.LinearFilter;
+  c.generateMipmaps = false;
+  c.needsUpdate = true;
+  c.userData.peak = t.userData.peak;
+  return c;
+}
+
 export const BEAM = {
   // peak intensities (candela in scene units; the scene is not photometric, these are tuned against the
   // night preset so the road stays readable to ~60 m on low beam and ~150 m on high beam)
@@ -109,12 +119,14 @@ export function buildLightRig(root, at) {
     L.position.set(...pos);
     L.target.position.set(pos[0] + dir[0] * 10, pos[1] + dir[1] * 10, pos[2] + dir[2] * 10);
     root.add(L); root.add(L.target);
-    L.visible = false;
     return L;
   };
   // head: in front of the bumper hoop so no part of the truck is inside its frustum
   rig.head = spot(0xfff0da, at.head, [0, 0, -1], ANG, 0.08, 150);
-  rig.head.map = cookies.low;
+  // the head lamp keeps one cookie texture of its own and gets the low or high beam copied into it
+  // (vehicleView.js): a different SpotLight.map changes the lights hash and rebuilds every lit shader
+  rig.head.map = copyCookie(cookies.low);
+  rig.head.userData.beam = 'low';
   rig.head.castShadow = true;
   rig.head.shadow.mapSize.set(1024, 1024);
   rig.head.shadow.bias = -0.0006;
