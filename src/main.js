@@ -228,6 +228,7 @@ async function main() {
     // ground above the plane under a wheel would bury the tyre; under the belly it's fine up to ~25 cm
     let lift = 0, rough = 0;
     for (const a of ax) for (const [lx, gh] of [[-t2, a.l], [t2, a.r]]) { const r = gh - plane(lx, a.z); lift = Math.max(lift, r); rough = Math.max(rough, Math.abs(r)); }
+    const wheelLift = lift;
     const zF = Math.min(...ax.map(a => a.z)), zB = Math.max(...ax.map(a => a.z));
     for (const [lx, lz] of [[0, 0], [0, zF], [0, zB], [-t2, 0], [t2, 0]]) {
       const r = h(lx, lz) - plane(lx, lz);
@@ -240,40 +241,72 @@ async function main() {
     const quat = new THREE.Quaternion().setFromRotationMatrix(_sM.makeBasis(_sR, _sU, _sB));
     const up = 0.12 + rideRaise(P) + 0.1 + lift;   // 0.12 + rideRaise: the spawn height over flat ground
     const pos = { x: x + _sU.x * up, y: a0 + _sU.y * up, z: z + _sU.z * up };
-    return { pos, quat, ground: a0, slope: Math.acos(Math.min(1, _sU.y)) * 180 / Math.PI, rough };
+    // hang: how far a hump under the belly lifts the wheels off their ground (high-centred, no grip)
+    return { pos, quat, ground: a0, slope: Math.acos(Math.min(1, _sU.y)) * 180 / Math.PI, rough, hang: lift - wheelLift };
   };
 
-  // the body's box (all chassis colliders), raised off the ground a bit: anything in it is in the way
-  const blocked = st => {
+  // the body's box (all chassis colliders) in the body frame
+  const bodyBox = () => {
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
     for (const [cx, cy, cz, hx, hy, hz] of vehicle.P.colliders) {
       x0 = Math.min(x0, cx - hx); x1 = Math.max(x1, cx + hx);
       y0 = Math.min(y0, cy - hy); y1 = Math.max(y1, cy + hy);
       z0 = Math.min(z0, cz - hz); z1 = Math.max(z1, cz + hz);
     }
-    y0 += 0.3;
+    return { x0, x1, y0, y1, z0, z1 };
+  };
+  // the body's box raised off the ground a bit and widened by `pad` all round: anything in it is in the
+  // way (a pad keeps the truck from landing right against the trees or rocks it was wedged between)
+  const blocked = (st, pad = 0) => {
+    const bb = bodyBox(), { x0, x1, y1, z0, z1 } = bb, y0 = bb.y0 + 0.3;
     const ctr = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2).applyQuaternion(st.quat);
-    const box = new RAPIER.Cuboid((x1 - x0) / 2, Math.max(0.1, (y1 - y0) / 2), (z1 - z0) / 2);
+    const box = new RAPIER.Cuboid((x1 - x0) / 2 + pad, Math.max(0.1, (y1 - y0) / 2), (z1 - z0) / 2 + pad);
     return !!world.intersectionWithShape({ x: st.pos.x + ctr.x, y: st.pos.y + ctr.y, z: st.pos.z + ctr.z }, st.quat, box,
       RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, undefined, vehicle.body);
   };
+  // anything but the ground under the wheels or the belly (a rock, a log, a stump) higher than a small
+  // bump: the truck would sit on it with its tyres in the air or barely touching
+  const _uRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }), _uP = new THREE.Vector3();
+  const obstacleUnder = st => {
+    const P = vehicle.P, t2 = P.track / 2, { x0, x1, z0, z1 } = bodyBox();
+    const pts = P.axles.flatMap(a => [[-t2, a.z], [t2, a.z]]);
+    for (const lx of [x0 * 0.6, 0, x1 * 0.6]) for (let k = 0; k <= 4; k++) pts.push([lx, z0 + (z1 - z0) * k / 4]);
+    for (const [lx, lz] of pts) {
+      _uP.set(lx, 0, lz).applyQuaternion(st.quat);
+      const px = st.pos.x + _uP.x, pz = st.pos.z + _uP.z, g = terrain.heightAt(px, pz);
+      _uRay.origin.x = px; _uRay.origin.y = g + 3; _uRay.origin.z = pz;
+      const hit = world.castRay(_uRay, 3.5, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, undefined, vehicle.body);
+      if (hit && g + 3 - hit.timeOfImpact > g + 0.15) return true;
+    }
+    return false;
+  };
 
-  // Recover: back on the wheels at the flattest clear spot within ~12 m (same heading), sitting on the
+  // Recover: back on the wheels at the flattest clear spot within ~15 m (same heading), sitting on the
   // slope's angle and only just above the ground, so it settles instead of dropping and rolling again.
-  const RECOVER_RINGS = [[0, 1], [3, 8], [6, 12], [9, 16], [12, 20]];
+  // A truck still on its wheels when Recover is pressed is stuck (wedged between trees, hung up on a
+  // rock or a hump), so it always moves: the spot it stands on is skipped. The first pass wants room
+  // all round, nothing under the wheels or belly and no hump lifting the wheels; if no spot has that,
+  // the second takes any spot the body fits in.
+  const RECOVER_RINGS = [[0, 1], [3, 8], [6, 12], [9, 16], [12, 20], [15, 24]];
   const recoverSpot = () => {
     const x = vehicle.pos.x, z = vehicle.pos.z, yaw = vehicle.yaw(), here = terrain.heightAt(x, z);
+    const upright = vehicle.up.y > 0.8;
     streamAround(x, z);
-    let best = null, bestScore = Infinity;
-    for (const [r, n] of RECOVER_RINGS) for (let i = 0; i < n; i++) {
-      const t = (i + 0.5 * (r / 3 % 2)) / n * Math.PI * 2;
-      const st = standAt(x + Math.cos(t) * r, z + Math.sin(t) * r, yaw);
-      // degrees of slope, plus bumps, plus how far (sideways and up or down) it moves the truck
-      const score = st.slope + st.rough * 20 + r * 0.5 + Math.abs(st.ground - here) * 1.5;
-      if (score >= bestScore || blocked(st)) continue;
-      best = st; bestScore = score;
+    for (const strict of [true, false]) {
+      let best = null, bestScore = Infinity;
+      for (const [r, n] of RECOVER_RINGS) for (let i = 0; i < n; i++) {
+        if (r === 0 && upright && strict) continue;
+        const t = (i + 0.5 * (r / 3 % 2)) / n * Math.PI * 2;
+        const st = standAt(x + Math.cos(t) * r, z + Math.sin(t) * r, yaw);
+        if (strict && st.hang > 0.05) continue;
+        // degrees of slope, plus bumps, plus how far (sideways and up or down) it moves the truck
+        const score = st.slope + st.rough * 20 + st.hang * 40 + r * 0.5 + Math.abs(st.ground - here) * 1.5;
+        if (score >= bestScore || blocked(st, strict ? 0.5 : 0) || (strict && obstacleUnder(st))) continue;
+        best = st; bestScore = score;
+      }
+      if (best) return best;
     }
-    return best;
+    return null;
   };
   const recover = () => {
     const st = recoverSpot();
