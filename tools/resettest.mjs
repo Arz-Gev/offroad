@@ -8,8 +8,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone, rideRaise } from '../src/vehicle/tuning.js';
 import { Terrain } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
@@ -19,7 +18,7 @@ const count = +(process.argv[2] || 60);
 let seed = +(process.argv[3] || 1);
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const roll = +(process.env.ROLL || 0) * Math.PI / 180;
-const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
+const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 }); world.timestep = H;
 const terrain = new Terrain();

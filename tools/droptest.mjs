@@ -7,13 +7,12 @@
 //   node tools/droptest.mjs sweep      (slopes 0-50, rolls 0-90: one line each)
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
-import { makeDefenderParams } from '../src/vehicle/params.js';
-import { makeCarParams } from '../src/vehicle/carSpecs.js';
+import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone, rideRaise } from '../src/vehicle/tuning.js';
 import * as THREE from 'three';
 await RAPIER.init();
 const H = 1 / 240, G = 9.81;
-const carParams = () => { if (!process.env.CAR) return makeDefenderParams(); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
+const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 
 function run(slopeDeg, rollDeg, drop = 0.5, secs = 4) {
   const world = new RAPIER.World({ x: 0, y: -G, z: 0 }); world.timestep = H;
