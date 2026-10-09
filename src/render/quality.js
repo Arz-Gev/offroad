@@ -3,12 +3,18 @@
 // low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), tuned on the ?vegtune meadow (Oct 9). Low starts from Medium.
+// distance in m (grass.js evalCurve), each level tuned on the ?vegtune meadow (Oct 9).
 const GRASS_ULTRA = {
   end: 300, smooth: true,
   density: [[0, 117], [3.2, 82], [14, 28], [26, 18], [56, 9.4], [102, 10], [150, 8.3], [300, 5.8]],
   height: [[0, 132], [23, 102], [39, 79], [62, 96], [86, 115], [151, 105], [297, 106]],
   width: [[0, 5.6], [28, 15], [47, 19], [84, 27], [121, 39], [160, 64], [207, 96], [246, 136], [300, 200]],
+};
+const GRASS_LOW = {
+  end: 124, smooth: true,
+  density: [[0, 13], [3.1, 8], [14, 3], [24, 1.9], [50, 1.6], [99, 1.3], [150, 1.2], [300, 0.8]],
+  height: [[0, 133], [8.9, 129], [23, 127], [46, 150], [69, 180], [95, 213], [146, 148], [201, 349], [295, 333]],
+  width: [[0, 13], [25, 26], [55, 43], [90, 59], [128, 71], [173, 120], [207, 140], [247, 143], [288, 127]],
 };
 const GRASS_MEDIUM = {
   end: 149, smooth: true,
@@ -43,7 +49,7 @@ export const QUALITY = {
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
     grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
-    grassCurve: grass(GRASS_MEDIUM), bushes: 0.25, bushHeight: 2.9, bushDist: 2.8,
+    grassCurve: grass(GRASS_LOW), bushes: 0.31, bushHeight: 2.6, bushDist: 3.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
