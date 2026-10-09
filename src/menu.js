@@ -87,8 +87,8 @@ const GFX_SECTIONS = [
     row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
     row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']], note: 'SSAO: contact shading in corners, under the truck and between rocks. About 1–2 ms.' }),
     row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharper, FXAA is cheaper.' }),
-    row('gBloom', 'Bloom', 'switch', { note: 'Glow around lamps and the sun.' }),
-    row('dust', 'Dust, mud and splashes', 'switch', { note: 'Clouds and spray kicked up by the tyres.' }),
+    row('gBloom', 'Bloom', 'switch'),
+    row('dust', 'Dust, mud and splashes', 'switch'),
   ] },
   { title: 'World detail', rows: [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
