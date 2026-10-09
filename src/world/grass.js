@@ -315,7 +315,7 @@ vec3 nonPerturbedNormal = normal;`)
       return timer;
     },
     configure(q) {
-      // q.grassCurve (the tuner) or the preset's near / far values, as curves
+      // q.grassCurve (a preset's or the tuner's) or the Custom near / far sliders, as curves
       const c = q.grassCurve || curveFromNearFar(q);
       const R = Math.min(CURVE_MAX, Math.max(10, c.end));
       const dens = d => Math.max(0, evalCurve(c.density, Math.min(d, R), c.smooth, true, c.lin));

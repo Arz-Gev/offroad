@@ -32,7 +32,8 @@ body.paused .vegt { visibility: hidden; }
 .vt-b.primary { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); }
 .vt-check { display: flex; align-items: center; gap: 4px; color: var(--dim); cursor: pointer; }
 .vt-check input { margin: 0; accent-color: var(--amber); }
-.vt-help { margin-left: auto; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; font-weight: 700; color: var(--dim); cursor: help; }
+.vt-push { margin-left: auto; }
+.vt-help { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; font-weight: 700; color: var(--dim); cursor: help; }
 .vt-graph { display: block; width: 100%; height: 170px; margin-top: 4px; border-radius: 6px; background: rgba(0, 0, 0, 0.22); touch-action: none; }
 .vt-bush { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: center; margin-top: 6px; }
 .vt-bush > b { grid-row: span 3; font: 700 10px/1.2 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); writing-mode: vertical-rl; transform: rotate(180deg); }

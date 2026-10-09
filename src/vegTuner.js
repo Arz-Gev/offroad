@@ -1,6 +1,6 @@
 import { QUALITY } from './render/quality.js';
 import { storage } from './settings.js';
-import { evalCurve, curveFromNearFar } from './world/grass.js';
+import { evalCurve } from './world/grass.js';
 import './vegTuner.css';
 
 // TEMPORARY tool for retuning the grass and bush presets (loaded only with ?vegtune, see MEADOW in
@@ -9,9 +9,10 @@ import './vegTuner.css';
 // Grass is three curves over the distance (density, height, width): drag the points (Ctrl / Cmd + drag
 // moves the whole curve up or down), double-click to add or remove one (right-click removes too), drag
 // the dashed line to move where the grass ends.
-// Copy puts all four presets (new where edited) on the clipboard. Edits survive a reload (localStorage).
+// Copy / Paste carry one preset's values to another (Paste makes them the new version of the current one).
+// Copy all puts all four presets (new where edited) on the clipboard. Edits survive a reload (localStorage).
 
-const KEY = 'offroad.vegtune.v3';
+const KEY = 'offroad.vegtune.v4';
 const PRESETS = [['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']];
 const XMAX = 300, XT = [0, 10, 25, 50, 100, 200, 300], XT_LIN = [0, 50, 100, 150, 200, 250, 300];
 const rnd = v => (v >= 10 ? Math.round(v) : v >= 1 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100);
@@ -33,7 +34,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export function startVegTuner(api) {
   const old = Object.fromEntries(PRESETS.map(([p]) => {
     const q = QUALITY[p];
-    return [p, { curve: curveFromNearFar(q), bushes: q.bushes, bushHeight: q.bushHeight, bushDist: q.bushDist }];
+    return [p, { curve: clone(q.grassCurve), bushes: q.bushes, bushHeight: q.bushHeight, bushDist: q.bushDist }];
   }));
   let st = { cur: 'high', view: 'old', edits: {}, collapsed: false };
   try { st = { ...st, ...JSON.parse(storage.get(KEY) || '{}') }; } catch { /* keep defaults */ }
@@ -59,6 +60,8 @@ export function startVegTuner(api) {
       <div class="vt-bar">
         <div class="vt-seg"><button type="button" data-scale="lin">Lin</button><button type="button" data-scale="log">Log</button></div>
         <label class="vt-check"><input type="checkbox" data-act="smooth"> Smooth</label>
+        <button type="button" class="vt-b vt-push" data-act="copy1" title="Copy this preset (as shown)">Copy</button>
+        <button type="button" class="vt-b" data-act="paste">Paste</button>
         <span class="vt-help" title="Drag points. Ctrl / Cmd + drag: move the whole curve up or down. Double-click: add or remove a point (right-click removes too). Drag the dashed line: where the grass ends. The faint line is the old preset.">?</span>
       </div>
       ${GRAPHS.map(g => `<canvas class="vt-graph" data-g="${g.key}"></canvas>`).join('')}
@@ -230,6 +233,9 @@ export function startVegTuner(api) {
     el.querySelector('[data-view="new"]').disabled = !hasNew;
     el.querySelector('[data-act="reset"]').disabled = !hasNew;
     el.querySelector('[data-act="smooth"]').checked = !!v.curve.smooth;
+    const paste = el.querySelector('[data-act="paste"]');
+    paste.disabled = !st.clip;
+    paste.title = st.clip ? `Paste the copied ${st.clip.from} values into ${st.cur}` : 'Copy a preset first';
     for (const b of el.querySelectorAll('[data-scale]')) b.setAttribute('aria-checked', b.dataset.scale === (v.curve.lin ? 'lin' : 'log'));
     for (const f of BUSH) {
       const row = el.querySelector(`[data-f="${f[0]}"]`), x = v[f[0]], changed = x !== o[f[0]];
@@ -257,6 +263,15 @@ export function startVegTuner(api) {
     else if (t.dataset.act === 'reset') { delete st.edits[st.cur]; st.view = 'old'; }
     else if (t.dataset.act === 'collapse') st.collapsed = !st.collapsed;
     else if (t.dataset.act === 'copy') copy();
+    else if (t.dataset.act === 'copy1') {
+      st.clip = { ...clone(values()), from: st.cur };
+      const v = values();
+      navigator.clipboard?.writeText(`${st.cur}: ${JSON.stringify({ ...v.curve, bushes: v.bushes, bushHeight: v.bushHeight, bushDist: v.bushDist })}`).catch(() => {});
+      t.textContent = 'Copied ✓'; setTimeout(() => { t.textContent = 'Copy'; }, 1500);
+    } else if (t.dataset.act === 'paste' && st.clip) {
+      const { from, ...v } = clone(st.clip);
+      st.edits[st.cur] = v; st.view = 'new';
+    }
     t.blur();
     save(); render(); apply();
   });

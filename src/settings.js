@@ -39,7 +39,7 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
-  // grass and undergrowth (the High preset's values; render/quality.js has the preset table)
+  // grass and undergrowth (the High preset's bushes; its grass is a curve, these sliders are Custom's; render/quality.js)
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom' (the sliders below)
   gGrass: 0.4,              // grass density at the camera (cell spacing; 1 = a blade every 0.1 m)
   gGrassHeight: 1.8,        // blade height at the camera (1 = 0.34 m)
@@ -48,9 +48,9 @@ export const DEFAULTS = {
   gGrassHeightFar: 2.6,     // blade height at the grass distance
   gGrassWidthFar: 6,        // blade width at the grass distance
   gGrassDist: 150,          // grass distance (m)
-  gBushes: 0.65,            // undergrowth density multiplier
-  gBushHeight: 1.6,         // undergrowth size multiplier
-  gBushDist: 1.55,          // undergrowth distance multiplier
+  gBushes: 0.45,            // undergrowth density multiplier
+  gBushHeight: 2,           // undergrowth size multiplier
+  gBushDist: 4,             // undergrowth distance multiplier
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
@@ -83,7 +83,7 @@ const RANGES = {
   // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
   gGrass: [0.04, 1.2], gGrassHeight: [0.8, 3.5], gGrassWidth: [0.6, 2.4], gGrassFar: [0.005, 0.3], gGrassHeightFar: [1, 4],
   gGrassWidthFar: [2, 10], gGrassDist: [60, 260],
-  gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 2.25],
+  gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 4.8],
 };
 
 export const storage = {
