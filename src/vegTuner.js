@@ -12,12 +12,13 @@ import './vegTuner.css';
 
 const KEY = 'offroad.vegtune.v3';
 const PRESETS = [['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']];
-const XMAX = 300, XT = [0, 10, 25, 50, 100, 200, 300];
+const XMAX = 300, XT = [0, 10, 25, 50, 100, 200, 300], XT_LIN = [0, 50, 100, 150, 200, 250, 300];
 const rnd = v => (v >= 10 ? Math.round(v) : v >= 1 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100);
 const GRAPHS = [
-  { key: 'density', label: 'Density', unit: '/m²', min: 0.3, max: 300, log: true, ticks: [1, 10, 100], minor: [3, 30, 300] },
-  { key: 'height', label: 'Height', unit: ' cm', min: 0, max: 160, ticks: [0, 40, 80, 120, 160] },
-  { key: 'width', label: 'Width', unit: ' cm', min: 0, max: 80, ticks: [0, 20, 40, 60, 80] },
+  // log: a log axis in the Log view; linMax / linTicks: the axis in the Lin view
+  { key: 'density', label: 'Density', unit: '/m²', min: 0.3, max: 300, log: true, ticks: [1, 10, 100], minor: [3, 30, 300], linMax: 150, linTicks: [0, 50, 100, 150] },
+  { key: 'height', label: 'Height', unit: ' cm', min: 0, max: 400, ticks: [0, 100, 200, 300, 400] },
+  { key: 'width', label: 'Width', unit: ' cm', min: 0, max: 200, ticks: [0, 50, 100, 150, 200] },
 ];
 // bushes: [field, label, min, max, log scale, unit]
 const BUSH = [['bushes', 'Density', 0.02, 4, true, '×'], ['bushHeight', 'Size', 0.5, 4, false, '×'], ['bushDist', 'Distance', 0.5, 4, false, '×']];
@@ -46,42 +47,51 @@ export function startVegTuner(api) {
   const el = document.createElement('div');
   el.className = 'vegt';
   el.innerHTML = `
-    <div class="vt-head"><b>Grass presets</b><span class="vt-sub">drag me</span><button type="button" class="vt-x" data-act="collapse" title="Hide / show"></button></div>
+    <div class="vt-head"><b>Grass</b><span class="vt-stats"></span><button type="button" class="vt-x" data-act="collapse" title="Hide / show"></button></div>
     <div class="vt-body">
-      <div class="vt-seg vt-presets">${PRESETS.map(([p, l]) => `<button type="button" data-preset="${p}">${l}</button>`).join('')}</div>
       <div class="vt-bar">
-        <div class="vt-seg vt-view"><button type="button" data-view="old">Old</button><button type="button" data-view="new">New</button></div>
-        <button type="button" class="vt-b" data-act="reset">Drop new</button>
+        <div class="vt-seg vt-presets">${PRESETS.map(([p, l]) => `<button type="button" data-preset="${p}">${l}</button>`).join('')}</div>
+        <div class="vt-seg"><button type="button" data-view="old">Old</button><button type="button" data-view="new">New</button></div>
+        <button type="button" class="vt-b" data-act="reset" title="Drop the new version of this preset">Drop</button>
         <button type="button" class="vt-b primary" data-act="copy">Copy all</button>
       </div>
-      <div class="vt-stats"></div>
-      <div class="vt-gh"><h3>Grass</h3><label class="vt-check"><input type="checkbox" data-act="smooth"> Smooth curves</label></div>
+      <div class="vt-bar">
+        <div class="vt-seg"><button type="button" data-scale="lin">Lin</button><button type="button" data-scale="log">Log</button></div>
+        <label class="vt-check"><input type="checkbox" data-act="smooth"> Smooth</label>
+        <span class="vt-help" title="Drag points. Double-click: add or remove a point (right-click removes too). Drag the dashed line: where the grass ends. The faint line is the old preset.">?</span>
+      </div>
       ${GRAPHS.map(g => `<canvas class="vt-graph" data-g="${g.key}"></canvas>`).join('')}
-      <div class="vt-hint">Drag points · double-click to add or remove · drag the dashed line: where the grass ends</div>
-      <h3>Bushes</h3>
-      ${BUSH.map(f => `
-        <div class="vt-row" data-f="${f[0]}"><div class="vt-l"><span>${f[1]}</span><output></output><small></small></div>
-        <input type="range" min="0" max="${STEPS}" step="1"></div>`).join('')}
+      <div class="vt-bush">
+        <b>Bushes</b>
+        ${BUSH.map(f => `
+        <div class="vt-row" data-f="${f[0]}"><span>${f[1]}</span><input type="range" min="0" max="${STEPS}" step="1"><output></output></div>`).join('')}
+      </div>
       <textarea class="vt-out" readonly hidden></textarea>
     </div>`;
   document.body.appendChild(el);
 
   // ------------------------------------------------------------------ graphs
   const PAD = { l: 34, r: 8, t: 16, b: 16 };
+  // Log view: √distance across (room for the near metres), log density; Lin view: both plain
+  const isLin = () => !!values().curve.lin;
   const lay = cv => {
-    const W = cv.clientWidth, H = cv.clientHeight, w = W - PAD.l - PAD.r, h = H - PAD.t - PAD.b;
-    return { W, H, w, h, X: d => PAD.l + Math.sqrt(clamp(d, 0, XMAX) / XMAX) * w, D: px => XMAX * clamp((px - PAD.l) / w, 0, 1) ** 2 };
+    const W = cv.clientWidth, H = cv.clientHeight, w = W - PAD.l - PAD.r, h = H - PAD.t - PAD.b, lin = isLin();
+    return { W, H, w, h, lin,
+      X: d => PAD.l + (lin ? clamp(d, 0, XMAX) / XMAX : Math.sqrt(clamp(d, 0, XMAX) / XMAX)) * w,
+      D: px => { const f = clamp((px - PAD.l) / w, 0, 1); return XMAX * (lin ? f : f * f); } };
   };
-  const yMap = (G, L) => ({
-    Y: v => PAD.t + L.h * (1 - (G.log ? Math.log(Math.max(v, G.min) / G.min) / Math.log(G.max / G.min) : (v - G.min) / (G.max - G.min))),
-    V: py => { const f = clamp(1 - (py - PAD.t) / L.h, 0, 1); return G.log ? G.min * (G.max / G.min) ** f : G.min + (G.max - G.min) * f; },
-  });
+  const yMap = (G, L) => {
+    const log = G.log && !L.lin, min = log ? G.min : 0, max = G.log && L.lin ? G.linMax : G.max;
+    return { log, ticks: G.log && L.lin ? G.linTicks : G.ticks,
+      Y: v => PAD.t + L.h * (1 - (log ? Math.log(Math.max(v, min) / min) / Math.log(max / min) : (v - min) / (max - min))),
+      V: py => { const f = clamp(1 - (py - PAD.t) / L.h, 0, 1); return log ? min * (max / min) ** f : min + (max - min) * f; } };
+  };
   const fmtV = (G, v) => `${rnd(v)}${G.unit}`;
   const hover = {};   // per graph: { i } hovered point, or { d } cursor distance, or { end: true }
   let drag = null;
 
   function draw(G) {
-    const cv = el.querySelector(`[data-g="${G.key}"]`), dpr = window.devicePixelRatio || 1, L = lay(cv), { Y } = yMap(G, L);
+    const cv = el.querySelector(`[data-g="${G.key}"]`), dpr = window.devicePixelRatio || 1, L = lay(cv), ym = yMap(G, L), { Y } = ym;
     if (cv.width !== Math.round(L.W * dpr)) { cv.width = Math.round(L.W * dpr); cv.height = Math.round(L.H * dpr); }
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -91,24 +101,24 @@ export function startVegTuner(api) {
     // grid and axes
     ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
     ctx.textAlign = 'center';
-    for (const d of XT) { const x = Math.round(L.X(d)) + 0.5; ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, PAD.t + L.h); ctx.stroke(); ctx.fillText(d, x, L.H - 4); }
+    for (const d of L.lin ? XT_LIN : XT) { const x = Math.round(L.X(d)) + 0.5; ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, PAD.t + L.h); ctx.stroke(); ctx.fillText(d, x, L.H - 4); }
     ctx.textAlign = 'right';
-    for (const t of G.ticks) { const y = Math.round(Y(t)) + 0.5; ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + L.w, y); ctx.stroke(); ctx.fillText(t, PAD.l - 4, y + 3); }
+    for (const t of ym.ticks) { const y = Math.round(Y(t)) + 0.5; ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + L.w, y); ctx.stroke(); ctx.fillText(t, PAD.l - 4, y + 3); }
     ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-    for (const t of G.minor || []) { const y = Math.round(Y(t)) + 0.5; ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + L.w, y); ctx.stroke(); }
+    for (const t of ym.log ? G.minor || [] : []) { const y = Math.round(Y(t)) + 0.5; ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + L.w, y); ctx.stroke(); }
     ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '600 11px system-ui, sans-serif';
     ctx.fillText(`${G.label}, ${G.unit.trim()}`, PAD.l, 11);
     // no grass past the end
     const xe = L.X(end);
     ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(xe, PAD.t, PAD.l + L.w - xe, L.h);
-    const line = (p, smooth, color, width) => {
+    const line = (p, smooth, lin, color, width) => {
       ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
-      for (let x = PAD.l; x <= PAD.l + L.w; x += 2) { const y = Y(evalCurve(p, L.D(x), smooth, G.log)); x === PAD.l ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+      for (let x = PAD.l; x <= PAD.l + L.w; x += 2) { const y = Y(evalCurve(p, L.D(x), smooth, G.log, lin)); x === PAD.l ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
       ctx.stroke();
     };
     // the old preset's curve, faint, while editing its new version
-    if (st.view === 'new' && st.edits[st.cur]) line(old[st.cur].curve[G.key], old[st.cur].curve.smooth, 'rgba(255,255,255,0.22)', 1.5);
-    line(pts, c.smooth, '#ffb347', 2);
+    if (st.view === 'new' && st.edits[st.cur]) line(old[st.cur].curve[G.key], old[st.cur].curve.smooth, !!old[st.cur].curve.lin, 'rgba(255,255,255,0.22)', 1.5);
+    line(pts, c.smooth, !!c.lin, '#ffb347', 2);
     // the end of the grass
     ctx.strokeStyle = hover[G.key]?.end || drag?.end ? '#fff' : 'rgba(255,179,71,0.8)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
     ctx.beginPath(); ctx.moveTo(xe, PAD.t); ctx.lineTo(xe, PAD.t + L.h); ctx.stroke(); ctx.setLineDash([]);
@@ -124,7 +134,7 @@ export function startVegTuner(api) {
     let txt = '';
     if (hv?.end) txt = `grass ends at ${Math.round(end)} m`;
     else if (hv?.i != null && pts[hv.i]) txt = `${rnd(pts[hv.i][0])} m · ${fmtV(G, pts[hv.i][1])}`;
-    else if (hv?.d != null) txt = `at ${rnd(hv.d)} m: ${fmtV(G, evalCurve(pts, hv.d, c.smooth, G.log))}`;
+    else if (hv?.d != null) txt = `at ${rnd(hv.d)} m: ${fmtV(G, evalCurve(pts, hv.d, c.smooth, G.log, !!c.lin))}`;
     if (txt) { ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = '11px ui-monospace, Menlo, monospace'; ctx.fillText(txt, PAD.l + L.w, 11); }
   }
   const drawAll = () => GRAPHS.forEach(draw);
@@ -207,11 +217,12 @@ export function startVegTuner(api) {
     el.querySelector('[data-view="new"]').disabled = !hasNew;
     el.querySelector('[data-act="reset"]').disabled = !hasNew;
     el.querySelector('[data-act="smooth"]').checked = !!v.curve.smooth;
+    for (const b of el.querySelectorAll('[data-scale]')) b.setAttribute('aria-checked', b.dataset.scale === (v.curve.lin ? 'lin' : 'log'));
     for (const f of BUSH) {
       const row = el.querySelector(`[data-f="${f[0]}"]`), x = v[f[0]], changed = x !== o[f[0]];
       row.querySelector('input').value = toPos(f, x);
       row.querySelector('output').textContent = x + f[5];
-      row.querySelector('small').textContent = changed ? `was ${o[f[0]]}` : '';
+      row.title = changed ? `was ${o[f[0]]}` : '';
       row.classList.toggle('mod', changed);
     }
     drawAll();
@@ -229,6 +240,7 @@ export function startVegTuner(api) {
       st.view = st.edits[st.cur] ? 'new' : 'old';
       api.settings.set('quality', st.cur);   // the whole preset (shadows, resolution, ...), so the frame time is the real one
     } else if (t.dataset.view) st.view = t.dataset.view;
+    else if (t.dataset.scale) editable().curve.lin = t.dataset.scale === 'lin';
     else if (t.dataset.act === 'reset') { delete st.edits[st.cur]; st.view = 'old'; }
     else if (t.dataset.act === 'collapse') st.collapsed = !st.collapsed;
     else if (t.dataset.act === 'copy') copy();
@@ -286,8 +298,8 @@ export function startVegTuner(api) {
     if (now - shown > 250) {
       shown = now;
       const med = [...frames].sort((a, b) => a - b)[frames.length >> 1] || 0;
-      const g = timer ? `<b>${timer.ms.toFixed(1)} ms</b> grass` : 'grass time: no GPU timer here';
-      stats.innerHTML = `${g} · frame ${med.toFixed(1)} ms · ${Math.round((api.grass.sent || 0) / 1000)}k blades sent`;
+      const g = timer ? `<b>${timer.ms.toFixed(1)} ms</b>` : 'no GPU timer';
+      stats.innerHTML = `${g} grass · ${med.toFixed(1)} ms frame · ${Math.round((api.grass.sent || 0) / 1000)}k sent`;
     }
     requestAnimationFrame(tick);
   };

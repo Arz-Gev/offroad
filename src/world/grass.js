@@ -25,13 +25,14 @@ const curveD = i => CURVE_MAX * (i / CURVE_N) ** 2;
 
 // a curve is a list of [distance m, value] points: straight lines between them, or a smooth curve that
 // never overshoots the points (monotone cubic) when `smooth`; flat before the first and after the last
-// point. It is interpolated in the tuner's graph space (√distance across, log value up for the density),
-// so a line looks exactly as the graph draws it. Shared with the grass tuner (vegTuner.js).
-export function evalCurve(pts, d, smooth, logY = false) {
+// point. It is interpolated in the tuner's graph space (√distance across, log value up for the density;
+// both plain when `lin`), so a line looks exactly as the graph draws it. Shared with vegTuner.js.
+export function evalCurve(pts, d, smooth, logY = false, lin = false) {
   const n = pts.length;
   if (d <= pts[0][0]) return pts[0][1];
   if (d >= pts[n - 1][0]) return pts[n - 1][1];
-  const X = x => Math.sqrt(x / CURVE_MAX), Y = y => (logY ? Math.log(Math.max(y, 0.01)) : y);
+  if (lin) logY = false;
+  const X = x => (lin ? x / CURVE_MAX : Math.sqrt(x / CURVE_MAX)), Y = y => (logY ? Math.log(Math.max(y, 0.01)) : y);
   let i = 0;
   while (d > pts[i + 1][0]) i++;
   const x = k => X(pts[k][0]), y = k => Y(pts[k][1]);
@@ -317,7 +318,7 @@ vec3 nonPerturbedNormal = normal;`)
       // q.grassCurve (the tuner) or the preset's near / far values, as curves
       const c = q.grassCurve || curveFromNearFar(q);
       const R = Math.min(CURVE_MAX, Math.max(10, c.end));
-      const dens = d => Math.max(0, evalCurve(c.density, Math.min(d, R), c.smooth, true));
+      const dens = d => Math.max(0, evalCurve(c.density, Math.min(d, R), c.smooth, true, c.lin));
       // the grid is as fine as the densest point of the curve; elsewhere a share of it is drawn
       let dMax = 0;
       for (let i = 0; i <= CURVE_N; i++) if (curveD(i) <= R) dMax = Math.max(dMax, dens(curveD(i)));
@@ -331,7 +332,7 @@ vec3 nonPerturbedNormal = normal;`)
       uniforms.uCurve.value.forEach((v, i) => {
         const d = Math.min(curveD(i), R);
         share[i] = Math.min(1, dens(d) / dMax);
-        v.set(share[i], Math.max(0, evalCurve(c.height, d, c.smooth)) / 100, Math.max(0, evalCurve(c.width, d, c.smooth)) / 100, 0);
+        v.set(share[i], Math.max(0, evalCurve(c.height, d, c.smooth, false, c.lin)) / 100, Math.max(0, evalCurve(c.width, d, c.smooth, false, c.lin)) / 100, 0);
       });
       Object.assign(lay, { s, n, k, tile, h, T, R, share });
       ensureTiles(T);
