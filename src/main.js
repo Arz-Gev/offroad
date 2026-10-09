@@ -651,7 +651,7 @@ async function main() {
   if (MEADOW) {
     placeVehicle(MEADOW.x, MEADOW.z, 0);
     import('./vegTuner.js').then(m => m.startVegTuner({
-      settings,
+      settings, grass, renderer,
       apply(v) { scenery.configure({ ...gfx.q, ...v, vegetation: true }); game.redraw = 3; },
     }));
   }
