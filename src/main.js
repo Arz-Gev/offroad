@@ -2,9 +2,8 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
-import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 
-import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
+import { Terrain, SPAWN } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
@@ -28,8 +27,11 @@ import { Gunnery } from './weapons.js';
 import { Input, setCarControls, hasControl, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
+import { loadLog, setLoading, frame, hideLoading, showError } from './loading.js';
+import { createGraphics, GFX_KEYS } from './graphics.js';
+import { createPlacement } from './placement.js';
 import { Menu } from './menu.js';
-import { Settings, storage } from './settings.js';
+import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
 import { Multiplayer, roomFromURL } from './multiplayer.js';
@@ -39,36 +41,6 @@ installShaderPatches();     // before any material compiles
 
 const H = 1 / 240;          // physics step
 const MAX_STEPS = 16;
-
-// ---------------------------------------------------------------- loading screen
-const loading = document.getElementById('loading');
-const loadLog = [];   // [stage, ms since navigation]
-const setLoading = (text, p) => {
-  loadLog.push([text, Math.round(performance.now())]);
-  loading.querySelector('.ld-t').textContent = text;
-  if (p !== undefined) loading.style.setProperty('--p', p);
-};
-// Yield so the loading text can paint; the timeout keeps loading going in a hidden tab (rAF throttled)
-const frame = () => new Promise(r => {
-  let done = false;
-  const go = () => { if (!done) { done = true; r(); } };
-  requestAnimationFrame(() => setTimeout(go, 0));
-  setTimeout(go, 60);
-});
-function showError(e) {
-  console.error(e);
-  const msg = String(e && e.message || e);
-  const webgl = /webgl|context/i.test(msg);
-  loading.classList.remove('done');
-  loading.classList.add('error');
-  setLoading('Could not start the game');
-  const box = loading.querySelector('.ld-err');
-  box.hidden = false;
-  box.innerHTML = (webgl
-    ? 'WebGL is not available. Turn on hardware acceleration in the browser settings, or try another browser.'
-    : escapeHTML(msg)) + '<br><button type="button">Reload</button>';
-  box.querySelector('button').addEventListener('click', () => location.reload());
-}
 
 async function main() {
   setLoading('Starting physics…', 0.08); await frame();
@@ -144,6 +116,8 @@ async function main() {
   if (model.chaseDist) rig.dist = model.chaseDist;
   const input = new Input(canvas);
   const hud = new HUD();
+  // Toasts with the same key replace each other (key null: no grouping).
+  const say = (key, html, kind = '', t) => hud.toast(html, { kind, t, key: key || html });
   const touch = new TouchControls({ input, canvas, hud, action: id => input.onAction(id) });
   hud.setDevice(input.device);
   const audio = new GameAudio();
@@ -159,121 +133,13 @@ async function main() {
   const prevQ = new THREE.Quaternion().copy(vehicle.quat), curQ = new THREE.Quaternion().copy(vehicle.quat);
   const rPos = new THREE.Vector3(), rQ = new THREE.Quaternion();
 
-  function trailSpot(x, z, back = 0) {
-    let best = null, bd = Infinity;
-    for (const c of terrain.trailCurves) {
-      const n = Math.round(c.getLength() / 2), pts = c.getSpacedPoints(n);
-      for (let k = 0; k <= n; k++) { const d = (pts[k].x - x) ** 2 + (pts[k].z - z) ** 2; if (d < bd) { bd = d; best = { pts, k, n }; } }
-    }
-    const { pts, k } = best, k0 = Math.max(0, k - Math.round(back / 2)), k1 = Math.min(pts.length - 1, k0 + 3);
-    const p = pts[k0], q = pts[k1];
-    return { x: p.x, z: p.z, yaw: Math.atan2(-(q.x - p.x), -(q.z - p.z)) };
-  }
-  // menu Locations tab (x, z, yaw also used by tools/browser-snippets.js)
-  const teleports = [
-    { name: 'Spawn', tag: 'Trail', title: 'Spawn', desc: 'Start of the trail loop: ruts, a mud hole and a branch towards the hills.', x: SPAWN.x, z: SPAWN.z, yaw: 0 },
-    { name: 'Axle twister', tag: 'Proving ground · lane A', title: 'Axle twister and whoops', desc: 'Offset humps that lift one wheel at a time. Watch the axle articulation.', x: LANES.A, z: 47, yaw: 0 },
-    { name: 'Steps and logs', tag: 'Proving ground · lane B', title: 'Steps and logs', desc: 'Ledges from 15 to 45 cm, then logs. Low range and a slow approach.', x: LANES.B, z: 47, yaw: 0 },
-    { name: 'Rock garden', tag: 'Proving ground · lane C', title: 'Rock garden', desc: 'Boulders. Needs low range, lockers and a careful line.', x: LANES.C, z: 47, yaw: 0 },
-    { name: 'Ramps', tag: 'Proving ground · lane D', title: 'Ramps 20° / 30° / 35°', desc: 'Climbs in low range. The steepest needs the centre diff locked.', x: LANES.D, z: 47, yaw: 0 },
-    { name: 'Mud and off-camber', tag: 'Proving ground · lane E', title: 'Mud and off-camber', desc: 'A deep mud hole and a side slope. Air down and keep momentum.', x: LANES.E, z: 47, yaw: 0 },
-    { name: 'The big hill', tag: 'Hill', title: 'The big hill', desc: 'A long climb with views over the whole map.', x: HILL.x - 52, z: HILL.z + 8, yaw: -Math.PI / 2 },
-    { name: 'Lake shore', tag: 'Outer loop · east', title: 'Lake shore', desc: 'A sandy beach on the lake. Splash through the shallows along the shore.', x: 386, z: 44, yaw: Math.atan2(-(POI.lake.x - 386), -(POI.lake.z - 44)) },
-    { name: 'The ford', tag: 'Outer loop · north-east', title: 'The ford', desc: 'The trail crosses the stream: 30 cm of water over gravel. Keep it slow and steady.', ...trailSpot(POI.ford.x, POI.ford.z, 35) },
-    { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
-    { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
-    { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
-    { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
-  ];
-  const streamAround = (x, z) => {
-    trees.updatePhysics(x, z);
-    props.userData.stream.update(x, z);
-    world.step();   // queries see streamed colliders only after a step
-  };
   const afterPlace = () => {
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
     game.redraw = 3;
   };
-  const placeVehicle = (x, z, yaw, lift = 0.5) => {
-    let y = terrain.heightAt(x, z);
-    for (const dx of [-1.5, 1.5]) for (const dz of [-2.2, 2.2]) y = Math.max(y, terrain.heightAt(x + dx, z + dz));
-    streamAround(x, z);
-    vehicle.reset({ x, y: y + lift + rideRaise(vehicle.P), z }, yaw);
-    afterPlace();
-  };
-
-  // How the truck would stand at (x, z) facing yaw: tilted to a ground plane fitted under its wheels,
-  // just above the tyres' touch (a bump under a wheel or the belly lifts it).
-  const _sR = new THREE.Vector3(), _sB = new THREE.Vector3(), _sU = new THREE.Vector3(), _sM = new THREE.Matrix4();
-  const standAt = (x, z, yaw) => {
-    const P = vehicle.P, s = Math.sin(yaw), c = Math.cos(yaw), t2 = P.track / 2;
-    const h = (lx, lz) => terrain.heightAt(x + lx * c + lz * s, z - lx * s + lz * c);
-    // plane h = a + b * lx + d * lz: b from the side-to-side tilt of each axle, d from the axles' heights
-    const ax = P.axles.map(a => ({ z: a.z, l: h(-t2, a.z), r: h(t2, a.z) }));
-    const n = ax.length, mz = ax.reduce((m, a) => m + a.z, 0) / n, mh = ax.reduce((m, a) => m + (a.l + a.r) / 2, 0) / n;
-    const b = ax.reduce((m, a) => m + (a.r - a.l) / P.track, 0) / n;
-    let num = 0, den = 0;
-    for (const a of ax) { num += (a.z - mz) * ((a.l + a.r) / 2 - mh); den += (a.z - mz) ** 2; }
-    const d = den > 0 ? num / den : 0, a0 = mh - d * mz;
-    const plane = (lx, lz) => a0 + b * lx + d * lz;
-    // ground above the plane under a wheel would bury the tyre; under the belly it's fine up to ~25 cm
-    let lift = 0, rough = 0;
-    for (const a of ax) for (const [lx, gh] of [[-t2, a.l], [t2, a.r]]) { const r = gh - plane(lx, a.z); lift = Math.max(lift, r); rough = Math.max(rough, Math.abs(r)); }
-    const zF = Math.min(...ax.map(a => a.z)), zB = Math.max(...ax.map(a => a.z));
-    for (const [lx, lz] of [[0, 0], [0, zF], [0, zB], [-t2, 0], [t2, 0]]) {
-      const r = h(lx, lz) - plane(lx, lz);
-      lift = Math.max(lift, r - 0.25); rough = Math.max(rough, Math.abs(r));
-    }
-    _sR.set(c, b, -s).normalize(); _sB.set(s, d, c).normalize();
-    _sU.crossVectors(_sB, _sR).normalize();
-    _sR.addScaledVector(_sU, -_sR.dot(_sU)).normalize();
-    _sB.crossVectors(_sR, _sU);
-    const quat = new THREE.Quaternion().setFromRotationMatrix(_sM.makeBasis(_sR, _sU, _sB));
-    const up = 0.12 + rideRaise(P) + 0.1 + lift;   // 0.12 + rideRaise = spawn height
-    const pos = { x: x + _sU.x * up, y: a0 + _sU.y * up, z: z + _sU.z * up };
-    return { pos, quat, ground: a0, slope: Math.acos(Math.min(1, _sU.y)) * 180 / Math.PI, rough };
-  };
-
-  const blocked = st => {
-    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
-    for (const [cx, cy, cz, hx, hy, hz] of vehicle.P.colliders) {
-      x0 = Math.min(x0, cx - hx); x1 = Math.max(x1, cx + hx);
-      y0 = Math.min(y0, cy - hy); y1 = Math.max(y1, cy + hy);
-      z0 = Math.min(z0, cz - hz); z1 = Math.max(z1, cz + hz);
-    }
-    y0 += 0.3;
-    const ctr = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2).applyQuaternion(st.quat);
-    const box = new RAPIER.Cuboid((x1 - x0) / 2, Math.max(0.1, (y1 - y0) / 2), (z1 - z0) / 2);
-    return !!world.intersectionWithShape({ x: st.pos.x + ctr.x, y: st.pos.y + ctr.y, z: st.pos.z + ctr.z }, st.quat, box,
-      RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, undefined, vehicle.body);
-  };
-
-  // Recover: flattest clear spot within ~12 m, same heading, tilted to the slope and just above the
-  // ground so it settles instead of dropping and rolling again.
-  const RECOVER_RINGS = [[0, 1], [3, 8], [6, 12], [9, 16], [12, 20]];
-  const recoverSpot = () => {
-    const x = vehicle.pos.x, z = vehicle.pos.z, yaw = vehicle.yaw(), here = terrain.heightAt(x, z);
-    streamAround(x, z);
-    let best = null, bestScore = Infinity;
-    for (const [r, n] of RECOVER_RINGS) for (let i = 0; i < n; i++) {
-      const t = (i + 0.5 * (r / 3 % 2)) / n * Math.PI * 2;
-      const st = standAt(x + Math.cos(t) * r, z + Math.sin(t) * r, yaw);
-      const score = st.slope + st.rough * 20 + r * 0.5 + Math.abs(st.ground - here) * 1.5;
-      if (score >= bestScore || blocked(st)) continue;
-      best = st; bestScore = score;
-    }
-    return best;
-  };
-  const recover = () => {
-    const st = recoverSpot();
-    if (st) {
-      streamAround(st.pos.x, st.pos.z);
-      vehicle.reset(st.pos, 0, st.quat);
-      afterPlace();
-    } else placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);
-    say('place', 'Recovered', 'good');
-  };
+  const { teleports, nearestLocation, placeVehicle, recover: recoverVehicle } = createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced: afterPlace });
+  const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
   const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
@@ -288,130 +154,16 @@ async function main() {
   game.mp = mp;
 
   // ---------------------------------------------------------------- graphics quality
-  const gfx = { auto: autoQuality(renderer), preset: null, q: null, dyn: 1 };
-  const _db = new THREE.Vector2();
-  const GFX_KEYS = Object.keys(presetToGfx(QUALITY.high));
-  function applyGraphics() {
-    const sel = settings.get('quality');
-    let q;
-    if (sel === 'custom') {
-      q = gfxToQuality(settings.all);
-      gfx.preset = 'custom';
-    } else {
-      const name = sel === 'auto' ? gfx.auto.preset : sel;
-      q = QUALITY[name] || QUALITY.high;
-      gfx.preset = name;
-      const g = presetToGfx(q);
-      for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
-    }
-    q = { ...q, vegetation: settings.get('gVeg') !== 'off' };
-    gfx.q = q;
-    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
-    pipeline.params.bloom = q.bloom !== false;
-    applyResolution();
-    const S = SHADOWS[q.shadows], sh = env.sun.shadow;
-    env.sun.castShadow = !!S;
-    if (S) {
-      // new map size or atlas layout: drop the old depth atlas (rebuilt next frame)
-      const ext = sh.getFrameExtents(), ex = ext.x, ey = ext.y;
-      if (sh.configure) sh.configure(S.cascades, S.splits);
-      if (sh.mapSize.x !== S.map || ext.x !== ex || ext.y !== ey) {
-        sh.mapSize.set(S.map, S.map);
-        if (sh.map) { sh.map.depthTexture?.dispose(); sh.map.dispose(); sh.map = null; }
-      }
-      sh.camera.far = S.far;
-      sh.radius = sh.configure ? S.soft : 1.4;
-    }
-    scenery.configure(q);
-    game.redraw = 3;
-  }
-  function applyResolution() {
-    const q = gfx.q, dpr = q.dynamicDpr ? gfx.dyn : q.dpr;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dpr) * settings.get('renderScale'));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.getDrawingBufferSize(_db);
-    pipeline.setSize(_db.x, _db.y);
-    dust.setViewport(_db.y);
-    gunnery?.setViewport(_db.y);
-    game.redraw = 3;
-  }
-  // Dynamic resolution (presets with dynamicDpr: Mobile). Starts at 100 % density, steps 12.5 % every
-  // 2.5 s: up at ~60 fps, down below 45. A step up that falls under 50 goes back and is barred for 1 min.
-  const dynRes = { t: 0, n: 0, skip: 1, ceil: Infinity, ceilUntil: 0, raised: false };
-  const DYN_STEP = 0.125, DYN_MIN = 1;
-  function updateDynamicResolution(dt, paused) {
-    const q = gfx.q, R = dynRes;
-    if (!q?.dynamicDpr || paused || document.hidden || (window.devicePixelRatio || 1) <= DYN_MIN) { R.t = R.n = 0; return; }
-    R.t += dt; R.n++;
-    if (R.t < 2.5) return;
-    const fps = R.n / R.t, now = performance.now();
-    R.t = R.n = 0;
-    if (R.skip > 0) { R.skip--; return; }               // the window after a change holds its hitch
-    const max = Math.min(q.dpr, window.devicePixelRatio || 1);
-    if (now > R.ceilUntil) R.ceil = Infinity;
-    let next = gfx.dyn;
-    if (fps < 45 || (R.raised && fps < 50)) {
-      if (R.raised) { R.ceil = gfx.dyn - DYN_STEP; R.ceilUntil = now + 60000; }
-      next = Math.max(DYN_MIN, gfx.dyn - DYN_STEP);
-    } else if (fps >= 57 && gfx.dyn + DYN_STEP <= Math.min(max, R.ceil) + 1e-6) next = gfx.dyn + DYN_STEP;
-    R.raised = next > gfx.dyn;
-    if (next !== gfx.dyn) { gfx.dyn = next; R.skip = 1; applyResolution(); }
-  }
-  // Auto quality by measurement (not on phones). Algorithm and thresholds: DEVNOTES.md, "Auto quality".
-  const AUTO_LADDER = ['low', 'medium', 'high', 'ultra'], AUTO_KEY = 'offroad.autoQuality.v1';
-  const autoSig = `${gfx.auto.gpu}|${Math.round(screen.width * screen.height * (window.devicePixelRatio || 1) ** 2 / 1e5)}`;
-  const autoSaved = () => { try { return JSON.parse(storage.get(AUTO_KEY) || '{}'); } catch { return {}; } };
-  gfx.auto.guess = gfx.auto.preset;
-  const tune = { on: false, t: 0, dts: [], ceil: AUTO_LADDER.length - 1, raised: false, measured: false };
-  function startAutoTune(fresh) {
-    const saved = autoSaved()[autoSig];
-    tune.on = AUTO_LADDER.includes(gfx.auto.guess);
-    tune.t = 0; tune.dts.length = 0; tune.raised = false; tune.measured = false;
-    tune.ceil = AUTO_LADDER.length - 1;
-    if (!tune.on) return;
-    if (!fresh && AUTO_LADDER.includes(saved)) {
-      gfx.auto.preset = saved; tune.measured = true;
-      tune.ceil = AUTO_LADDER.indexOf(saved);            // measured: only step down from here
-    } else gfx.auto.preset = gfx.auto.guess;
-  }
-  function saveAutoTune() {
-    const all = autoSaved();
-    all[autoSig] = gfx.auto.preset;
-    storage.set(AUTO_KEY, JSON.stringify(all));
-    tune.measured = true;
-  }
-  function updateAutoQuality(dt) {
-    if (!tune.on || settings.get('quality') !== 'auto' || game.paused || document.hidden || !started) return;
-    tune.t += dt;
-    if (tune.t < 3) return;
-    tune.dts.push(dt);
-    if (tune.t < 4) return;
-    const s = tune.dts.slice().sort((a, b) => a - b), fps = 1 / s[s.length >> 1];
-    if (tune.t < 7 && fps >= 40) return;          // under 40 fps: decide after 1 s
-    tune.t = 0; tune.dts.length = 0;
-    const i = AUTO_LADDER.indexOf(gfx.auto.preset);
-    let next = i;
-    if (tune.raised && fps < 50) { next = i - 1; tune.ceil = next; }   // step up didn't hold
-    else if (fps < 45 && i > 0) { next = i - 1; tune.ceil = next; }
-    else if (fps >= 57 && i < tune.ceil) next = i + 1;
-    tune.raised = next > i;
-    if (next === i) { tune.on = false; saveAutoTune(); return; }
-    gfx.auto.preset = AUTO_LADDER[next];
-    applyGraphics();
-    if (next < i) saveAutoTune();
-    say('quality', `Graphics: ${QUALITY[gfx.auto.preset].label}${next < i ? ' for a steadier frame rate' : ' (testing)'}`, '', 2.5);
-  }
-  startAutoTune(false);
-  game.autoTune = tune;
-
+  let started = false;
+  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, gunnery, game, say, started: () => started });
+  const applyGraphics = gfx.apply;
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
-  game.dynRes = dynRes; game.updateDynamicResolution = updateDynamicResolution;
+  game.autoTune = gfx.tune;
+  game.dynRes = gfx.dynRes; game.updateDynamicResolution = gfx.updateDynamicResolution;
 
   // ---------------------------------------------------------------- settings -> game
   // Every persisted setting is applied here (key, menu or startup). opts.silent: no toast.
-  // Toasts with the same key replace each other (key null: no grouping).
-  const say = (key, html, kind = '', t) => hud.toast(html, { kind, t, key: key || html });
   const k = id => capsHTML(id, input.device);
   const setHeadlights = (h, silent) => {
     view.lights.head = h;
@@ -453,7 +205,7 @@ async function main() {
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
     quality(v, o) {
-      if (v === 'auto' && !o.startup && !o.reset) startAutoTune(true);   // picked in the menu: re-measure
+      if (v === 'auto' && !o.startup && !o.reset) gfx.startAutoTune(true);   // picked in the menu: re-measure
       applyGraphics();
     },
     ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
@@ -488,11 +240,6 @@ async function main() {
     if (!t) return;
     placeVehicle(t.x, t.z, t.yaw);
     say('place', escapeHTML(t.title), 'good');
-  };
-  const nearestLocation = () => {
-    let best = -1, bd = 25 * 25;
-    teleports.forEach((t, i) => { const dd = (t.x - vehicle.pos.x) ** 2 + (t.z - vehicle.pos.z) ** 2; if (dd < bd) { bd = dd; best = i; } });
-    return best;
   };
   const next = (list, cur) => list[(list.indexOf(cur) + 1) % list.length];
   const toggle = key => settings.set(key, !settings.get(key));
@@ -576,12 +323,7 @@ async function main() {
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;
         case 'name': return mp.name;
-        case 'qualityNote': {
-          const sel = settings.get('quality'), auto = QUALITY[gfx.auto.preset].label;
-          const dyn = gfx.q?.dynamicDpr ? ` Pixel density adjusts itself between 100 and 150 % to hold 45–60 fps (now ${Math.round(Math.min(gfx.dyn, window.devicePixelRatio || 1) * 100)} %).` : '';
-          const how = gfx.auto.preset === 'mobile' ? 'for this device.' : tune.on ? 'measuring the frame rate while you drive…' : tune.measured ? 'measured on this computer. Pick another preset and Auto again to measure again.' : 'for this graphics chip.';
-          return (sel === 'auto' ? `Auto: ${auto}, ${how}` : sel === 'custom' ? `Custom: your own settings below. Auto would pick ${auto}.` : `Auto would pick ${auto} here.`) + dyn;
-        }
+        case 'qualityNote': return gfx.qualityNote();
         default: return settings.get(key);
       }
     },
@@ -616,7 +358,6 @@ async function main() {
   hud.onMenu = () => menu.open();
   hud.onFullscreen = () => menu.runAction('fullscreen');
 
-  let started = false;
   const autoPause = () => { if (started && settings.get('autoPause') && !menu.blocking) menu.open(); };
   window.addEventListener('blur', autoPause);
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
@@ -734,7 +475,7 @@ async function main() {
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');
-    updateDynamicResolution(dt, paused);
+    gfx.updateDynamicResolution(dt, paused);
     input.endFrame();
   }
   game.tick = tick;
@@ -774,8 +515,7 @@ async function main() {
   tick(1 / 60);
 
   setLoading('Ready', 1); await frame();
-  loading.classList.add('done');
-  setTimeout(() => loading.remove(), 600);
+  hideLoading();
   started = true;
 
   // invite link: join the room and drive next to the first friend heard
@@ -791,7 +531,7 @@ async function main() {
     last = now;
     if (dt > 0.1) dt = 0.1;
     if (dt <= 0) return;
-    updateAutoQuality(dt);
+    gfx.updateAutoQuality(dt);
     tick(dt);
   }
   requestAnimationFrame(loop);
