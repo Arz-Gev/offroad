@@ -155,10 +155,11 @@ float dCam = distance(bxz, cameraPosition.xz);
 float cu = sqrt(clamp(dCam / ${CURVE_MAX.toFixed(1)}, 0.0, 1.0)) * ${CURVE_N.toFixed(1)};
 int ci = int(min(cu, ${(CURVE_N - 1).toFixed(1)}));
 vec4 cv = mix(uCurve[ci], uCurve[ci + 1], cu - float(ci));
-// the share of the grid drawn at this distance; the last third of it shrinks towards the cut
+// the share of the grid drawn at full size at this distance; the next 35 % of that grow in from nothing
+// as the share rises (so a blade never pops), the rest isn't drawn
 float keep = cv.x;
 float rank = (float(gi) + 0.5) / (gk * gk);
-float fade = (1.0 - smoothstep(uRad.x, uRad.y, dCam)) * clamp((keep - rank) / (keep * 0.35), 0.0, 1.0);
+float fade = (1.0 - smoothstep(uRad.x, uRad.y, dCam)) * clamp((keep * 1.35 - rank) / (keep * 0.35), 0.0, 1.0);
 // density (precomputed: grass surfaces, slope, clearings, canopy) -- most culled blades stop here
 float dens = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
@@ -371,7 +372,7 @@ vec3 nonPerturbedNormal = normal;`)
         // draw the largest share any point of the tile needs; the shader drops what each blade's own distance doesn't
         const g = m.userData.geos[d < SEG_NEAR ? 0 : 1];
         m.geometry = g;
-        g.instanceCount = Math.min(k * k, Math.ceil(k * k * api.maxShare(d, Math.min(dFar, R)) * 1.02) + 4);
+        g.instanceCount = Math.min(k * k, Math.ceil(k * k * Math.min(1, api.maxShare(d, Math.min(dFar, R)) * 1.35)) + 4);
         sent += g.instanceCount;
       }
       api.sent = sent;
