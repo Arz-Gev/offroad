@@ -94,9 +94,7 @@ const GFX_SECTIONS = [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
     row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
-  ] },
-  { title: 'Grass and bushes', rows: [
-    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).' }),
+    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
   ] },
 ];
 
