@@ -5,10 +5,10 @@
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned on the ?vegtune meadow (Oct 9).
 const GRASS_ULTRA = {
-  end: 300, smooth: true,
-  density: [[0, 117], [3.2, 82], [14, 28], [26, 18], [56, 9.4], [102, 10], [150, 8.3], [300, 5.8]],
-  height: [[0, 132], [23, 102], [39, 79], [62, 96], [86, 115], [151, 105], [297, 106]],
-  width: [[0, 5.6], [28, 15], [47, 19], [84, 27], [121, 39], [160, 64], [207, 96], [246, 136], [300, 200]],
+  end: 300, smooth: false,
+  density: [[0, 0.3], [0.5, 39], [2.7, 49], [12, 21], [28, 8.9], [57, 12], [75, 14], [102, 13], [296, 6.9]],
+  height: [[0, 141], [2.7, 140], [9.2, 115], [22, 114], [297, 124]],
+  width: [[0, 4.9], [12, 12], [87, 38], [130, 63], [189, 97], [300, 200]],
 };
 const GRASS_LOW = {
   end: 124, smooth: true,
@@ -70,7 +70,7 @@ export const QUALITY = {
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
     grass: 0.8, grassHeight: 1.8, grassWidth: 1.05, grassFar: 0.08, grassHeightFar: 2.6, grassWidthFar: 5.5, grassRadius: 180,
-    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.6, bushDist: 4,
+    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
   },
 };
 
