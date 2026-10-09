@@ -18,8 +18,8 @@ const rnd = v => (v >= 10 ? Math.round(v) : v >= 1 ? Math.round(v * 10) / 10 : M
 const GRAPHS = [
   // log: a log axis in the Log view; linMax / linTicks: the axis in the Lin view
   { key: 'density', label: 'Density', unit: '/m²', min: 0.3, max: 300, log: true, ticks: [1, 10, 100], minor: [3, 30, 300], linMax: 150, linTicks: [0, 50, 100, 150] },
-  { key: 'height', label: 'Height', unit: ' cm', min: 0, max: 400, ticks: [0, 100, 200, 300, 400] },
-  { key: 'width', label: 'Width', unit: ' cm', min: 0, max: 200, ticks: [0, 50, 100, 150, 200] },
+  { key: 'height', label: 'Height', unit: ' cm', min: 5, max: 400, log: true, ticks: [10, 30, 100, 300], linMax: 400, linTicks: [0, 100, 200, 300, 400] },
+  { key: 'width', label: 'Width', unit: ' cm', min: 1, max: 200, log: true, ticks: [1, 3, 10, 30, 100], linMax: 200, linTicks: [0, 50, 100, 150, 200] },
 ];
 // bushes: [field, label, min, max, log scale, unit]
 const BUSH = [['bushes', 'Density', 0.02, 4, true, '×'], ['bushHeight', 'Size', 0.5, 4, false, '×'], ['bushDist', 'Distance', 0.5, 4, false, '×']];
@@ -73,7 +73,7 @@ export function startVegTuner(api) {
 
   // ------------------------------------------------------------------ graphs
   const PAD = { l: 34, r: 8, t: 16, b: 16 };
-  // Log view: √distance across (room for the near metres), log density; Lin view: both plain
+  // Log view: √distance across (room for the near metres), log values up; Lin view: both plain
   const isLin = () => !!values().curve.lin;
   const lay = cv => {
     const W = cv.clientWidth, H = cv.clientHeight, w = W - PAD.l - PAD.r, h = H - PAD.t - PAD.b, lin = isLin();

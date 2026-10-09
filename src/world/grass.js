@@ -25,7 +25,7 @@ const curveD = i => CURVE_MAX * (i / CURVE_N) ** 2;
 
 // a curve is a list of [distance m, value] points: straight lines between them, or a smooth curve that
 // never overshoots the points (monotone cubic) when `smooth`; flat before the first and after the last
-// point. It is interpolated in the tuner's graph space (√distance across, log value up for the density;
+// point. It is interpolated in the tuner's graph space (√distance across, log value up;
 // both plain when `lin`), so a line looks exactly as the graph draws it. Shared with vegTuner.js.
 export function evalCurve(pts, d, smooth, logY = false, lin = false) {
   const n = pts.length;
@@ -332,7 +332,7 @@ vec3 nonPerturbedNormal = normal;`)
       uniforms.uCurve.value.forEach((v, i) => {
         const d = Math.min(curveD(i), R);
         share[i] = Math.min(1, dens(d) / dMax);
-        v.set(share[i], Math.max(0, evalCurve(c.height, d, c.smooth, false, c.lin)) / 100, Math.max(0, evalCurve(c.width, d, c.smooth, false, c.lin)) / 100, 0);
+        v.set(share[i], Math.max(0, evalCurve(c.height, d, c.smooth, true, c.lin)) / 100, Math.max(0, evalCurve(c.width, d, c.smooth, true, c.lin)) / 100, 0);
       });
       Object.assign(lay, { s, n, k, tile, h, T, R, share });
       ensureTiles(T);
