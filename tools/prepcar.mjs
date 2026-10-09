@@ -3,7 +3,7 @@
 // nodes the game mounts on its own axles: wheel_<corner> (tyre, rim, disc: spins) and hub_<corner>
 // (parts off the hub centre, e.g. calipers: steers, doesn't spin). Prints the body outline per 10 cm of
 // length (for the collision boxes) and the wheel numbers for the car's file (src/cars/<id>.js: physics and look).
-// Steps: DEVNOTES.md "Imported cars".
+// Steps: src/cars/README.md.
 //   needs (in a scratch dir, not this repo): npm i @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions gl-matrix
 //   node prepcar.mjs in.glb out.glb '{"scale":1,"flip":true,"hubY":0.3955,"R":0.4015,"wheels":[[x0,x1,zc],...]}'
 //   source units: scale turns them into metres. flip: the source faces +z. wheels: x range and z centre of

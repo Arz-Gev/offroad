@@ -33,7 +33,7 @@ const grass = c => JSON.parse(JSON.stringify(c));
 export const QUALITY = {
   // Anti-aliasing is off in every preset (turning it on under Graphics makes the preset Custom).
   // mobile (phones and tablets): no shadows, AO, grass or bushes (veg 'off'). dynamicDpr: pixel density moves
-  // between 1 and `dpr` to hold 45-60 fps (main.js, "dynamic resolution").
+  // between 1 and `dpr` to hold 45-60 fps (graphics.js, "dynamic resolution").
   mobile: {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,

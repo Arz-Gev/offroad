@@ -7,16 +7,16 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 
 | Task | Notes |
 |---|---|
-| ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into `DEFAULT_SETUP` in `src/vehicle/tuning.js` and becomes the stock. |
+| ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
 
 ## To do
 
 | Task | Size | Notes |
 |---|---|---|
-| 📋 More cars (picked Oct 4) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997 (54 MB, needs slimming), HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail), a Land Cruiser (not the J200; e.g. the beige FJ40 "4x4 toyota Bj"). Recipe: `src/cars/README.md`. |
+| 📋 More cars (picked by the player) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997 (54 MB, needs slimming), HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail), a Land Cruiser (not the J200; e.g. the beige FJ40 "4x4 toyota Bj"). Recipe: `src/cars/README.md`. |
 | 📋 Body bounces off when the roof or a side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
 | 📋 PBR textures | Medium–large | Texture maps (normal, roughness, albedo) for the ground and the truck, as a Graphics option. |
-| 📋 Defender suspension and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics (the G-Class, Lancia and BTR already have moving arms). |
+| 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
 
@@ -26,8 +26,9 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 - Imported cars: cockpits have no working gauges.
 - BTR-80: no 30 mm BTR-82A turret, no damage model, no swimming; the muzzle flash light casts no shadows.
 - Multiplayer: friends' trucks have no engine sound and no headlight beams; friends on some mobile or work networks can't connect (needs a relay).
+- Driving: the rock garden can wedge the chassis on boulders (fair, but watch for frustration); corner rollovers at 60–70 km/h are plausible (threshold ≈ 0.7 g vs dirt μ 0.72) but may feel harsh.
 - World: no terrain or trees in water reflections, undergrowth casts no shadow, no ramp into the quarry, no hut interior, no snow on the near mountains.
-- Ideas: water and fording (the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, the tyre shadow squashing with the tyre, terrain LOD, hill descent control, damage model, force feedback.
+- Ideas: water and fording (the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, hill descent control, damage model, force feedback.
 
 ## Parked
 
@@ -36,3 +37,10 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | ⏸ Suspension / landing / body impact sounds | Removed: nothing tried sounded right. See `DEVNOTES.md` → Sound. |
 | ⏸ Lake physics (driving into water) | Not a priority. |
 | ⏸ Short hitch on the first switch to night | Not a priority. |
+
+## Decided by the player (don't redo unasked)
+
+- Cloud shadows: tried, removed.
+- The welcome card on first start: removed; only the short line at the bottom shows.
+- The night road from the cockpit is bright enough.
+- Impact sounds: see Parked.

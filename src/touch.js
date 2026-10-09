@@ -1,7 +1,7 @@
 import { BINDING, hasControl } from './input.js';
 import { fmtPressure } from './hud.js';
 
-// On-screen controls for phones and tablets (layout: DEVNOTES.md, "Touch").
+// On-screen controls for phones and tablets.
 //   left thumb   steering: slide sideways in the lower left (stick under the finger), or tilt the device
 //   right thumb  gas and brake (analog), handbrake, clutch, shift
 //   top left     camera, recover and the Vehicle drawer, next to the menu button

@@ -18,7 +18,7 @@ const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${Stri
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
-    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
+    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),
