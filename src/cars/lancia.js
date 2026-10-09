@@ -13,12 +13,13 @@ export default {
     bodyMass: 1170, bodyInertia: [1450, 1900, 450], com: [0, 0.50, -0.22], aero: { cdA: 0.68 },
     wheelbase: 2.477, track: 1.401,
     archTop: 0.67,   // the lowest body over the tyres (tools/rigview.html measureArches)
-    // character: a gravel rally car: light, very quick steering, grippy rally tyres. Soft, long travel and 6 cm
-    // above the road car; the static ride uses half the travel, which keeps the low floor off trail crests
+    // character: a gravel rally car: light, very quick steering, grippy rally tyres, a rear bar that helps it turn
+    // in. Soft, long travel and 6 cm above the road car; the static ride uses half the travel. Stiffer springs or
+    // more travel let the low floor strike trail crests at 70+ (check with tools/traillap.mjs)
     raise: 0.06,
     // MacPherson struts all round, as the real car. Springs at the wheel track already give a lot of roll
     // stiffness: no front bar, a light rear one. Lower roll centres put the outer wheels on the bump rubbers
-    // in trail corners
+    // in trail corners; the bump damping keeps the rubbers under ~2 % of a trail lap
     axles: [
       { type: 'independent', linkage: 'strut', rcHeight: 0.12, camberGain: -0.5, steered: true, mass: 88,
         k: 30000, bump: 3000, rebound: 3700, arb: 0, travel: 0.22 },
