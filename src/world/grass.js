@@ -1,20 +1,14 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 
-// GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells.
-// Every world cell always gets the same blade (hashed from the cell index), so blades never swim as the
-// grid follows the camera. One grid, split into world-aligned tiles (16-32 m) that are frustum culled on
-// the CPU. It thins out with distance: inside a tile the instances are numbered so that every leading
-// part of the list is spread evenly over the tile (bit-reversed Morton order: the first quarter is one
-// blade per 2x2 cells, the first sixteenth one per 4x4, ...), so a far tile draws only the first few
-// instances, and the blades that stay keep their places as the share changes. A blade that represents a
-// coarse block is jittered over its whole block, so the sparse far grass doesn't sit on a lattice. Blade
-// height and width go from their near values at the camera to their far values at the grass distance;
-// blades at the edge of the drawn share shrink to nothing, so nothing pops. Density comes from the
-// terrain's surface and ground-data maps (no grass on trails, rock, mud, sand or under dense canopy);
-// heights come from the physics heightfield with the same triangle split, so blades stand exactly on
-// the ground. Wind (travelling gusts), the truck's wheels push blades aside, tyre tracks flatten them,
-// and a few distant blades are wild flowers.
+// GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
+// blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
+// frustum culled on the CPU. Thinning with distance: a tile's instances are in bit-reversed Morton order, so any
+// leading part of the list is spread evenly (first quarter = one blade per 2x2 cells, ...); a far tile draws only
+// the first few, the blades that stay keep their places, a coarse blade is jittered over its block (no lattice),
+// and blades at the edge of the drawn share shrink to nothing (no popping). Density from the terrain's surface and
+// ground-data maps; heights from the physics heightfield with the same triangle split. Wind gusts, wheels push
+// blades aside, tyre tracks flatten them, a few far blades are wild flowers.
 
 const HALF = MAP_SIZE / 2, NN = N + 1;
 const SEG_NEAR = 22;   // tiles closer than this (m) use 2-segment blades, the rest 1-segment

@@ -5,17 +5,15 @@ import { tireRadialStiffness, tyreRadius, tyreWidth } from './tire.js';
 import { axleShares } from './suspension.js';
 
 // A car's physics params P: its file's physics (src/cars/<id>.js) over the defaults (defaults.js), plus
-// what follows from them. One path for every car, any number of axles of any suspension type.
+// what follows from them. One path for every car.
 //
 // Vehicle frame: +x right, +y up, -z forward; y = 0 is the ground at static ride, z = 0 the middle of
 // the wheelbase. Derived here:
-// - tyre radius and width from the nominal size in inches (tire.js tyreRadius / tyreWidth);
-// - axle z: +-wheelbase / 2 on a two-axle car, else each axle states its z;
-// - axle names: front / rear on two axles, else 1, 2, ... from the front;
+// - tyre radius and width from the nominal size in inches;
+// - axle z (+-wheelbase / 2 on two axles, else stated) and names (front / rear, else 1, 2, ...);
 // - springTrack and damperTrack of an independent axle: the wheel track (its rates are wheel rates);
-// - droopY (the axle / hub height at full droop) so the static ride puts the ground at y 0 with the body
-//   level, unless the axle states it: each axle's share of the sprung weight (suspension.js axleShares)
-//   on its springs and tyres; `raise` lifts the body higher (ground clearance, not travel);
+// - droopY (axle / hub height at full droop) so the static ride puts the ground at y 0 with the body
+//   level, unless the axle states it; `raise` lifts the body higher (ground clearance, not travel);
 // - kinC0, an independent axle's static compression: its kinematic curves are referenced to it;
 // - the engine: the catalogue entry of physics.engine.preset (engines.js) with the car's overrides;
 // - colliders: [name, box] -> P.colliders + P.colliderNames; colliderFrame 'hub' boxes are measured from
@@ -34,7 +32,6 @@ export function makeCarParams(id = getCar()) {
   return paramsFromDef(carDef(id));
 }
 
-// the params of a car definition (a car file's default export, or a variant of one: tests, tools)
 export function paramsFromDef(def) {
   const c = def.physics;
   const { engine, axles, tire, colliders, load, ...rest } = c;
@@ -62,7 +59,6 @@ export function paramsFromDef(def) {
     return ax;
   });
 
-  // static ride: ground at y 0 with the body level
   const shares = axleShares(P), mt = P.axles.reduce((s, a) => s + a.mass, P.bodyMass);
   const kt = tireRadialStiffness(P.tire.pressure, P.tire.kScale ?? 1);
   const squash = P.axles.map((a, i) => mt * G * shares[i] / 2 / kt);

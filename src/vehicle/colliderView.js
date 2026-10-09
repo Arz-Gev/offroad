@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 
-// X-ray view of the physics: chassis collision boxes, wheel side cylinders, tyre outlines against the
-// arch tops, suspension travel gauges, tyre contact patches and the points where the body touches the
-// ground or an obstacle (the touching box turns red). Drawn on top of everything (no depth test).
-//
-// Nothing exists until it is first switched on, and while off the group is invisible and update() returns
-// at once, so it costs nothing in normal play.
+// X-ray view of the physics: chassis collision boxes, wheel side cylinders, tyre outlines against the arch
+// tops, suspension travel gauges, contact patches and the points where the body touches the ground or an
+// obstacle (the touching box turns red). Drawn on top of everything (no depth test).
+// Nothing exists until it is first switched on; while off, update() returns at once.
 
 const COL = {
   box: new THREE.Color(0.25, 0.85, 1.0),
@@ -45,7 +43,6 @@ const lineMat = (color, opacity = 1) => new THREE.LineBasicMaterial({ color, tra
 const fillMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
 const onTop = o => { o.renderOrder = 999; o.frustumCulled = false; return o; };
 
-// unit circle in the y-z plane (a wheel seen from the side), n segments
 function circle(n = 48) {
   const p = [];
   for (let i = 0; i < n; i++) {
@@ -91,7 +88,6 @@ export class ColliderView {
     this.scene.add(this.world);
     this.boxGroup = new THREE.Group(); this.body.add(this.boxGroup);
     this.boxes = [];
-    // wheels: side cylinder, tyre outline, travel gauge
     this.cyl = cylinderLines(); this.circ = circle();
     this.wheels = this.v.wheels.map(() => {
       const cyl = onTop(new THREE.LineSegments(this.cyl, lineMat(COL.wheel, 0.75)));
@@ -115,13 +111,11 @@ export class ColliderView {
       this.body.add(g);
       return { g, rail, stop, mark, side: w.side };
     });
-    // contact patches (world): a disc per wheel, size by load, colour by slip
     this.patches = this.v.wheels.map(() => {
       const d = onTop(new THREE.Mesh(new THREE.CircleGeometry(1, 24), fillMat(COL.ok, 0.7)));
       this.world.add(d);
       return d;
     });
-    // body contact points (world)
     this.dots = onTop(new THREE.InstancedMesh(new THREE.SphereGeometry(0.045, 10, 8), fillMat(COL.hit, 0.95), 48));
     this.dots.count = 0;
     this.world.add(this.dots);
@@ -144,7 +138,6 @@ export class ColliderView {
   update() {
     if (!this.enabled) return;
     const v = this.v, P = v.P, world = v.world;
-    // which chassis boxes touch something, and where
     this.touching.clear();
     let n = 0;
     const cols = v.chassisColliders;
@@ -167,7 +160,6 @@ export class ColliderView {
     v.wheels.forEach((w, i) => {
       const ax = w.axle, ap = ax.p, o = this.wheels[i];
       if (ax.ind) {
-        // independent corner: hub, camber, steer (Vehicle.cornerGeometry)
         _v.set(w.side * (P.track / 2 + w.out), ax.droopY + w.c, ap.z);
         _q2.setFromAxisAngle(Z, -w.side * w.camber).multiply(_q.setFromAxisAngle(Y, -w.steer));
       } else {
@@ -190,13 +182,11 @@ export class ColliderView {
       // travel gauge: spring compression at this side, 0 = full droop, travel = hard stop
       const g = this.gauges[i], s2 = ap.springTrack / 2;
       const comp = ax.ind ? w.c : ax.c + w.side * s2 * Math.sin(ax.phi);
-      // just outboard of the tyre
       g.g.position.set(w.side * (P.track / 2 + P.tire.width / 2 + 0.12), ax.droopY, ap.z);
       g.rail.scale.y = ap.travel;
       g.stop.position.y = ap.travel - 0.05; g.stop.scale.y = 0.05;
       g.mark.position.y = Math.max(-0.02, Math.min(ap.travel + 0.02, comp));
       g.mark.material.color.copy(comp > ap.travel - 0.05 ? (comp >= ap.travel - 0.005 ? COL.hit : COL.stop) : COL.ok);
-      // contact patch
       const d = this.patches[i];
       d.visible = w.contact && w.FnAvg > 0;
       if (d.visible) {

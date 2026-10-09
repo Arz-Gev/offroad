@@ -1,25 +1,23 @@
 import * as THREE from 'three';
 
-// Vehicle lamps. Real headlamps shape their beam so the road is evenly lit from a few metres out to the
-// cut-off: very little light goes steeply down (near field), most goes just below the horizon (far
-// field). Ground illuminance from a lamp at height h is E = I * h / r^3, so a plain cone always gives a
-// blown-out pool at the bumper and nothing further away. Here every beam is a SpotLight with a
-// light cookie (SpotLight.map) that encodes the angular intensity distribution I(elevation, azimuth).
+// Vehicle lamps. Real headlamps shape their beam to light the road evenly from a few metres out to the
+// cut-off: little light steeply down, most just below the horizon. Ground illuminance from a lamp at height h
+// is E = I * h / r^3, so a plain cone gives a blown-out pool at the bumper and nothing further away. So every
+// beam is a SpotLight with a light cookie (SpotLight.map) that encodes the intensity I(elevation, azimuth).
 //
-// Lights (on the vehicle root, a turret's searchlight on its gun cradle; only made visible at night or when something is switched on, so the
-// day scene pays nothing for them), at the car's lamp positions (look.lamps, or its procedural body's):
+// Lights (on the vehicle root; a turret's searchlight on its gun cradle; visible only at night or when switched
+// on) at the car's lamp positions (look.lamps, or its procedural body's):
 //   head  - one spot between the headlamps, low/high beam cookies, the only shadow caster
 //   aux   - the extra lamps (J): a roof light bar or driving lamps (a wide long-range flood) and searchlights
 //           (a narrow cone, maybe riding a turret); one spot per lamp place, no shadow
 //   rear  - one small dim spot for tail/brake glow and the reversing lamps
-// Lens glow comes from emissive materials (lensRoles: the lamps' roles -> materials); there are no point
-// lights.
+// Lens glow comes from emissive materials (lensRoles: the lamps' roles -> materials); no point lights.
 
-// Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a
-// tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3);
-// with a fixed exposure it blows out and blooms over the whole windscreen when you drive at a slope.
-// The eye adapts locally; this emulates it with a soft cap on each lamp's irradiance: E -> E/sqrt(1+(E/K)^2).
-// Road irradiance from the beams is ~0.6-4.5 (scene units), so the far throw is barely touched.
+// Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a tree
+// trunk 8-10 m ahead ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3); at a fixed exposure it blows out
+// and blooms over the windscreen on a slope. This emulates the eye's local adaptation with a soft cap on each
+// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.6-4.5 (scene units), so the
+// far throw is barely touched.
 export const LAMP_KNEE = 6.0;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
@@ -108,10 +106,9 @@ function auxBeam(el, az) {
 }
 
 export const BEAM = {
-  // peak intensities (candela in scene units; the scene is not photometric, these are tuned against the
-  // night preset so the road stays readable to ~60 m on low beam and ~150 m on high beam). Total light
-  // (Oct 7, cut from 45000 / 1.0 / 85000 as too harsh): low ~0.7x, high ~0.6x, aux ~0.55x of before; the aux
-  // flood still puts out a little more than the high beam, spread wider.
+  // peak intensities (candela in scene units; not photometric: tuned against the night preset so the road stays
+  // readable to ~60 m on low beam and ~150 m on high beam). The aux flood puts out a little more than the high
+  // beam, spread wider.
   low: 36000,
   highGain: 0.68, // high beam peak = low peak * cookie max ratio * highGain
   aux: 55000,
@@ -162,12 +159,11 @@ export function buildLightRig(root, at) {
   return rig;
 }
 
-// The lens roles VehicleView drives: head, side (side lamps), aux (extra lamps), work (reversing work lamps),
-// tail, brake, reverse, amber (indicators / hazards), beacon; each role is a list of materials. A downloaded
-// model names its lenses by role (look.lamps.lenses: role -> a pattern matched against the material name
-// and the mesh name, e.g. the nodes tools/cutparts.mjs cut out). Every source material under a pattern
-// gets one glowing copy, shared by the roles that name the same pattern (the BTR-80's red lens is tail and
-// brake).
+// The lens roles VehicleView drives: head, side, aux (extra lamps), work (reversing work lamps), tail, brake,
+// reverse, amber (indicators / hazards), beacon; each a list of materials. A downloaded model names its lenses
+// by role (look.lamps.lenses: role -> a pattern matched against the material name and the mesh name, e.g. the
+// nodes tools/cutparts.mjs cut out). Every source material under a pattern gets one glowing copy, shared by the
+// roles that name the same pattern (the BTR-80's red lens is tail and brake).
 const LENS_COLOR = { amber: [1, 0.55, 0.1], beacon: [1, 0.55, 0.1], tail: [1, 0.1, 0.05], brake: [1, 0.1, 0.05] };
 export function modelLenses(shell, lenses = {}) {
   const roles = {}, byPattern = new Map();

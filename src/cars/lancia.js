@@ -5,7 +5,7 @@ import { ROAD_ENGINES } from '../vehicle/engines.js';
 export default {
   id: 'lancia',
   label: 'Lancia Delta',
-  suspensionV: 3,           // independent axles since setup v3 (Oct 8): older saved setups take the stock suspension
+  suspensionV: 3,           // older saved setups (before the independent axles, v3) take the stock suspension
 
   physics: {
     name: 'Delta HF Integrale',
@@ -15,15 +15,15 @@ export default {
     archTop: 0.67,   // the lowest body over the tyres (tools/rigview.html measureArches)
     // character: a gravel rally car: light, very quick steering, grippy rally tyres, a rear bar that helps it
     // turn in. Soft, long travel and 6 cm higher than the road car (road springs and 17 cm of travel scraped
-    // and crashed over the trail bumps above 60). The static ride uses half the travel (6 cm to the bump
-    // rubbers) and it stays so: the rubbers keep the low floor off the ground. Stiffer springs (40000 / 28000,
-    // 9 cm to the rubbers) let the floor strike over the crests at 70+ (tools/traillap.mjs)
+    // over the trail bumps above 60). The static ride uses half the travel (6 cm to the bump rubbers): that
+    // keeps the low floor off the ground, stiffer springs (40000 / 28000, 9 cm) struck it over crests at 70+
+    // (tools/traillap.mjs)
     raise: 0.06,
     // MacPherson struts all round, as the real car. The springs work at the wheel track, so they alone give
-    // more roll stiffness than the old beam axles with their bars: no front bar, a light rear one. Roll
-    // centres 0.12 / 0.16: the 6 cm gravel lift raises them too (lower ones rolled the outer wheels onto the
-    // bump rubbers in every trail corner). Firmer bump damping (2300 / 1700 -> 3000 / 2200) keeps the
-    // rubbers below 2 % of the trail lap; more travel instead let the floor hit the crests again
+    // more roll stiffness than beam axles with bars: no front bar, a light rear one. Roll centres 0.12 / 0.16
+    // (the gravel lift raises them too; lower ones rolled the outer wheels onto the bump rubbers in trail
+    // corners). Bump damping 3000 / 2200 keeps the rubbers below 2 % of the trail lap; more travel instead
+    // let the floor hit the crests
     axles: [
       { type: 'independent', linkage: 'strut', rcHeight: 0.12, camberGain: -0.5, steered: true, mass: 88,
         k: 30000, bump: 3000, rebound: 3700, arb: 0, travel: 0.22 },
@@ -39,8 +39,8 @@ export default {
     manual: { ratios: [3.50, 2.18, 1.52, 1.13, 0.93], reverse: 3.55 },
     transfer: { high: 1.0 },   // no low range, like the real car
     finalDrive: 3.11,
-    // permanent 4WD, no driver's locks: an epicyclic centre diff splitting 47 : 53 front / rear (16v and
-    // later; the 8v was 56 : 44) behind a Ferguson viscous coupling, an open front diff and the Torsen rear.
+    // permanent 4WD, no driver's locks: an epicyclic centre diff splitting 47 : 53 front / rear (16v and later;
+    // the 8v was 56 : 44) behind a Ferguson viscous coupling, an open front diff and the Torsen rear.
     // Viscous: ~150 Nm at 100 rpm of prop shaft slip (estimate)
     drive: { centreSplit: 0.47, centre: 'viscous', viscous: 1.5, lockers: false, rwd: [] },
     colliders: [
@@ -64,16 +64,14 @@ export default {
     eye: [-0.38, 1.10, 0.15],
     hoodEye: [0, 1.02, -1.05],
     // beams: the head beam just ahead of the four headlamps (hub y 0.36, faces at z -1.89), the extra lamps' (J)
-    // from the block of four driving lamps in the grille (hub y 0.40, faces at z -2.05; no roof bar). The model's
-    // lamp inserts glow behind the clear glass, picked by mesh name: the driving lamps' were cut out of the
-    // LightBump mesh (tools/cutparts.mjs, material LightBump, box [[-0.34, 0.34], [0.32, 0.48], [-2.06, -2.025]]);
-    // the rest of it is the headlamps and fog lamps; the LightBump rear meshes are the tail and brake lamps
-    // (Bump001) and the front indicators (Bump002)
+    // from the four driving lamps in the grille (hub y 0.40, faces at z -2.05; no roof bar). Lamp inserts glow
+    // behind the clear glass, picked by mesh name: the driving lamps' were cut out of the LightBump mesh
+    // (tools/cutparts.mjs, box [[-0.34, 0.34], [0.32, 0.48], [-2.06, -2.025]]); the rest of it is the headlamps
+    // and fog lamps; the LightBump rear meshes are the tail and brake lamps (Bump001) and front indicators (Bump002)
     lamps: { head: [0, 0.64, -2.08], aux: [0, 0.68, -2.09], rear: [0, 0.75, 2.0],
       lenses: { head: '^Light_Glass_Bump_LightBump_0$', aux: '^driving_lamps', tail: 'Bump001_LightBump_rear',
         brake: 'Bump001_LightBump_rear', amber: 'Bump002_LightBump_rear' } },
-    // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.52, -0.12], [0.34, 0.68],
-    // [-0.63, -0.40]] in the model frame); it turns about its own axis
+    // the steering wheel was cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.52, -0.12], [0.34, 0.68], [-0.63, -0.40]], model frame)
     cockpit: { steeringWheel: 'steering_wheel' },
   },
 

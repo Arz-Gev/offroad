@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { MAP_SIZE } from './world/terrain.js';
 
-// Dust / mud particles and water splashes kicked up by the tyres + persistent tyre tracks painted into a
-// map-wide texture.
+// Dust / mud / water particles kicked up by the tyres, and tyre tracks painted into a map-wide texture.
 
-// Soft dust puffs alive at once. Emission thins out as the count nears it, so spinning the wheels in place
-// leaves a haze rather than a wall, and the heavy clumps and splashes always find room in the buffer.
+// Soft dust puffs alive at once; emission thins out near it (wheelspin in place leaves a haze, not a
+// wall), so clumps and splashes always find room in the buffer.
 const PUFF_CAP = 450;
 
 export class Dust {
@@ -29,9 +28,8 @@ export class Dust {
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.color, 3).setUsage(THREE.DynamicDrawUsage));
     this.mat = new THREE.ShaderMaterial({
-      // uHalfH: half the render target height in pixels (setViewport). With the projection's focal length it
-      // turns a size in metres into pixels, so a puff covers the same part of the view at any resolution,
-      // pixel density or field of view (a fixed 600 px scale made it huge on small screens, tiny on big ones).
+      // uHalfH: half the render target height in px (setViewport). With the projection's focal length it
+      // turns metres into pixels, so a puff covers the same part of the view at any resolution or fov.
       uniforms: { uHalfH: { value: 360 }, uLight: { value: 1 } },
       vertexShader: `
         attribute float size; attribute float alpha; attribute vec3 color;
@@ -80,7 +78,7 @@ export class Dust {
     if (!heavy) this.puffs++;
   }
 
-  // water: droplets thrown up and back by the tread plus a bow wave to the sides, more with speed and depth
+  // droplets off the tread plus a bow wave, more with speed and depth
   splash(v, w, depth, dt, rnd) {
     const s = w.surf, muddy = !!s.mud;
     const sp = Math.abs(w.vcx), slip = w.slipVel || 0;
@@ -96,13 +94,11 @@ export class Dust {
       const col = [base[0] * k, base[1] * k, base[2] * k];
       const sgn = rnd() < 0.5 ? -1 : 1;
       if (rnd() < 0.65) {
-        // droplets: up and back off the tread, some sideways
         const up = 1.2 + rnd() * 2.0 + sp * 0.12, out = (rnd() - 0.3) * 1.5 + sp * 0.08;
         this.emit(P.x + (rnd() - 0.5) * 0.35, wl + 0.02, P.z + (rnd() - 0.5) * 0.35,
           -back.x * sp * (0.15 + rnd() * 0.35) + side.x * out * sgn + v.vel.x * 0.5, up, -back.z * sp * (0.15 + rnd() * 0.35) + side.z * out * sgn + v.vel.z * 0.5,
           0.05 + rnd() * 0.07, 0.7 + rnd() * 0.5, col, true);
       } else {
-        // bow wave / spray: fine mist that hangs a moment
         this.emit(P.x + side.x * sgn * 0.3, wl + 0.05, P.z + side.z * sgn * 0.3,
           side.x * sgn * (0.8 + sp * 0.15) + v.vel.x * 0.6, 0.5 + rnd() * 0.8, side.z * sgn * (0.8 + sp * 0.15) + v.vel.z * 0.6,
           0.25 + rnd() * 0.35 + sp * 0.02, 0.5 + rnd() * 0.5, col.map(c => Math.min(1, c * 1.25)), false);
@@ -121,12 +117,11 @@ export class Dust {
       const s = w.surf;
       const roll = Math.abs(w.vcx);
       const slip = Math.min(w.slipVel || 0, 12);
-      // past ~3 m/s of wheelspin, spinning harder adds little more (a stuck car spins at 10-15 m/s)
+      // past ~3 m/s of wheelspin, more adds little (a stuck car spins at 10-15 m/s)
       const slipK = slip < 3 ? slip : 3 + (slip - 3) * 0.25;
       const room = Math.max(0, 1 - this.puffs / PUFF_CAP);
       const intensity = s.mud ? slipK * 1.2 + roll * 0.15 : s.dust * (roll * 0.3 + slipK * 1.3) * room;
       let n = intensity * dt * 9;
-      // mud: a thin brown spray mist over the clumps while the tyre slips
       let m = s.mud ? slipK * 0.6 * room * dt * 9 : 0;
       while (m > 0) {
         if (m < 1 && rnd() > m) break;

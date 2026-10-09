@@ -21,8 +21,8 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
   group.userData.stream = stream;
 
   // ---------------- boulders
-  // Shape: an icosphere cut by a few random planes (chunky faces like broken rock), then noise-displaced.
-  // Indexed with smooth normals; the triplanar rock material (materials.js) adds the surface detail.
+  // Shape: an icosphere cut by random planes (chunky broken-rock faces), then noise-displaced. Indexed, smooth normals;
+  // the triplanar rock material (materials.js) adds the surface detail.
   const rockMat = rockMaterial || new THREE.MeshStandardMaterial({ color: 0xa8a49c, roughness: 0.88, vertexColors: true });
   const rockGeos = [];
   const _v = new THREE.Vector3();
@@ -54,10 +54,9 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
     const ry = rnd() * Math.PI * 2;
     g.rotateY(ry);
     g.rotateX((rnd() - 0.5) * 0.4);
-    // The collider is the convex hull of these vertices, so the drawn rock is made the same shape: vertices in
-    // a dent are pushed out (from the rock's centre) onto the hull. Otherwise a tyre sits on the hull over a
-    // dip the mesh shows (tools/groundmatch.mjs: 5 cm at the 90th percentile on rock tops) and the drawn tyre,
-    // deformed by the physics' ray hits, floats. The hull, and so the physics, is unchanged.
+    // The collider is the convex hull of these vertices, so the mesh is made the same shape: vertices in a dent are
+    // pushed out (from the centre) onto the hull. Otherwise a tyre sits on the hull over a dip the mesh shows (5 cm at
+    // the 90th percentile on rock tops, tools/groundmatch.mjs) and the drawn tyre floats. The physics is unchanged.
     const pts3 = [];
     for (let i = 0; i < pos.count; i++) pts3.push(new THREE.Vector3().fromBufferAttribute(pos, i));
     const hull = new ConvexHull().setFromPoints(pts3);
@@ -77,7 +76,6 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
     const ground = Math.min(terrain.heightAt(x - sx * 0.5, z), terrain.heightAt(x + sx * 0.5, z), terrain.heightAt(x, z - sz * 0.5), terrain.heightAt(x, z + sz * 0.5), terrain.heightAt(x, z));
     const y = ground + sy * (1 - sink) - sy;
     g.computeVertexNormals();
-    // collider = convex hull of the displaced vertices
     const pts = new Float32Array(g.attributes.position.array);
     const desc = RAPIER.ColliderDesc.convexHull(pts);
     if (!desc) return;
@@ -104,7 +102,6 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
     if (rnd() > 0.3 + 0.7 * rocky) continue;
     const big = rnd() < 0.15 + rocky * 0.15;
     const r = big ? 1.2 + rnd() * 1.4 : 0.35 + rnd() * 0.7;
-    // clusters
     addRock(x, z, r, 0.65 + rnd() * 0.3, 0.3);
     if (rnd() < 0.5) for (let c = 0; c < 3; c++) addRock(x + (rnd() - 0.5) * r * 4, z + (rnd() - 0.5) * r * 4, r * (0.3 + rnd() * 0.4), 0.7, 0.35);
     placed++;

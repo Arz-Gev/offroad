@@ -1,10 +1,9 @@
 import { MAP_SIZE } from './terrain.js';
 
-// Static colliders streamed in around the truck. Rapier's step cost grows with the number of colliders in
-// the world, even static, far away or disabled ones (measured: ~0.12 us per collider per 240 Hz step, so
-// 800 boulders cost 0.1 ms per step = 0.4 ms per frame). Only the chunks within `ring` chunks of the
-// truck have their colliders; they are created on entry and removed on exit (a convex hull costs ~0.08 ms
-// to build, a handful per chunk). Scene queries see new colliders after the next world.step().
+// Static colliders streamed in around the truck. Rapier's step cost grows with the number of colliders, even static or
+// far ones (~0.12 us per collider per 240 Hz step: 800 boulders = 0.1 ms per step), so only chunks within `ring` chunks
+// of the truck have colliders, created on entry and removed on exit (a convex hull costs ~0.08 ms to build). Scene
+// queries see new colliders after the next world.step().
 
 export class ColliderStream {
   constructor(RAPIER, world, colliderSurface, { chunk = 32, ring = 2 } = {}) {

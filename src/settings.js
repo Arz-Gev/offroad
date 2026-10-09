@@ -16,7 +16,7 @@ export const DEFAULTS = {
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
-  volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud (player, Oct 7)
+  volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud
   speedUnit: 'kmh',         // 'kmh' | 'mph'
   pressureUnit: 'psi',      // 'psi' | 'bar'
   cluster: 'auto',          // 'auto' (compact in cockpit / small windows) | 'full' | 'compact'
@@ -45,7 +45,7 @@ export const DEFAULTS = {
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
 
-// the time of day used to be one of three presets; saved games still hold those names
+// saved games may still hold the old preset names
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
@@ -53,7 +53,7 @@ const CHOICES = {
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],
-  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'],   // gunner: turret vehicles only (main.js falls back to chase)
+  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'],   // gunner: turret vehicles only
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
@@ -103,7 +103,6 @@ export class Settings {
   get(k) { return this.v[k]; }
   get all() { return this.v; }
 
-  // opts.silent: apply without player feedback (startup)
   set(k, value, opts = {}) {
     if (!valid(k, value)) return false;
     if (this.v[k] === value && !opts.force) return false;

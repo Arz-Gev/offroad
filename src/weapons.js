@@ -2,21 +2,15 @@ import * as THREE from 'three';
 import { ballisticStep, trajectory } from './vehicle/turret.js';
 import { SURFACES } from './vehicle/tire.js';
 
-// Gunnery: the turret's guns in the world. Every physics step the turret (vehicle/turret.js) drives and
-// cycles its guns; each round fired becomes a point mass with drag flown at 240 Hz, and the stretch it
-// covers in a step is ray cast in the Rapier world (our own hull excluded). A hit makes dust, sparks or
-// splinters by surface, pushes a body that can move, and on rock or concrete a shallow hit ricochets.
-// Rounds that cross a water surface splash and stop. The recoil impulse goes into our hull at the
-// trunnions. Visuals: tracers (rounds with `tracer` set; every round on the BTR, burning ~3 s), muzzle flash and smoke, impact particles.
-// The muzzle flash is real photographed flames (public/fx, cut out of night photos by assets-src/muzzleflash/key.py)
-// on a strip that starts at the rendered muzzle and turns about the bore to face the camera, plus a front view
-// seen down the barrel. Each shot picks a flame, flip, length, width and rotation at random. Two lights flash
-// with it (always in the scene at intensity 0 between shots, so the lights hash never changes):
-//   - a wide spot from the gas ball, aimed along the bore and down: it lights the ground ahead and around the
-//     nose, trees and banks. Behind and beside the light the hull blocks the flash on the real vehicle; the
-//     cone leaves that out, which a point light could only do with a cube shadow (one texture unit too many
-//     for the terrain shader, which already binds 14 of the 16)
-//   - a short-range point light: the barrel, the turret front and the hull roof right under the muzzle
+// Gunnery: the turret's guns in the world. Each round is a point mass with drag flown at 240 Hz; the
+// stretch it covers in a step is ray cast in Rapier (our own hull excluded). Hits make dust, sparks or
+// splinters, push movable bodies, ricochet shallow hits on rock; rounds crossing water splash and stop.
+// Muzzle flash: photographed flames (DEVNOTES.md, "Muzzle flash") with two lights that stay in the scene
+// at intensity 0 between shots, so the lights hash never changes:
+//   - a wide spot from the gas ball, aimed along the bore and down. It stands in for the hull blocking
+//     the flash behind and beside the light, which a point light could only do with a cube shadow (one
+//     texture unit too many for the terrain shader, which already binds 14 of the 16)
+//   - a short-range point light for the barrel, turret front and hull roof under the muzzle
 // No shadows. By day they keep FLASH_DAY of their night strength.
 
 const MAX_ROUNDS = 400, MAX_TRACERS = 160, MAX_FX = 1600;
@@ -24,7 +18,7 @@ const TRACER_BURN = 3.0;          // s (BZT tracer burns out at ~2 km)
 const FLASH_ROWS = 3, FLASH_FRONTS = 3;   // flames in public/fx/muzzle-side.png (rows of 4) and muzzle-front.png (2x2)
 // candela at full flash (KPVT; scaled by the weapon's `flash`): spot and near glow, ranges, daylight share
 const FLASH_CD = 200, GLOW_CD = 3, FLASH_RANGE = 45, GLOW_RANGE = 3.5, FLASH_DAY = 0.12;
-const FLASH_ANGLE = 80 * Math.PI / 180;   // cone half-angle about the bore tilted ~40 deg down
+const FLASH_ANGLE = 80 * Math.PI / 180;   // cone half-angle
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new THREE.Vector3();
 const Z = new THREE.Vector3(0, 0, 1), AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
 const _qa = new THREE.Quaternion(), _qy = new THREE.Quaternion(), _qg = new THREE.Quaternion(), _t = new THREE.Vector3(), _t2 = new THREE.Vector3();
@@ -37,7 +31,7 @@ function flashTextures() {
   return (flashMaps = { side: load('muzzle-side.png'), front: load('muzzle-front.png') });
 }
 
-// one muzzle's flash: two quads placed in the vertex shader (world space, from uniforms)
+// one muzzle's flash: two quads placed in the vertex shader from uniforms
 //   kind 0: the flame strip, x 0..1 from the muzzle along the bore, y -1..1 across it, turned to the camera
 //   kind 1: the front view, a camera-facing quad just ahead of the muzzle, seen when looking down the bore
 class MuzzleFlash {
@@ -116,15 +110,14 @@ class MuzzleFlash {
     this.anchor = anchor; this.size = size;
     this.age = 0; this.frames = 0; this.on = true;
   }
-  // per frame: follow the rendered muzzle. The flash lives ~1 ms; a frame holds all of it, so the first frame
-  // after the shot shows it at full, later frames (high refresh rates) only a fading remnant. Returns the
-  // brightness (0 = off) for the light.
+  // per frame: follow the rendered muzzle. The flash lives ~1 ms, so the first frame after the shot shows
+  // it in full and later ones (high refresh rates) a fading remnant. Returns the light's brightness.
   update(dt, near = 1) {
     if (!this.on) return 0;
     if (this.frames > 0) this.age += dt;
     if (this.frames > 0 && this.age > 0.02) { this.on = false; this.mesh.visible = false; return 0; }
     const k = this.frames === 0 ? 1 : 0.35 * Math.exp(-this.age / 0.012);
-    const grow = 1 + this.age * 8;   // the gas keeps expanding
+    const grow = 1 + this.age * 8;
     this.frames++;
     const u = this.u;
     this.anchor.getWorldPosition(u.uO.value);
@@ -136,7 +129,7 @@ class MuzzleFlash {
   }
 }
 
-// impact and smoke particles (their own pool: hit feedback is gameplay, not the Dust graphics option)
+// impact and smoke particles (own pool: hit feedback is gameplay, not the Dust option)
 class Fx {
   constructor(scene, additive) {
     const n = MAX_FX;
@@ -200,12 +193,11 @@ export class Gunnery {
     this.spec = this.v.P.turret;
     this.ray = new api.RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
     this.rounds = [];
-    this.hits = 0;                     // tests / telemetry
+    this.hits = 0;
     this.lastHit = null;
     // sight range marks: how far below the bore line each gun's round lands (rad)
     const D = [200, 400, 600, 800, 1000, 1200, 1500, 2000];
     this.marks = this.spec.weapons.map(w => trajectory(w, D).map(r => ({ d: r.d, a: Math.atan2(r.drop, r.d) })));
-    // visuals
     const S = this.scene;
     const geo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0, 0.5);
     this.tracerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(7, 1.3, 0.22), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false });
@@ -214,7 +206,6 @@ export class Gunnery {
     S.add(this.tracers);
     this.flashes = this.spec.weapons.map(() => new MuzzleFlash(S));
     this.friendFlash = null;   // made on a friend's first shot
-    // the flash lights: warm (~2200 K), inverse square
     const warm = new THREE.Color(1, 0.62, 0.32);
     this.light = new THREE.SpotLight(warm, 0, FLASH_RANGE, FLASH_ANGLE, 0.5, 2);
     this.glow = new THREE.PointLight(warm, 0, GLOW_RANGE, 2);
@@ -227,23 +218,22 @@ export class Gunnery {
   setViewport(h) { this.sparks.mat.uniforms.uHalfH.value = h / 2; this.smoke.mat.uniforms.uHalfH.value = h / 2; }
 
 
-  // gun muzzle and barrel direction in the world, from a vehicle pose and the turret angles (physics rate:
-  // the model's scene graph is only updated per frame)
+  // gun muzzle and barrel direction from a vehicle pose and the turret angles (at physics rate; the
+  // model's scene graph updates per frame only)
   muzzle(pos, quat, T, weapon, outP, outDir, outTrun) {
     const M = this.model.turret, w = this.spec.weapons[weapon];
     const muz = M[w.muzzle] || M.muzzle;
-    // body <- ring (yaw about y) <- trunnion (pitch about x) <- muzzle
     _qy.copy(quat).multiply(_qa.setFromAxisAngle(AY, -T.yaw));
     _qg.copy(_qy).multiply(_qa.setFromAxisAngle(AX, T.pitch));
     const trun = _t.copy(M.pitch.position).applyQuaternion(_qy).add(_t2.copy(M.yaw.position).applyQuaternion(quat)).add(pos);
     if (outTrun) outTrun.copy(trun);
-    // the PKT's muzzle sits in the cradle, the KPVT's in the recoiling barrel: both are fixed in the gun frame here
+    // the PKT's muzzle sits in the cradle, the KPVT's in the recoiling barrel: both fixed in the gun frame
     outP.copy(muz.position).applyQuaternion(_qg).add(trun);
     outDir.set(0, 0, -1).applyQuaternion(_qg);
     return outP;
   }
 
-  // one physics step (before vehicle.step): drive and fire, then fly every round through the world
+  // one physics step (before vehicle.step)
   step(h, fire) {
     const T = this.T, v = this.v;
     T.step(h, fire);
@@ -255,23 +245,18 @@ export class Gunnery {
     const w = this.spec.weapons[e.weapon], v = this.v;
     const p = new THREE.Vector3(), dir = new THREE.Vector3(), trun = new THREE.Vector3();
     this.muzzle(v.pos, v.quat, this.T, e.weapon, p, dir, trun);
-    // dispersion (the mount and the barrel), a cone of w.spread rad
     const r = w.spread * Math.sqrt(-2 * Math.log(1 - Math.random() * 0.999)) * 0.6, a = Math.random() * Math.PI * 2;
     const ax = _v.set(1, 0, 0).applyQuaternion(_q.setFromUnitVectors(Z, dir));
     const ay = _v2.set(0, 1, 0).applyQuaternion(_q);
     dir.addScaledVector(ax, r * Math.cos(a)).addScaledVector(ay, r * Math.sin(a)).normalize();
-    // the round leaves with the gun's speed plus the vehicle's (at the muzzle)
     const vel = dir.clone().multiplyScalar(w.v0);
     v.pointVel(p, _v);
     vel.add(_v);
     if (this.rounds.length < MAX_ROUNDS) this.rounds.push({ p, prev: p.clone(), v: vel, w, tracer: e.tracer, age: 0, bounces: 0 });
-    // recoil into the hull at the trunnions
     v.body.applyImpulseAtPoint({ x: -dir.x * w.recoil, y: -dir.y * w.recoil, z: -dir.z * w.recoil }, { x: trun.x, y: trun.y, z: trun.z }, true);
     this.recoilForce += w.recoil;
-    // flash + smoke at the muzzle (drawn at the rendered muzzle in update), sound
     const M = this.model.turret;
     this.flashes[e.weapon].fire(M[w.muzzle] || M.muzzle, w.flash);
-    // a wisp of powder smoke (one per KPVT round, one per three of the PKT's)
     if (e.weapon === 0 || this.T.gun.count % 3 === 0) {
       const s = 0.4 + Math.random() * 0.6;
       this.smoke.emit(p.x + dir.x * s, p.y + dir.y * s, p.z + dir.z * s, dir.x * 3 + (Math.random() - 0.5), dir.y * 3 + 0.6 + Math.random() * 0.4, dir.z * 3 + (Math.random() - 0.5),
@@ -290,7 +275,6 @@ export class Gunnery {
       const dx = b.p.x - b.prev.x, dy = b.p.y - b.prev.y, dz = b.p.z - b.prev.z;
       const len = Math.hypot(dx, dy, dz);
       if (b.age > 8 || len < 1e-6 || b.p.y < -200) { R.splice(i, 1); continue; }
-      // water: a round crossing the surface splashes and stops within a metre
       const wl = this.terrain.waterLevelAt?.(b.p.x, b.p.z) ?? -Infinity;
       if (b.prev.y > wl && b.p.y <= wl) {
         const f = (b.prev.y - wl) / Math.max(1e-6, b.prev.y - b.p.y);
@@ -307,7 +291,7 @@ export class Gunnery {
       const n = _v2.set(hit.normal.x, hit.normal.y, hit.normal.z);
       const surf = this.surfaceAt(hit.collider, p) || SURFACES.dirt;
       const speed = Math.hypot(b.v.x, b.v.y, b.v.z);
-      // push a body that can move (friends' trucks, loose things): the round's momentum
+      // the round's momentum pushes a body that can move (friends' trucks, loose things)
       const rb = hit.collider.parent();
       if (rb && rb.isDynamic()) {
         const m = b.w.mass;
@@ -315,7 +299,7 @@ export class Gunnery {
       }
       this.hits++;
       this.lastHit = { x: p.x, y: p.y, z: p.z, surf: surf.name, speed, t: b.age };
-      // a shallow hit on rock or concrete ricochets (a third of the speed, scattered); anything else stops it
+      // a shallow hit on rock or concrete ricochets (a third of the speed, scattered); else it stops
       const cosI = -(b.v.x * n.x + b.v.y * n.y + b.v.z * n.z) / speed;   // sine of the angle to the surface
       const hard = surf === SURFACES.rock || surf === SURFACES.concrete;
       this.impact(p, n, surf, b.w, speed, hard && cosI < 0.2);
@@ -337,7 +321,6 @@ export class Gunnery {
     const [r, g, b] = surf.color || [0.5, 0.45, 0.35];
     const hard = surf === SURFACES.rock || surf === SURFACES.concrete;
     const wood = surf === SURFACES.wood;
-    // dust / earth thrown out along the normal (soft ground: a tall plume; hard: a small grey puff)
     const nPuff = Math.round((hard ? 4 : 9) * big);
     for (let i = 0; i < nPuff; i++) {
       const up = (hard ? 2 : 4 + rnd() * 5) * big;
@@ -345,14 +328,12 @@ export class Gunnery {
         n.x * up + (rnd() - 0.5) * 2.5, n.y * up + rnd() * 1.5, n.z * up + (rnd() - 0.5) * 2.5,
         (0.18 + rnd() * 0.25) * big, 0.8 + rnd() * 1.4, r * 0.95, g * 0.92, b * 0.88, 0.25, 2.2, 0.7 * big);
     }
-    // clods / chips that fall back
     const nChip = Math.round((surf.soft > 0.3 || surf.mud ? 10 : 5) * big);
     for (let i = 0; i < nChip; i++) {
       const s = (3 + rnd() * 6) * big;
       this.smoke.emit(p.x, p.y, p.z, n.x * s + (rnd() - 0.5) * 4, n.y * s + rnd() * 3, n.z * s + (rnd() - 0.5) * 4,
         0.04 + rnd() * 0.05, 0.6 + rnd() * 0.5, wood ? 0.45 : r * 0.6, wood ? 0.33 : g * 0.55, wood ? 0.2 : b * 0.5, 1.0, 0.3, 0);
     }
-    // sparks off steel-hard surfaces (and every glancing hit)
     if (hard || glance) {
       const ns = Math.round((glance ? 14 : 9) * big);
       for (let i = 0; i < ns; i++) {
@@ -373,18 +354,17 @@ export class Gunnery {
     this.audio?.impact?.('water', { x, y, z });
   }
 
-  // per frame: tracers, flashes, particles (camera: tracer width so they stay visible far away)
+  // per frame (camera: sets tracer width so they stay visible far away)
   update(dt, camera, light = 1, darkness = 0) {
-    // tracers: the last stretch of every burning tracer round
     let n = 0;
     const cp = camera.position;
     for (const b of this.rounds) {
       if (!b.tracer || b.age > TRACER_BURN || n >= MAX_TRACERS) continue;
       const speed = b.v.length();
-      // a short bright dash (what the eye keeps of a tracer), never reaching back into the muzzle
+      // a short bright dash, never reaching back into the muzzle
       const len = Math.min(speed * 0.009, Math.max(0, b.age * speed - 3));
       if (len < 0.5) continue;
-      _v.copy(b.v).multiplyScalar(-1 / speed);                   // tail direction
+      _v.copy(b.v).multiplyScalar(-1 / speed);
       const d = cp.distanceTo(b.p);
       const wdt = Math.max(b.w.calibre > 10 ? 0.035 : 0.025, d * 0.0009);
       _q.setFromUnitVectors(Z, _v);
@@ -393,11 +373,11 @@ export class Gunnery {
     }
     this.tracers.count = n;
     if (n) this.tracers.instanceMatrix.needsUpdate = true;
-    // muzzle flashes at the rendered muzzles (the model's turret groups, interpolated pose), and their light
+    // flashes at the rendered (interpolated) muzzles, and their light
     let li = 0, lf = null;
     this.flashes.forEach(f => {
       if (!f.on) return;
-      // from the gunner's sight just behind the muzzle the front view would fill the eyepiece: tone it down
+      // in the gunner's sight the front view would fill the eyepiece: tone it down
       const near = Math.min(1, Math.max(0, (camera.position.distanceTo(f.u.uO.value) - 2) / 6));
       const k = f.update(dt, near) * f.size;
       if (k > li) { li = k; lf = f; }
@@ -405,7 +385,7 @@ export class Gunnery {
     if (this.friendFlash?.on) this.friendFlash.update(dt, 1);
     const L = this.light, G = this.glow;
     if (lf) {
-      // both sit in the gas ball a third of the way along the flame; the spot looks along the bore and down
+      // both sit in the gas ball a third along the flame; the spot looks along the bore, tilted ~40 deg down
       const u = lf.u, day = FLASH_DAY + (1 - FLASH_DAY) * darkness;
       L.position.copy(u.uO.value).addScaledVector(u.uA.value, u.uLen.value * 0.3);
       G.position.copy(L.position);
@@ -418,7 +398,7 @@ export class Gunnery {
     this.smoke.update(dt, light);
   }
 
-  // a friend's turret fired n rounds (multiplayer): flash + tracer on our side, no hits (their game owns them)
+  // a friend's turret fired n rounds: flash + tracer here, no hits (their game owns them)
   friendShots(model, proxy, n) {
     const M = model.turret;
     if (!M) return;

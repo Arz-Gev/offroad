@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
-// A turret made of the model's own nodes: yaw (the turret, about the ring) > pitch (the gun cradle and what
-// rides on it, about the trunnions) > recoil (the barrel, slides back in the cradle). Points the guns fire
-// from (muzzles) and the gunner's sight are empty objects in those groups; weapons.js and cameraRig.js read
-// them. A searchlight on the cradle rides the pitch group (look.searchlights, model/index.js).
+// A turret made of the model's own nodes: yaw (about the ring) > pitch (the cradle and what rides on it,
+// about the trunnions) > recoil (the barrel, slides back in the cradle). Muzzles and the gunner's sight are
+// empty objects in those groups; weapons.js and cameraRig.js read them. A searchlight on the cradle rides
+// the pitch group (look.searchlights, model/index.js).
 //
 // spec (the car's look.turret), points in the model's hub frame (y 0 at the static hub):
 //   { yaw: 'node', pitch: ['node', ...], recoil: 'node', ring: [x, y, z], trunnion: [x, y, z],

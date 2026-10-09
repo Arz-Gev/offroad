@@ -8,14 +8,11 @@ import { escapeHTML, fmtPressure } from './hud.js';
 import { hasControl } from './input.js';
 import './tuning.css';
 
-// In-game tuning panel (Tab). The game keeps running: the mouse works the panel, the driving keys
-// still drive. Every change goes straight into the physics (Vehicle.retune); the readouts show what it
-// does to the truck (ride frequency, damping, clearance and angles, axle loads, gear speeds, 0-100).
-//
-// The setup, the saved setups and the panel state live in localStorage (offroad.tuning.v1).
+// In-game tuning panel (Tab). The game keeps running; every change goes straight into the physics
+// (Vehicle.retune). Setup, saved setups and panel state live in localStorage (offroad.tuning.v1).
 
 const KEY_BASE = 'offroad.tuning.v1';
-// each car keeps its own setup and saved setups (a car whose setups predate this keeps its key: saveKey)
+// per car; saveKey keeps the key of setups saved before per-car storage
 const carKey = () => carDef(getCar()).saveKey ?? KEY_BASE + '.' + getCar();
 const DEG = Math.PI / 180;
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
@@ -57,7 +54,7 @@ export class TuningPanel {
   get setup() { return this.state.setup; }
   save() { storage.set(carKey(), JSON.stringify(this.state)); }
 
-  // apply the current setup to the physics. colliders: rebuild the chassis boxes too.
+  // colliders: rebuild the chassis boxes too
   apply({ snap = false, colliders = true } = {}) {
     const v = this.v, s = this.setup;
     applySetup(v.P, s);
@@ -106,7 +103,7 @@ export class TuningPanel {
       const r = e.target.closest('input[type=range][data-path]');
       if (r) this.setValue(r.dataset.path, get(STOCK, r.dataset.path));
     });
-    // keep the driving keys for the truck: buttons and sliders give the focus back after a mouse use
+    // buttons and sliders give the focus back after a mouse use, so the driving keys keep working
     el.addEventListener('pointerup', () => setTimeout(() => {
       const a = document.activeElement;
       if (a && el.contains(a) && !a.matches('input[type=text], textarea, select')) a.blur();
@@ -117,7 +114,7 @@ export class TuningPanel {
   // section definitions: rows + a readout function
   sections() {
     const gearbox = this.api.settings.get('gearbox'), P = this.v.P;
-    const box = gearbox === 'manual' || P.manualOnly ? 'manual' : 'auto';   // a manual-only car shifts its manual box itself
+    const box = gearbox === 'manual' || P.manualOnly ? 'manual' : 'auto';
     const ratios = this.setup.gearbox[box];
     // suspension rows per half of the axles: front / rear on a 4x4, "1–2" / "3–4" on an 8x8
     const nA = P.axles.length, AX = nA === 2 ? AXLES : [['front', `1–${nA / 2}`], ['rear', `${nA / 2 + 1}–${nA}`]];
@@ -205,8 +202,7 @@ export class TuningPanel {
     }
     if (r.type === 'gears') return `<div class="tn-row"><div class="tn-gears"></div></div>`;
     if (r.type === 'live') {
-      // only the switches this car has (input.js hasControl: the BTR-80 has no lockers and no 2WD, the Lancia
-      // a viscous centre, no lockers and no 2WD, a car without low range no range switch)
+      // only the switches this car has (input.js hasControl)
       const sw = [['range', 'Low range', 'range'], ['centreLock', 'Centre lock', 'centreLock'], ['rearLock', 'Rear locker', 'lockers'],
         ['frontLock', 'Front locker', 'lockers'], ['traction', 'Traction ctl', 'traction'], ['abs', 'ABS', 'abs'], ['rwd', '2WD', 'rwd']].filter(([, , id]) => hasControl(id));
       return `<div class="tn-row"><div class="tn-l"><span>Driveline now</span></div><div class="tn-chips tn-live">
@@ -230,7 +226,6 @@ export class TuningPanel {
     return '';
   }
 
-  // collider editor for the selected box
   renderBoxEditor() {
     const cols = this.setup.colliders, i = this.state.ui.sel;
     const chips = this.el.querySelector('.tn-boxes');
@@ -440,12 +435,10 @@ export class TuningPanel {
     this.dirty = false;
     const v = this.v, P = v.P, s = this.setup, el = this.el;
     const gearbox = this.api.settings.get('gearbox');
-    // the gearbox decides which ratio sliders exist (M switches it with the panel open)
     if (this._gb !== gearbox) { const first = this._gb === undefined; this._gb = gearbox; if (!first) { const y = this.scroll.scrollTop; this.buildSections(); this.scroll.scrollTop = y; } }
     const A = this.an = analyze(P, s, gearbox);
     if (!this.stockAn || this.stockAn.gb !== gearbox) { this.stockAn = analyze(applySetup(makeCarParams(), clone(STOCK)), STOCK, gearbox); this.stockAn.gb = gearbox; }
     const S = this.stockAn;
-    // sliders, chips, outputs
     for (const r of el.querySelectorAll('input[type=range][data-path]')) {
       const val = get(s, r.dataset.path);
       if (+r.value !== val) r.value = val;
@@ -460,13 +453,11 @@ export class TuningPanel {
     if (sz) sz.textContent = `${s.tyres.size}×${s.tyres.width}  ·  ${Math.round(tyreRadius(s.tyres.size) * 2000)} mm · ${Math.round(wheelMass(s.tyres.size, s.tyres.width))} kg`;
     const en = el.querySelector('.tn-engnote');
     if (en) en.textContent = ENGINES[s.engine.preset].note;
-    // summary strip
     const t100 = A.accel.t100;
     this.sum.innerHTML = [
       ['Power', `${f0(A.engine.hp)} hp`], ['0–100', t100 ? `≈ ${f1(t100)} s` : '—'], ['Top', `${f0(A.vmax)} km/h`],
       ['Weight', `${f0(A.mass)} kg`], ['F / R', `${f0(A.front * 100)} / ${f0(100 - A.front * 100)}`], ['Approach', `${f0(A.geo.approach)}°`],
     ].map(([k, x]) => `<div><span>${k}</span><b>${x}</b></div>`).join('');
-    // section summaries + readouts
     const ro = (id, html) => { const n = el.querySelector(`[data-ro="${id}"]`); if (n) n.innerHTML = html; };
     const ss = (id, txt) => { const n = el.querySelector(`[data-sec="${id}"] .tn-ss`); if (n) n.textContent = txt; };
     const kv = items => `<div class="tn-kv">${items.filter(Boolean).map(([k, x, cls = '']) => `<div class="${cls}"><span>${k}</span><b>${x}</b></div>`).join('')}</div>`;
@@ -647,7 +638,6 @@ export class TuningPanel {
     // the [ ] keys change the tyre pressures: keep the setup (and its save) in step
     const ps = vehicle.pressures, ts = this.setup.tyres;
     if (ps[0] !== ts.pressF || ps[1] !== ts.pressR) { ts.pressF = ps[0]; ts.pressR = ps[1]; this.save(); this.dirty = true; }
-    // in-game launch timer (always on: it only reads a few numbers)
     const kmh = vehicle.speed * 3.6;
     if (Math.abs(kmh) < 0.5 && raw.throttle < 0.05) this.launch = { armed: true, t: 0 };
     else if (this.launch?.armed) {

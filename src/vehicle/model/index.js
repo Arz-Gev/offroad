@@ -16,15 +16,13 @@ import { lightBar, searchlight } from './accessories.js';
 
 // A car's model, built from its file's look (src/cars/<id>.js) and its physics (the axle types): the same
 // steps for every car, each part chosen by data.
-//   body      look.body 'defender' (the procedural Defender) or look.url (a downloaded shell)
-//   wheels    the shell's own (look.wheel, model/wheels.js) or our steel wheels
-//   running   per axle by its physics type: a beam axle kit (beamAxle.js); independent corners from the
-//   gear      model's own wishbones (look.suspension, wishbones.js), else drawn by us (independent.js:
-//             double wishbones or a strut, by the axle's linkage)
-//   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js); the extra
-//             lamps (aux, the J key): look.lamps.aux, a roof light bar (look.lightBar) and searchlights
-//             (look.searchlights: the model's covered lamps opened, accessories.js)
-//   cockpit   the cabin's moving parts: the procedural body's, or the shell's nodes (look.cockpit)
+//   body      look.body 'defender' (procedural) or look.url (a downloaded shell)
+//   wheels    the shell's own (look.wheel, wheels.js) or our steel wheels
+//   running   per axle by physics type: beamAxle.js; independent corners from the model's own wishbones
+//   gear      (look.suspension, wishbones.js), else drawn by us (independent.js)
+//   lamps     beams at look.lamps (or the body's lamp places), lens glow by role (lamps.js); extra lamps
+//             (aux, the J key): look.lamps.aux, look.lightBar, look.searchlights (accessories.js)
+//   cockpit   the procedural body's moving parts, or the shell's nodes (look.cockpit)
 //   extras    a turret (look.turret, turretRig.js)
 //   cameras   look.eye / hoodEye / chase
 // The result is what VehicleView drives: { root, wheels, kits (each with update(view, v, dt)), cockpit,
@@ -87,7 +85,7 @@ export async function buildModel(car) {
     model.kits.push(t);
   }
 
-  // ---------------- lamps (the extra lamps: look.lamps.aux, a light bar, searchlights, each with its beam and lens)
+  // ---------------- lamps
   const lamps = { ...(look.lamps || src.lamps) };
   const aux = !lamps.aux ? [] : typeof lamps.aux[0] === 'number' ? [lamps.aux] : [...lamps.aux];
   model.lenses = src ? src.lenses : modelLenses(shell, look.lamps?.lenses);

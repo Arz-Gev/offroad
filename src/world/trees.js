@@ -6,14 +6,12 @@ import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildP
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 
-// Trees and undergrowth.
-// - ~12k trees in forests (spruce, pine, birch, dead snags), every one with a trunk collider.
-// - Near the camera (preset radius, ~80 m) trees are real geometry: bark trunks and branches plus
-//   alpha-tested foliage cards, swaying in the wind (also in the shadow pass).
-// - Beyond that every tree is an impostor: a camera-facing card showing the tree baked from 8 directions
-//   at startup (albedo + normals, so it is lit like the real tree). The two cross-fade with a dither.
-// - Undergrowth (ferns, shrubs, flower and grass tufts) and fallen logs near the camera.
-// - The forest also writes the ground data map: forest floor under crowns, less grass, darker ground.
+// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
+// - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
+//   foliage cards, swaying in the wind (also in the shadow pass).
+// - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
+//   normals, so it is lit like the real tree), cross-faded with a dither.
+// - Undergrowth and fallen logs near the camera. The forest also writes the ground data map (forest floor under crowns).
 
 const HALF = MAP_SIZE / 2;
 const VIEWS = 8, CELL_W = 192, CELL_H = 384;
@@ -59,10 +57,10 @@ vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);`);
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
     if (opts.translucent) {
-      // foliage cards: both faces keep the outward (crown-volume) normal; three's DoubleSide flip made
-      // every back-facing card shade as if it faced into the crown
+      // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
+      // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
-      // foliage: a touch of light through the leaves when backlit
+      // a touch of light through the leaves when backlit
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
 #include <opaque_fragment>`);
@@ -235,9 +233,8 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     for (const m of logMeshes) { m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); }
   }
 
-  // ---- colliders (trunks) are streamed in around the truck: Rapier's step cost grows with the number of
-  // colliders even when they are static (16k trunks: +1.9 ms per 240 Hz step), so only the chunks within
-  // ~70 m of the truck have them (a few hundred trunks).
+  // ---- trunk colliders are streamed in around the truck: Rapier's step cost grows with static colliders too
+  // (16k trunks: +1.9 ms per 240 Hz step), so only chunks within ~70 m have them (a few hundred trunks).
   const chunksOf = (ci) => chunks[ci];
   const activeChunks = new Map(); // chunk index -> [colliders]
   const addChunk = (ci) => {

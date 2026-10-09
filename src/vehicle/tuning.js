@@ -1,18 +1,10 @@
 // Vehicle tuning: a player "setup" (engine, gearing, tyres, suspension, brakes, mass, steering, body
 // colliders) and how it maps onto the physics parameters P (carParams.js, the car's file in src/cars/).
 //
-// applySetup(P, setup) writes the setup into an existing params object in place, so the Vehicle,
-// Drivetrain and view that hold P see the new values on their next step. The stock setup reproduces the
-// car's own params (tools/simtest.mjs baselines are unchanged).
-//
-// What changes how (Vehicle.retune):
-// - read every step, so live: engine curve / limiter / shift points, gear ratios, final drive, transfer,
-//   springs, dampers, anti-roll bars, travel, brakes, steering, tyre grip and pressure;
-// - geometry (tyre radius, lift = axle droop height) eases to the new value at 0.15 m/s: the body rises
-//   on its springs like an air suspension instead of the wheels being teleported into the ground;
-// - mass, centre of mass and inertia: body.setAdditionalMassProperties, live;
-// - colliders (chassis boxes, wheel side cylinders): rebuilt on the same rigid body in a few microseconds.
-// Nothing needs a new rigid body, so the truck keeps its position and speed through every change.
+// applySetup(P, setup) writes the setup into an existing params object in place, so the Vehicle, Drivetrain
+// and view that hold P see it on their next step. The stock setup reproduces the car's own params
+// (tools/simtest.mjs baselines are unchanged). Vehicle.retune applies what lives outside the step; nothing
+// needs a new rigid body, so the truck keeps its position and speed through every change.
 
 import { makeCarParams } from './carParams.js';
 import { setCar, getCar, carDef, DEFAULT_CAR } from '../cars/index.js';
@@ -34,7 +26,6 @@ const lerpTable = (t, x) => {
 export let ENGINE_ORDER = ROAD_ENGINES;
 
 // ---------------------------------------------------------------- the stock setup
-// the current car's stock params (carParams.js); useCar() switches it before anything is built
 let BASE = makeCarParams(DEFAULT_CAR);
 const stockSize = () => BASE.tire.size, stockWidth = () => BASE.tire.widthIn;
 
@@ -74,13 +65,11 @@ export const RANGES = {
 export const clone = o => JSON.parse(JSON.stringify(o));
 
 // The current car's stock setup (its file in src/cars/): the Stock button, new players and the panel's
-// "stock" marks all use it. An exported setup (panel: Export) shows the numbers to put into the car's file.
+// "stock" marks. An exported setup (panel: Export) shows the numbers to put into the car's file.
 export let STOCK;
-// tyre choices in the panel (inches), around the car's stock size
 export let TYRE_SIZES, TYRE_WIDTHS;
 
-// switch the tuning base to another car (src/cars/): stock setup, ranges, tyre choices. Called once at
-// startup, before the panel or the vehicle are built (changing the car reloads the game).
+// switch the tuning base to another car; called once at startup, before the panel or vehicle are built (changing the car reloads the game)
 export function useCar(id) {
   setCar(id);
   BASE = makeCarParams();
@@ -130,11 +119,10 @@ function fill(base, s) {
   out.tyres.pressR = num(t.pressR, 'tyres.press', out.tyres.pressR);
   out.tyres.grip = num(t.grip, 'tyres.grip', out.tyres.grip);
   const su = clone(s.suspension || {});
-  // v1 setups carry the Oct 2 anti-roll bars (8000 / 8500, rear-biased: the truck spun out when you lifted
-  // off at speed). Untouched stock values there take the current stock bars.
+  // v1 setups carry the Oct 2 anti-roll bars (8000 / 8500, rear-biased); untouched stock values there take the current ones.
   if (!(s.v >= 2) && su.front?.arb === 8000 && su.rear?.arb === 8500) { delete su.front.arb; delete su.rear.arb; }
-  // the car's suspension changed kind after this setup was saved (its file's suspensionV, e.g. beam axles
-  // became independent: the bars are in other units): the setup takes the stock springs, dampers and bars
+  // the car's suspension changed kind after this setup was saved (its file's suspensionV, e.g. beam to
+  // independent: bars in other units): the setup takes the stock springs, dampers and bars
   if (!(s.v >= (carDef(getCar()).suspensionV || 0))) { delete su.front; delete su.rear; }
   out.suspension.lift = num(su.lift, 'suspension.lift', out.suspension.lift);
   for (const ax of ['front', 'rear']) for (const k of ['k', 'bump', 'rebound', 'arb', 'travel']) out.suspension[ax][k] = num(su[ax]?.[k], 'suspension.' + k, out.suspension[ax][k]);
@@ -181,7 +169,6 @@ const frontHalf = (P, i) => i < P.axles.length / 2;
 
 export function applySetup(P, s) {
   const B = BASE;
-  // engine
   const E = ENGINES[s.engine.preset] || ENGINES[B.engine.preset], k = s.engine.torque, dr = s.engine.revs;
   Object.assign(P.engine, {
     name: E.label, preset: s.engine.preset, fuel: E.fuel,
@@ -195,7 +182,6 @@ export function applySetup(P, s) {
   P.clutch.capacity = Math.max(B.clutch.capacity, peak * 1.45);
   P.auto.lockupCapacity = Math.max(B.auto.lockupCapacity, peak * 1.6);
   P.auto.shiftCapacity = Math.max(B.auto.shiftCapacity, peak * 1.9);
-  // gearing
   const g = s.gearbox;
   P.auto.ratios = [...g.auto]; P.auto.reverse = g.autoRev;
   P.manual.ratios = [...g.manual]; P.manual.reverse = g.manualRev;
@@ -210,8 +196,7 @@ export function applySetup(P, s) {
   P.tire.inertia = B.tire.inertia * (wm / wm0) * sc * sc;
   P.tire.grip = t.grip;
   P.tire.pressure = t.pressF;
-  // suspension: lift lowers the axles relative to the body (longer springs / spacers), springs and
-  // dampers per axle; travel is the bump travel to the hard stop
+  // suspension: lift lowers the axles relative to the body (longer springs / spacers); travel is the bump travel to the hard stop
   const su = s.suspension;
   const nA = P.axles.length;
   P.axles.forEach((a, i) => {
@@ -224,13 +209,10 @@ export function applySetup(P, s) {
     a.mass = b.mass + 2 * (wm - wm0);
   });
   P.lift = su.lift;
-  // brakes
   const br = s.brakes, tot = (B.brakes.front + B.brakes.rear) * br.force;
   P.brakes.front = Math.round(tot * br.bias * 100) / 100; P.brakes.rear = Math.round(tot * (1 - br.bias) * 100) / 100;
   P.brakes.handbrake = B.brakes.handbrake * br.handbrake;
-  // steering
   P.steer.maxAngle = s.steering.lock * DEG; P.steer.ratio = s.steering.ratio;
-  // mass: sprung body + cargo + roof load; COM height offset moves the sprung COM
   const m = s.mass, ms0 = B.bodyMass;
   P.bodyMass = ms0 + m.cargo + m.roof;
   const sc0 = [SPRUNG_COM[0], SPRUNG_COM[1] + m.comY, SPRUNG_COM[2]];
@@ -262,7 +244,6 @@ export function applySetup(P, s) {
     P.axles.forEach((a, i) => add(a.mass - B.axles[i].mass, [0, axY(a), a.z]));
   }
   P.bodyInertia = I;
-  // colliders
   P.colliders = s.colliders.map(c => [...c.box]);
   P.colliderNames = s.colliders.map(c => c.name);
   return P;
@@ -281,7 +262,6 @@ const peakOf = (P, f) => {
 };
 export const netTorque = (P, rpm) => Math.max(0, lerpTable(P.engine.torque, rpm) - engineFriction(rpm));
 
-// Body outline in the side view (lowest point of every collider along z), for the ground angles.
 function colliderUnderside(P) {
   const pts = [];
   for (const [cx, cy, cz, hx, hy, hz, r] of P.colliders) {
@@ -309,7 +289,7 @@ export function staticRide(P, pressF = P.tire.pressure, pressR = pressF) {
     const c = staticCompression(P, a);
     const wheelLoad = mt * G * shares[i] / 2;
     const squash = wheelLoad / tireRadialStiffness(frontHalf(P, i) ? pressF : pressR, P.tire.kScale ?? 1);
-    const hubY = a.droopY + c;               // hub height in the body frame
+    const hubY = a.droopY + c;
     return { c, wheelLoad, squash, hubY, groundY: hubY - (P.tire.radius - squash), hubH: P.tire.radius - squash };
   });
 }
@@ -337,9 +317,9 @@ export function geometry(P, pressF, pressR, pts0 = null) {
   // axle diff housing (r 0.15 x 0.9) is the lowest part of a beam-axle truck; independent axles carry it in the body
   const beam = P.axles.map((a, i) => a.type === 'independent' ? Infinity : ride[i].hubH);
   const diff = Math.min(...beam) - 0.135;
-  // tyre top vs the car's arch top (physics.archTop, body frame) at full bump, and with one wheel pushed up
-  // by full axle articulation (beam: one spring on its stop, the other at full droop; an independent wheel
-  // goes no higher than its own bump). null: the car's arches aren't measured.
+  // tyre top vs the car's arch top (physics.archTop, body frame) at full bump, and with one wheel pushed up by
+  // full axle articulation (beam: one spring on its stop, the other at full droop; an independent wheel goes
+  // no higher than its bump). null: the arches aren't measured.
   const arch = P.axles.map(a => {
     if (P.archTop == null) return null;
     const bump = P.archTop - (a.droopY + a.travel + R);
@@ -355,11 +335,9 @@ export function analyze(P, setup, gearbox = 'auto') {
   const out = {};
   const mt = totalMass(P);
   out.mass = mt;
-  // engine
   const [pk, pkAt] = peakOf(P, r => netTorque(P, r) * r * Math.PI / 30);
   const [tq, tqAt] = peakOf(P, r => netTorque(P, r));
   out.engine = { kw: pk / 1000, kwAt: pkAt, hp: pk / 735.5, nm: tq, nmAt: tqAt, kgPerHp: mt / (pk / 735.5) };
-  // weight distribution and stability
   const L = P.wheelbase, nA = P.axles.length;
   const shares = axleShares(P);
   out.front = shares.reduce((s, x, i) => s + (frontHalf(P, i) ? x : 0), 0);
@@ -391,7 +369,6 @@ export function analyze(P, setup, gearbox = 'auto') {
   const crr = 0.026 * Math.sqrt(28 / Math.max(t.pressF, 4));
   let vmax = 0;
   for (let v = 5; v < 90; v += 0.25) {
-    // best gear at this speed
     let best = 0;
     for (const g of box) {
       const w = v / Re * g * P.transfer.high * P.finalDrive, rpm = w * 30 / Math.PI;
@@ -407,10 +384,9 @@ export function analyze(P, setup, gearbox = 'auto') {
   const brakeG = 2 * (nF * P.brakes.front + nR * P.brakes.rear) / Re / (mt * G);
   const mu = 0.72;
   const a = Math.min(brakeG, mu);
-  const idealFront = out.front + a * out.comH / L;  // dynamic front share at that deceleration
+  const idealFront = out.front + a * out.comH / L;
   const bias = P.brakes.front / (P.brakes.front + P.brakes.rear);
   out.brakes = { brakeG, dirtG: a, bias, ideal: idealFront, first: bias >= idealFront ? 'front' : 'rear' };
-  // steering
   const d = P.steer.maxAngle, Ls = steerRefLength(P);
   out.turnDiameter = 2 * (Ls / Math.sin(d) + P.track / 2 + 0.15);
   out.lockToLock = 2 * d * P.steer.ratio / (2 * Math.PI);
@@ -419,8 +395,7 @@ export function analyze(P, setup, gearbox = 'auto') {
 }
 
 // Quick 0-100 km/h estimate (the panel recomputes it on every change; "Measure" runs the full physics).
-// Quasi-static: engine torque through the converter (auto) or a slipping clutch (manual), gearing,
-// tyre traction limit, drag and rolling resistance, rotating inertia, shift pauses.
+// Quasi-static: torque through the converter (auto) or a slipping clutch (manual), gearing, traction limit, drag, inertia, shift pauses.
 // speed-dependent driveline losses (P.tire.hubDragV, Nm per rad/s per wheel; Vehicle.js) as a force at the road
 const driveLoss = (P, v, Re) => (P.tire.hubDragV ? 2 * P.axles.length * P.tire.hubDragV * v / (Re * Re) : 0);
 const TC_K = [[0, 1], [0.3, 1.02], [0.5, 1.07], [0.7, 1.17], [0.8, 1.3], [0.87, 1.55], [0.92, 2.0], [0.96, 3.0], [0.985, 5.5], [1, 9]];
@@ -440,7 +415,7 @@ export function estimateAccel(P, gearbox = 'auto', psi = 20) {
   while (t < 60 && v < 100 / 3.6) {
     const dt = t < 3 ? 0.01 : 0.02;
     const G4 = box[gi] * tr;
-    const wt = v / Re * G4;                                   // gearbox input speed
+    const wt = v / Re * G4;
     let Tin;
     if (auto) {
       // engine speed where the converter absorbs what the engine makes

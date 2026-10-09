@@ -3,9 +3,8 @@ import { rbox, bar, frame, mergeStatic } from './geom.js';
 
 // Parts any car can carry, placed by its look (body frame).
 //
-// lightBar: a roof light bar: a black crossbar on two feet, `lamps` square lamps across `width` (lens
-// role 'aux') and the aux beam just ahead of them. spec: { at: [x, y, z] (the lamps' centre), width,
-// lamps, roof (the y the feet stand on) }.
+// lightBar: a roof light bar: a black crossbar on two feet with `lamps` square lamps across `width` (lens role
+// 'aux'), the aux beam just ahead. spec: { at: [x, y, z] (the lamps' centre), width, lamps, roof (y of the feet) }.
 export function lightBar(mats, spec) {
   const g = new THREE.Group();
   const [x0, y, z] = spec.at, n = spec.lamps ?? 4, half = spec.width / 2;
@@ -23,11 +22,10 @@ export function lightBar(mats, spec) {
   return { group: g, beam: [x0, y, z - 0.12], lenses: { aux: [mats.auxLens] } };
 }
 
-// searchlight: a round lamp whose model has its cover shut (the BTR-80's IR filter caps). Drawn over the
-// lamp's face: a clear lens (role 'aux') in a chrome ring, and the cover standing open on its hinge at the
-// top of the rim, folded back over the housing. The group's origin is the face centre, facing -z; `beam`
-// is where the aux beam starts, just ahead of the lens. spec: { r (lens radius), rim (the face's radius),
-// cover (its paint, default dark olive), open (rad, default 1.8), cone (the beam's half angle, default 0.2) }.
+// searchlight: a round lamp whose model has its cover shut (the BTR-80's IR filter caps). Drawn over the lamp's
+// face: a clear lens (role 'aux') in a chrome ring, the cover open on its hinge at the top of the rim. Origin is
+// the face centre, facing -z; `beam` starts just ahead of the lens. spec: { r (lens radius), rim (the face's
+// radius), cover (paint, default dark olive), open (rad, default 1.8), cone (beam half angle, default 0.2) }.
 export function searchlight(mats, spec) {
   const g = new THREE.Group(), { r, rim } = spec;
   const disc = (rad, depth, mat, z) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, depth, 32).rotateX(Math.PI / 2), mat); m.position.z = z; return m; };
