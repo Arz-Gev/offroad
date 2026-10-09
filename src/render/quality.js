@@ -12,8 +12,8 @@ const GRASS_ULTRA = {
 };
 const GRASS_HIGH = {
   end: 215, smooth: true,
-  density: [[0, 48], [3.2, 33], [14, 12], [26, 7.3], [49, 5.4], [98, 4.3], [150, 3.3], [300, 2.3]],
-  height: [[0, 53], [9, 103], [23, 92], [46, 102], [71, 136], [91, 150], [136, 107], [196, 174], [285, 400]],
+  density: [[0, 36], [3.1, 22], [14, 8.3], [24, 5.3], [50, 4.5], [99, 3.7], [150, 3.3], [300, 2.3]],
+  height: [[0, 141], [10, 129], [23, 123], [46, 136], [68, 165], [91, 175], [147, 125], [229, 400], [300, 281]],
   width: [[0, 9.8], [25, 19], [55, 32], [91, 45], [129, 61], [173, 90], [210, 125], [252, 169], [278, 200]],
 };
 const grass = c => JSON.parse(JSON.stringify(c));
@@ -37,21 +37,21 @@ export const QUALITY = {
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
     grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.45, bushHeight: 2, bushDist: 4,
+    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
     grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.45, bushHeight: 2, bushDist: 4,
+    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
     grass: 0.4, grassHeight: 1.8, grassWidth: 1.1, grassFar: 0.045, grassHeightFar: 2.6, grassWidthFar: 6, grassRadius: 150,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.45, bushHeight: 2, bushDist: 4,
+    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
