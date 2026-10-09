@@ -8,7 +8,7 @@ npm run dev        # http://localhost:5174
 npm run simtest    # headless physics checks (settle, accel, brake, slope, climb, turn, manual, cars, btr)
 ```
 
-See **DEVNOTES.md** for conventions, baselines, known traps, testing workflow and the backlog.
+See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS.md** for the open work list.
 
 ## Controls
 **Esc** (gamepad **Menu**) pauses and opens the menu (to change the car, pick it in Settings and press **Apply & restart**): **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
