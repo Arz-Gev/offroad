@@ -6,8 +6,9 @@ import './vegTuner.css';
 // TEMPORARY tool for retuning the grass and bush presets (loaded only with ?vegtune, see MEADOW in
 // world/terrain.js). A panel over the running game, dragged by its title. Pick a preset: its current
 // values ("old") load; any edit makes a "new" version of that preset, Old / New flip between the two.
-// Grass is three curves over the distance (density, height, width): drag the points, double-click to add
-// or remove one (right-click removes too), drag the dashed line to move where the grass ends.
+// Grass is three curves over the distance (density, height, width): drag the points (Ctrl / Cmd + drag
+// moves the whole curve up or down), double-click to add or remove one (right-click removes too), drag
+// the dashed line to move where the grass ends.
 // Copy puts all four presets (new where edited) on the clipboard. Edits survive a reload (localStorage).
 
 const KEY = 'offroad.vegtune.v3';
@@ -58,7 +59,7 @@ export function startVegTuner(api) {
       <div class="vt-bar">
         <div class="vt-seg"><button type="button" data-scale="lin">Lin</button><button type="button" data-scale="log">Log</button></div>
         <label class="vt-check"><input type="checkbox" data-act="smooth"> Smooth</label>
-        <span class="vt-help" title="Drag points. Double-click: add or remove a point (right-click removes too). Drag the dashed line: where the grass ends. The faint line is the old preset.">?</span>
+        <span class="vt-help" title="Drag points. Ctrl / Cmd + drag: move the whole curve up or down. Double-click: add or remove a point (right-click removes too). Drag the dashed line: where the grass ends. The faint line is the old preset.">?</span>
       </div>
       ${GRAPHS.map(g => `<canvas class="vt-graph" data-g="${g.key}"></canvas>`).join('')}
       <div class="vt-bush">
@@ -156,10 +157,16 @@ export function startVegTuner(api) {
     const cv = el.querySelector(`[data-g="${G.key}"]`);
     cv.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
-      const h = hit(G, cv, local(cv, e));
-      if (!h || h.d != null) return;
-      editable();
-      drag = { g: G, ...h };
+      const p = local(cv, e), h = hit(G, cv, p);
+      if (!h) return;
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl / Cmd: move the whole curve up or down, keeping its shape as drawn
+        drag = { g: G, shift: true, y0: p.y, base: editable().curve[G.key].map(q => [...q]) };
+      } else {
+        if (h.d != null) return;
+        editable();
+        drag = { g: G, ...h };
+      }
       cv.setPointerCapture(e.pointerId);
       render();
     });
@@ -167,12 +174,17 @@ export function startVegTuner(api) {
       const p = local(cv, e);
       if (!drag || drag.g !== G) {
         hover[G.key] = hit(G, cv, p);
-        cv.style.cursor = hover[G.key]?.end ? 'ew-resize' : hover[G.key]?.i != null ? 'grab' : 'crosshair';
+        cv.style.cursor = (e.ctrlKey || e.metaKey) && hover[G.key] ? 'ns-resize' : hover[G.key]?.end ? 'ew-resize' : hover[G.key]?.i != null ? 'grab' : 'crosshair';
         draw(G);
         return;
       }
-      const L = lay(cv), { V } = yMap(G, L), c = editable().curve;
-      if (drag.end) c.end = clamp(Math.round(L.D(p.x)), 10, XMAX);
+      const L = lay(cv), { V, Y } = yMap(G, L), c = editable().curve;
+      if (drag.shift) {
+        // the same offset on screen for every point, stopped where the first point hits the top or bottom
+        let dy = p.y - drag.y0;
+        for (const [, v] of drag.base) dy = clamp(dy, PAD.t - Y(v), PAD.t + L.h - Y(v));
+        c[G.key] = drag.base.map(([d, v]) => [d, rnd(V(Y(v) + dy))]);
+      } else if (drag.end) c.end = clamp(Math.round(L.D(p.x)), 10, XMAX);
       else {
         const pts = c[G.key], i = drag.i;
         const lo = i === 0 ? 0 : pts[i - 1][0] + 0.5, hi = i === pts.length - 1 ? XMAX : pts[i + 1][0] - 0.5;
@@ -200,6 +212,7 @@ export function startVegTuner(api) {
     });
     cv.addEventListener('contextmenu', e => {
       e.preventDefault();
+      if (e.ctrlKey) return;   // Ctrl-click on a Mac: that's the curve shift, not a right click
       const h = hit(G, cv, local(cv, e));
       if (h?.i != null) { remove(h.i); save(); render(); apply(); }
     });
