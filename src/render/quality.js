@@ -17,10 +17,10 @@ const GRASS_LOW = {
   width: [[0, 13], [25, 26], [55, 43], [90, 59], [128, 71], [173, 120], [207, 140], [247, 143], [288, 127]],
 };
 const GRASS_MEDIUM = {
-  end: 161, smooth: false,
-  density: [[0, 0.49], [0.5, 5.8], [1.6, 17], [3.6, 17], [11, 5.8], [28, 3.4], [55, 2.6], [106, 1.9], [172, 0.99], [299, 0.49]],
-  height: [[0, 135], [5.2, 119], [38, 166], [145, 168]],
-  width: [[0, 8.2], [37, 21], [67, 48], [130, 63], [189, 76], [289, 55]],
+  end: 148, smooth: true,
+  density: [[0, 0.6], [0.5, 7.1], [1.6, 21], [3.6, 21], [11, 7.1], [28, 4.2], [53, 2.5], [112, 1.8], [172, 1.2], [299, 0.6]],
+  height: [[0, 100], [5, 109], [44, 119], [120, 142]],
+  width: [[0, 8.2], [37, 21], [77, 40], [156, 131], [189, 76], [289, 55]],
 };
 const GRASS_HIGH = {
   end: 196, smooth: false,
@@ -56,7 +56,7 @@ export const QUALITY = {
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
     grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
-    grassCurve: grass(GRASS_MEDIUM), bushes: 2, bushHeight: 1.5, bushDist: 2.7,
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.3,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
