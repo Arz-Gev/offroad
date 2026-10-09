@@ -82,7 +82,7 @@ Variants (other axle types, another drive layout) without a new file: `carParams
 
 **No code for one car.** Shared code (`src/` outside the car files) never checks which car it is: no `if (car === 'x')`, `P.car === ...`, and no `nA === 2` standing in for "the Defender". A behaviour the shared code doesn't have yet (a diff, a suspension, a gearbox) becomes a data field with a default that leaves other cars unchanged, like `drive.layout`, `drive.centre: 'viscous'`, `axles[i].type`, `manualOnly`, `look.turret`. Prove it: `npm run simtest` output for the other cars is identical before and after (diff it). Describe the new field here and in DEVNOTES.md.
 
-Where a car's data lives besides its file: list and menu order in `index.js`; the engine in `src/vehicle/engines.js` (`ENGINES.<preset>`, a catalogue: one engine can sit in several cars); the model in `public/models/<id>.glb`; credits in the root `README.md`; notes and numbers in DEVNOTES.md ("Cars"). Anything a car doesn't set comes from `src/vehicle/defaults.js`: ordinary parts, not another car's. Start the file from the closest car of the same kind.
+Where a car's data lives besides its file: list and menu order in `index.js`; the engine in `src/vehicle/engines.js` (`ENGINES.<preset>`, a catalogue: one engine can sit in several cars); the model in `public/models/<id>.glb`; credits in the root `README.md`; traps and rejected options in DEVNOTES.md ("Cars"). Anything a car doesn't set comes from `src/vehicle/defaults.js`: ordinary parts, not another car's. Start the file from the closest car of the same kind.
 
 ### 1. Real data
 
@@ -138,7 +138,7 @@ Tools with `CAR=` use the stock setup.
 
 To open the game on the car, set `localStorage` `offroad.settings.v1` = `{"car":"<id>"}` before loading. Tab → Show physics shows boxes, suspension travel and tyre patches.
 
-Then a line in DEVNOTES.md ("Cars"): sources, the model's measurements (tyre radius, wheelbase, track), numbers from the checks, what differs from the real car and why, anything found and not fixed.
+Sources and measurements go in comments in the car's file, check bands in its `tests`. DEVNOTES.md ("Cars") gets only what someone changing the car would trip over: a trap, a rejected model or setting and why. Gaps left open go in TASKS.md ("Known gaps").
 
 Changing an existing car's axle types: retune the bars (an independent bar is N per m of left-right difference at the wheels, × track² for N·m/rad; a beam bar is N·m/rad already), rerun the checks, bump the setup `v` in `vehicle/tuning.js` and set the car's `suspensionV` to it, or players' saved setups keep the old springs, dampers and bars.
 

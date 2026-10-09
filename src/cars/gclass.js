@@ -12,13 +12,12 @@ export default {
     bodyMass: 2105, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
     wheelbase: 2.907, track: 1.635,
     archTop: 0.86,   // the lowest body over the tyres (tools/rigview.html measureArches)
-    // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
-    // and 20 psi for the trails (its real road travel and 26 psi bounced off the bump stops above 60); front
-    // spring stiff enough that the static ride uses ~40 % of the travel.
-    // As the real W463A: double wishbones in front, a five-link beam behind (roll inertia and roll steer are the
-    // Defender's). The front springs work at the wheel track, so the front alone gives 72 kN·m/rad of roll
-    // stiffness: no front bar, and a stiffer rear bar so the inner front wheel stays down in a 70 km/h slalom.
-    // Unsprung front 150 kg (estimate: arms, knuckles, wheels, brakes; the diff is in the body)
+    // character: heavy, torquey, flat, quicker modern steering. Trail travel and 20 psi (the real road setup
+    // bounces off the bump stops above 60); the static ride uses ~40 % of the travel.
+    // As the real W463A: double wishbones in front, a five-link beam behind (its roll inertia and roll steer are
+    // copied from the Defender's rear axle). The front springs at the wheel track give ~72 kN·m/rad of roll
+    // stiffness alone: no front bar, a stiff rear one keeps the inner front wheel down in a fast slalom.
+    // Front unsprung mass is an estimate (the diff is in the body)
     axles: [
       { type: 'independent', linkage: 'wishbones', rcHeight: 0.10, camberGain: -0.3, steered: true, mass: 150,
         k: 54000, bump: 4400, rebound: 7000, arb: 0, travel: 0.24 },

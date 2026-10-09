@@ -3,8 +3,7 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 
 // HDR render pipeline: scene (half-float, optional MSAA, depth texture) -> SSAO -> bloom -> eye
-// adaptation (GPU log-average luminance, no read-back) -> composite -> optional FXAA (DEVNOTES.md,
-// "HDR pipeline"). Every pass is a full-screen triangle; bloom and luminance run at half resolution and below.
+// adaptation (GPU log-average luminance, no read-back) -> composite -> optional FXAA. Every pass is a full-screen triangle; bloom and luminance run at half resolution and below.
 
 const VERT = /* glsl */`
 varying vec2 vUv;

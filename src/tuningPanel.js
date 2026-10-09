@@ -407,7 +407,7 @@ export class TuningPanel {
   showExport() {
     this.io.hidden = false;
     this.io.innerHTML = `<div class="tn-l"><span>Export</span></div>
-      <div class="tn-h">The whole setup as JSON. Send it to someone (they use Import), or paste it as <code>DEFAULT_SETUP</code> in <code>src/vehicle/tuning.js</code> to make it the truck's new stock.</div>
+      <div class="tn-h">The whole setup as JSON. Send it to someone (they use Import), or put its numbers into the car's file (<code>src/cars/</code>) to make them the new stock.</div>
       <textarea readonly spellcheck="false">${escapeHTML(exportJSON(this.setup))}</textarea>
       <div class="tn-inrow"><button type="button" class="tn-b primary" data-act="iocopy">Copy</button><button type="button" class="tn-b" data-act="iocancel">Close</button></div>`;
   }

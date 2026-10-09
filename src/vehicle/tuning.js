@@ -119,7 +119,7 @@ function fill(base, s) {
   out.tyres.pressR = num(t.pressR, 'tyres.press', out.tyres.pressR);
   out.tyres.grip = num(t.grip, 'tyres.grip', out.tyres.grip);
   const su = clone(s.suspension || {});
-  // v1 setups carry the Oct 2 anti-roll bars (8000 / 8500, rear-biased); untouched stock values there take the current ones.
+  // v1 setups carry a rejected rear-biased bar pair (8000 / 8500); untouched, it takes the current stock.
   if (!(s.v >= 2) && su.front?.arb === 8000 && su.rear?.arb === 8500) { delete su.front.arb; delete su.rear.arb; }
   // the car's suspension changed kind after this setup was saved (its file's suspensionV, e.g. beam to
   // independent: bars in other units): the setup takes the stock springs, dampers and bars
@@ -251,8 +251,6 @@ export function applySetup(P, s) {
 
 // how much higher the body sits than stock at static ride (bigger tyres + lift); spawn / teleport height
 export const rideRaise = P => (P.tire.radius - BASE.tire.radius) + (BASE.axles[0].droopY - P.axles[0].droopY);
-
-export function makeTunedParams(setup) { return applySetup(makeCarParams(), setup); }
 
 // ---------------------------------------------------------------- consequences (panel readouts)
 const peakOf = (P, f) => {
