@@ -12,7 +12,7 @@ import './vegTuner.css';
 // Copy / Paste carry one preset's values to another (Paste makes them the new version of the current one).
 // Copy all puts all four presets (new where edited) on the clipboard. Edits survive a reload (localStorage).
 
-const KEY = 'offroad.vegtune.v12';
+const KEY = 'offroad.vegtune.v13';
 const PRESETS = [['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']];
 const XMAX = 300, XT = [0, 10, 25, 50, 100, 200, 300], XT_LIN = [0, 50, 100, 150, 200, 250, 300];
 const rnd = v => (v >= 10 ? Math.round(v) : v >= 1 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100);
