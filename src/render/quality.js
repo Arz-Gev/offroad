@@ -3,12 +3,18 @@
 // low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), tuned on the ?vegtune meadow (Oct 9). Medium and Low start from High.
+// distance in m (grass.js evalCurve), tuned on the ?vegtune meadow (Oct 9). Low starts from Medium.
 const GRASS_ULTRA = {
   end: 300, smooth: true,
   density: [[0, 117], [3.2, 82], [14, 28], [26, 18], [56, 9.4], [102, 10], [150, 8.3], [300, 5.8]],
   height: [[0, 132], [23, 102], [39, 79], [62, 96], [86, 115], [151, 105], [297, 106]],
   width: [[0, 5.6], [28, 15], [47, 19], [84, 27], [121, 39], [160, 64], [207, 96], [246, 136], [300, 200]],
+};
+const GRASS_MEDIUM = {
+  end: 149, smooth: true,
+  density: [[0, 22], [3.1, 14], [14, 5.2], [24, 3.3], [50, 2.8], [99, 2.3], [150, 2.1], [300, 1.4]],
+  height: [[0, 129], [8.6, 114], [23, 110], [46, 121], [69, 136], [95, 161], [146, 111], [201, 263], [295, 251]],
+  width: [[0, 10], [25, 21], [55, 34], [90, 47], [129, 64], [173, 95], [207, 111], [247, 113], [288, 101]],
 };
 const GRASS_HIGH = {
   end: 215, smooth: true,
@@ -37,14 +43,14 @@ export const QUALITY = {
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
     grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.25, bushHeight: 2.9, bushDist: 2.8,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
     grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.25, bushHeight: 2.9, bushDist: 2.8,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',

@@ -108,7 +108,7 @@ const GFX_SECTIONS = [
     row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 60, max: 260, step: 5, scale: 1, unit: ' m' }),
     row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
     row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 350, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gBushDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 100, max: 480, step: 5, scale: 100, dp: 2, unit: '×' }),
   ] },
 ];

@@ -83,7 +83,7 @@ const RANGES = {
   // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
   gGrass: [0.04, 1.2], gGrassHeight: [0.8, 3.5], gGrassWidth: [0.6, 2.4], gGrassFar: [0.005, 0.3], gGrassHeightFar: [1, 4],
   gGrassWidthFar: [2, 10], gGrassDist: [60, 260],
-  gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 4.8],
+  gBushes: [0.05, 2.2], gBushHeight: [1.1, 3.5], gBushDist: [1, 4.8],
 };
 
 export const storage = {
