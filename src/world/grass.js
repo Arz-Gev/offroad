@@ -207,7 +207,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
   gPos = vec3(bxz.x, gy - 0.02, bxz.y) + side * aBlade.x * wd * 0.5 * (1.0 - tb * 0.85)
     + vec3(bend.x, 0.0, bend.y) * ht * tb * tb * 0.7 + vec3(0.0, ht * tb * (1.0 - 0.25 * min(dot(bend, bend), 1.0)), 0.0);
   // lighting normal: mostly up (reads like a lawn) for both faces of the blade; the blade's own facing is
-  // added in the fragment shader with the face's sign (flipping the whole normal on back faces, as
+  // added in the fragment shader, turned towards the sun (flipping the whole normal on back faces, as
   // three does for DoubleSide, pointed it down: half the blades came out black)
   objectNormal = normalize(vec3(bend.x, 0.0, bend.y) * 0.3 + side * 0.25 * sign(aBlade.x + 0.001) + vec3(0.0, 1.0, 0.0));
   vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
@@ -231,9 +231,24 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
-vec3 normal = normalize(normalize(vNormal) + vGFace * faceDirection);
+// thin, translucent blades: whichever face we see is lit like the face towards the sun (the visible
+// face's own sign lit the grass against the sun only; with the sun behind it went dark olive, Oct 9)
+#if NUM_SUN_LIGHTS > 0
+float gSide = dot(vGFace, sunLights[0].direction) < 0.0 ? -1.0 : 1.0;
+#else
+float gSide = faceDirection;
+#endif
+vec3 normal = normalize(normalize(vNormal) + vGFace * gSide);
 vec3 nonPerturbedNormal = normal;`)
-      .replace('#include <map_fragment>', 'diffuseColor.rgb = vGCol;')
+      .replace('#include <map_fragment>', `
+diffuseColor.rgb = vGCol;
+#if NUM_SUN_LIGHTS > 0
+// the hot spot: with the sun at the viewer's back every blade shows its sunlit side and hides its shadow,
+// so a meadow is at its brightest; against the sun the specular sheen lights it instead (Oct 9: with the
+// sun behind it read dark olive)
+float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
+diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
+#endif`)
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;');
   };
   mat.customProgramCacheKey = () => 'grass-v2';
