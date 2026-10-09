@@ -142,4 +142,4 @@ Then a line in DEVNOTES.md ("Cars"): sources, the model's measurements (tyre rad
 
 Changing an existing car's axle types: retune the bars (an independent bar is N per m of left-right difference at the wheels, × track² for N·m/rad; a beam bar is N·m/rad already), rerun the checks, bump the setup `v` in `vehicle/tuning.js` and set the car's `suspensionV` to it, or players' saved setups keep the old springs, dampers and bars.
 
-Known limits: beam axles and drawn independent corners are our generic parts (the car's track, travel and height, not its own arms); only double wishbones can use the model's own arms (`look.suspension`, the BTR). Interiors of downloaded models are dark.
+Known limits: beam axles and drawn independent corners are our generic parts (the car's track, travel and height, not its own arms); only double wishbones can use the model's own arms (`look.suspension`, the BTR).
