@@ -38,7 +38,7 @@ export const QUALITY = {
     bushes: 0.65, bushHeight: 1.6, bushDist: 1.55,
   },
   ultra: {
-    label: 'Ultra', dpr: 2.0, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
+    label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
     grass: 0.8, grassHeight: 1.8, grassWidth: 1.05, grassFar: 0.08, grassHeightFar: 2.6, grassWidthFar: 5.5, grassRadius: 180,
