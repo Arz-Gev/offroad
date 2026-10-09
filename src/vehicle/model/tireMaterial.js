@@ -88,8 +88,10 @@ export function createTireMaterial(base) {
     uHalfW: { value: 0.135 },
   };
   mat.userData.uniforms = uniforms;
-  mat.onBeforeCompile = sh => patch(sh, uniforms);
-  mat.customProgramCacheKey = () => 'tire-deform-v2';
+  // an imported tyre keeps its own material patch (shell.js realBlack); clone() doesn't copy it
+  const own = base?.isMaterial && base.userData.realBlack ? base.onBeforeCompile : null;
+  mat.onBeforeCompile = sh => { own?.(sh); patch(sh, uniforms); };
+  mat.customProgramCacheKey = () => own ? 'tire-deform-v2-real-black' : 'tire-deform-v2';
   // the shadow of the squashed tyre: same deformation in the depth pass (shares the uniforms)
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   depth.onBeforeCompile = sh => patch(sh, uniforms, true);

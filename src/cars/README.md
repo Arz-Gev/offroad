@@ -210,4 +210,4 @@ the old springs, dampers and bars.
 
 Known limits: beam axles and drawn independent corners are our generic parts (the car's track, travel and
 height, not its own arms); only double wishbones can use the model's own arms (`look.suspension`, the
-BTR). Interiors of downloaded models are dark.
+BTR).
