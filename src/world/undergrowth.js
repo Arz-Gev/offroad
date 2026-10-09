@@ -122,7 +122,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
   const kinds = [
     makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0]),
-    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.4, 1.0, 0.55, 7.7], [0, 0, 1, 0]),   // a third smaller since Oct 9 (stood out)
+    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),   // smaller since Oct 9 (stood out): a third off, then 13% back
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
   ];
