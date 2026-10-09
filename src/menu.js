@@ -81,7 +81,7 @@ const GFX_SECTIONS = [
     row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['mobile', 'Mobile'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto measures the frame rate while you drive and picks the best preset that holds it.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
     row('fullscreen', 'Fullscreen', 'switch'),
-    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'For high-density screens (Retina, 4K laptops, Windows scaling above 100%): how many of the screen\'s extra pixels to render. The biggest cost of all.' }),
+    row('gDpr', 'Additional sharpness', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%' }),   // the pixel density cap (high-density screens only)
   ] },
   { rows: [   // shadows, AO, AA, bloom, dust: no heading
     row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
