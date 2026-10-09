@@ -1,9 +1,9 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
-// Frame times on an M1 Pro (headless Chrome, 1920x1080, dpr 2, trail drive): low 5.1 ms, medium 8.7,
-// high 13, ultra 22 (DEVNOTES, "World and rendering").
+// Rough frame times on an M1 Pro (headless Chrome, 1920x1080, dpr 2, trail drive, AA on): low 5 ms, medium 9,
+// high 13, ultra 22.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), each level tuned by eye on a flat test meadow (Oct 9).
+// distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.
 const GRASS_ULTRA = {
   end: 300, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
@@ -29,8 +29,6 @@ const GRASS_HIGH = {
   width: [[0, 8.2], [13, 14], [60, 25], [130, 63], [189, 97], [300, 200]],
 };
 const grass = c => JSON.parse(JSON.stringify(c));
-
-export const QUALITY_ORDER = ['mobile', 'low', 'medium', 'high', 'ultra'];
 
 export const QUALITY = {
   // Anti-aliasing is off in every preset (turning it on under Graphics makes the preset Custom).

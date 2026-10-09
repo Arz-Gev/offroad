@@ -9,8 +9,7 @@
 
 // every corner: double wishbones on a torsion bar (rates at the wheel), roll centre 0.15 m, camber gain
 // -0.2 rad/m; 0.32 m of wheel travel from full droop, bump rubbers 5 cm before the stop (x3 for the mass);
-// cam-type axle diffs. The static ride uses about half the travel (10-12 cm to the rubbers); stiffer bars
-// (110000) cost articulation (least loaded wheel on the diagonal blocks 24 -> 16 % of the mean, simtest btr).
+// cam-type axle diffs. The static ride uses about half the travel; stiffer bars cost articulation (simtest btr).
 // Torsion bars: 1.15 Hz heave with the tyre in series, zeta ~0.25 (twice the damping on axles with two shocks).
 const CORNER = { type: 'independent', mass: 460, k: 90000, arb: 0, travel: 0.32, rcHeight: 0.15, camberGain: -0.2,
   diff: 'lsd', diffLock: 0.35, stopScale: 3, damperKnee: 0.25, damperHigh: 0.5 };

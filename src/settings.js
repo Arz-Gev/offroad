@@ -90,7 +90,7 @@ export class Settings {
     try {
       const saved = JSON.parse(storage.get(KEY) || '{}');
       if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
-      // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset (Oct 8)
+      // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset
       if (saved.vegetation === false && !('gVeg' in saved)) {
         saved.gVeg = 'off';
         if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on

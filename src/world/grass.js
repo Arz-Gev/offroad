@@ -215,8 +215,8 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
-// thin, translucent blades: whichever face we see is lit like the face towards the sun (the visible
-// face's own sign lit the grass against the sun only; with the sun behind it went dark olive, Oct 9)
+// thin, translucent blades: whichever face we see is lit like the face towards the sun (lit by its own
+// face's sign, grass with the sun behind it goes dark olive)
 #if NUM_SUN_LIGHTS > 0
 float gSide = dot(vGFace, sunLights[0].direction) < 0.0 ? -1.0 : 1.0;
 #else
@@ -228,8 +228,7 @@ vec3 nonPerturbedNormal = normal;`)
 diffuseColor.rgb = vGCol;
 #if NUM_SUN_LIGHTS > 0
 // the hot spot: with the sun at the viewer's back every blade shows its sunlit side and hides its shadow,
-// so a meadow is at its brightest; against the sun the specular sheen lights it instead (Oct 9: with the
-// sun behind it read dark olive)
+// so a meadow is at its brightest; against the sun the specular sheen lights it instead
 float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
 diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
 #endif`)
