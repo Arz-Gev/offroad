@@ -56,7 +56,7 @@ export const QUALITY = {
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
     grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
-    grassCurve: grass(GRASS_MEDIUM), bushes: 0.25, bushHeight: 2.9, bushDist: 2.8,
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.25, bushHeight: 2.5, bushDist: 3.1,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
@@ -70,7 +70,7 @@ export const QUALITY = {
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
     grass: 0.8, grassHeight: 1.8, grassWidth: 1.05, grassFar: 0.08, grassHeightFar: 2.6, grassWidthFar: 5.5, grassRadius: 180,
-    grassCurve: grass(GRASS_ULTRA), bushes: 0.45, bushHeight: 2, bushDist: 4,
+    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.6, bushDist: 4,
   },
 };
 
