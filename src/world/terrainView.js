@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL, MEADOW } from './terrain.js';
+import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL } from './terrain.js';
 import { bakeGroundLayers, LAYER_TILE } from './textures.js';
 import { makeSimplex2D, fbm } from './noise.js';
 
@@ -153,7 +153,6 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
       let d = Math.max(0, Math.min(1, 1 - other * 2.5));
       d *= 1 - Math.max(0, Math.min(1, (slope - 0.35) / 0.25));
       d *= Math.max(0, Math.min(1, (c + 0.45) / 0.35));
-      if (MEADOW) d = Math.max(d, Math.max(0, Math.min(1, (MEADOW.r + 10 - Math.hypot(wx - MEADOW.x, wz - MEADOW.z)) / 15)));   // full grass on the test meadow
       groundData[(z * DN + x) * 4 + 3] = Math.round(255 * d);
     }
     // wetness next to water (only around the water bodies; waterLevelAt is too slow for 1 M texels)

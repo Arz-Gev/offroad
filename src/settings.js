@@ -1,4 +1,7 @@
 import { CAR_IDS, DEFAULT_CAR } from './cars/index.js';
+import { QUALITY } from './render/quality.js';
+
+const clone = o => JSON.parse(JSON.stringify(o));
 
 // Player settings, persisted in localStorage. Every storage access is wrapped: private windows,
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
@@ -39,15 +42,9 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
-  // grass and undergrowth (the High preset's bushes; its grass is a curve, these sliders are Custom's; render/quality.js)
-  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom' (the sliders below)
-  gGrass: 0.4,              // grass density at the camera (cell spacing; 1 = a blade every 0.1 m)
-  gGrassHeight: 1.8,        // blade height at the camera (1 = 0.34 m)
-  gGrassWidth: 1.1,         // blade width at the camera (1 = 6.5 cm)
-  gGrassFar: 0.045,         // grass density at the grass distance (the grid thins out towards it)
-  gGrassHeightFar: 2.6,     // blade height at the grass distance
-  gGrassWidthFar: 6,        // blade width at the grass distance
-  gGrassDist: 150,          // grass distance (m)
+  // grass and undergrowth (the High preset's; render/quality.js)
+  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
+  gGrassCurve: clone(QUALITY.high.grassCurve),   // Custom grass: density, height and width curves (grassEditor.js)
   gBushes: 2,               // undergrowth density multiplier
   gBushHeight: 1.5,         // undergrowth size multiplier
   gBushDist: 3.2,           // undergrowth distance multiplier
@@ -80,10 +77,8 @@ const CHOICES = {
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
-  // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
-  gGrass: [0.04, 1.2], gGrassHeight: [0.8, 3.5], gGrassWidth: [0.6, 2.4], gGrassFar: [0.005, 0.3], gGrassHeightFar: [1, 4],
-  gGrassWidthFar: [2, 10], gGrassDist: [60, 260],
-  gBushes: [0.05, 2.2], gBushHeight: [1.1, 3.5], gBushDist: [1, 4.8],
+  // bushes (the grass editor's sliders and the menu's use these ranges)
+  gBushes: [0.05, 3], gBushHeight: [1.1, 3.5], gBushDist: [1, 4.8],
 };
 
 export const storage = {
@@ -92,8 +87,14 @@ export const storage = {
   remove(k) { try { window.localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
+// a grass curve set: { end, smooth, lin?, density / height / width: [[distance, value], ...] by distance }
+const pts = p => Array.isArray(p) && p.length > 0 && p.length <= 32
+  && p.every((q, i) => Array.isArray(q) && q.length === 2 && q.every(Number.isFinite) && (i === 0 || q[0] > p[i - 1][0]));
+const validCurve = c => !!c && Number.isFinite(c.end) && pts(c.density) && pts(c.height) && pts(c.width);
+
 function valid(k, v) {
   if (!(k in DEFAULTS) || typeof v !== typeof DEFAULTS[k]) return false;
+  if (k === 'gGrassCurve') return validCurve(v);
   if (CHOICES[k]) return CHOICES[k].includes(v);
   if (RANGES[k]) return Number.isFinite(v) && v >= RANGES[k][0] && v <= RANGES[k][1];
   return true;

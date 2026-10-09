@@ -4,7 +4,7 @@ import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality, VEG_KEYS, vegToGfx } from './render/quality.js';
 
-import { Terrain, SPAWN, LANES, HILL, POI, MEADOW } from './world/terrain.js';
+import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
@@ -29,6 +29,7 @@ import { Input, setCarControls, hasControl, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
+import { createGrassEditor } from './grassEditor.js';
 import { Settings, storage } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
@@ -191,7 +192,6 @@ async function main() {
     { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
     { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
     { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
-    ...(MEADOW ? [{ name: 'Meadow', tag: 'Temporary · ?vegtune', title: 'Grass test meadow', desc: 'A flat field of grass for tuning the grass presets.', x: MEADOW.x, z: MEADOW.z, yaw: 0 }] : []),
     { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
   ];
   const streamAround = (x, z) => {
@@ -445,6 +445,9 @@ async function main() {
   env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
+  // Graphics → Grass and bushes → Open editor: the Custom grass curves and bushes, live over the game
+  const grassEditor = createGrassEditor({ settings, grass, renderer });
+  let grassQueued = false;
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -486,6 +489,22 @@ async function main() {
       if (VEG_KEYS.includes(key)) settings.set('gVeg', 'custom', { silent: true, sync: true });
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
+    // the Custom grass curves (grass editor): the first edit makes the presets Custom, then only the grass is rebuilt, once a frame
+    gGrassCurve(v, o) {
+      if (o.sync || o.startup || o.reset) return;
+      if (settings.get('gVeg') !== 'custom' || settings.get('quality') !== 'custom') {
+        settings.set('gVeg', 'custom', { silent: true, sync: true });
+        if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
+      } else if (!grassQueued) {
+        grassQueued = true;
+        requestAnimationFrame(() => {
+          grassQueued = false;
+          gfx.q = { ...gfx.q, grassCurve: settings.get('gGrassCurve') };
+          grass.configure(gfx.q);
+          game.redraw = 3;
+        });
+      }
+    },
     // the Grass and bushes preset: a level fills the sliders with that quality preset's grass and bush values
     gVeg(v, o) {
       if (o.sync || o.startup || o.reset) return;
@@ -638,6 +657,7 @@ async function main() {
       else if (id === 'mpGoto') { if (mp.count) menu.close(); mp.gotoFriend(); }
       else if (id === 'mpLeave') mp.leave();
       else if (id === 'mpName') mp.rename();
+      else if (id === 'grassEditor') { menu.close(); grassEditor.open(); }
       game.redraw = 3;
     },
     teleport,
@@ -647,14 +667,7 @@ async function main() {
     onPause: setPaused,
   });
   game.menu = menu;
-  // TEMPORARY: ?vegtune starts on the test meadow with the grass preset tuner (vegTuner.js)
-  if (MEADOW) {
-    placeVehicle(MEADOW.x, MEADOW.z, 0);
-    import('./vegTuner.js').then(m => m.startVegTuner({
-      settings, grass, renderer,
-      apply(v) { scenery.configure({ ...gfx.q, ...v, vegetation: true }); game.redraw = 3; },
-    }));
-  }
+  game.grassEditor = grassEditor;
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;

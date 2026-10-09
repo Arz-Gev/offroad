@@ -97,17 +97,10 @@ const GFX_SECTIONS = [
   ] },
   { title: 'Grass and bushes', rows: [
     row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).', disclose: 'vegAdvanced' }),
-    // the arrow next to the preset opens the sliders: three groups (the heading names the layer, the sliders just say what they change)
-    row('vegSubGrass', 'Grass', 'sub', { adv: 'vegAdvanced' }),
-    row('gGrass', 'Density near', 'range', { adv: 'vegAdvanced', min: 4, max: 120, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFar', 'Density far', 'range', { adv: 'vegAdvanced', min: 5, max: 300, step: 1, scale: 1000, dp: 3, unit: '×' }),
-    row('gGrassHeight', 'Height near', 'range', { adv: 'vegAdvanced', min: 80, max: 350, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeightFar', 'Height far', 'range', { adv: 'vegAdvanced', min: 100, max: 400, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Width near', 'range', { adv: 'vegAdvanced', min: 60, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidthFar', 'Width far', 'range', { adv: 'vegAdvanced', min: 200, max: 1000, step: 10, scale: 100, dp: 1, unit: '×' }),
-    row('gGrassDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 60, max: 260, step: 5, scale: 1, unit: ' m' }),
+    // the arrow next to the preset opens the custom settings: the grass editor (curves, over the running game) and the bushes
+    row('grassEdit', 'Grass', 'buttons', { adv: 'vegAdvanced', buttons: [['grassEditor', 'Open editor']], note: 'Density, blade height and width as curves over the distance, edited live over the game. Editing makes the preset Custom.' }),
     row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
-    row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 300, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 350, step: 5, scale: 100, dp: 2, unit: '×' }),
     row('gBushDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 100, max: 480, step: 5, scale: 100, dp: 2, unit: '×' }),
   ] },
@@ -332,7 +325,7 @@ export class Menu {
     const def = this.rowDef(key);
     if (def && def.type === 'seg' && typeof def.options[0][0] === 'number') v = +v;
     if (def?.apply) { this.pending[key] = v; this.refresh(); return; }     // applied by its Apply & restart button
-    if (key === 'gVeg' && v === 'custom') this.expanded.vegAdvanced = true;   // Custom means the sliders: show them
+    if (key === 'gVeg' && v === 'custom') this.expanded.vegAdvanced = true;   // Custom: show its settings
     this.api.set(key, v);
     this.refresh();
   }

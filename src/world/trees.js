@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAP_SIZE, PAD, SPAWN, POI, SURF, MEADOW } from './terrain.js';
+import { MAP_SIZE, PAD, SPAWN, POI, SURF } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
 import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
@@ -173,7 +173,6 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     if (Math.hypot((x - lake.x) / (lake.rx + 6), (z - lake.z) / (lake.rz + 6)) < 1.05) continue;
     if (Math.hypot((x - q.x) / (q.rx + 4), (z - q.z) / (q.rz + 4)) < 1) continue;
     if (Math.hypot(x - POI.hut.x, z - POI.hut.z) < 16) continue;
-    if (MEADOW && Math.hypot(x - MEADOW.x, z - MEADOW.z) < MEADOW.r + 12) continue;
     if (terrain.waterLevelAt(x, z) > -1e8) continue;
     const sid = terrain.surfaceId(x, z);
     if (sid === SURF.mud || sid === SURF.sand) continue;

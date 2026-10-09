@@ -3,7 +3,7 @@
 // low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), each level tuned on the ?vegtune meadow (Oct 9).
+// distance in m (grass.js evalCurve), each level drawn in the grass editor (grassEditor.js, Oct 9).
 const GRASS_ULTRA = {
   end: 300, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
@@ -41,35 +41,30 @@ export const QUALITY = {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off',
-    grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
-    grass: 0.2, grassHeight: 1.6, grassWidth: 1.8, grassFar: 0.02, grassHeightFar: 2.2, grassWidthFar: 7, grassRadius: 100,
     grassCurve: grass(GRASS_LOW), bushes: 0.31, bushHeight: 2.6, bushDist: 3.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
-    grass: 0.22, grassHeight: 1.8, grassWidth: 1.5, grassFar: 0.03, grassHeightFar: 2.4, grassWidthFar: 6.5, grassRadius: 130,
     grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.3,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
-    grass: 0.4, grassHeight: 1.8, grassWidth: 1.1, grassFar: 0.045, grassHeightFar: 2.6, grassWidthFar: 6, grassRadius: 150,
     grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 3.2,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
-    grass: 0.8, grassHeight: 1.8, grassWidth: 1.05, grassFar: 0.08, grassHeightFar: 2.6, grassWidthFar: 5.5, grassRadius: 180,
     grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
   },
 };
@@ -94,8 +89,6 @@ export function presetToGfx(q) {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gVeg: q.veg,
-    gGrass: q.grass, gGrassHeight: q.grassHeight, gGrassWidth: q.grassWidth,
-    gGrassFar: q.grassFar, gGrassHeightFar: q.grassHeightFar, gGrassWidthFar: q.grassWidthFar, gGrassDist: q.grassRadius,
     gBushes: q.bushes, gBushHeight: q.bushHeight, gBushDist: q.bushDist,
   };
 }
@@ -103,16 +96,17 @@ export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
-    grass: g.gGrass, grassHeight: g.gGrassHeight, grassWidth: g.gGrassWidth, grassFar: g.gGrassFar, grassHeightFar: g.gGrassHeightFar, grassWidthFar: g.gGrassWidthFar, grassRadius: g.gGrassDist, impostorShadows: g.gTreeShadows,
+    impostorShadows: g.gTreeShadows,
     terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes, bushDist: g.gBushDist, bushHeight: g.gBushHeight,
     veg: g.gVeg,
-    grassCurve: QUALITY[g.gVeg]?.grassCurve,   // a level's grass; Custom: the near / far sliders (curveFromNearFar)
+    grassCurve: QUALITY[g.gVeg]?.grassCurve || g.gGrassCurve,   // a level's grass, or the player's own (the grass editor)
   };
 }
 
 // Grass and bushes have their own preset too (gVeg: 'off' | a quality level | 'custom'), like the shadows:
-// a level writes that quality preset's grass and bush values into the sliders below it, moving a slider makes it 'custom'.
-export const VEG_KEYS = ['gGrass', 'gGrassHeight', 'gGrassWidth', 'gGrassFar', 'gGrassHeightFar', 'gGrassWidthFar', 'gGrassDist', 'gBushes', 'gBushHeight', 'gBushDist'];
+// a level writes that quality preset's bush values into the sliders, moving one makes it 'custom'. Custom grass is
+// gGrassCurve, drawn in the grass editor (grassEditor.js), which starts from the level it was on.
+export const VEG_KEYS = ['gBushes', 'gBushHeight', 'gBushDist'];
 export function vegToGfx(level) {
   const g = presetToGfx(QUALITY[level]);
   return Object.fromEntries(VEG_KEYS.map(k => [k, g[k]]));

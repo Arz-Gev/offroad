@@ -26,7 +26,7 @@ const curveD = i => CURVE_MAX * (i / CURVE_N) ** 2;
 // a curve is a list of [distance m, value] points: straight lines between them, or a smooth curve that
 // never overshoots the points (monotone cubic) when `smooth`; flat before the first and after the last
 // point. It is interpolated in the tuner's graph space (√distance across, log value up;
-// both plain when `lin`), so a line looks exactly as the graph draws it. Shared with vegTuner.js.
+// both plain when `lin`), so a line looks exactly as the graph draws it. Shared with grassEditor.js.
 export function evalCurve(pts, d, smooth, logY = false, lin = false) {
   const n = pts.length;
   if (d <= pts[0][0]) return pts[0][1];
@@ -51,16 +51,6 @@ export function evalCurve(pts, d, smooth, logY = false, lin = false) {
     v = (2 * t3 - 3 * t2 + 1) * y(i) + (t3 - 2 * t2 + t) * h * m(i) + (-2 * t3 + 3 * t2) * y(i + 1) + (t3 - t2) * h * m(i + 1);
   }
   return logY ? Math.exp(v) : v;
-}
-
-// the presets' near / far values as curves (geometric steps between the camera and the grass distance)
-export function curveFromNearFar(q) {
-  const R = q.grassRadius || 100, dN = Math.max(q.grass, 0.01), dF = q.grassFar ?? dN * 0.1;
-  const hN = q.grassHeight ?? 1.5, hF = q.grassHeightFar ?? hN, wN = q.grassWidth ?? 1, wF = q.grassWidthFar ?? wN * 4;
-  const geo = (a, b, f) => a * (b / a) ** f, r = v => Math.round(v * 10) / 10;
-  const pts = (a, b, k) => [0, 0.25, 0.5, 0.75, 1].map(f => [Math.round(R * f), r(geo(a, b, f) * k)]);
-  // density in blades per m² (1 = a blade every 0.1 m = 100 per m²), height and width in cm
-  return { end: R, smooth: true, density: pts(dN, dF, 100), height: pts(hN, hF, 34), width: pts(wN, wF, 6.5) };
 }
 
 function bladeGeometry(segments = 3) {
@@ -330,14 +320,15 @@ diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
       return timer;
     },
     configure(q) {
-      // q.grassCurve (a preset's or the tuner's) or the Custom near / far sliders, as curves
-      const c = q.grassCurve || curveFromNearFar(q);
+      // q.grassCurve: the level's curves or the player's own (grass editor)
+      const c = q.grassCurve;
+      if (!c) { enabled = group.visible = false; return; }
       const R = Math.min(CURVE_MAX, Math.max(10, c.end));
       const dens = d => Math.max(0, evalCurve(c.density, Math.min(d, R), c.smooth, true, c.lin));
       // the grid is as fine as the densest point of the curve; elsewhere a share of it is drawn
       let dMax = 0;
       for (let i = 0; i <= CURVE_N; i++) if (curveD(i) <= R) dMax = Math.max(dMax, dens(curveD(i)));
-      enabled = q.vegetation !== false && dMax > 0.01 && (q.grassCurve || q.grass > 0);
+      enabled = q.vegetation !== false && dMax > 0.01;
       group.visible = enabled;
       if (!enabled) return;
       const s = 1 / Math.sqrt(dMax);   // m between blades at the densest point
