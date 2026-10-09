@@ -316,10 +316,8 @@ async function main() {
       // show the preset's values in the per-option controls
       const g = presetToGfx(q);
       for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
-      // grass and bushes are the player's switch, except Mobile turns them off (turning them on makes it Custom)
-      if (q.vegetation === false) settings.set('vegetation', false, { silent: true, sync: true });
     }
-    q = { ...q, vegetation: settings.get('vegetation') };
+    q = { ...q, vegetation: settings.get('gVeg') !== 'off' };
     gfx.q = q;
     pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
     pipeline.params.bloom = q.bloom !== false;
@@ -486,11 +484,6 @@ async function main() {
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     renderScale: () => applyGraphics(),
-    vegetation(v, o) {
-      if (o.sync) return;
-      if (v && !o.startup && !o.reset && gfx.preset === 'mobile') settings.set('quality', 'custom', { silent: true });
-      else applyGraphics();
-    },
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),

@@ -81,32 +81,20 @@ const GFX_SECTIONS = [
     row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['mobile', 'Mobile'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto measures the frame rate while you drive and picks the best preset that holds it.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
     row('fullscreen', 'Fullscreen', 'switch'),
-    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'For high-density screens (Retina, 4K laptops, Windows scaling above 100%): how many of the screen\'s extra pixels to render. The biggest cost of all.' }),
+    row('gDpr', 'Additional sharpness', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%' }),   // the pixel density cap (high-density screens only)
   ] },
-  { title: 'Lighting and effects', rows: [
-    row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
-    row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']], note: 'SSAO: contact shading in corners, under the truck and between rocks. About 1–2 ms.' }),
-    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharper, FXAA is cheaper.' }),
-    row('gBloom', 'Bloom', 'switch', { note: 'Glow around lamps and the sun.' }),
-    row('dust', 'Dust, mud and splashes', 'switch', { note: 'Clouds and spray kicked up by the tyres.' }),
+  { rows: [   // shadows, AO, AA, bloom, dust: no heading
+    row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
+    row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] }),
+    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']] }),
+    row('gBloom', 'Bloom', 'switch'),
+    row('dust', 'Dust, mud and splashes', 'switch'),
   ] },
   { title: 'World detail', rows: [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
     row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
-  ] },
-  { title: 'Grass and bushes', rows: [
-    row('vegetation', 'Grass and bushes', 'switch', { note: 'Off hides all the grass and undergrowth (trees stay). The most expensive part of the world.' }),
-    row('gGrass', 'Grass density', 'range', { veg: true, min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeight', 'Grass height', 'range', { veg: true, min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Grass blade width', 'range', { veg: true, min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassDist', 'Grass distance', 'range', { veg: true, min: 119, max: 287, step: 1, scale: 1, unit: ' m' }),
-    row('gGrassNear', 'Dense grass radius', 'range', { veg: true, min: 42, max: 72, step: 1, scale: 1, unit: ' m', note: 'The fine layer around you. The expensive one.' }),
-    row('gGrassFarWidth', 'Far grass blade width', 'range', { veg: true, min: 130, max: 360, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFarSpacing', 'Far grass spacing', 'range', { veg: true, min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×', note: 'Lower packs more blades into the far layer (slower).' }),
-    row('gBushes', 'Bush density', 'range', { veg: true, min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Bush size', 'range', { veg: true, min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushDist', 'Bush distance', 'range', { veg: true, min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
   ] },
 ];
 
@@ -215,7 +203,7 @@ export class Menu {
       return '';
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
-      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
+      <div class="set-sec">${s.title ? `<h2>${s.title}</h2>` : ''}${s.rows.map(r => `
         <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
@@ -294,9 +282,6 @@ export class Menu {
     }
     // graphics: say which preset Auto chose
     // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
-    // the grass and bush sliders follow the Grass and bushes switch
-    const veg = !!api.get('vegetation');
-    for (const r of this.panes.graphics.querySelectorAll('.set-row')) if (this.rowDef(r.dataset.key)?.veg) r.hidden = !veg;
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
     for (const [key, src] of [['mpRoom', 'mpNote'], ['mpName', 'name']]) {
       const el = this.panes.friends.querySelector(`[data-key="${key}"] .set-n`), t = api.get(src);
