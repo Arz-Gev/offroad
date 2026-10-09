@@ -1,8 +1,7 @@
-// Procedural cross-plane V8 engine sound.
-// Every combustion event (8 per 720 deg) kicks an exhaust pulse into the bank it belongs to.
-// Firing order 1-8-4-3-6-5-7-2 with odd cylinders on the left bank gives the uneven
-// per-bank pattern L R R L R L L R that makes a V8 burble. Each bank runs through its own pipe
-// resonances, then both merge, get a load dependent low-pass and a soft clip.
+// Procedural cross-plane V8 engine sound. Each combustion event (8 per 720 deg) kicks an exhaust pulse
+// into its bank. Firing order 1-8-4-3-6-5-7-2 with odd cylinders on the left gives the uneven per-bank
+// pattern L R R L R L L R (the burble). Each bank has its own pipe resonances; then both merge, get a
+// load dependent low-pass and a soft clip.
 
 class Biquad {
   constructor() { this.x1 = 0; this.x2 = 0; this.y1 = 0; this.y2 = 0; this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0; }
@@ -32,7 +31,7 @@ class Biquad {
 }
 
 // Start / starter sound knobs (audio.setStarterTune can change them live through the port).
-const STARTER_DEFAULTS = {   // tuned by ear by the player (Oct 3)
+const STARTER_DEFAULTS = {   // tuned by ear
   unevenness: 0.65,  // crank speed swing per compression stroke while cranking (the "rrr" rhythm)
   puff: 0.06,        // air pumped through the exhaust on each compression (the chug)
   pops: 3,           // loudness of the first firings while the engine catches (x a normal firing)
@@ -83,7 +82,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.shelf = new Biquad(); this.shelf.lowshelf(130, 3, this.sr); // a little more low end
     this.wander = 0; this.wanderT = 0;
     this.tick = 0;
-    // start / starter sound knobs (live changes: port message { starter: {...} })
+    // live changes: port message { starter: {...} }
     this.st = { ...STARTER_DEFAULTS };
     if (this.port) this.port.onmessage = e => { if (e.data && e.data.starter) Object.assign(this.st, e.data.starter); };
   }
@@ -118,16 +117,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       if ((this.k++ & 63) === 0) this.updateFilters();
       if ((this.k & 1023) === 0) this.wanderT = (this.rand() * 2 - 1) * 22 * Math.max(0, 1 - this.load * 3);
       this.wander += (this.wanderT - this.wander) * 0.00004;
-      // A cranking (or stopping) engine turns unevenly: it slows on each of the 8 compression strokes per
-      // cycle and speeds up after them. The game only sends rpm 60 times a second, so the worklet makes
-      // that ~15 Hz "rrr-rrr" itself from the crank phase.
+      // A cranking (or stopping) engine slows on each of the 8 compression strokes per cycle. The game
+      // sends rpm only 60 times a second, so the worklet makes that ~15 Hz "rrr-rrr" from the crank phase.
       const uneven = (1 - running) * Math.max(0, Math.min(1, 1.5 - this.rpm / 800));
       const cyc = Math.sin(2 * Math.PI * 8 * this.phase);
       const rpm = Math.max(0, (this.rpm + (running > 0.99 ? this.wander : 0)) * (1 + this.st.unevenness * uneven * cyc));
       const prev = this.phase;
       this.phase += rpm / 120 / sr;
       if (this.phase >= 1) this.phase -= 1;
-      // combustion events
       for (let c = 0; c < 8; c++) {
         let o = c / 8 + this.jit[c];
         if (o < 0) o += 1;
@@ -150,8 +147,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.env[this.bank[c]] += a;
         if (fired) this.tick += 0.5 + 0.5 * this.rand();
       }
-      // Each exhaust pulse lasts a fixed crank angle, so at low rpm it is long and soft (a burble),
-      // at high rpm short and sharp. Pressure = env smoothed by a fast attack: no clicks.
+      // An exhaust pulse lasts a fixed crank angle: long and soft at low rpm, short and sharp at high.
+      // Pressure = env smoothed by a fast attack (no clicks).
       const degS = 1 / (Math.max(rpm, 200) * 6);              // seconds per crank degree
       const tauD = Math.min(0.012, Math.max(0.0011, 42 * degS));
       const tauA = Math.min(0.0028, Math.max(0.00022, 10 * degS));
@@ -177,16 +174,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       }
       if (this.crackle > 0.01) { y += this.crackle * (this.rand() * 2 - 1) * 0.6; this.crackle *= 0.985; }
       let s = this.lp.run(y) * 0.8 + this.lp2.run(y) * 0.3;
-      // intake roar and valvetrain
       const nz = this.rand() * 2 - 1;
       s += this.intake.run(nz) * 0.05 * this.thr * Math.min(1, rpm / 2500) * (0.5 + this.env[0] + this.env[1]);
       // valvetrain: a faint tick per firing event at low rpm, a hiss at high rpm
       this.tick *= 0.9965;
       s += this.mech.run(nz) * (0.006 + 0.02 * this.tick * (1 - rr * 0.6)) * Math.min(1, 0.4 + rpm / 3000);
-      // Starter motor: a gritty metallic whirr. Recordings of V8 starts show it at ~0.8-1.9 kHz; here noise
-      // through two narrow resonances at the pinion mesh on the 130-tooth ring gear (~550 Hz at 250 rpm)
-      // and twice that, plus some brush noise. Narrow-band noise, not sine waves: pure tones with the crank's
-      // wobble on them sounded like a toy ray gun. Louder while it labours through a compression stroke.
+      // Starter motor whirr (recordings show ~0.8-1.9 kHz): noise through two narrow resonances at the
+      // pinion mesh on the 130-tooth ring gear (~550 Hz at 250 rpm) and twice that, plus brush noise.
+      // Not sine waves: pure tones with the crank's wobble sounded like a toy ray gun.
       if (starter > 0.5) {
         const st = this.st, labour = 0.5 - 0.5 * cyc * uneven;
         if ((this.k & 31) === 0) {

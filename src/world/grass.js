@@ -1,14 +1,11 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 
-// GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells.
-// Every world cell always gets the same blade (hashed from the cell index), so blades never swim as the
-// grid follows the camera. Two layers: dense short-range blades and a sparser, wider layer further out,
-// each split into tiles that are frustum culled on the CPU. Density comes from the terrain's surface and
-// ground-data maps (no grass on trails, rock, mud, sand or under dense canopy); heights come from the
-// physics heightfield with the same triangle split, so blades stand exactly on the ground.
-// Wind (travelling gusts), the truck's wheels push blades aside, tyre tracks flatten them, and a few
-// blades are wild flowers.
+// GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells. Each cell's blade
+// is hashed from the cell index, so blades never swim as the grid follows the camera. Two layers (dense short-range,
+// sparser and wider further out), each split into tiles frustum culled on the CPU. Density comes from the terrain's
+// surface and ground-data maps; heights from the physics heightfield with the same triangle split, so blades stand
+// exactly on the ground. Wind gusts, wheels pushing blades aside, tyre tracks flattening them, a few wild flowers.
 
 const HALF = MAP_SIZE / 2, NN = N + 1;
 const TILES = 8;

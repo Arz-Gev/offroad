@@ -2,15 +2,9 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 
-// HDR render pipeline:
-//   scene -> half-float target (optional MSAA) + depth texture
-//   -> optional SSAO (half resolution, from depth only: normals rebuilt from the depth, bilateral blur)
-//   -> bloom (13-tap downsample / tent upsample chain, soft threshold after exposure)
-//   -> eye adaptation (log-average luminance on the GPU, no read-back; clamped per time of day)
-//   -> composite: exposure, bloom, Neutral tone mapping, grade, vignette, sRGB, dither
-//   -> optional FXAA.
-// Every pass is a full-screen triangle; the whole chain costs well under a millisecond at 1/4 of
-// the scene's pixel count (the bloom and luminance passes run at half resolution and below).
+// HDR render pipeline: scene (half-float, optional MSAA, depth texture) -> SSAO -> bloom -> eye
+// adaptation (GPU log-average luminance, no read-back) -> composite -> optional FXAA (DEVNOTES.md,
+// "HDR pipeline"). Every pass is a full-screen triangle; bloom and luminance run at half resolution and below.
 
 const VERT = /* glsl */`
 varying vec2 vUv;
@@ -99,9 +93,8 @@ void main() {
   gl_FragColor = vec4(exp2(v), v, 0.0, 1.0);
 }`;
 
-// Screen-space ambient occlusion (SAO-style hemisphere estimate). Runs at half resolution on the resolved
-// depth; view-space normals come from the depth neighbours (the side with the smaller depth step, so
-// silhouettes don't smear). Output: r = AO (1 = open), g = view depth for the bilateral blur.
+// SSAO (SAO-style hemisphere estimate), half resolution on the resolved depth. Output: r = AO (1 = open),
+// g = view depth for the bilateral blur.
 const AO_FRAG = /* glsl */`
 uniform sampler2D tDepth;
 uniform mat4 uProjInv;
@@ -244,7 +237,6 @@ export class RenderPipeline {
     const hf = { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false };
     this.hdr = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.msaa, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     this.hdr.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
-    // SSAO: 'off' | 'low' | 'high'
     this.ssao = 'off';
     this.ao = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { ...hf }));
     this.hdr.texture.name = 'hdr';

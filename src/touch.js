@@ -1,30 +1,22 @@
 import { BINDING, hasControl } from './input.js';
 import { fmtPressure } from './hud.js';
 
-// On-screen controls for phones and tablets.
-//
-//   left thumb   steering: touch anywhere in the lower left and slide sideways (the stick appears under
-//                the finger), or tilt the device like a steering wheel (setting touchSteer)
-//   right thumb  gas and brake pedals: analog, higher up the pedal = more; handbrake, clutch (manual
-//                without auto-clutch only), shift ▲ / ▼
-//   top left     next to the menu button: camera, recover and the Vehicle drawer (range, diff locks, drive,
-//                engine, lights, tyres, tuning); the fullscreen button there is the HUD's own
-//   the view     drag to look around, pinch to zoom (feeds Input.mouse, like the mouse and the right stick);
-//                in the gunner's sight the same drag turns the turret
-//   turret       (turret vehicles) over the shift buttons: Sight, Gun, and Fire (hold)
-//
-// Pedals and steering are written into Input.touch, which Input.update reads while the device is 'touch'.
-// Buttons fire the same actions as the keys (api.action). Everything uses pointer events with pointer
-// capture, so each finger keeps its control even when it slides off it, and several work at once.
-// Cost rules as in hud.js: DOM writes only when a shown value changes.
+// On-screen controls for phones and tablets (layout: DEVNOTES.md, "Touch").
+//   left thumb   steering: slide sideways in the lower left (stick under the finger), or tilt the device
+//   right thumb  gas and brake (analog), handbrake, clutch, shift
+//   top left     camera, recover and the Vehicle drawer, next to the menu button
+//   the view     drag to look, pinch to zoom (feeds Input.mouse); in the gunner's sight it turns the turret
+//   turret       over the shift buttons: Sight, Gun, Fire (hold)
+// Pedals and steering go into Input.touch, read by Input.update while the device is 'touch'. Buttons fire
+// the same actions as the keys. Pointer capture keeps each finger on its control when it slides off.
+// DOM writes only when a shown value changes (as in hud.js).
 
 const DRAWER = ['range', 'centreLock', 'lockers', 'rwd', 'engineStart', 'headlights', 'pressureDown', 'pressureUp', 'tuning'];
 const TILT_FULL = 28 * Math.PI / 180;   // device roll for full lock
 const TILT_DEAD = 1.5 * Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const label = id => BINDING[id].touch;
-// drawer chips: a fixed label and a state line under it, in a fixed grid, so nothing moves when a state changes
-// (only the chips of the controls this car has: input.js hasControl)
+// drawer chips: fixed label and state line in a fixed grid, so nothing moves when a state changes
 const CHIP_STATE = {
   range: d => d.range === 'low' ? 'LOW' : 'HIGH',
   centreLock: d => d.centreLocked ? 'Locked' : 'Open',
@@ -54,7 +46,7 @@ export class TouchControls {
     this.steerMode = 'stick';
     this.visible = false;
     this.c = {};                  // last written values
-    this.drawerIds = DRAWER.filter(hasControl);   // this car's: no Range chip without low range, ...
+    this.drawerIds = DRAWER.filter(hasControl);   // this car's controls only
     this.pedals = {};             // name -> { el, fill, id }
     this.stick = { id: null, x0: 0, y0: 0, v: 0 };
     this.looks = new Map();       // pointerId -> { x, y } of fingers on the view
@@ -63,9 +55,8 @@ export class TouchControls {
     this.build();
     this.bindView();
 
-    // a finger on the screen makes touch the active device; keys or a pad take over again (input.js).
-    // After the tap, not on touch-down: the switch re-renders the menu, which would
-    // swallow the click on the button under the finger.
+    // a finger makes touch the active device (keys or a pad take over again). After the tap, not on
+    // touch-down: the switch re-renders the menu, which would swallow the click under the finger.
     window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') setTimeout(() => this.input.setDevice('touch'), 0); }, true);
     if (window.matchMedia?.('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches) this.input.device = 'touch';
   }
@@ -105,7 +96,6 @@ export class TouchControls {
     hud.root.append(el);
     this.el = el;
 
-    // camera, recover and the Vehicle drawer go next to the HUD's menu button
     const tools = document.createElement('div');
     tools.className = 'tc-tools';
     tools.hidden = true;
@@ -167,7 +157,6 @@ export class TouchControls {
     this.api.hud.setTouch(vis);
   }
 
-  // let go of everything (menu opened, controls hidden): no stuck pedals
   release() {
     for (const p of Object.values(this.pedals)) { p.id = null; p.el.classList.remove('on'); }
     this.stick.id = null; this.stick.v = 0;
@@ -185,7 +174,7 @@ export class TouchControls {
   onDown(e) {
     const t = e.target.closest('[data-act], [data-hold], [data-pedal], [data-drawer], .tc-steer');
     if (!t) return;
-    e.preventDefault();               // no focus, no text selection, no emulated mouse events
+    e.preventDefault();               // no focus, selection or emulated mouse events
     this.input.setDevice('touch');
     if (this.steerMode === 'tilt' && !this.tilt.seen) this.startTilt();
     if (t.dataset.drawer !== undefined) {
@@ -197,7 +186,7 @@ export class TouchControls {
       return;
     }
     if (t.dataset.act) {
-      // buttons fire on touch-down: quicker than click, and works while other fingers are down
+      // buttons fire on touch-down: quicker than click, works while other fingers are down
       t.classList.add('on');
       setTimeout(() => t.classList.remove('on'), 140);
       buzz();
@@ -216,7 +205,6 @@ export class TouchControls {
       t.classList.add('on');
       this.pedal(p, t.dataset.pedal, e.clientY);
     } else {
-      // steering: the stick centres under the finger
       const r = this.steerEl.getBoundingClientRect();
       Object.assign(this.stick, { id: e.pointerId, x0: e.clientX, y0: e.clientY, v: 0, r: 64 * this.scale() });
       this.stickEl.style.transform = `translate(${e.clientX - r.left}px, ${e.clientY - r.top}px)`;
@@ -262,7 +250,7 @@ export class TouchControls {
     this.knob.style.transform = `translateX(${((q / 50) * (this.stick.r || 64)).toFixed(1)}px)`;
   }
 
-  // higher up the pedal = more: the bottom quarter is 30 %, the top quarter full
+  // bottom quarter of the pedal = 30 %, top quarter = full
   pedal(p, name, y) {
     const r = p.rect;
     const v = 0.3 + 0.7 * clamp((r.bottom - y - r.height * 0.15) / (r.height * 0.6), 0, 1);
@@ -315,8 +303,8 @@ export class TouchControls {
   }
 
   // ------------------------------------------------------------------ tilt steering
-  // The device's roll in the screen plane, from the orientation angles, whatever way the screen is turned.
-  // iOS asks for permission, which needs a tap: the menu switch or the first touch on the controls.
+  // The device's roll in the screen plane, for any screen orientation. iOS asks for permission,
+  // which needs a tap (the menu switch or the first touch on the controls).
   startTilt() {
     if (!this.tiltBound) {
       this.tiltBound = true;
@@ -333,7 +321,6 @@ export class TouchControls {
     this.tilt.seen = true;
     if (this.steerMode !== 'tilt') return;
     const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
-    // world "up" in device coordinates, then turned into screen coordinates
     const ux = -Math.cos(b) * Math.sin(g), uy = Math.sin(b);
     const th = ((screen.orientation?.angle ?? window.orientation ?? 0) * Math.PI) / 180;
     const sx = ux * Math.cos(th) - uy * Math.sin(th), sy = ux * Math.sin(th) + uy * Math.cos(th);
@@ -359,7 +346,6 @@ export class TouchControls {
     // the clutch pedal only exists in the manual box with auto-clutch off
     const clutch = d.mode === 'manual' && !d.clutchAssist;
     if (clutch !== c.clutch) { c.clutch = clutch; this.pedals.clutch.el.hidden = !clutch; if (!clutch) t.clutch = 0; }
-    // drawer chips: state line + lit when engaged (only while the drawer is open)
     if (!this.drawer.hidden) {
       for (const id of this.drawerIds) {
         const ch = this.chips[id], txt = CHIP_STATE[id](d, view, v, this.api.hud.opts.pressureUnit), on = !!CHIP_ON[id]?.(d, view);

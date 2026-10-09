@@ -2,11 +2,8 @@ import { carBindings, hasControl, capsHTML, padCapHTML, touchCapHTML } from './i
 import { escapeHTML } from './hud.js';
 import { CAR_LIST } from './cars/index.js';
 
-// Pause menu (Locations / Settings / Controls). It pauses the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
-// locations, Esc) and gamepad (d-pad / left stick, A, B, LB/RB, Menu) via Input.uiHandler.
-//
-// The menu holds no game state: it reads and writes through `api`
-// ({ get, set, action, locations, teleport, recover, onPause, device }) supplied by main.js.
+// Pause menu. Mouse, keyboard and gamepad (via Input.uiHandler). It holds no game state: it reads and
+// writes through `api` ({ get, set, action, locations, teleport, recover, onPause, device }) from main.js.
 
 const TABS = [
   { id: 'locations', label: 'Locations', hot: 'locations' },
@@ -66,7 +63,7 @@ const SECTIONS = [
   ] },
 ];
 
-// Friends tab (multiplayer.js): the notes are filled in by refresh()
+// Friends tab (multiplayer.js); refresh() fills in the notes
 const MP_SECTIONS = [
   { title: 'Drive with friends', rows: [
     row('mpRoom', 'Room', 'buttons', { buttons: [['mpInvite', 'Invite'], ['mpGoto', 'Go to friend'], ['mpLeave', 'Leave']], note: ' ' }),
@@ -110,7 +107,7 @@ const GFX_SECTIONS = [
   ] },
 ];
 
-// what to do when stuck, with only this car's controls: low range, the diff locks, airing down
+// stuck tips, with only this car's controls
 function stuckSteps(k, tyres) {
   const s = [];
   if (hasControl('range')) s.push(`shift to low range (${k('range')})`);
@@ -222,7 +219,6 @@ export class Menu {
         </div>`).join('')}</div>`).join('')}</div>`;
   }
 
-  // third column: the gamepad, or the on-screen controls on a touch screen
   buildControls(touch = false) {
     this.ctlTouch = touch;
     // only this car's controls (no Turret section without a turret, no low range without one, ...)
@@ -240,7 +236,6 @@ export class Menu {
       <div class="callout"><b>Getting stuck?</b> ${stuckSteps(id => capsHTML(id, dev), true)} ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds this car\'s drive, engine, light and tyre controls.' : ''}</div>`;
   }
 
-  // device-dependent labels: header buttons, footer hints
   renderDevice() {
     const dev = this.api.device();
     for (const el of this.root.querySelectorAll('[data-cap]')) el.innerHTML = dev === 'touch' ? '' : capsHTML(el.dataset.cap, dev);
@@ -292,9 +287,7 @@ export class Menu {
         rowEl.querySelector('output').textContent = api.get('pressureText');
       }
     }
-    // graphics: say which preset Auto chose
-    // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
-    // the grass and bush sliders follow the Grass and bushes switch
+    // grass and bush sliders follow the Grass and bushes switch; pixel density only matters above dpr 1 (the window may move)
     const veg = !!api.get('vegetation');
     for (const r of this.panes.graphics.querySelectorAll('.set-row')) if (this.rowDef(r.dataset.key)?.veg) r.hidden = !veg;
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
@@ -381,7 +374,6 @@ export class Menu {
   }
 
   focusFirst() {
-    // the first control of the pane, so arrow keys / d-pad start in the content
     const pane = this.panes[this.tab];
     const el = [...pane.querySelectorAll('button, input')].find(x => x.tabIndex >= 0);
     (el || this.root.querySelector('.tab[aria-selected="true"]')).focus({ preventScroll: true });
@@ -396,7 +388,6 @@ export class Menu {
     if (next) { next.focus(); next.scrollIntoView({ block: 'nearest' }); }
   }
 
-  // left / right: change the focused control
   adjust(dir, el, synthetic) {
     if (!el || !this.sheet.contains(el)) return false;
     if (el.classList.contains('tab')) { this.cycleTab(dir); return true; }

@@ -3,12 +3,10 @@ import { MAP_SIZE } from './terrain.js';
 import { buildPlant } from './foliage.js';
 import { NO_FLIP_NORMAL } from './trees.js';
 
-// Undergrowth: ferns under the trees, shrubs, meadow flowers and tall grass tufts, placed on the GPU like
-// the grass (grass.js): a camera-centred grid of world cells, one plant per cell at most, the cell's hash
-// gives its position, size and yaw, so plants never move as the grid follows the camera. Density comes from
-// the terrain's ground-data map (forest floor, grass density, wetness) and surface splat (none on trails,
-// rock, sand, mud). Plants shrink to nothing at the edge of their radius instead of popping. Alpha-tested
-// cards from the foliage atlas, swaying in the shared wind. No shadow casting (cheap); they receive shadows.
+// Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
+// cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
+// wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
+// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive but do not cast shadows (cheap).
 
 const HALF = MAP_SIZE / 2;
 const TILES = 6;

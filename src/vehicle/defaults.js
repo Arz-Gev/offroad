@@ -1,7 +1,6 @@
-// Values a car file doesn't have to state: the behaviour of ordinary parts (tyre carcass, steering
-// compliance, starter, clutch, torque converter, dampers). They are a mid-size petrol 4x4's; a car states
-// its own when it differs (src/cars/btr80.js: starter, clutch, dampers). Merged under the car's physics
-// by carParams.js.
+// Values a car file doesn't have to state: the behaviour of ordinary parts of a mid-size petrol 4x4 (tyre
+// carcass, steering compliance, starter, clutch, torque converter, dampers). A car states its own when it
+// differs (src/cars/btr80.js). Merged under the car's physics by carParams.js.
 export const PARAM_DEFAULTS = {
   aero: { rho: 1.2 },
   tire: {

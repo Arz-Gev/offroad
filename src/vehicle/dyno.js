@@ -1,6 +1,5 @@
-// "Measure 0-100": the real vehicle physics (same Vehicle, same params, 240 Hz) on a flat dirt test pad,
-// in its own Rapier world. Runs in a worker (dyno.worker.js) so the game keeps its frame rate; the panel
-// falls back to running it in slices on the main thread if workers are unavailable.
+// "Measure 0-100": the real vehicle physics (same Vehicle, same params, 240 Hz) on a flat dirt test pad in
+// its own Rapier world. Runs in a worker (dyno.worker.js); the panel falls back to slices on the main thread.
 import { Vehicle } from './Vehicle.js';
 
 const H = 1 / 240;
@@ -8,8 +7,7 @@ const H = 1 / 240;
 export function* accelRun(RAPIER, P, { gearbox = 'auto', pressures = [20, 20], target = 100, maxT = 45, stepsPerYield = 240 } = {}) {
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = H;
-  // 160 m x 1400 m flat strip (the truck runs towards -z). Wide: with no one at the wheel the truck wanders a
-  // few metres over a slow 400 m run (axle wrap under power x the rear axle's roll steer)
+  // 160 m x 1400 m flat strip (the truck runs towards -z), wide: with no one at the wheel it wanders a few metres
   const n = 8, m = 280, heights = new Float32Array((n + 1) * (m + 1));
   world.createCollider(RAPIER.ColliderDesc.heightfield(n, m, heights, { x: 160, y: 1, z: 1400 }).setFriction(0.8));
   world.step();

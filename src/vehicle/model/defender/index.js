@@ -4,10 +4,10 @@ import { steelWheel } from '../wheels.js';
 import { buildExterior } from './body.js';
 import { buildInterior } from './interior.js';
 
-// The procedural Defender 110 station wagon (modelled after reference.webp): exterior (body.js), cabin
-// with gauges and levers (interior.js), the spare wheel on the rear door. A body source for the model
-// builder (model/index.js, look.body 'defender'): the body group, where its lamps are, the driver's eye,
-// the cabin's moving parts, its lens materials and its own moving extras (the spare follows the tyre size).
+// The procedural Defender 110 station wagon (after reference.webp): exterior (body.js), cabin with gauges and
+// levers (interior.js), the spare wheel on the rear door. A body source for model/index.js (look.body 'defender'):
+// the body group, lamp places, the driver's eye, the cabin's moving parts, lens materials and its own moving
+// extras (the spare follows the tyre size).
 
 export function defenderBody(mats) {
   const body = new THREE.Group();

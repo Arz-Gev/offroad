@@ -35,21 +35,20 @@ import { Dust, Tracks } from './effects.js';
 import { Multiplayer, roomFromURL } from './multiplayer.js';
 import './ui.css';
 
-installShaderPatches();     // before any material compiles: atmosphere fog, light skipping
+installShaderPatches();     // before any material compiles
 
 const H = 1 / 240;          // physics step
 const MAX_STEPS = 16;
 
 // ---------------------------------------------------------------- loading screen
 const loading = document.getElementById('loading');
-const loadLog = [];   // [stage, ms since navigation]: game.loadLog, for tuning the start-up time
+const loadLog = [];   // [stage, ms since navigation]
 const setLoading = (text, p) => {
   loadLog.push([text, Math.round(performance.now())]);
   loading.querySelector('.ld-t').textContent = text;
   if (p !== undefined) loading.style.setProperty('--p', p);
 };
-// Yield so the loading text can paint. rAF gives a real paint; the timeout keeps loading going
-// when the tab is hidden and rAF is throttled to ~0.
+// Yield so the loading text can paint; the timeout keeps loading going in a hidden tab (rAF throttled)
 const frame = () => new Promise(r => {
   let done = false;
   const go = () => { if (!done) { done = true; r(); } };
@@ -76,13 +75,12 @@ async function main() {
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
-  // the scene renders into the pipeline's HDR target (MSAA there); the canvas only gets the final pass
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = THREE.NoToneMapping;     // tone mapping happens in the pipeline's composite pass
+  renderer.toneMapping = THREE.NoToneMapping;     // done in the pipeline's composite pass
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
@@ -94,7 +92,6 @@ async function main() {
   world.timestep = H;
   const terrain = new Terrain(7);
   terrain.createCollider(RAPIER, world);
-  // world visuals that follow the camera or depend on the quality preset (grass, tree LOD, terrain LOD)
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
   const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
@@ -122,10 +119,9 @@ async function main() {
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
-  // the player's tuning setup (saved) goes into the params before the truck is built
   const settings = new Settings();
   const car = settings.get('car');
-  useCar(car);   // the tuning stock, ranges and saved setups are the car's own (before the panel is built)
+  useCar(car);   // before the panel is built: stock, ranges and saved setups are per car
   const tuningApi = {};
   const tuning = new TuningPanel(tuningApi);
   const P = applySetup(makeCarParams(), tuning.setup);
@@ -136,37 +132,33 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
-  // a turret (BTR-80): its state lives on the vehicle (the view, the HUD and the network read it)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
   const d = vehicle.drivetrain;
 
 
-  setCarControls(missingControls(vehicle, model));   // before the HUD, touch controls and menu list them
+  setCarControls(missingControls(vehicle, model));   // before the HUD, touch and menu list controls
 
   const rig = new CameraRig(camera, terrain);
   if (model.chaseDist) rig.dist = model.chaseDist;
   const input = new Input(canvas);
   const hud = new HUD();
   const touch = new TouchControls({ input, canvas, hud, action: id => input.onAction(id) });
-  hud.setDevice(input.device);   // touch.js picks 'touch' on a phone or tablet
+  hud.setDevice(input.device);
   const audio = new GameAudio();
   const dust = new Dust(scene);
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
-  // the sight: the pointer locks to the view, so the mouse turns the turret (the first click in the sight)
   input.sightLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed: drag to aim, Enter fires */ } };
   const tracks = new Tracks(terrainView.material);
 
 
-  // interpolated body pose
   const prevPos = new THREE.Vector3().copy(vehicle.pos), curPos = new THREE.Vector3().copy(vehicle.pos);
   const prevQ = new THREE.Quaternion().copy(vehicle.quat), curQ = new THREE.Quaternion().copy(vehicle.quat);
   const rPos = new THREE.Vector3(), rQ = new THREE.Quaternion();
 
-  // a spot on the nearest trail, `back` metres before the point, facing along the trail
   function trailSpot(x, z, back = 0) {
     let best = null, bd = Infinity;
     for (const c of terrain.trailCurves) {
@@ -177,7 +169,7 @@ async function main() {
     const p = pts[k0], q = pts[k1];
     return { x: p.x, z: p.z, yaw: Math.atan2(-(q.x - p.x), -(q.z - p.z)) };
   }
-  // teleport targets, shown in the menu's Locations tab (x, z, yaw are also used by tools/browser-snippets.js)
+  // menu Locations tab (x, z, yaw also used by tools/browser-snippets.js)
   const teleports = [
     { name: 'Spawn', tag: 'Trail', title: 'Spawn', desc: 'Start of the trail loop: ruts, a mud hole and a branch towards the hills.', x: SPAWN.x, z: SPAWN.z, yaw: 0 },
     { name: 'Axle twister', tag: 'Proving ground · lane A', title: 'Axle twister and whoops', desc: 'Offset humps that lift one wheel at a time. Watch the axle articulation.', x: LANES.A, z: 47, yaw: 0 },
@@ -196,7 +188,7 @@ async function main() {
   const streamAround = (x, z) => {
     trees.updatePhysics(x, z);
     props.userData.stream.update(x, z);
-    world.step();   // scene queries see the streamed colliders only after a step
+    world.step();   // queries see streamed colliders only after a step
   };
   const afterPlace = () => {
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
@@ -211,12 +203,12 @@ async function main() {
     afterPlace();
   };
 
-  // How the truck would stand at (x, z) facing yaw: the ground plane fitted under its wheels, tilted
-  // to match, the body just above the tyres' touch (a bump under the wheels or the belly lifts it).
+  // How the truck would stand at (x, z) facing yaw: tilted to a ground plane fitted under its wheels,
+  // just above the tyres' touch (a bump under a wheel or the belly lifts it).
   const _sR = new THREE.Vector3(), _sB = new THREE.Vector3(), _sU = new THREE.Vector3(), _sM = new THREE.Matrix4();
   const standAt = (x, z, yaw) => {
     const P = vehicle.P, s = Math.sin(yaw), c = Math.cos(yaw), t2 = P.track / 2;
-    const h = (lx, lz) => terrain.heightAt(x + lx * c + lz * s, z - lx * s + lz * c);   // body frame -> ground
+    const h = (lx, lz) => terrain.heightAt(x + lx * c + lz * s, z - lx * s + lz * c);
     // plane h = a + b * lx + d * lz: b from the side-to-side tilt of each axle, d from the axles' heights
     const ax = P.axles.map(a => ({ z: a.z, l: h(-t2, a.z), r: h(t2, a.z) }));
     const n = ax.length, mz = ax.reduce((m, a) => m + a.z, 0) / n, mh = ax.reduce((m, a) => m + (a.l + a.r) / 2, 0) / n;
@@ -238,12 +230,11 @@ async function main() {
     _sR.addScaledVector(_sU, -_sR.dot(_sU)).normalize();
     _sB.crossVectors(_sR, _sU);
     const quat = new THREE.Quaternion().setFromRotationMatrix(_sM.makeBasis(_sR, _sU, _sB));
-    const up = 0.12 + rideRaise(P) + 0.1 + lift;   // 0.12 + rideRaise: the spawn height over flat ground
+    const up = 0.12 + rideRaise(P) + 0.1 + lift;   // 0.12 + rideRaise = spawn height
     const pos = { x: x + _sU.x * up, y: a0 + _sU.y * up, z: z + _sU.z * up };
     return { pos, quat, ground: a0, slope: Math.acos(Math.min(1, _sU.y)) * 180 / Math.PI, rough };
   };
 
-  // the body's box (all chassis colliders), raised off the ground a bit: anything in it is in the way
   const blocked = st => {
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
     for (const [cx, cy, cz, hx, hy, hz] of vehicle.P.colliders) {
@@ -258,8 +249,8 @@ async function main() {
       RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, undefined, vehicle.body);
   };
 
-  // Recover: back on the wheels at the flattest clear spot within ~12 m (same heading), sitting on the
-  // slope's angle and only just above the ground, so it settles instead of dropping and rolling again.
+  // Recover: flattest clear spot within ~12 m, same heading, tilted to the slope and just above the
+  // ground so it settles instead of dropping and rolling again.
   const RECOVER_RINGS = [[0, 1], [3, 8], [6, 12], [9, 16], [12, 20]];
   const recoverSpot = () => {
     const x = vehicle.pos.x, z = vehicle.pos.z, yaw = vehicle.yaw(), here = terrain.heightAt(x, z);
@@ -268,7 +259,6 @@ async function main() {
     for (const [r, n] of RECOVER_RINGS) for (let i = 0; i < n; i++) {
       const t = (i + 0.5 * (r / 3 % 2)) / n * Math.PI * 2;
       const st = standAt(x + Math.cos(t) * r, z + Math.sin(t) * r, yaw);
-      // degrees of slope, plus bumps, plus how far (sideways and up or down) it moves the truck
       const score = st.slope + st.rough * 20 + r * 0.5 + Math.abs(st.ground - here) * 1.5;
       if (score >= bestScore || blocked(st)) continue;
       best = st; bestScore = score;
@@ -281,14 +271,13 @@ async function main() {
       streamAround(st.pos.x, st.pos.z);
       vehicle.reset(st.pos, 0, st.quat);
       afterPlace();
-    } else placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);   // boxed in everywhere: the old way
+    } else placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);
     say('place', 'Recovered', 'good');
   };
 
   const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
-  // drive with friends (invite links, peer to peer); the menu's Friends tab
   const mp = new Multiplayer({
     RAPIER, world, scene, vehicle, view, settings,
     say: (key, html, kind) => hud.toast(html, { kind, key }),
@@ -299,7 +288,6 @@ async function main() {
   game.mp = mp;
 
   // ---------------------------------------------------------------- graphics quality
-  // preset (auto picks one from the GPU) or 'custom' (the g* settings) + resolution scale; applied live
   const gfx = { auto: autoQuality(renderer), preset: null, q: null, dyn: 1 };
   const _db = new THREE.Vector2();
   const GFX_KEYS = Object.keys(presetToGfx(QUALITY.high));
@@ -313,7 +301,6 @@ async function main() {
       const name = sel === 'auto' ? gfx.auto.preset : sel;
       q = QUALITY[name] || QUALITY.high;
       gfx.preset = name;
-      // show the preset's values in the per-option controls
       const g = presetToGfx(q);
       for (const k of GFX_KEYS) settings.set(k, g[k], { silent: true, sync: true });
       // grass and bushes are the player's switch, except Mobile turns them off (turning them on makes it Custom)
@@ -327,7 +314,7 @@ async function main() {
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;
     env.sun.castShadow = !!S;
     if (S) {
-      // a new map size or atlas layout: drop the old depth atlas (a new one is made on the next frame)
+      // new map size or atlas layout: drop the old depth atlas (rebuilt next frame)
       const ext = sh.getFrameExtents(), ex = ext.x, ey = ext.y;
       if (sh.configure) sh.configure(S.cascades, S.splits);
       if (sh.mapSize.x !== S.map || ext.x !== ex || ext.y !== ey) {
@@ -340,7 +327,6 @@ async function main() {
     scenery.configure(q);
     game.redraw = 3;
   }
-  // pixel ratio and buffer sizes only (window resize, dynamic resolution)
   function applyResolution() {
     const q = gfx.q, dpr = q.dynamicDpr ? gfx.dyn : q.dpr;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dpr) * settings.get('renderScale'));
@@ -351,10 +337,8 @@ async function main() {
     gunnery?.setViewport(_db.y);
     game.redraw = 3;
   }
-  // Dynamic resolution (presets with dynamicDpr: Mobile). It starts at 100 % pixel density so the first
-  // seconds are smooth, then steps by 12.5 % every few seconds: up while the game holds ~60 fps, down below
-  // 45. A step up that drops it under 50 fps goes back and that level is not tried again for a minute.
-  // Only the frame rate is measured (no test scene, nothing for the player to wait for).
+  // Dynamic resolution (presets with dynamicDpr: Mobile). Starts at 100 % density, steps 12.5 % every
+  // 2.5 s: up at ~60 fps, down below 45. A step up that falls under 50 goes back and is barred for 1 min.
   const dynRes = { t: 0, n: 0, skip: 1, ceil: Infinity, ceilUntil: 0, raised: false };
   const DYN_STEP = 0.125, DYN_MIN = 1;
   function updateDynamicResolution(dt, paused) {
@@ -364,7 +348,7 @@ async function main() {
     if (R.t < 2.5) return;
     const fps = R.n / R.t, now = performance.now();
     R.t = R.n = 0;
-    if (R.skip > 0) { R.skip--; return; }               // the window right after a change holds its hitch
+    if (R.skip > 0) { R.skip--; return; }               // the window after a change holds its hitch
     const max = Math.min(q.dpr, window.devicePixelRatio || 1);
     if (now > R.ceilUntil) R.ceil = Infinity;
     let next = gfx.dyn;
@@ -375,13 +359,7 @@ async function main() {
     R.raised = next > gfx.dyn;
     if (next !== gfx.dyn) { gfx.dyn = next; R.skip = 1; applyResolution(); }
   }
-  // Auto quality by measurement (Quality: Auto, not on phones: Mobile has its dynamic resolution). The first
-  // start uses the GPU-name guess, then watches the frame rate while the game runs: 3 s to settle after each
-  // change (shader compiles), then 4 s measured (median frame time, so a hitch doesn't count; under 40 fps
-  // it decides after 1 s, so a step up that fails shows only briefly). Under 45 fps
-  // it steps one preset down; at 57+ fps (a 60 Hz screen at full rate) it tries one step up and keeps it
-  // only if it holds 50. The result is saved per graphics chip and screen; later starts begin there and
-  // only step down. Picking Auto in the menu measures again from the guess.
+  // Auto quality by measurement (not on phones). Algorithm and thresholds: DEVNOTES.md, "Auto quality".
   const AUTO_LADDER = ['low', 'medium', 'high', 'ultra'], AUTO_KEY = 'offroad.autoQuality.v1';
   const autoSig = `${gfx.auto.gpu}|${Math.round(screen.width * screen.height * (window.devicePixelRatio || 1) ** 2 / 1e5)}`;
   const autoSaved = () => { try { return JSON.parse(storage.get(AUTO_KEY) || '{}'); } catch { return {}; } };
@@ -395,7 +373,7 @@ async function main() {
     if (!tune.on) return;
     if (!fresh && AUTO_LADDER.includes(saved)) {
       gfx.auto.preset = saved; tune.measured = true;
-      tune.ceil = AUTO_LADDER.indexOf(saved);            // a measured result: only step down from here
+      tune.ceil = AUTO_LADDER.indexOf(saved);            // measured: only step down from here
     } else gfx.auto.preset = gfx.auto.guess;
   }
   function saveAutoTune() {
@@ -411,18 +389,18 @@ async function main() {
     tune.dts.push(dt);
     if (tune.t < 4) return;
     const s = tune.dts.slice().sort((a, b) => a - b), fps = 1 / s[s.length >> 1];
-    if (tune.t < 7 && fps >= 40) return;          // clearly too slow after 1 s: decide now (a bad step up shows briefly)
+    if (tune.t < 7 && fps >= 40) return;          // under 40 fps: decide after 1 s
     tune.t = 0; tune.dts.length = 0;
     const i = AUTO_LADDER.indexOf(gfx.auto.preset);
     let next = i;
-    if (tune.raised && fps < 50) { next = i - 1; tune.ceil = next; }   // the step up didn't hold: back, and stay
+    if (tune.raised && fps < 50) { next = i - 1; tune.ceil = next; }   // step up didn't hold
     else if (fps < 45 && i > 0) { next = i - 1; tune.ceil = next; }
     else if (fps >= 57 && i < tune.ceil) next = i + 1;
     tune.raised = next > i;
-    if (next === i) { tune.on = false; saveAutoTune(); return; }   // settled
+    if (next === i) { tune.on = false; saveAutoTune(); return; }
     gfx.auto.preset = AUTO_LADDER[next];
     applyGraphics();
-    if (next < i) saveAutoTune();      // a step down is a result already, even if the page closes now
+    if (next < i) saveAutoTune();
     say('quality', `Graphics: ${QUALITY[gfx.auto.preset].label}${next < i ? ' for a steadier frame rate' : ' (testing)'}`, '', 2.5);
   }
   startAutoTune(false);
@@ -430,19 +408,18 @@ async function main() {
 
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
-  game.dynRes = dynRes; game.updateDynamicResolution = updateDynamicResolution;   // console / tests
+  game.dynRes = dynRes; game.updateDynamicResolution = updateDynamicResolution;
 
   // ---------------------------------------------------------------- settings -> game
-  // Every persisted setting is applied here, whether it came from a key, the menu or startup.
-  // opts.silent: no toast (startup, and changes made in the menu where the control shows the state).
-  // toasts with the same key replace each other instead of stacking (key null: no grouping)
+  // Every persisted setting is applied here (key, menu or startup). opts.silent: no toast.
+  // Toasts with the same key replace each other (key null: no grouping).
   const say = (key, html, kind = '', t) => hud.toast(html, { kind, t, key: key || html });
   const k = id => capsHTML(id, input.device);
   const setHeadlights = (h, silent) => {
     view.lights.head = h;
     if (!silent) say('head', ['Headlights off', 'Low beam', 'High beam'][h]);
   };
-  // automatic headlights when it gets dark (env.night has hysteresis, so this fires once per crossing)
+  // auto headlights at dusk (env.night has hysteresis: fires once per crossing)
   env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
@@ -464,12 +441,12 @@ async function main() {
     },
     fov(v) { rig.fov = v; game.redraw = 3; },
     camera(v, o) {
-      if (!camModes.includes(v)) v = 'chase';   // the gunner's sight on a car without a turret
+      if (!camModes.includes(v)) v = 'chase';   // gunner's sight on a car without a turret
       rig.setMode(v);
       if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
       if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
     },
-    // the hour follows at once (menu slider, startup); the N key asks for the 2.5 s sweep
+    // the hour follows at once; the N key asks for the 2.5 s sweep
     time(v, o) {
       env.setHour(v, { instant: !o.animate });
       if (o.startup) env.flush();
@@ -478,7 +455,7 @@ async function main() {
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
     quality(v, o) {
-      if (v === 'auto' && !o.startup && !o.reset) startAutoTune(true);   // picked in the menu: measure again
+      if (v === 'auto' && !o.startup && !o.reset) startAutoTune(true);   // picked in the menu: re-measure
       applyGraphics();
     },
     ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
@@ -550,7 +527,6 @@ async function main() {
     hazards: () => { view.lights.hazard = !view.lights.hazard; say('haz', view.lights.hazard ? 'Hazard lights on' : 'Hazard lights off'); },
     recover,
     camera: () => settings.set('camera', next(camModes, rig.mode)),
-    // turret vehicles: the gunner's sight on / off (back to the last other camera), switch guns
     gunner: () => {
       if (!vehicle.turret) return;
       if (rig.mode === 'gunner') settings.set('camera', rig.lastMode && rig.lastMode !== 'gunner' ? rig.lastMode : 'chase');
@@ -563,7 +539,6 @@ async function main() {
       say('weapon', T.w.name, 'good');
     },
     time: () => {
-      // day -> dusk -> night -> day, from wherever the slider is: the next quick hour after the current one
       const h = settings.get('time');
       const q = QUICK_ORDER.find(n => QUICK_HOURS[n] > h + 0.01) || QUICK_ORDER[0];
       settings.set('time', QUICK_HOURS[q], { animate: true });
@@ -576,7 +551,6 @@ async function main() {
     telemetry: () => toggle('telemetry'),
     tuning: () => tuning.toggle(),
   };
-  // only the controls this car has run, from the keys, the pad, the touch controls, the menu or the console
   input.onAction = id => { if (ACTIONS[id] && hasControl(id)) ACTIONS[id](); };
   game.action = id => input.onAction(id);
 
@@ -630,7 +604,6 @@ async function main() {
       game.redraw = 3;
     },
     action(id) {
-      // menu buttons: the menu shows the result itself, so no toasts
       if (id === 'pressureDown' || id === 'pressureUp') vehicle.setPressure(vehicle.pressure + (id === 'pressureDown' ? -2 : 2));
       else if (id === 'mpInvite') mp.invite().then(() => menu.isOpen && menu.refresh());
       else if (id === 'mpGoto') { if (mp.count) menu.close(); mp.gotoFriend(); }
@@ -640,7 +613,6 @@ async function main() {
     },
     teleport,
     recover,
-    // the car is built at startup: save the choice and start again with it
     applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
     onPause: setPaused,
   });
@@ -651,7 +623,6 @@ async function main() {
   hud.onMenu = () => menu.open();
   hud.onFullscreen = () => menu.runAction('fullscreen');
 
-  // pause when the window loses focus (setting), so the truck doesn't roll away unattended
   let started = false;
   const autoPause = () => { if (started && settings.get('autoPause') && !menu.blocking) menu.open(); };
   window.addEventListener('blur', autoPause);
@@ -680,7 +651,6 @@ async function main() {
       .finally(() => { audioPending = null; refreshSound(); });
   }
   for (const ev of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(ev, unlockAudio, true);
-  // start right away where the browser says sound may play without a gesture (no console warning otherwise)
   if (navigator.getAutoplayPolicy?.('audiocontext') === 'allowed' || navigator.userActivation?.hasBeenActive) unlockAudio();
 
   window.addEventListener('resize', () => {
@@ -691,7 +661,6 @@ async function main() {
 
   // ---------------------------------------------------------------- frame
   let acc = 0;
-  // one frame of the game; also callable from the console for testing (game.tick(1/60))
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -704,7 +673,7 @@ async function main() {
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
     const paused = game.paused;
     const now = performance.now() / 1000;
-    // in the sight the mouse turns the turret like the gunner's hand wheels (px -> rad by the field of view)
+    // in the sight the mouse turns the turret (px -> rad by the field of view)
     if (gunnerView && !paused) {
       const k = (rig.gunnerFov * Math.PI / 180) / window.innerHeight;
       vehicle.turret.aim(input.mouse.dx * k, -input.mouse.dy * k, 0, 0, 0);
@@ -715,7 +684,7 @@ async function main() {
       let steps = 0;
       while (acc >= H && steps < MAX_STEPS) {
         prevPos.copy(curPos); prevQ.copy(curQ);
-        mp.stepBodies(now - (acc - H), H);   // friends' solid trucks at this step's instant
+        mp.stepBodies(now - (acc - H), H);
         if (gunnery) {
           vehicle.turret.aim(0, 0, raw.aimX || 0, raw.aimY || 0, H);
           gunnery.step(H, !!raw.fire);
@@ -732,12 +701,11 @@ async function main() {
       }
       if (steps === MAX_STEPS) acc = 0;
       game.stepsPerFrame = steps;
-      // fell off the world
       if (curPos.y < -60) { placeVehicle(SPAWN.x, SPAWN.z, 0); say('place', 'Fell off the map: back at the spawn', 'warn'); }
     }
     mark('physics');
     mp.update(paused ? 0 : dt, now - acc, { night: env.night, darkness: env.darkness, shadows: true });
-    // paused: render only when something changed (setting, resize, time-of-day blend), the menu covers the view
+    // paused: render only on change
     const draw = !paused || game.redraw > 0 || env.active;
     if (game.redraw > 0) game.redraw--;
     if (draw) {
@@ -749,7 +717,6 @@ async function main() {
       rig.update(dt, input, rPos, rQ, vehicle, model);
       mp.updateTags(camera);
       env.update(dt, rPos, camera);
-      // the wheels and the body push the grass aside
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
       pushers.push({ x: rPos.x, y: rPos.y, z: rPos.z, r: 1.7 });
       grass.setPushers(pushers);
@@ -779,12 +746,10 @@ async function main() {
   }
   game.tick = tick;
 
-  // apply the saved settings without toasts, then warm up the shaders behind the loading screen
   settings.applyAll({ startup: true });
   refreshSound();
 
-  // compile for the pipeline's HDR target: the program variant depends on the output colour space
-  // (compiling for the canvas gave sRGB-output programs that are never used)
+  // compile for the HDR target: the program variant depends on the output colour space
   const compileScene = () => {
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(pipeline.hdr);
@@ -793,18 +758,17 @@ async function main() {
     return p;
   };
   setLoading('Compiling shaders…', 0.86); await frame();
-  // Warm-up behind the loading screen. The lamps change the lights hash (shadow-casting head spot, lamp
-  // visibility at night), so first a frame with every lamp on (compile + one real draw, which also builds
-  // the GPU pipeline states and the lamp shadow map: switching on the lamps at night stalled ~200 ms
-  // without it), then the real state. One frame without drawing comes first, so the compile sees the
-  // lights as they are.
+  // Warm-up behind the loading screen. Lamps change the lights hash (shadow-casting head spot), so
+  // first a frame with every lamp on (compile + a real draw that builds the pipeline states and lamp
+  // shadow map; without it switching lamps on at night stalled ~200 ms), then the real state. The tick
+  // without drawing comes first so the compile sees the lights as they are.
   try {
     const ls = view.lights, head = ls.head, aux = ls.aux;
     ls.head = 1; ls.aux = model.lights.aux.length > 0;
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
-    // the eye-adaptation pass only runs at dusk and night: compile it here too, not at the first sunset
+    // the eye-adaptation pass only runs at dusk and night: compile it now
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
     pipeline.render(1 / 60);
@@ -821,7 +785,7 @@ async function main() {
   setTimeout(() => loading.remove(), 600);
   started = true;
 
-  // opened from an invite link: join the room and drive next to the first friend we hear from
+  // invite link: join the room and drive next to the first friend heard
   const inviteRoom = roomFromURL();
   if (inviteRoom) mp.join(inviteRoom, { follow: true }).then(() => say('mp', 'Joining your friends…', 'good', 4), e => { console.warn(e); say('mp', 'Could not join the room', 'warn'); });
 

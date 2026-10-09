@@ -2,15 +2,13 @@ import * as THREE from 'three';
 import { installCascadeShadowChunks } from './cascadeShadow.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
-//
-// 1. Atmosphere: three's fog chunks are replaced with exponential height fog plus aerial perspective.
-//    The fog colour depends on the view direction (horizon colour towards / across / away from the sun,
-//    plus a Mie glow around the sun), so distant hills fade into the sky behind them instead of into a
-//    flat grey. The parameters are shared plain-object vec4 uniforms (see ATMO): UniformsUtils.clone()
-//    copies Vector4s per material but keeps plain objects by reference, so one write reaches every material.
+// 1. Atmosphere: three's fog chunks become exponential height fog plus aerial perspective, coloured by
+//    view direction (horizon colour towards / across / away from the sun, Mie glow) so distant hills fade
+//    into the sky. The parameters are shared plain-object vec4 uniforms (see ATMO): UniformsUtils.clone()
+//    keeps plain objects by reference (it copies Vector4s), so one write reaches every material.
 // 2. Lights: point and spot lights skip shadow lookups and the BRDF where they contribute nothing
-//    (switched off, outside the cone, beyond their range). Without this every lit pixel paid for all the
-//    truck's lamps even in daylight with the lamps off (~5 ms at 3360x1890 on an M1 Pro).
+//    (off, outside the cone, out of range). Without it every lit pixel paid for all the truck's lamps
+//    even by day (~5 ms at 3360x1890 on an M1 Pro).
 
 export const ATMO = {
   // xyz: direction towards the sun (or the moon at night), w: height-fog falloff (1/m)
@@ -113,8 +111,8 @@ export function installShaderPatches() {
   C.fog_vertex = FOG_VERTEX;
   C.fog_pars_fragment = FOG_PARS_FRAGMENT;
   C.fog_fragment = FOG_FRAGMENT;
-  installCascadeShadowChunks();   // sun shadow: four cascade slots, texel-scaled bias (see cascadeShadow.js)
-  // every built-in material with fog gets the shared atmosphere uniforms
+  installCascadeShadowChunks();
+  // built-in materials with fog get the shared atmosphere uniforms
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;
     if (u && 'fogDensity' in u) Object.assign(u, atmosphereUniforms());

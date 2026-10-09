@@ -20,5 +20,4 @@ export const D = {
 D.HEADER = D.SCREEN + D.RAKE;
 // A-pillar line: z of the windscreen plane at height y
 D.pillarZ = (y) => D.SCREEN + (y - D.WAIST) * (D.RAKE / (D.EAVE - D.WAIST));
-// tumblehome scale at height y
 D.tumble = (y) => 1 - D.TUMBLE * Math.max(0, y - D.WAIST);

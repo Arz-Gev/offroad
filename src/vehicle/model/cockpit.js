@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 
-// The moving parts of a cabin, driven by the physics: the steering wheel (turns by the steering ratio),
-// the gauge needles (speed, rpm, fuel, temperature), the gear lever (an H pattern, or the selector) and
-// the transfer lever (high / low). Every part is optional: a model without gauges just has none.
+// The moving parts of a cabin, driven by the physics: steering wheel, gauge needles (speed, rpm, fuel,
+// temperature), gear lever (an H pattern, or the selector) and transfer lever (high / low). Every part is
+// optional: a model without gauges just has none.
 //
-// A procedural cabin hands its parts in directly (defender/interior.js). A downloaded model names its
-// nodes in the car's look.cockpit: { steeringWheel: 'node', gearLever: 'node', transferLever: 'node' };
-// the node turns about the axis that follows from its own geometry (pivotFromNode).
+// A procedural cabin hands its parts in directly (defender/interior.js). A downloaded model names its nodes
+// in the car's look.cockpit: { steeringWheel, gearLever, transferLever }; each turns about the axis that
+// follows from its own geometry (pivotFromNode).
 
 const _v = new THREE.Vector3();
 const dialRot = f => Math.PI * 0.75 - Math.PI * 1.5 * Math.min(Math.max(f, 0), 1.03);
@@ -30,7 +30,6 @@ export function cockpitKit(parts) {
         }
       }
       if (parts.gearLever) {
-        // gear lever position (rough H-pattern)
         const gl = d.mode === 'manual' ? d.manualGear : ({ P: -2, R: -1, N: 0, D: 1 })[d.selector] ?? 0;
         const col = gl === 0 ? 0 : gl < 0 ? -1 : Math.ceil(gl / 2) - 1;
         const row = gl === 0 ? 0 : gl < 0 ? -1 : (gl % 2 === 1 ? -1 : 1);
@@ -57,8 +56,8 @@ export function pivotFromNode(node, parent, towards, { base = false } = {}) {
   if (base) c.y = box.min.y;
   const axis = base ? new THREE.Vector3(1, 0, 0) : thinAxis(pts, box.getCenter(new THREE.Vector3()));
   if (towards && axis.dot(_v.subVectors(towards, c)) < 0) axis.negate();
-  // pivot: at the centre, local z along the axis (in the frame the node's world matrices are in, which is
-  // `parent`'s); turn: its child, so turn.rotation.z turns the part about the axis (cockpitKit sets it)
+  // pivot: at the centre, local z along the axis (in `parent`'s frame, which the node's world matrices are in);
+  // turn: its child, so turn.rotation.z turns the part about the axis (cockpitKit sets it)
   const pivot = new THREE.Group(), turn = new THREE.Group();
   pivot.position.copy(c);
   pivot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);

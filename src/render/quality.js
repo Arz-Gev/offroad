@@ -1,14 +1,13 @@
-// Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale is applied.
-// Frame times measured on an M1 Pro (headless Chrome, 1920x1080 window, devicePixelRatio 2, trail drive):
-// low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
+// Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
+// Frame times on an M1 Pro (headless Chrome, 1920x1080, dpr 2, trail drive): low 5.1 ms, medium 8.7,
+// high 13, ultra 22 (DEVNOTES, "World and rendering").
 
 export const QUALITY_ORDER = ['mobile', 'low', 'medium', 'high', 'ultra'];
 
 export const QUALITY = {
-  // Anti-aliasing is off in every preset (the player turns it on under Graphics, which makes the preset Custom).
-  // phones and tablets (Auto picks it there): no shadows, no AO,
-  // no grass or bushes. dynamicDpr: the pixel density moves between 1 and `dpr` on its own to hold
-  // 45-60 fps (main.js, "dynamic resolution").
+  // Anti-aliasing is off in every preset (turning it on under Graphics makes the preset Custom).
+  // mobile (phones and tablets): no shadows, AO, grass or bushes. dynamicDpr: pixel density moves
+  // between 1 and `dpr` to hold 45-60 fps (main.js).
   mobile: {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
@@ -51,9 +50,9 @@ export const QUALITY = {
   },
 };
 
-// Sun shadow per level ('off': the sun casts no shadows). map: texels per cascade (the atlas holds 2-4 tiles),
-// far: shadow distance in m, cascades + splits: how many and where they hand over (m from the camera),
-// soft: filter blur in metres. Texel size is about 2.4 * (cascade end distance) / map:
+// Sun shadow per level. map: texels per cascade (the atlas holds 2-4 tiles), far: shadow distance (m),
+// splits: where cascades hand over (m from the camera), soft: filter blur (m). Texel size is about
+// 2.4 * (cascade end distance) / map:
 //   high  2560: 1.3 cm / 4.7 cm / 17 cm, three tiles (105 MB depth atlas)
 //   ultra 4096: 0.6 cm / 1.8 cm / 5 cm / 15 cm, four tiles (268 MB depth atlas)
 export const SHADOWS = {
@@ -64,8 +63,8 @@ export const SHADOWS = {
   ultra: { map: 4096, far: 260, cascades: 4, splits: [10, 32, 85], soft: 0.04 },
 };
 
-// Settings → Graphics: every option has its own setting (prefix g). Choosing a preset writes the preset's
-// values into them; changing any of them switches the preset to 'custom', which reads them back.
+// Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
+// one switches to 'custom', which reads them back.
 export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
@@ -84,7 +83,7 @@ export function gfxToQuality(g) {
   };
 }
 
-// 'auto': pick from the GPU name and the pixel count of the window
+// 'auto': from the GPU name and the window's pixel count
 export function autoQuality(renderer) {
   let name = '';
   try {
