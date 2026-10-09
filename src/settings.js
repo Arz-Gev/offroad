@@ -48,9 +48,9 @@ export const DEFAULTS = {
   gGrassHeightFar: 2.6,     // blade height at the grass distance
   gGrassWidthFar: 6,        // blade width at the grass distance
   gGrassDist: 150,          // grass distance (m)
-  gBushes: 0.81,            // undergrowth density multiplier
-  gBushHeight: 2.1,         // undergrowth size multiplier
-  gBushDist: 4,             // undergrowth distance multiplier
+  gBushes: 2,               // undergrowth density multiplier
+  gBushHeight: 1.5,         // undergrowth size multiplier
+  gBushDist: 3.2,           // undergrowth distance multiplier
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)

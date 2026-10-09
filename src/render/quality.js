@@ -23,10 +23,10 @@ const GRASS_MEDIUM = {
   width: [[0, 10], [25, 21], [55, 34], [90, 47], [129, 64], [173, 95], [207, 111], [247, 113], [288, 101]],
 };
 const GRASS_HIGH = {
-  end: 215, smooth: true,
-  density: [[0, 36], [3.1, 22], [14, 8.3], [24, 5.3], [50, 4.5], [99, 3.7], [150, 3.3], [300, 2.3]],
-  height: [[0, 141], [10, 129], [23, 123], [46, 136], [68, 165], [91, 175], [147, 125], [229, 400], [300, 281]],
-  width: [[0, 9.8], [25, 19], [55, 32], [91, 45], [129, 61], [173, 90], [210, 125], [252, 169], [278, 200]],
+  end: 196, smooth: false,
+  density: [[0, 0.82], [0.5, 9.6], [1.6, 28], [3.6, 29], [11, 9.6], [28, 5.7], [57, 7.7], [108, 5.6], [172, 1.7], [299, 0.82]],
+  height: [[0, 144], [3.4, 125], [8.3, 141], [28, 136], [297, 126]],
+  width: [[0, 8.2], [13, 14], [60, 25], [130, 63], [189, 97], [300, 200]],
 };
 const grass = c => JSON.parse(JSON.stringify(c));
 
@@ -63,7 +63,7 @@ export const QUALITY = {
     impostorShadows: true,
     terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
     grass: 0.4, grassHeight: 1.8, grassWidth: 1.1, grassFar: 0.045, grassHeightFar: 2.6, grassWidthFar: 6, grassRadius: 150,
-    grassCurve: grass(GRASS_HIGH), bushes: 0.81, bushHeight: 2.1, bushDist: 4,
+    grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 3.2,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
