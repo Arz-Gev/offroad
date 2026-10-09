@@ -96,13 +96,7 @@ const GFX_SECTIONS = [
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
   ] },
   { title: 'Grass and bushes', rows: [
-    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).', disclose: 'vegAdvanced' }),
-    // the arrow next to the preset opens the custom settings: the grass editor (curves, over the running game) and the bushes
-    row('grassEdit', 'Grass', 'buttons', { adv: 'vegAdvanced', buttons: [['grassEditor', 'Open editor']], note: 'Density, blade height and width as curves over the distance, edited live over the game. Editing makes the preset Custom.' }),
-    row('vegSubBush', 'Bushes', 'sub', { adv: 'vegAdvanced' }),
-    row('gBushes', 'Density', 'range', { adv: 'vegAdvanced', min: 5, max: 300, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Size', 'range', { adv: 'vegAdvanced', min: 110, max: 350, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushDist', 'Distance', 'range', { adv: 'vegAdvanced', min: 100, max: 480, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'The most expensive part of the world. Off hides all the grass and undergrowth (trees stay).' }),
   ] },
 ];
 
@@ -126,7 +120,6 @@ export class Menu {
     this.tab = 'locations';
     this.isOpen = false;
     this.pending = {};            // choices waiting for their Apply button (the car)
-    this.expanded = {};           // open Advanced blocks (disclose rows), for this session
     this.build();
   }
 
@@ -171,7 +164,6 @@ export class Menu {
       else if (t.dataset.act === 'recover') { this.api.recover(); this.close(); }
       else if (t.dataset.loc !== undefined) { this.api.teleport(+t.dataset.loc); this.close(); }
       else if (t.dataset.seg !== undefined) this.setValue(t.closest('[data-key]').dataset.key, t.dataset.seg);
-      else if (t.dataset.disclose) { this.expanded[t.dataset.disclose] = !this.expanded[t.dataset.disclose]; this.refresh(); }
       else if (t.classList.contains('switch')) { const k = t.closest('[data-key]').dataset.key; this.setValue(k, !this.api.get(k)); }
       else if (t.dataset.action) this.runAction(t.dataset.action);
     });
@@ -204,10 +196,7 @@ export class Menu {
       if (r.type === 'seg') {
         const seg = `<div class="seg" role="radiogroup" aria-label="${escapeHTML(r.label)}">${r.options.map(([v, l]) => `<button type="button" role="radio" data-seg="${v}">${l}</button>`).join('')}</div>`;
         // a choice that only takes effect on a restart (the car): pick, then confirm
-        if (r.apply) return `<div class="seg-apply">${seg}<button type="button" class="btn small primary" data-action="${r.key}Apply" disabled>Apply &amp; restart</button></div>`;
-        // an arrow that opens the detailed sliders under the preset (rows whose `adv` names it)
-        if (r.disclose) return `<div class="seg-disc">${seg}<button type="button" class="disclose" data-disclose="${r.disclose}" aria-expanded="false" aria-label="Detailed settings"><span class="chev"></span></button></div>`;
-        return seg;
+        return r.apply ? `<div class="seg-apply">${seg}<button type="button" class="btn small primary" data-action="${r.key}Apply" disabled>Apply &amp; restart</button></div>` : seg;
       }
       if (r.type === 'switch') return `<button type="button" class="switch" role="switch" aria-label="${escapeHTML(r.label)}"><span class="knob"></span></button>`;
       if (r.type === 'range') return `<div class="range"><input type="range" min="${r.min}" max="${r.max}" step="${r.step}" aria-label="${escapeHTML(r.label)}"><output></output></div>`;
@@ -216,9 +205,8 @@ export class Menu {
       return '';
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
-      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => r.type === 'sub' ? `
-        <div class="set-row sub${r.adv ? ' adv' : ''}" data-key="${r.key}"><h3>${r.label}</h3></div>` : `
-        <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}${r.adv ? ' adv' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
+      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
+        <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
         </div>`).join('')}</div>`).join('')}</div>`;
@@ -296,16 +284,6 @@ export class Menu {
     }
     // graphics: say which preset Auto chose
     // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
-    // the grass and bush sliders open with the arrow next to the Grass and bushes preset; no arrow when it is Off
-    const veg = api.get('gVeg') !== 'off';
-    for (const b of this.panes.graphics.querySelectorAll('.disclose')) {
-      b.setAttribute('aria-expanded', !!this.expanded[b.dataset.disclose]);
-      b.hidden = !veg;
-    }
-    for (const r of this.panes.graphics.querySelectorAll('.set-row')) {
-      const def = this.rowDef(r.dataset.key);
-      if (def.adv) r.hidden = !veg || !this.expanded[def.adv];
-    }
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
     for (const [key, src] of [['mpRoom', 'mpNote'], ['mpName', 'name']]) {
       const el = this.panes.friends.querySelector(`[data-key="${key}"] .set-n`), t = api.get(src);
@@ -325,7 +303,6 @@ export class Menu {
     const def = this.rowDef(key);
     if (def && def.type === 'seg' && typeof def.options[0][0] === 'number') v = +v;
     if (def?.apply) { this.pending[key] = v; this.refresh(); return; }     // applied by its Apply & restart button
-    if (key === 'gVeg' && v === 'custom') this.expanded.vegAdvanced = true;   // Custom: show its settings
     this.api.set(key, v);
     this.refresh();
   }
@@ -423,7 +400,6 @@ export class Menu {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     }
-    if (el.dataset.disclose) { if (!!this.expanded[el.dataset.disclose] !== dir > 0) el.click(); return true; }
     if (el.classList.contains('switch')) { const k = el.closest('[data-key]').dataset.key; if (!!this.api.get(k) !== dir > 0) this.setValue(k, dir > 0); return true; }
     if (el.dataset.loc !== undefined || el.closest('.btns, .stepper, .head-actions')) {
       const list = this.focusables(); const i = list.indexOf(el);

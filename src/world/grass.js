@@ -25,9 +25,9 @@ const curveD = i => CURVE_MAX * (i / CURVE_N) ** 2;
 
 // a curve is a list of [distance m, value] points: straight lines between them, or a smooth curve that
 // never overshoots the points (monotone cubic) when `smooth`; flat before the first and after the last
-// point. It is interpolated in the tuner's graph space (√distance across, log value up;
-// both plain when `lin`), so a line looks exactly as the graph draws it. Shared with grassEditor.js.
-export function evalCurve(pts, d, smooth, logY = false, lin = false) {
+// point. It is interpolated in the space the presets were drawn in (√distance across, log value up;
+// both plain when `lin`).
+function evalCurve(pts, d, smooth, logY = false, lin = false) {
   const n = pts.length;
   if (d <= pts[0][0]) return pts[0][1];
   if (d >= pts[n - 1][0]) return pts[n - 1][1];

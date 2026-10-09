@@ -1,7 +1,4 @@
 import { CAR_IDS, DEFAULT_CAR } from './cars/index.js';
-import { QUALITY } from './render/quality.js';
-
-const clone = o => JSON.parse(JSON.stringify(o));
 
 // Player settings, persisted in localStorage. Every storage access is wrapped: private windows,
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
@@ -42,12 +39,7 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
-  // grass and undergrowth (the High preset's; render/quality.js)
-  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
-  gGrassCurve: clone(QUALITY.high.grassCurve),   // Custom grass: density, height and width curves (grassEditor.js)
-  gBushes: 2,               // undergrowth density multiplier
-  gBushHeight: 1.5,         // undergrowth size multiplier
-  gBushDist: 3.2,           // undergrowth distance multiplier
+  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
@@ -71,14 +63,12 @@ const CHOICES = {
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
-  gVeg: ['off', 'low', 'medium', 'high', 'ultra', 'custom'],
+  gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
   gTerrain: [0, 1, 2],
 };
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
-  // bushes (the grass editor's sliders and the menu's use these ranges)
-  gBushes: [0.05, 3], gBushHeight: [1.1, 3.5], gBushDist: [1, 4.8],
 };
 
 export const storage = {
@@ -87,14 +77,8 @@ export const storage = {
   remove(k) { try { window.localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
-// a grass curve set: { end, smooth, lin?, density / height / width: [[distance, value], ...] by distance }
-const pts = p => Array.isArray(p) && p.length > 0 && p.length <= 32
-  && p.every((q, i) => Array.isArray(q) && q.length === 2 && q.every(Number.isFinite) && (i === 0 || q[0] > p[i - 1][0]));
-const validCurve = c => !!c && Number.isFinite(c.end) && pts(c.density) && pts(c.height) && pts(c.width);
-
 function valid(k, v) {
   if (!(k in DEFAULTS) || typeof v !== typeof DEFAULTS[k]) return false;
-  if (k === 'gGrassCurve') return validCurve(v);
   if (CHOICES[k]) return CHOICES[k].includes(v);
   if (RANGES[k]) return Number.isFinite(v) && v >= RANGES[k][0] && v <= RANGES[k][1];
   return true;
@@ -107,11 +91,9 @@ export class Settings {
       const saved = JSON.parse(storage.get(KEY) || '{}');
       if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
       // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset (Oct 8)
-      if ('vegetation' in saved && !('gVeg' in saved)) {
-        if (saved.vegetation === false) {
-          saved.gVeg = 'off';
-          if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
-        } else if (saved.quality === 'custom') saved.gVeg = 'custom';   // the sliders hold the player's own values
+      if (saved.vegetation === false && !('gVeg' in saved)) {
+        saved.gVeg = 'off';
+        if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
       }
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];
     } catch { /* corrupt entry: keep defaults */ }

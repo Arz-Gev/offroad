@@ -3,7 +3,7 @@
 // low 5.1 ms, medium 8.7 ms, high 13 ms, ultra 22 ms. See DEVNOTES "World and rendering".
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), each level drawn in the grass editor (grassEditor.js, Oct 9).
+// distance in m (grass.js evalCurve), each level tuned by eye on a flat test meadow (Oct 9).
 const GRASS_ULTRA = {
   end: 300, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
@@ -89,27 +89,22 @@ export function presetToGfx(q) {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gVeg: q.veg,
-    gBushes: q.bushes, gBushHeight: q.bushHeight, gBushDist: q.bushDist,
   };
 }
 export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
-    impostorShadows: g.gTreeShadows,
-    terrainDetail: g.gTerrain, lodScale: g.gViewDist, bushes: g.gBushes, bushDist: g.gBushDist, bushHeight: g.gBushHeight,
-    veg: g.gVeg,
-    grassCurve: QUALITY[g.gVeg]?.grassCurve || g.gGrassCurve,   // a level's grass, or the player's own (the grass editor)
+    impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
+    veg: g.gVeg, ...vegOf(g.gVeg),
   };
 }
 
-// Grass and bushes have their own preset too (gVeg: 'off' | a quality level | 'custom'), like the shadows:
-// a level writes that quality preset's bush values into the sliders, moving one makes it 'custom'. Custom grass is
-// gGrassCurve, drawn in the grass editor (grassEditor.js), which starts from the level it was on.
-export const VEG_KEYS = ['gBushes', 'gBushHeight', 'gBushDist'];
-export function vegToGfx(level) {
-  const g = presetToGfx(QUALITY[level]);
-  return Object.fromEntries(VEG_KEYS.map(k => [k, g[k]]));
+// Grass and bushes have their own preset too (gVeg: 'off' | a quality level), like the shadows: the grass curves
+// and the bush values of that quality level ('off': none drawn, q.vegetation is false)
+function vegOf(level) {
+  const q = QUALITY[level] || QUALITY.high;
+  return { grassCurve: q.grassCurve, bushes: q.bushes, bushHeight: q.bushHeight, bushDist: q.bushDist };
 }
 
 // 'auto': pick from the GPU name and the pixel count of the window

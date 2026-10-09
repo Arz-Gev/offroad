@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
-import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality, VEG_KEYS, vegToGfx } from './render/quality.js';
+import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 
 import { Terrain, SPAWN, LANES, HILL, POI } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
@@ -29,7 +29,6 @@ import { Input, setCarControls, hasControl, capsHTML } from './input.js';
 import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { Menu } from './menu.js';
-import { createGrassEditor } from './grassEditor.js';
 import { Settings, storage } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
@@ -445,9 +444,6 @@ async function main() {
   env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
-  // Graphics → Grass and bushes → Open editor: the Custom grass curves and bushes, live over the game
-  const grassEditor = createGrassEditor({ settings, grass, renderer });
-  let grassQueued = false;
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -485,32 +481,8 @@ async function main() {
     },
     ...Object.fromEntries(GFX_KEYS.map(key => [key, (v, o) => {
       if (o.sync || o.startup || o.reset) return;
-      // a grass or bush slider makes the Grass and bushes preset Custom too
-      if (VEG_KEYS.includes(key)) settings.set('gVeg', 'custom', { silent: true, sync: true });
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
-    // the Custom grass curves (grass editor): the first edit makes the presets Custom, then only the grass is rebuilt, once a frame
-    gGrassCurve(v, o) {
-      if (o.sync || o.startup || o.reset) return;
-      if (settings.get('gVeg') !== 'custom' || settings.get('quality') !== 'custom') {
-        settings.set('gVeg', 'custom', { silent: true, sync: true });
-        if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
-      } else if (!grassQueued) {
-        grassQueued = true;
-        requestAnimationFrame(() => {
-          grassQueued = false;
-          gfx.q = { ...gfx.q, grassCurve: settings.get('gGrassCurve') };
-          grass.configure(gfx.q);
-          game.redraw = 3;
-        });
-      }
-    },
-    // the Grass and bushes preset: a level fills the sliders with that quality preset's grass and bush values
-    gVeg(v, o) {
-      if (o.sync || o.startup || o.reset) return;
-      if (QUALITY[v]) for (const [k, x] of Object.entries(vegToGfx(v))) settings.set(k, x, { silent: true, sync: true });
-      if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
-    },
     renderScale: () => applyGraphics(),
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
@@ -657,7 +629,6 @@ async function main() {
       else if (id === 'mpGoto') { if (mp.count) menu.close(); mp.gotoFriend(); }
       else if (id === 'mpLeave') mp.leave();
       else if (id === 'mpName') mp.rename();
-      else if (id === 'grassEditor') { menu.close(); grassEditor.open(); }
       game.redraw = 3;
     },
     teleport,
@@ -667,7 +638,6 @@ async function main() {
     onPause: setPaused,
   });
   game.menu = menu;
-  game.grassEditor = grassEditor;
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;

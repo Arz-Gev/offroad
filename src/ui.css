@@ -322,21 +322,10 @@ body.paused #hud .hud-tl, body.paused #hud .hud-top { visibility: hidden; }
 .switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #cfd5dc; transition: transform 0.15s; }
 .switch[aria-checked="true"] { background: var(--amber); border-color: var(--amber); }
 .switch[aria-checked="true"] .knob { transform: translateX(18px); background: var(--amber-ink); }
-/* the arrow right of a preset that opens its sliders below, in groups with a small heading each */
-.seg-disc { display: flex; align-items: center; gap: 8px; }
-.disclose { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.05); cursor: pointer; }
-.disclose[hidden] { display: none; }
-.disclose:hover { background: rgba(255, 255, 255, 0.12); }
-.disclose .chev { width: 7px; height: 7px; margin-top: -3px; border: solid var(--dim); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform 0.15s, margin 0.15s; }
-.disclose[aria-expanded="true"] .chev { margin-top: 3px; transform: rotate(-135deg); }
-.set-row.sub { min-height: 0; padding: 14px 0 6px; }
-.set-row.sub h3 { margin: 0; font: 700 12px/1.2 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); }
-.set-row.adv:not(.sub) { padding-left: 14px; }
-.set-row.adv:has(+ .set-row.sub), .set-row.adv:last-child { border-bottom: 0; }
 .range { display: flex; align-items: center; gap: 10px; }
 .range input { width: 150px; margin: 0; accent-color: var(--amber); cursor: pointer; }
 .range output, .stepper output { font: 600 13px/1 var(--mono); color: var(--txt); }
-.range output { min-width: 52px; text-align: right; }
+.range output { min-width: 44px; text-align: right; }
 .stepper { display: inline-flex; align-items: center; gap: 6px; }
 .stepper output { min-width: 76px; text-align: center; }
 .stepper button { width: 30px; height: 30px; padding: 0; border-radius: 8px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.06); color: var(--txt); font: 700 16px/1 var(--sans); cursor: pointer; }
