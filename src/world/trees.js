@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { MAP_SIZE, PAD, SPAWN, POI, SURF } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
-import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
+import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant, buildBlossom, buildOak } from './foliage.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 
-// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
+// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
+// and small groups of trees in blossom; each with a trunk collider.
 // - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
 //   foliage cards, swaying in the wind (also in the shadow pass, where a crown casts from a lighter twin).
 // - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
@@ -178,6 +179,9 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     { kind: 'pine', geo: buildPine(47, 15), barkTex: barkC },
     { kind: 'birch', geo: buildBirch(53, 13), barkTex: barkB },
     { kind: 'dead', geo: buildDead(61, 11), barkTex: barkC },
+    { kind: 'blossom', geo: buildBlossom(71, 8), barkTex: barkC },
+    { kind: 'blossom', geo: buildBlossom(83, 6.8), barkTex: barkC },
+    { kind: 'oak', geo: buildOak(91, 12.5), barkTex: barkC },
   ];
   for (const v of variants) v.atlas = atlas;
 
@@ -187,15 +191,18 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const trees = [];
   const lake = terrain.lake, q = POI.quarry;
   const G = 3.4;
-  for (let gx = -HALF + 6; gx < HALF - 6; gx += G) for (let gz = -HALF + 6; gz < HALF - 6; gz += G) {
-    const x = gx + (rnd() - 0.5) * G * 0.9, z = gz + (rnd() - 0.5) * G * 0.9;
-    const r = Math.hypot(x, z);
+  const forestDens = (x, z) => {
     let dens = fbm(nForest, x * 0.0065, z * 0.0065, 4) * 1.6 + 0.05;
     // zones: dense conifer forest to the north, groves round the lake, sparse meadows south
     dens += smoothstep(-160, -260, z) * smoothstep(320, 200, Math.abs(x + 40)) * 0.75;
     dens -= smoothstep(220, 320, z) * smoothstep(-250, -120, x) * 0.3;
     dens += smoothstep(420, 470, Math.max(Math.abs(x), Math.abs(z))) * 0.4;
-    if (r < 170) dens = dens * 0.7 - 0.08;
+    if (Math.hypot(x, z) < 170) dens = dens * 0.7 - 0.08;
+    return dens;
+  };
+  for (let gx = -HALF + 6; gx < HALF - 6; gx += G) for (let gz = -HALF + 6; gz < HALF - 6; gz += G) {
+    const x = gx + (rnd() - 0.5) * G * 0.9, z = gz + (rnd() - 0.5) * G * 0.9;
+    const dens = forestDens(x, z);
     const p = smoothstep(0.28, 0.8, dens) * 0.72 + 0.008;
     if (rnd() > p) continue;
     if (terrain.isTrail(x, z, 7.5)) continue;
@@ -223,13 +230,52 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi });
   }
 
+  // lone trees out in the open meadows: big oaks on their own, trees in blossom alone or in little groups
+  // (away from the forest, trails, water and each other)
+  {
+    const OCC = 6, ON = Math.ceil(MAP_SIZE / OCC), occ = new Uint8Array(ON * ON);
+    const cellOf = (x, z) => Math.min(ON - 1, Math.max(0, Math.floor((x + HALF) / OCC))) * ON + Math.min(ON - 1, Math.max(0, Math.floor((z + HALF) / OCC)));
+    for (const t of trees) occ[cellOf(t.x, t.z)] = 1;
+    const free = (x, z, r) => {
+      for (let dx = -r; dx <= r; dx += OCC) for (let dz = -r; dz <= r; dz += OCC) if (occ[cellOf(x + dx, z + dz)]) return false;
+      return true;
+    };
+    const ok = (x, z, clear) => {
+      if (Math.abs(x) > HALF - 30 || Math.abs(z) > HALF - 30) return false;
+      if (forestDens(x, z) > 0.22 || terrain.isTrail(x, z, clear + 2)) return false;
+      if (x > PAD.x0 - 14 && x < PAD.x1 + 14 && z > PAD.z0 - 14 && z < PAD.z1 + 14) return false;
+      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 28) return false;
+      if (Math.hypot((x - lake.x) / (lake.rx + 10), (z - lake.z) / (lake.rz + 10)) < 1.05) return false;
+      if (Math.hypot((x - q.x) / (q.rx + 6), (z - q.z) / (q.rz + 6)) < 1) return false;
+      if (Math.hypot(x - POI.hut.x, z - POI.hut.z) < 18) return false;
+      if (terrain.waterLevelAt(x, z) > -1e8 || terrain.surfaceId(x, z) !== SURF.grass) return false;
+      return terrain.normalAt(x, z).y > 0.88 && free(x, z, clear);
+    };
+    let placed = 0;
+    for (let tries = 0; tries < 9000 && placed < 150; tries++) {
+      const x = (rnd() - 0.5) * (MAP_SIZE - 60), z = (rnd() - 0.5) * (MAP_SIZE - 60);
+      const oak = rnd() < 0.35;
+      if (!ok(x, z, oak ? 12 : 8)) continue;
+      const n = oak ? 1 : rnd() < 0.4 ? 1 : 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) {
+        const a = rnd() * Math.PI * 2, d = k === 0 ? 0 : 5 + rnd() * 4;
+        const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+        if (k > 0 && !ok(px, pz, 4)) continue;
+        const vi = oak ? 8 : rnd() < 0.5 ? 6 : 7;
+        trees.push({ x: px, y: terrain.surfaceHeight(px, pz), z: pz, s: oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw: rnd() * Math.PI * 2, v: vi });
+        occ[cellOf(px, pz)] = 1;
+        placed++;
+      }
+    }
+  }
+
   // ---- fallen logs on the forest floor (instanced, three lengths), with streamed colliders
   const logStream = new ColliderStream(RAPIER, world, colliderSurface);
   const LOG_LEN = [4.2, 6.5, 9.0];
   const logs = [];
   for (let tries = 0; tries < 20000 && logs.length < 260; tries++) {
     const t = trees[Math.floor(rnd() * trees.length)];
-    if (!t || t.v === 4) continue;   // not under birches (they stand in the open)
+    if (!t || t.v === 4 || t.v >= 6) continue;   // not under birches or the meadow trees (they stand in the open)
     const a = rnd() * Math.PI * 2, d = 2.5 + rnd() * 4;
     const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
     const L = LOG_LEN[Math.floor(rnd() * 3)], yaw = rnd() * Math.PI * 2;
@@ -301,7 +347,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
       if (d > 1) continue;
       const o = (z * DN + x) * 4;
       const w = 1 - d * d;
-      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : 1.0;
+      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : v.kind === 'blossom' || v.kind === 'oak' ? 0.5 : 1.0;
       gd[o + 1] = Math.min(255, Math.max(gd[o + 1], 255 * w * canopy));
       gd[o + 3] = Math.max(0, gd[o + 3] - 255 * w * canopy * 0.55);
       gd[o] = Math.max(100, gd[o] - 50 * w * canopy - (d < 0.25 ? 30 : 0));
@@ -314,7 +360,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const viewPos = { value: new THREE.Vector3() };
   const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos };
   const near = variants.map((v, i) => {
-    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : 0xb8a898 });
+    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
     const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff });
     patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true });

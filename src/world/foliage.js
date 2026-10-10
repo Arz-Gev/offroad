@@ -3,12 +3,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { mulberry32 } from './noise.js';
 
 // Foliage: a card atlas drawn with Canvas2D at startup (needle sprays, pine tufts, birch leaves, fern
-// fronds, shrub leaves, bare twigs), and procedural tree / plant geometry that uses it.
+// fronds, shrub leaves, bare twigs, blossom, broad oak leaves), and procedural tree / plant geometry that
+// uses it.
 // Geometry attributes: position, normal (card normals bent outwards from the crown, so the crown shades
 // like a volume), uv (atlas), aWind (0 at the root .. 1 at the tips: how far the vertex sways).
 
-export const ATLAS = { cols: 4, rows: 2, cell: 512 };
-export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7 };
+export const ATLAS = { cols: 4, rows: 3, cell: 512 };
+export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, blossom: 8, oak: 9 };
 
 const cellUV = (i) => {
   const c = i % ATLAS.cols, r = Math.floor(i / ATLAS.cols);
@@ -134,6 +135,35 @@ export function makeFoliageAtlas() {
       g.fillStyle = col;
       for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * 10, top + Math.sin(a) * 10, 9, 6, a, 0, Math.PI * 2); g.fill(); }
       g.fillStyle = hsl(45, 80, 45); g.beginPath(); g.arc(x, top, 6, 0, Math.PI * 2); g.fill();
+    }
+  });
+
+  // 8: blossom: clusters of five-petal flowers (pink, white, a little peach) over a few fresh leaves
+  cell(CELLS.blossom, () => {
+    for (let k = 0; k < 70; k++) {
+      const r = Math.sqrt(rnd()) * S * 0.42, a = R(0, Math.PI * 2);
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(85, 110), R(40, 58), R(36, 48)));
+    }
+    const pal = [[340, 70, 86], [345, 65, 80], [0, 0, 97], [330, 55, 90], [20, 75, 86], [350, 80, 76]];
+    for (let k = 0; k < 230; k++) {
+      const r = Math.pow(rnd(), 0.6) * S * 0.44, a = R(0, Math.PI * 2);
+      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, pr = R(8, 15);
+      const [h, sat, l] = pal[Math.floor(rnd() * pal.length)];
+      const rot = R(0, Math.PI * 2);
+      g.fillStyle = hsl(h, sat, l * R(0.94, 1.03));
+      for (let p = 0; p < 5; p++) { const pa = rot + p / 5 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(pa) * pr * 0.75, y + Math.sin(pa) * pr * 0.75, pr * 0.62, pr * 0.48, pa, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = hsl(48, 85, 62); g.beginPath(); g.arc(x, y, pr * 0.28, 0, Math.PI * 2); g.fill();
+    }
+  });
+
+  // 9: oak: dense lobed broad leaves, fresh greens with lighter sunlit ones
+  cell(CELLS.oak, () => {
+    for (let k = 0; k < 300; k++) {
+      const r = Math.sqrt(rnd()) * S * 0.45, a = R(0, Math.PI * 2);
+      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, l = R(34, 54), w = R(20, 30), ang = R(0, Math.PI * 2);
+      const col = hsl(R(78, 112), R(38, 56), R(28, 46));
+      leaf(x, y, ang, l, w, col);
+      leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
     }
   });
 
@@ -351,6 +381,54 @@ export function buildBirch(seed, H = 13) {
   }
   return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR: 3.2, trunkR: rr[0], crownBase };
 }
+
+// the roll for cardMatrix that turns a card lying along `dir` to face `normal`
+function rollFacing(dir, normal) {
+  const y = dir.clone().normalize();
+  const x = new THREE.Vector3(0, 1, 0).cross(y);
+  if (x.lengthSq() < 1e-4) x.set(1, 0, 0);
+  x.normalize();
+  const z = x.clone().cross(y).normalize();
+  const w = normal.clone().cross(y).normalize();   // the card's width axis: across both
+  return Math.atan2(w.dot(z), w.dot(x));
+}
+
+// a broadleaf tree with a round, spreading crown: short trunk, branches fanning out and up, many cards
+// (blossom: a smaller tree in flower; oak: a big round crown of leaves)
+function buildBroadleaf(seed, H, cellIdx, crownR, branches, cardSize) {
+  const rnd = mulberry32(seed);
+  const R = (a, b) => a + (b - a) * rnd();
+  const pts = [], rr = [];
+  const lean = new THREE.Vector2(R(-0.4, 0.4), R(-0.4, 0.4));
+  const trunkTop = H * R(0.32, 0.4);
+  for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push(new THREE.Vector3(lean.x * t, trunkTop * 1.25 * t, lean.y * t)); rr.push(0.06 + H * 0.022 * Math.pow(1 - t * 0.85, 1.2)); }
+  const trunk = tube(pts, rr, 7, 1.0, t => t * t * 0.4);
+  const cards = [], sticks = [];
+  const centre = new THREE.Vector3(lean.x, trunkTop + (H - trunkTop) * 0.5, lean.y);
+  for (let k = 0; k < branches; k++) {
+    const t = k / branches;
+    const h = trunkTop * (0.8 + 0.45 * t);
+    const a = k * 2.39996 + R(-0.3, 0.3);
+    const up = R(0.3, 0.85) * (0.6 + t * 0.7);
+    const dir = new THREE.Vector3(Math.cos(a), up, Math.sin(a)).normalize();
+    const len = crownR * R(0.75, 1.05) * (1.0 - t * 0.35);
+    const base = new THREE.Vector3(lean.x * h / trunkTop * 0.8, h, lean.y * h / trunkTop * 0.8);
+    const tip = base.clone().addScaledVector(dir, len);
+    sticks.push(tube([base, base.clone().addScaledVector(dir, len * 0.55), tip], [0.03 + H * 0.007 * (1 - t * 0.5), 0.03, 0.012], 4, 1.0, u => 0.35 + u * 0.4));
+    for (let c = 0; c < 4; c++) {
+      const p = base.clone().addScaledVector(dir, len * (0.4 + c * 0.2));
+      // the card faces out of the crown (normal ~ radial), lying across it: no edge-on spikes on the outline
+      const n = p.clone().sub(centre).normalize().add(new THREE.Vector3(R(-0.35, 0.35), R(-0.2, 0.35), R(-0.35, 0.35))).normalize();
+      const tg = new THREE.Vector3(R(-1, 1), R(-1, 1), R(-1, 1)).cross(n).normalize();
+      const sz = cardSize * R(0.85, 1.15);
+      const m = cardMatrix(p.clone().addScaledVector(tg, -sz * 0.5), tg, rollFacing(tg, n));
+      cards.push(card(cellIdx, sz, sz, m, 0.55 + t * 0.2, 0.95, centre, 0.35));
+    }
+  }
+  return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR, trunkR: rr[0], crownBase: trunkTop * 0.85 };
+}
+export const buildBlossom = (seed, H = 8) => buildBroadleaf(seed, H, CELLS.blossom, 3.6, 26, 1.7);
+export const buildOak = (seed, H = 12) => buildBroadleaf(seed, H, CELLS.oak, 5.2, 30, 2.5);
 
 export function buildDead(seed, H = 11) {
   const rnd = mulberry32(seed);
