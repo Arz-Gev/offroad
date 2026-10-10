@@ -479,6 +479,15 @@ async function main() {
     input.endFrame();
   }
   game.tick = tick;
+  // tools (gfxbench, gfxprofile) drive the frames themselves: holdLoop stops the rAF loop, and frame() is one
+  // whole frame with the renderer's counters (draw calls, triangles) summed over all its passes
+  game.holdLoop = false;
+  game.frame = (dt = 1 / 60) => {
+    const info = renderer.info, ar = info.autoReset;
+    info.autoReset = false; info.reset();
+    tick(dt);
+    info.autoReset = ar;
+  };
 
   settings.applyAll({ startup: true });
   refreshSound();
@@ -530,7 +539,7 @@ async function main() {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1;
-    if (dt <= 0) return;
+    if (dt <= 0 || game.holdLoop) return;
     gfx.updateAutoQuality(dt);
     tick(dt);
   }
