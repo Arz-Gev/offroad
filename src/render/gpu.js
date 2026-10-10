@@ -60,8 +60,27 @@ export async function createRenderer(canvas, { forceWebGL = false } = {}) {
   renderer.caps = caps;
   // the frame's submits go to the GPU together (render/batch.js); main.js flushes at the end of each frame
   renderer.batch = webgpu ? batch : null;
+  if (webgpu) oneWritePerUniformBlock(renderer);
   installLamps(renderer);
   return renderer;
+}
+
+// three uploads every changed range of a uniform block with its own queue.writeBuffer (~1700 a frame while
+// driving, each a copy plus barriers in Chrome's D3D12 backend). It keeps the whole block on the CPU
+// (binding.buffer), so one write from the first changed value to the last uploads the same data; ~460 a frame.
+// Spans that would be mostly unchanged bytes (a big uniform array touched at both ends) keep three's writes.
+function oneWritePerUniformBlock(renderer) {
+  const utils = renderer.backend.bindingUtils;
+  const perRange = utils?.updateBinding;
+  if (typeof perRange !== 'function') return;
+  utils.updateBinding = function (binding) {
+    const array = binding.buffer, ranges = binding.updateRanges;
+    if (ranges.length < 2 || !ArrayBuffer.isView(array)) return perRange.call(this, binding);
+    let lo = Infinity, hi = 0, n = 0;
+    for (const r of ranges) { if (r.start < lo) lo = r.start; if (r.start + r.count > hi) hi = r.start + r.count; n += r.count; }
+    if ((hi - lo) * array.BYTES_PER_ELEMENT > 4096 && hi - lo > 4 * n) return perRange.call(this, binding);
+    this.backend.device.queue.writeBuffer(this.backend.get(binding).buffer, lo * array.BYTES_PER_ELEMENT, array, lo, hi - lo);
+  };
 }
 
 function webglName(gl) {
