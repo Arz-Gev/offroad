@@ -2,11 +2,11 @@ import * as THREE from 'three/webgpu';
 import { normalView, dot, max, abs, inverseSqrt, float, If } from 'three/tsl';
 
 // Spot lights with an irradiance shoulder (only the vehicles and the muzzle flash have spot lights).
-// Inverse-square makes a bank or a tree trunk 8-10 m ahead, facing the lamps, ~100x brighter than the road
-// at 30-60 m (I/d^2 vs I*h/r^3); with a fixed exposure it blows out and blooms over the whole windscreen.
-// The eye adapts locally; this emulates it with a soft cap on each lamp's irradiance: E -> E/sqrt(1+(E/K)^2).
-// Road irradiance from the beams is ~1-7 (scene units), so the far throw is untouched.
-export const LAMP_KNEE = 9.0;
+// Inverse-square makes a bank or a tree trunk 8-10 m ahead ~100x brighter than the road at 30-60 m (I/d^2 vs
+// I*h/r^3); at a fixed exposure it blows out and blooms over the windscreen on a slope. This emulates the eye's
+// local adaptation with a soft cap on each lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the
+// beams is ~0.6-4.5 (scene units), so the far throw is barely touched.
+export const LAMP_KNEE = 6.0;
 
 class LampSpotLightNode extends THREE.SpotLightNode {
   static get type() { return 'LampSpotLightNode'; }

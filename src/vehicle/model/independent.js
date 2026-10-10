@@ -2,12 +2,10 @@ import * as THREE from 'three/webgpu';
 import { mesh } from './geom.js';
 import { coilGeometry } from './beamAxle.js';
 
-// Running gear of an independent corner drawn by us, for a model that has no suspension parts of its own:
-// double wishbones (an upper and a lower arm, a coil-over on the lower arm) or a MacPherson strut (a lower
-// arm and a strut from the knuckle up to a tower), by the axle's physics `linkage` ('wishbones' default,
-// 'strut'). The knuckle and its ball joints turn with the wheel (camber, steer); the arms reach from their
-// pivots on the body to the ball joints; a driven corner gets a drive shaft from the body-mounted diff.
-// The proportions follow the track and the tyre: a sketch of the layout, not the car's own parts.
+// Drawn running gear for an independent corner of a model with no suspension parts of its own: double
+// wishbones (upper + lower arm, coil-over on the lower arm) or a MacPherson strut, by the axle's physics
+// `linkage` ('wishbones' default, 'strut'). The knuckle turns with the wheel (camber, steer); a driven corner
+// gets a drive shaft from the body-mounted diff. A sketch scaled to track and tyre, not the car's own parts.
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _hub = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const Y = new THREE.Vector3(0, 1, 0);
@@ -49,7 +47,6 @@ export function independentCorners(root, mats, P, wheels, ride, skip = new Set()
     w.steer.add(kn);
     corners.push({ w, wi: wheels.indexOf(w), s, z, strut, lowJ, upJ, lowPivot, upPivot, tower, diff: new THREE.Vector3(s * 0.16, h0, z), ...parts });
   }
-  // a body-mounted diff on every driven independent axle
   for (const ai of new Set(corners.filter(c => c.shaft).map(c => c.w.axle))) {
     const d = mesh(new THREE.SphereGeometry(0.13, 16, 10), mats.chassis, 0, ride[ai].hubY, P.axles[ai].z);
     d.scale.set(1, 0.85, 0.8);

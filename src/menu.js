@@ -2,12 +2,8 @@ import { carBindings, hasControl, capsHTML, padCapHTML, touchCapHTML } from './i
 import { escapeHTML } from './hud.js';
 import { CAR_LIST } from './cars/index.js';
 
-// Pause menu (Locations / Settings / Controls) and the first-start welcome card.
-// Both pause the game. Navigation: mouse, keyboard (arrows, Enter, Q/E for tabs, digits for
-// locations, Esc) and gamepad (d-pad / left stick, A, B, LB/RB, Menu) via Input.uiHandler.
-//
-// The menu holds no game state: it reads and writes through `api`
-// ({ get, set, action, locations, teleport, recover, onPause, introDone, device }) supplied by main.js.
+// Pause menu. Mouse, keyboard and gamepad (via Input.uiHandler). It holds no game state: it reads and
+// writes through `api` ({ get, set, action, locations, teleport, recover, onPause, device }) from main.js.
 
 const TABS = [
   { id: 'locations', label: 'Locations', hot: 'locations' },
@@ -22,7 +18,7 @@ const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${Stri
 const row = (key, label, type, extra = {}) => ({ key, label, type, ...extra });
 const SECTIONS = [
   { title: 'Driving', rows: [
-    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. All use the same solid-axle physics. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
+    row('car', 'Vehicle', 'seg', { options: CAR_LIST.map(c => [c.id, c.label]), apply: true, note: `Pick a car, then press Apply & restart: the game restarts with it. Each car has its own engine, weight, gears, tyres and springs (real specs) and its own setups in the Tab panel. Models on Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` }),
     row('gearbox', 'Gearbox', 'seg', { hot: 'gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual']] }),
     row('autoClutch', 'Auto-clutch', 'switch', { hot: 'autoClutch', note: 'Off: hold Shift for the clutch.' }),
     row('arcadeAuto', 'Arcade automatic', 'switch', { hot: 'autoClutch', note: 'On: hold the brake at a stop to reverse. Off: select R with E / Q like a real car; W is always the gas, S the brake.' }),
@@ -42,7 +38,7 @@ const SECTIONS = [
   ] },
   { title: 'Vehicle', rows: [
     row('headlights', 'Headlights', 'seg', { hot: 'headlights', options: [[0, 'Off'], [1, 'Low'], [2, 'High']] }),
-    row('lightBar', 'Extra lamps', 'switch', { hot: 'lightBar' }),
+    row('auxLights', 'Extra lamps', 'switch', { hot: 'auxLights' }),
     row('hazards', 'Hazard lights', 'switch', { hot: 'hazards' }),
   ] },
   { title: 'Units', rows: [
@@ -67,7 +63,7 @@ const SECTIONS = [
   ] },
 ];
 
-// Friends tab (multiplayer.js): the notes are filled in by refresh()
+// Friends tab (multiplayer.js); refresh() fills in the notes
 const MP_SECTIONS = [
   { title: 'Drive with friends', rows: [
     row('mpRoom', 'Room', 'buttons', { buttons: [['mpInvite', 'Invite'], ['mpGoto', 'Go to friend'], ['mpLeave', 'Leave']], note: ' ' }),
@@ -79,39 +75,27 @@ const MP_SECTIONS = [
 // Graphics tab. Changing any option below the preset switches the preset to Custom.
 const GFX_SECTIONS = [
   { title: 'Preset', rows: [
-    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['mobile', 'Mobile'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto picks a preset for your graphics chip.' }),
+    row('quality', 'Quality', 'seg', { options: [['auto', 'Auto'], ['mobile', 'Mobile'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], note: 'Auto measures the frame rate while you drive and picks the best preset that holds it.' }),
     row('renderScale', 'Resolution', 'range', { min: 50, max: 100, step: 5, scale: 100, unit: '%', note: 'Lower renders fewer pixels: faster, softer.' }),
     row('fullscreen', 'Fullscreen', 'switch'),
-    row('gDpr', 'Pixel density cap', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%', note: 'For high-density screens (Retina, 4K laptops, Windows scaling above 100%): how many of the screen\'s extra pixels to render. The biggest cost of all.' }),
+    row('gDpr', 'Additional sharpness', 'range', { min: 100, max: 200, step: 25, scale: 100, unit: '%' }),   // the pixel density cap (high-density screens only)
   ] },
-  { title: 'Lighting and effects', rows: [
-    row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']], note: 'Sun shadow sharpness and distance.' }),
-    row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']], note: 'SSAO: contact shading in corners, under the truck and between rocks. About 1–2 ms.' }),
-    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA'], ['msaa4', 'MSAA 4×']], note: 'MSAA is sharpest, SMAA a good middle, FXAA the cheapest.' }),
-    row('gBloom', 'Bloom', 'switch', { note: 'Glow around lamps and the sun.' }),
-    row('dust', 'Dust, mud and splashes', 'switch', { note: 'Clouds and spray kicked up by the tyres.' }),
+  { rows: [   // shadows, AO, AA, bloom, dust: no heading
+    row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
+    row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] }),
+    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA'], ['msaa4', 'MSAA 4×']] }),
+    row('gBloom', 'Bloom', 'switch'),
+    row('dust', 'Dust, mud and splashes', 'switch'),
   ] },
   { title: 'World detail', rows: [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
     row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
-  ] },
-  { title: 'Grass and bushes', rows: [
-    row('vegetation', 'Grass and bushes', 'switch', { note: 'Off hides all the grass and undergrowth (trees stay). The most expensive part of the world.' }),
-    row('gGrass', 'Grass density', 'range', { veg: true, min: 4, max: 96, step: 1, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassHeight', 'Grass height', 'range', { veg: true, min: 180, max: 390, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassWidth', 'Grass blade width', 'range', { veg: true, min: 80, max: 240, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassDist', 'Grass distance', 'range', { veg: true, min: 119, max: 287, step: 1, scale: 1, unit: ' m' }),
-    row('gGrassNear', 'Dense grass radius', 'range', { veg: true, min: 42, max: 72, step: 1, scale: 1, unit: ' m', note: 'The fine layer around you. The expensive one.' }),
-    row('gGrassFarWidth', 'Far grass blade width', 'range', { veg: true, min: 130, max: 360, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gGrassFarSpacing', 'Far grass spacing', 'range', { veg: true, min: 85, max: 160, step: 5, scale: 100, dp: 2, unit: '×', note: 'Lower packs more blades into the far layer (slower).' }),
-    row('gBushes', 'Bush density', 'range', { veg: true, min: 5, max: 220, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushHeight', 'Bush size', 'range', { veg: true, min: 110, max: 260, step: 5, scale: 100, dp: 2, unit: '×' }),
-    row('gBushDist', 'Bush distance', 'range', { veg: true, min: 100, max: 225, step: 5, scale: 100, dp: 2, unit: '×' }),
+    row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
   ] },
 ];
 
-// what to do when stuck, with only this car's controls: low range, the diff locks, airing down
+// stuck tips, with only this car's controls
 function stuckSteps(k, tyres) {
   const s = [];
   if (hasControl('range')) s.push(`shift to low range (${k('range')})`);
@@ -128,15 +112,13 @@ export class Menu {
   constructor(api) {
     this.api = api;
     this.root = document.getElementById('menu');
-    this.introRoot = document.getElementById('intro');
     this.tab = 'locations';
     this.isOpen = false;
-    this.introOpen = false;
     this.pending = {};            // choices waiting for their Apply button (the car)
     this.build();
   }
 
-  get blocking() { return this.isOpen || this.introOpen; }
+  get blocking() { return this.isOpen; }
 
   // ------------------------------------------------------------------ build
   build() {
@@ -188,7 +170,6 @@ export class Menu {
     });
     // keyboard / pad focus ring only after keyboard or pad navigation
     r.addEventListener('pointerdown', () => this.sheet.classList.remove('kbnav'));
-    this.introRoot.addEventListener('click', e => { if (e.target.closest('[data-act="start"]')) this.closeIntro(); });
   }
 
   buildLocations() {
@@ -219,14 +200,13 @@ export class Menu {
       return '';
     };
     pane.innerHTML = `<div class="set-cols">${sections.map(s => `
-      <div class="set-sec"><h2>${s.title}</h2>${s.rows.map(r => `
+      <div class="set-sec">${s.title ? `<h2>${s.title}</h2>` : ''}${s.rows.map(r => `
         <div class="set-row${r.label ? '' : ' bare'}${r.quick ? ' quick' : ''}" data-key="${r.key}"${!r.hot || [].concat(r.hot).some(hasControl) ? '' : ' hidden'}>
           ${r.label ? `<div class="set-l"><div class="set-t">${r.label}${r.hot ? `<span class="kc">${hotHTML(r.hot)}</span>` : ''}</div>${r.note ? `<div class="set-n">${r.note}</div>` : ''}</div>` : ''}
           <div class="set-c">${ctl(r)}</div>
         </div>`).join('')}</div>`).join('')}</div>`;
   }
 
-  // third column: the gamepad, or the on-screen controls on a touch screen
   buildControls(touch = false) {
     this.ctlTouch = touch;
     // only this car's controls (no Turret section without a turret, no low range without one, ...)
@@ -244,13 +224,11 @@ export class Menu {
       <div class="callout"><b>Getting stuck?</b> ${stuckSteps(id => capsHTML(id, dev), true)} ${capsHTML('recover', dev)} always puts you back on your wheels.${touch ? ' The Vehicle button next to the menu button holds this car\'s drive, engine, light and tyre controls.' : ''}</div>`;
   }
 
-  // device-dependent labels: header buttons, footer hints, welcome card
   renderDevice() {
     const dev = this.api.device();
     for (const el of this.root.querySelectorAll('[data-cap]')) el.innerHTML = dev === 'touch' ? '' : capsHTML(el.dataset.cap, dev);
     if ((dev === 'touch') !== this.ctlTouch) this.buildControls(dev === 'touch');
     this.renderFoot();
-    if (this.introOpen) this.renderIntro();
   }
 
   renderFoot() {
@@ -297,11 +275,7 @@ export class Menu {
         rowEl.querySelector('output').textContent = api.get('pressureText');
       }
     }
-    // graphics: say which preset Auto chose
-    // pixel density only matters on screens with a device pixel ratio above 1 (re-checked: the window may move)
-    // the grass and bush sliders follow the Grass and bushes switch
-    const veg = !!api.get('vegetation');
-    for (const r of this.panes.graphics.querySelectorAll('.set-row')) if (this.rowDef(r.dataset.key)?.veg) r.hidden = !veg;
+    // pixel density only matters above dpr 1 (re-checked: the window may move)
     this.panes.graphics.querySelector('[data-key="gDpr"]').hidden = (window.devicePixelRatio || 1) <= 1.01;
     for (const [key, src] of [['mpRoom', 'mpNote'], ['mpName', 'name']]) {
       const el = this.panes.friends.querySelector(`[data-key="${key}"] .set-n`), t = api.get(src);
@@ -333,8 +307,7 @@ export class Menu {
       else Promise.resolve(d.documentElement.requestFullscreen?.({ navigationUI: 'hide' }))
         .then(() => this.api.device() === 'touch' ? screen.orientation?.lock?.('landscape') : navigator.keyboard?.lock?.(['Escape']))
         .catch(() => {}).then(done);
-    } else if (a === 'intro') { this.close(); this.openIntro(); return; }
-    else if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
+    } else if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
     else if (a === 'resetSettings') this.api.set('resetSettings', true);
     else this.api.action(a);
     this.refresh();
@@ -342,7 +315,6 @@ export class Menu {
 
   // ------------------------------------------------------------------ open / close
   open(tab) {
-    if (this.introOpen) return;
     if (!this.isOpen) {
       this.isOpen = true;
       this.root.hidden = false;
@@ -388,7 +360,6 @@ export class Menu {
   }
 
   focusFirst() {
-    // the first control of the pane, so arrow keys / d-pad start in the content
     const pane = this.panes[this.tab];
     const el = [...pane.querySelectorAll('button, input')].find(x => x.tabIndex >= 0);
     (el || this.root.querySelector('.tab[aria-selected="true"]')).focus({ preventScroll: true });
@@ -403,7 +374,6 @@ export class Menu {
     if (next) { next.focus(); next.scrollIntoView({ block: 'nearest' }); }
   }
 
-  // left / right: change the focused control
   adjust(dir, el, synthetic) {
     if (!el || !this.sheet.contains(el)) return false;
     if (el.classList.contains('tab')) { this.cycleTab(dir); return true; }
@@ -434,11 +404,6 @@ export class Menu {
   handle(ev) {
     if (ev.type === 'pad') { this.handlePad(ev.btn); return true; }
     const e = ev.e, code = e.code;
-    if (this.introOpen) {
-      if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space' || code === 'Escape') { if (!e.repeat) this.closeIntro(); return true; }
-      if (code === 'KeyH') { this.closeIntro(); this.open('controls'); return true; }
-      return code === 'Tab' || DRIVE_KEYS.has(code);                     // focus stays on the card
-    }
     if (!this.isOpen) return false;
     const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter', 'Space'];
     if (nav.includes(code)) this.sheet.classList.add('kbnav');
@@ -462,7 +427,6 @@ export class Menu {
   }
 
   handlePad(btn) {
-    if (this.introOpen) { if (btn === 'accept' || btn === 'back' || btn === 'menu') this.closeIntro(); return; }
     if (!this.isOpen) return;
     this.sheet.classList.add('kbnav');
     const el = document.activeElement;
@@ -473,79 +437,6 @@ export class Menu {
     else if (btn === 'back' || btn === 'menu') this.close();
     else if (btn === 'prevTab') { this.cycleTab(-1); this.focusFirst(); }
     else if (btn === 'nextTab') { this.cycleTab(1); this.focusFirst(); }
-  }
-
-  // ------------------------------------------------------------------ welcome card
-  openIntro() {
-    this.introOpen = true;
-    this.renderIntro();
-    this.introRoot.hidden = false;
-    this.api.onPause(true);
-    this.introRoot.querySelector('[data-act="start"]').focus({ preventScroll: true });
-  }
-
-  closeIntro() {
-    if (!this.introOpen) return;
-    this.introOpen = false;
-    this.introRoot.hidden = true;
-    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    this.api.introDone();
-    this.api.onPause(this.blocking);
-  }
-
-  renderIntro() {
-    const dev = this.api.device(), k = id => capsHTML(id, dev);
-    if (dev === 'touch') { this.renderTouchIntro(); return; }
-    const or = '<span class="or">/</span>';
-    const kb = l => `<kbd class="cap">${l}</kbd>`;
-    const rows = [
-      [dev === 'pad' ? k('throttle') + k('brake') : kb('W') + kb('S') + or + kb('↑') + kb('↓'), 'Throttle and brake. Hold brake at a stop to reverse.'],
-      [dev === 'pad' ? k('steer') : kb('A') + kb('D') + or + kb('←') + kb('→'), 'Steer'],
-      [k('handbrake'), 'Handbrake'],
-      [k('camera'), dev === 'pad' ? 'Change camera · right stick looks around' : 'Change camera · drag the mouse to look around'],
-      [k('recover'), 'Recover when stuck or upside down'],
-      [k('menu'), 'Menu: locations, settings, all controls'],
-    ];
-    const startCap = dev === 'pad' ? '<kbd class="cap pad pad-a">A</kbd>' : '<kbd class="cap">Enter</kbd>';
-    this.introRoot.innerHTML = `
-      <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad</div>
-        <h1 id="intro-title">Take it off the road</h1>
-        <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
-        <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> ${stuckSteps(k, dev !== 'pad')}</div>
-        <div class="intro-foot">
-          <span class="fine">${dev === 'pad' ? `${k('menu')} opens the menu at any time.` : `${k('controls')} shows every control at any time.`}</span>
-          <button class="btn primary big" type="button" data-act="start">Start driving ${startCap}</button>
-        </div>
-      </div>`;
-  }
-
-  // welcome card for phones and tablets: the on-screen controls (touch.js)
-  renderTouchIntro() {
-    const k = id => capsHTML(id, 'touch');
-    const tilt = this.api.get('touchSteer') === 'tilt';
-    const rows = [
-      [k('throttle') + k('brake'), 'Right thumb. Higher up the pedal is more.'],
-      [k('steer'), tilt ? 'Tilt the screen like a wheel.' : 'Left thumb: touch the lower left, slide sideways.'],
-      [k('shiftUp') + k('shiftDown'), 'Gear selector: ▲ to D, ▼ to R and P.'],
-      [k('handbrake'), 'Handbrake'],
-      [k('camera'), 'Camera · drag the view to look, pinch to zoom'],
-      [k('recover'), 'Recover when stuck or upside down'],
-      [k('menu'), 'Locations, settings (tilt steering), all controls'],
-    ];
-    this.introRoot.innerHTML = `
-      <div class="card intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
-        <div class="eyebrow">Offroad</div>
-        <h1 id="intro-title">Take it off the road</h1>
-        <p class="lead">A solid-axle 4×4 sandbox with a proving ground. The automatic gearbox is ready; here are the essentials.</p>
-        <div class="intro-keys">${rows.map(([c, t]) => `<div class="ik">${c}</div><div class="it">${t}</div>`).join('')}</div>
-        <div class="callout"><b>Hard obstacle?</b> Stop, open <kbd class="cap touch">Vehicle</kbd> next to the menu button, tap ${k('range')} for low range, then ${k('centreLock')} and ${k('lockers')} to lock the diffs. ${k('pressureDown')} airs the tyres down.</div>
-        <div class="intro-foot">
-          <span class="fine">Best in landscape and full screen.</span>
-          <button class="btn primary big" type="button" data-act="start">Start driving</button>
-        </div>
-      </div>`;
   }
 }
 

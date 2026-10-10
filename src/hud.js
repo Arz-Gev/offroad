@@ -4,12 +4,9 @@ import { wheelName } from './vehicle/suspension.js';
 
 const FULL_SEEN_KEY = 'offroad.fullscreenUsed.v1';
 
-// In-game HUD: instrument cluster (bottom right), toasts and context tips (top centre),
-// key hints + menu button (top left), optional suspension panel, telemetry and fps.
-//
-// Cost rules: no layout reads per frame; DOM text/classes are written only when the value changes;
-// bars move with transforms; the rpm dial redraws only when the rpm moves by >= 20 rpm, on top of a
-// cached static layer; the suspension panel redraws at 20 Hz and telemetry at 10 Hz, only while shown.
+// In-game HUD. Cost rules: no layout reads per frame; DOM is written only when a value changes; bars
+// move with transforms; the rpm dial redraws per 20 rpm over a cached static layer; the suspension
+// panel redraws at 20 Hz and telemetry at 10 Hz, only while shown.
 
 const SPEED_UNITS = { kmh: { k: 3.6, label: 'km/h' }, mph: { k: 2.236936, label: 'mph' } };
 export const fmtPressure = (psi, unit) => unit === 'bar' ? `${(psi * 0.0689476).toFixed(2)} bar` : `${psi.toFixed(0)} psi`;
@@ -18,14 +15,12 @@ export const speedUnit = u => SPEED_UNITS[u] || SPEED_UNITS.kmh;
 const AUTO_STRIP = ['P', 'R', 'N', 'D'];
 const DIAL = 156;          // css px at scale 1
 const SUSP = 216;
-// the rpm scale: the engine's limiter rounded up to a whole thousand (a 2900 rpm diesel reads to 3, a
-// 6800 rpm petrol to 7)
+// rpm scale: the limiter rounded up to a whole thousand
 const dialMax = E => Math.max(3000, Math.ceil(E.limiterRpm / 1000) * 1000);
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
-// The drivetrain diagram of the cluster: wheels, shafts, an axle diff per axle and the centre diff, in a
-// fixed 64 x 72 box. Two axles: the original drawing. More axles get smaller wheels down the same box.
+// Drivetrain diagram in a fixed 64 x 72 box; more than two axles get smaller wheels down the same box.
 function diffSvg(nA) {
   if (nA === 2) return `<path class="shaft" d="M14 13H50M14 59H50M32 13V59"/>
                 <rect class="w" x="3" y="4" width="11" height="18" rx="2.5"/>
@@ -100,7 +95,7 @@ export class HUD {
           <span class="tt amber" id="t-tc" hidden>TC</span>
           <span class="tt blue" id="t-rwd" hidden>2WD</span>
           <span class="tt green" id="t-head" hidden>LOW BEAM</span>
-          <span class="tt amber" id="t-bar" hidden>EXTRA LAMPS</span>
+          <span class="tt amber" id="t-aux" hidden>EXTRA LAMPS</span>
           <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
         </div>
         <div class="cl-body">
@@ -151,7 +146,7 @@ export class HUD {
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
       psi: $('h-psi'), surf: $('h-surf'),
-      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tBar: $('t-bar'), tHaz: $('t-haz'),
+      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tAux: $('t-aux'), tHaz: $('t-haz'),
     };
     this.dctx = this.e.dial.getContext('2d');
     Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev') });
@@ -159,14 +154,14 @@ export class HUD {
     this.c = {};                       // last written values
     this.opts = { speedUnit: 'kmh', pressureUnit: 'psi', cluster: 'auto', hudScale: 1, hints: true, suspension: false, telemetry: false, fps: false };
     this.device = 'kb';
-    this.touchUI = false;              // on-screen touch controls shown (touch.js)
+    this.touchUI = false;
     this.toastList = [];
     this.tipState = { key: null, rolled: 0, stuck: 0, neutral: 0, engine: 0, clear: 0, acc: 0 };
     this.fpsAcc = 0; this.fpsN = 0; this.suspAcc = 1; this.teleAcc = 1;
     this.soundState = 'locked';
     this.onMenu = null;
     this.onFullscreen = null;
-    for (const b of [this.e.menuBtn, this.e.fullBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // never take keyboard focus
+    for (const b of [this.e.menuBtn, this.e.fullBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
     this.e.fullBtn.addEventListener('click', () => {
       if (!storage.get(FULL_SEEN_KEY)) { storage.set(FULL_SEEN_KEY, '1'); this.e.fullBtn.classList.remove('attn'); }
@@ -191,14 +186,14 @@ export class HUD {
     this.e.hints.hidden = !o.hints;
     this.suspAcc = this.teleAcc = 1;
     if (this.suspPrev) this.suspPrev.fill(-1);
-    this.c.spd = this.c.psi = undefined;        // units may have changed
+    this.c.spd = this.c.psi = undefined;
     this.e.unit.textContent = speedUnit(o.speedUnit).label;
     this.resize();
   }
 
   resize() {
     const W = window.innerWidth || 1440, H = window.innerHeight || 900;
-    // square root: the HUD shrinks slower than the window, so text stays readable in small windows
+    // square root: shrinks slower than the window, so text stays readable
     const s = clamp(Math.sqrt(Math.min(W / 1600, H / 1000)), 0.8, 1.4) * (this.opts.hudScale || 1);
     if (s === this.scale && W === this.W && H === this.H) return;
     this.scale = s; this.W = W; this.H = H;
@@ -223,11 +218,11 @@ export class HUD {
       ? `<span>${k('camera')} Camera</span><span>${k('recover')} Recover</span><span>${k('shiftUp')}${k('shiftDown')} Shift</span>`
       : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('tuning')} Tuning</span><span>${k('recover')} Recover</span>`;
     this.e.suspKey.innerHTML = capsHTML('suspension', 'kb');
-    this.tipState.key = null;           // re-render the tip with the new prompts
+    this.tipState.key = null;
     this.setSound(this.soundState, true);
   }
 
-  // fullscreen button: always shown (where pages can't go fullscreen, iPhone Safari, it says how instead)
+  // always shown (where pages can't go fullscreen, e.g. iPhone Safari, it says how instead)
   refreshFullscreen() {
     const on = !!document.fullscreenElement, b = this.e.fullBtn;
     b.innerHTML = on ? ICON_FULL_EXIT : ICON_FULL;
@@ -235,14 +230,13 @@ export class HUD {
     b.title = on ? 'Exit fullscreen' : 'Fullscreen';
   }
 
-  // touch controls on screen: compact cluster at the top right (ui.css body.touch-ui), no key hints
   setTouch(on) {
     this.touchUI = on;
     this.c.compact = undefined;
     this.setDevice(this.device, true);
   }
 
-  // sound status pill: 'locked' (waiting for a gesture), 'on', 'muted', 'error'
+  // 'locked' (waiting for a gesture), 'on', 'muted', 'error'
   setSound(state, force) {
     if (state === this.soundState && !force) return;
     this.soundState = state;
@@ -257,9 +251,7 @@ export class HUD {
   }
 
   // ------------------------------------------------------------------ toasts
-  // kind: '' | 'good' | 'warn'. html may contain <kbd> caps.
-  // key: a toast with the same key is updated in place (repeated presses of [ or L don't stack up).
-  // Newest at the bottom; at most 3 on screen.
+  // kind: '' | 'good' | 'warn'. key: a toast with the same key is updated in place. At most 3 on screen.
   toast(html, { t = 2.4, kind = '', key = html } = {}) {
     const same = this.toastList.find(x => x.key === key && !x.leaving);
     if (same) {
@@ -279,8 +271,7 @@ export class HUD {
   }
   message(text, t = 2.4, kind = '', key) { this.toast(escapeHTML(text), { t, kind, key }); }
 
-  // The drivetrain speaks in plain text with keyboard keys baked in ("press I", "(Shift)").
-  // Rewrite the known ones with key caps for the current device and give them a severity.
+  // The drivetrain's messages bake in keyboard keys ("press I"): rewrite the known ones with the device's key caps.
   drivetrainToast(text) {
     const k = id => capsHTML(id, this.device);
     for (const [re, f, kind, key] of DT_MESSAGES) {
@@ -314,19 +305,16 @@ export class HUD {
     if (d.message && d.message !== this._lastMsg) this.drivetrainToast(d.message.text);
     this._lastMsg = d.message;
 
-    // cluster layout
     const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small || this.touchUI));
     if (compact !== c.compact) { c.compact = compact; e.cluster.classList.toggle('compact', compact); c.rpmQ = undefined; }
 
-    // gearbox mode + selector strip
     const manual = d.mode === 'manual';
     const modeKey = manual ? (d.autoShift ? 'as' : d.clutchAssist ? 'mac' : 'm') : 'a';
     if (modeKey !== c.mode) {
       c.mode = modeKey; c.stripIdx = undefined;
-      // a manual-only car (BTR-80) in "automatic": its manual box picks the gears itself
+      // a manual-only car (BTR-80) in "automatic": its box picks the gears itself
       e.mode.textContent = manual && !d.autoShift ? 'MANUAL' : 'AUTO';
       e.modeSub.textContent = manual ? (d.autoShift ? 'auto-shift' : d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : `${v.P.auto.ratios.length}-speed`;
-      // the manual strip: R, N and this car's gears
       const strip = manual ? ['R', 'N', ...v.P.manual.ratios.map((r, i) => String(i + 1))] : AUTO_STRIP;
       e.strip.innerHTML = strip.map(g => `<i>${g}</i>`).join('');
       e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist && !d.autoShift));
@@ -342,26 +330,23 @@ export class HUD {
     const shifting = !!d.shift || d.grind > 0;
     if (shifting !== c.shifting) { c.shifting = shifting; e.gear.classList.toggle('shifting', shifting); }
 
-    // transfer case + diffs
     if (d.range !== c.range) { c.range = d.range; e.range.dataset.v = d.range; }
-    const low = !!v.P.transfer?.low;   // no HI / LO row on a car without low range
+    const low = !!v.P.transfer?.low;   // no HI / LO row without low range
     if (low !== c.low) { c.low = low; e.rangeRow.hidden = !low; }
     const nA = v.axles.length;
     if (nA !== c.nA) {
-      // the diagram for this car's axle count (self-locking axle diffs drawn half filled)
       c.nA = nA; c.locks = undefined;
       const svg = this.root.querySelector('#h-diffs');
       svg.innerHTML = diffSvg(nA);
       e.diffs = [...svg.querySelectorAll('.df')];
       e.wheels = [...svg.querySelectorAll('.w')];
       for (let i = 0; i < e.wheels.length; i++) c['w' + i] = undefined;
-      // 2 axles: front, centre, rear; more: the axles, then the centre
+      // diff order: 2 axles = front, centre, rear; more = the axles, then the centre
       e.axleDf = a => nA === 2 ? e.diffs[a === 0 ? 0 : 2] : e.diffs[a];
       e.centreDf = e.diffs[nA === 2 ? 1 : nA];
       d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('lsd', ax.diff === 'lsd'));
       e.centreDf.classList.toggle('lsd', d.layout.centre === 'viscous');
     }
-    // diffs of axles not driven now (front- / rear-wheel drive, 2WD) and a centre diff that isn't there
     const driven = d.layout.axles.reduce((m, ax, a) => m | (d.isDriven(a) ? 1 << a : 0), 0) | (d.layout.centre === 'none' || d.rwd ? 0 : 1 << 16);
     if (driven !== c.driven) {
       c.driven = driven;
@@ -376,7 +361,6 @@ export class HUD {
         e.diffs[1].classList.toggle('locked', d.centreLocked);
         e.diffs[2].classList.toggle('locked', d.rearLock);
         const names = [d.centreLocked && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
-        // short enough for one line; the icon shows exactly which diff is locked
         const self = !d.canLockCentre || d.layout.axles.some(a => a.diff === 'lsd');
         e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || (self ? 'Self-lock' : 'Open');
         e.diffTxt.classList.toggle('locked', names.length > 0);
@@ -399,20 +383,17 @@ export class HUD {
       if (st !== c['w' + i]) { c['w' + i] = st; e.wheels[i].setAttribute('class', st); }
     }
 
-    // speed + rpm
     const su = speedUnit(o.speedUnit);
     const spd = Math.round(Math.abs(v.speed) * su.k);
     if (spd !== c.spd) { c.spd = spd; e.spd.textContent = spd; }
     if (!compact) this.drawDial(Math.max(0, d.rpm), v.P.engine);
     else this.rpmBar(Math.max(0, d.rpm), v.P.engine);
 
-    // pedals
     this.updateGun(v, ctx.gun || null);
     this.bar(e.thr, 'thr', v.ctl.throttle);
     this.bar(e.brk, 'brk', Math.max(v.ctl.brake, v.ctl.handbrake));
     this.bar(e.clu, 'clu', manual ? clamp(d.clutchPedal / 0.8, 0, 1) : 0);
 
-    // footer: tyres, surface, warning lamps
     const psi = fmtPressure(v.pressure, o.pressureUnit);
     if (psi !== c.psi) { c.psi = psi; e.psi.textContent = 'Tyres ' + psi; }
     let surf = 'Airborne';
@@ -432,14 +413,12 @@ export class HUD {
       e.tHead.textContent = head === 2 ? 'HIGH BEAM' : 'LOW BEAM';
       e.tHead.className = 'tt ' + (head === 2 ? 'blue' : 'green');
     }
-    this.lamp(e.tBar, 'bar', view.lights.bar);
+    this.lamp(e.tAux, 'aux', view.lights.aux);
     this.lamp(e.tHaz, 'haz', view.lights.hazard);
 
-    // context tips (4 Hz)
     if (ctx.paused) this.setTip(null);
     else if ((this.tipState.acc += dt) > 0.25) { this.updateTips(this.tipState.acc, v, ctx.raw || v.ctl); this.tipState.acc = 0; }
 
-    // optional panels
     if (o.suspension && (this.suspAcc += dt) > 0.05) { this.suspAcc = 0; this.drawSuspension(v); }
     if (o.telemetry && (this.teleAcc += dt) > 0.1) { this.teleAcc = 0; e.tele.textContent = this.telemetryText(v, ctx.telemetry ? ctx.telemetry() : ''); }
     this.fpsAcc += dt; this.fpsN++;
@@ -491,7 +470,6 @@ export class HUD {
 
   // ------------------------------------------------------------------ rpm dial
   drawDial(rpm, E) {
-    // the scale follows the engine (tuning can swap it while driving)
     const max = dialMax(E), scale = `${max} ${E.redlineRpm}`;
     if (scale !== this.dialScale) { this.dialScale = scale; this.dialStatic = null; this.c.rpmQ = undefined; }
     const q = Math.round(rpm / 20);
@@ -537,14 +515,13 @@ export class HUD {
   }
 
   // ------------------------------------------------------------------ turret: gun panel + gunner's sight
-  // g: { gunnery, sight (in the gunner's view), fov (deg), locked (pointer locked to the sight) } or null
+  // g: { gunnery, sight (gunner's view), fov (deg), locked (pointer locked) } or null
   updateGun(v, g) {
     const e = this.e, c = this.c, T = v.turret;
     const show = !!(T && g);
     if (show !== c.gunShow) { c.gunShow = show; e.gun.hidden = !show; if (!show) { e.sight.hidden = true; c.sightKey = null; } }
     if (!show) return;
     const S = T.spec;
-    // rows: one per gun, built once (fixed width; numbers change inside)
     if (c.gunRowsFor !== S) {
       c.gunRowsFor = S;
       e.gunRows.innerHTML = S.weapons.map((w, i) => `<div class="gb-row" data-w="${i}"><b>${w.short}</b><span class="gb-cal">${w.calibre}</span><span class="gb-ammo">0</span><span class="gb-res">/ 0</span><i class="gb-rl"><i></i></i></div>`).join('');
@@ -560,12 +537,10 @@ export class HUD {
       const q = Math.round(rl * 40);
       if (k.rl !== q) { k.rl = q; row.r.classList.toggle('reloading', rl >= 0); row.rl.style.transform = `scaleX(${Math.max(0, rl).toFixed(3)})`; }
     });
-    // turret on the hull outline, gun elevation
     const yawQ = Math.round(T.yaw * 180 / Math.PI);
     if (yawQ !== c.gunYaw) { c.gunYaw = yawQ; e.gunRot.setAttribute('transform', `rotate(${yawQ} 22 22)`); }
     const el = Math.round(T.pitch * 180 / Math.PI);
     if (el !== c.gunEl) { c.gunEl = el; e.gunElev.textContent = `${el > 0 ? '+' : ''}${el}°`; }
-    // the sight: reticle redrawn only when the view, the field of view or the gun changes
     e.sight.hidden = !g.sight;
     if (!g.sight) return;
     const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -573,8 +548,8 @@ export class HUD {
     if (key !== c.sightKey) { c.sightKey = key; this.drawSight(W, H, dpr, g.fov, g.gunnery.marks[T.weapon], S.weapons[T.weapon]); }
   }
 
-  // PP-61AM style reticle: a chevron on the bore line, mil ticks for leading a target, and range marks below:
-  // where the round lands at each range (the gun must be raised by that much), from the gun's ballistics
+  // PP-61AM style reticle: chevron on the bore line, mil ticks for leads, range marks below (where the
+  // round lands at each range, from the gun's ballistics)
   drawSight(W, H, dpr, fovDeg, marks, w) {
     const cv = this.e.sight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
@@ -583,33 +558,28 @@ export class HUD {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
     const cx = W / 2, cy = H / 2, tanH = Math.tan(fovDeg * Math.PI / 360);
-    const px = a => Math.tan(a) / tanH * (H / 2);   // angle (rad) -> pixels from the centre
-    // the periscope's round field: dark outside
+    const px = a => Math.tan(a) / tanH * (H / 2);   // rad -> px from the centre
     const r = Math.min(W, H) * 0.47;
     g.fillStyle = 'rgba(4, 6, 8, 0.82)';
     g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, r, 0, Math.PI * 2, true); g.fill();
     const ring = g.createRadialGradient(cx, cy, r * 0.86, cx, cy, r);
     ring.addColorStop(0, 'rgba(0,0,0,0)'); ring.addColorStop(1, 'rgba(0,0,0,0.55)');
     g.fillStyle = ring; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
-    // lines: dark with a faint light edge, readable on sky and on earth
     const stroke = (draw, lw = 1.6) => {
       g.lineCap = 'round';
       g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = lw + 2; g.beginPath(); draw(); g.stroke();
       g.strokeStyle = 'rgba(10,12,14,0.95)'; g.lineWidth = lw; g.beginPath(); draw(); g.stroke();
     };
     const mil = 0.001, k5 = px(5 * mil);
-    // chevron: its tip on the bore line (boresighted at 600 m)
+    // chevron tip on the bore line (boresighted at 600 m)
     stroke(() => { g.moveTo(cx - 9, cy + 9); g.lineTo(cx, cy); g.lineTo(cx + 9, cy + 9); }, 2);
-    // horizontal bar with 5-mil lead ticks, open in the middle
     const half = r * 0.82;
     stroke(() => {
       g.moveTo(cx - half, cy); g.lineTo(cx - 3 * k5, cy); g.moveTo(cx + 3 * k5, cy); g.lineTo(cx + half, cy);
       for (let i = 1; i * k5 < half; i++) for (const sgn of [-1, 1]) { const x = cx + sgn * i * k5, t = i % 2 ? 4 : 8; if (i < 3) continue; g.moveTo(x, cy - t); g.lineTo(x, cy + t); }
     });
-    // range marks under the chevron (hundreds of metres)
     g.font = '600 11px ui-sans-serif, system-ui, sans-serif'; g.textBaseline = 'middle';
-    // ticks at least 4 px apart, labels at least 11 px apart (a flat-shooting gun packs them near the centre;
-    // then only the full and half kilometres get a number)
+    // ticks >= 4 px apart, labels >= 11 px (a flat-shooting gun packs them: then only full and half km get a number)
     let lastTick = cy + 9, lastLabel = cy + 9;
     for (const m of marks) {
       const y = cy + px(m.a);
@@ -623,7 +593,6 @@ export class HUD {
       g.strokeText(label, cx + len + 4, y); g.fillText(label, cx + len + 4, y);
       lastLabel = y;
     }
-    // the gun's name and the scale, bottom left inside the field
     g.font = '700 12px ui-sans-serif, system-ui, sans-serif'; g.textBaseline = 'alphabetic';
     g.fillStyle = 'rgba(230,235,240,0.85)';
     g.fillText(`${w.name} · ${Math.round(fovDeg)}° · range × 100 m`, cx - r * 0.6, cy + r * 0.82);
@@ -631,11 +600,11 @@ export class HUD {
 
   // ------------------------------------------------------------------ suspension panel
   drawSuspension(v) {
-    // quantised to what the panel can show (kg, mm, % travel, slip colour, steer, 0.1 deg twist)
+    // quantised to what the panel shows (kg, mm, % travel, slip colour, steer, 0.1 deg twist)
     const nW = v.wheels.length, nA = v.axles.length, nq = nW * 6 + nA;
     if (!this.suspKey || this.suspKey.length !== nq) { this.suspKey = new Int32Array(nq); this.suspPrev = new Int32Array(nq).fill(-1); }
     const q = this.suspKey, prev = this.suspPrev;
-    // compression at the wheel: beam axle from heave and roll at the spring, independent corner its own
+    // beam axle: heave and roll at the spring; independent: the corner's own
     const compOf = w => w.axle.ind ? w.c : w.axle.c + w.side * (w.axle.p.springTrack / 2) * Math.sin(w.axle.phi);
     for (let i = 0; i < nW; i++) {
       const w = v.wheels[i], ax = w.axle;
@@ -655,7 +624,6 @@ export class HUD {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, px, px);
     g.setTransform(k, 0, 0, k, 0, 0);
-    // axle rows: 70 and 172 for two axles; more axles share the same height, smaller
     const ys = Array.from({ length: nA }, (_, a) => nA === 2 ? (a ? 172 : 70) : 40 + a * (162 / (nA - 1)));
     const sc = nA === 2 ? 1 : Math.min(1, (ys[1] - ys[0]) / 76);
     const pos = Array.from({ length: nW }, (_, i) => [i % 2 ? 178 : 62, ys[i >> 1]]);
@@ -697,7 +665,6 @@ export class HUD {
         g.fillStyle = 'rgba(255,255,255,0.55)';
         g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)} cm`, x, ty + 14);
       } else {
-        // beside the wheel, outboard: load, then squash
         const tx = x + (w.side < 0 ? -52 : 52);
         g.fillStyle = 'rgba(255,255,255,0.92)';
         g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)}`, tx, y - 6);

@@ -4,15 +4,14 @@ import { makeRubberTexture } from './materials.js';
 import { mesh, mergeStatic, mergeGeometries } from './geom.js';
 import { cornerName } from '../suspension.js';
 
-// Wheels of a car model. Every wheel is { steer, spin, tireMats, side, axle, nativeR, nativeW }: steer
-// turns with the steering (and carries camber on an independent corner), spin rolls; VehicleView scales
-// spin from the size the wheel was modelled at (nativeR, nativeW) to the tuned tyre, and feeds the tyre
-// materials the contact data (tyre v2: the tyre deforms, the rim doesn't).
+// Wheels of a car model: { steer, spin, tireMats, side, axle, nativeR, nativeW }. steer turns with the steering
+// (and carries camber on an independent corner), spin rolls; VehicleView scales spin from the modelled size
+// (nativeR, nativeW) to the tuned tyre and feeds tireMats the contact data (the tyre deforms, the rim doesn't).
 // - steelWheel: our procedural wheel (the Defender's);
-// - modelWheels: the wheels of a downloaded model (tools/prepcar.mjs splits them into nodes per corner,
-//   corners FL FR RL RR on two axles, 1L 1R 2L ... on more): tire_<k> deforms, wheel_<k> spins (and
-//   deforms when there is no tire_<k>: the rim inside the rim radius stays round), hub_<k> steers without
-//   spinning (calipers) unless look.wheel.hubSpins (the BTR-80's valve on the rim face).
+// - modelWheels: wheels of a downloaded model (tools/prepcar.mjs splits them per corner: FL FR RL RR on two
+//   axles, 1L 1R 2L ... on more): tire_<k> deforms, wheel_<k> spins (and deforms when there is no tire_<k>:
+//   the rim inside the rim radius stays round), hub_<k> steers without spinning (calipers) unless
+//   look.wheel.hubSpins (the BTR-80's valve on the rim face).
 
 let _tireGeo = null;
 export function tireGeometry(R = 0.42) {
@@ -77,7 +76,6 @@ function rimGroup(mats) {
   const fg = new THREE.ExtrudeGeometry(face, { depth: 0.01, bevelEnabled: true, bevelThickness: 0.005, bevelSize: 0.005, bevelSegments: 2, curveSegments: 20 });
   fg.rotateY(Math.PI / 2);
   g.add(mesh(fg, mats.steel, 0.04, 0, 0));
-  // pressed centre dome
   const dome = mesh(new THREE.CylinderGeometry(0.1, 0.115, 0.03, 28).rotateZ(Math.PI / 2), mats.steel, 0.06, 0, 0);
   g.add(dome);
   const back = mesh(new THREE.CylinderGeometry(0.203, 0.203, 0.01, 36), mats.chassis, 0.0, 0, 0);
@@ -113,9 +111,7 @@ export function steelWheel(mats, side, deformable = true) {
   return { steer, spin, tire, tireMat, tireMats: deformable ? [tireMat] : [], rim, side, nativeR: 0.42, nativeW: 0.27 };
 }
 
-// The wheels of a downloaded shell. at(k, a, side): the hub centre of corner k in the shell's frame
-// (prepcar's holder node at the measured hub, or the physics corner). The parts move out of the shell into
-// the wheel groups, placed relative to the hub.
+// The wheels of a downloaded shell: the parts move out of the shell into the wheel groups, placed relative to the hub.
 export function modelWheels(shell, P, look) {
   const W = look.wheel, nA = P.axles.length, out = [];
   const rim = W.rim ?? P.tire.rimRadius;

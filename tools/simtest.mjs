@@ -227,14 +227,15 @@ if (want('cars') && !TUNED) {
 // BTR-80 (8x8, independent torsion-bar corners, 13.6 t). Bands from the real vehicle where published
 // (80 km/h on the road, 30° climb, 25° side slope, turning radius 13.2 m, clearance 475 mm) and sanity
 // elsewhere; the numbers are in DEVNOTES "Baselines".
-// suspension types on a two-axle car: the Defender with an independent front, the Lancia independent all
-// round (variants of their files, built like any car: carParams.paramsFromDef). It settles at its ride
-// height, corners without rolling over, and accelerates.
+// suspension types on a two-axle car: the Defender with an independent front (a variant of its file, built
+// like any car: carParams.paramsFromDef), the G-Class (double wishbones in front, a beam behind) and the
+// Lancia (struts all round) as they are. It settles at its ride height and corners without rolling over.
 if (want('suspension') && !TUNED) {
   const indep = (a, rc, gain) => { Object.assign(a, { type: 'independent', rcHeight: rc, camberGain: gain }); for (const k of ['springTrack', 'damperTrack', 'droopY', 'rollInertia', 'rollSteer']) delete a[k]; };
   const variants = [
     ['defender, double wishbones in front', 'defender', ph => indep(ph.axles[0], 0.10, -0.3)],
-    ['lancia, struts all round', 'lancia', ph => { indep(ph.axles[0], 0.06, -0.5); indep(ph.axles[1], 0.10, -0.4); }],
+    ['gclass, double wishbones in front', 'gclass', () => {}],
+    ['lancia, struts all round', 'lancia', () => {}],
   ];
   for (const [label, id, change] of variants) {
     console.log(`--- ${label}`);

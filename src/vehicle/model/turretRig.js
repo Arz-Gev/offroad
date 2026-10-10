@@ -1,13 +1,13 @@
 import * as THREE from 'three/webgpu';
 
-// A turret made of the model's own nodes: yaw (the turret, about the ring) > pitch (the gun cradle and what
-// rides on it, about the trunnions) > recoil (the barrel, slides back in the cradle). Points the guns fire
-// from (muzzles), the searchlight and the gunner's sight are empty objects in those groups; weapons.js and
-// cameraRig.js read them.
+// A turret made of the model's own nodes: yaw (about the ring) > pitch (the cradle and what rides on it,
+// about the trunnions) > recoil (the barrel, slides back in the cradle). Muzzles and the gunner's sight are
+// empty objects in those groups; weapons.js and cameraRig.js read them. A searchlight on the cradle rides
+// the pitch group (look.searchlights, model/index.js).
 //
 // spec (the car's look.turret), points in the model's hub frame (y 0 at the static hub):
 //   { yaw: 'node', pitch: ['node', ...], recoil: 'node', ring: [x, y, z], trunnion: [x, y, z],
-//     muzzles: { name: [x, y, z] (the first in recoil, the rest in pitch) }, lamp: [x, y, z],
+//     muzzles: { name: [x, y, z] (the first in recoil, the rest in pitch) },
 //     sight: [x, y, z] (in the yaw group, from the ring) }
 
 export function turretRig(root, shell, spec, take, hubY) {
@@ -27,7 +27,6 @@ export function turretRig(root, shell, spec, take, hubY) {
     (i === 0 ? recoil : pitch).add(o);
     out[name] = o;
   });
-  out.lampAt = new THREE.Object3D(); out.lampAt.position.copy(hubFrame(spec.lamp)).sub(trunAt); pitch.add(out.lampAt);
   out.sight = new THREE.Object3D(); out.sight.position.set(...spec.sight); yaw.add(out.sight);
   return {
     turret: out,

@@ -7,15 +7,14 @@ import { NOISE_GLSL } from './textures.js';
 import { bakeLayers } from '../render/glbake.js';
 import { premultipliedFog } from '../render/fog.js';
 
-// Water: the lake, the stream (with the ford on the outer loop) and muddy pools in the mud holes.
-// Visual only (the physics has no water): every surface lies over a real terrain bed the truck drives on.
-// - The depth of the water column comes from the physics heightfield in the shader (same triangle split),
-//   so there is no depth pre-pass: shallow water shows the bed, deep water absorbs it, the waterline is soft.
-// - Lit as a smooth dielectric (MeshStandardNodeMaterial underneath): sky reflection from the environment
-//   map, sun glints, tree shadows; Fresnel decides how much of the bed shows through. It blends
-//   premultiplied (one, one - alpha): the reflection keeps its full strength over a see-through body.
-// - Ripples: a baked tileable normal map, two layers; the stream's layers scroll down the flow, faster
-//   where it is steep; foam along the shore and in fast shallow water. Rain adds rings (weather.js).
+// Water: the lake, the stream (with the ford) and muddy pools in the mud holes. Visual only (no water physics): every
+// surface lies over a real terrain bed the truck drives on.
+// - Depth comes from the physics heightfield in the shader (same triangle split), so there is no depth pre-pass:
+//   shallow water shows the bed, deep water absorbs it, the waterline is soft.
+// - Lit as a smooth dielectric (MeshStandardNodeMaterial underneath); Fresnel decides how much bed shows through.
+//   Premultiplied blending (one, one - alpha): the reflection keeps full strength over a see-through body.
+// - Ripples: baked tileable normal map, two layers; the stream's scroll down the flow, faster where steep. Foam along
+//   the shore and in fast shallow water. Rain adds rings (waterRain).
 
 const RIPPLE_FRAG = /* glsl */`
 ${NOISE_GLSL}

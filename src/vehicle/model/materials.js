@@ -89,8 +89,8 @@ const phys = (o, p = {}) => patch(toNode(EnvScaledPhysicalMaterial, o), p);
 
 export function createMaterials() {
   const m = {
-    // red with a clear coat; dirt on the lower panels. The base specular is kept low (specularIntensity)
-    // and fairly sharp: a broad satin lobe washed the flat bonnet pink in the sun from the cockpit/hood view
+    // red with a clear coat; dirt on the lower panels. Low, sharp base specular (specularIntensity):
+    // a broad satin lobe washed the flat bonnet pink in the sun (hood view)
     paint: phys({ color: 0x9e150e, roughness: 0.3, metalness: 0.0, specularIntensity: 0.35, clearcoat: 0.25, clearcoatRoughness: 0.12 }, { dirt: 0.75, env: 0.5 }),
     // textured black plastic (flares, grille, trims, mirrors)
     black: std({ color: 0x161719, roughness: 0.7, metalness: 0.0 }, { dirt: 0.4, env: 1.0, grain: 0.5 }),
@@ -103,7 +103,6 @@ export function createMaterials() {
     yellow: std({ color: 0xd9a31a, roughness: 0.45, metalness: 0.1 }, { dirt: 0.6 }),
     rubber: std({ color: 0x111112, roughness: 0.9, metalness: 0.0 }, { dirt: 0.4 }),
     seal: std({ color: 0x0c0c0d, roughness: 0.6, metalness: 0.0 }, { env: 1.0 }),
-    // glass: premultiplied blending so reflections stay at full strength while the tint is see-through
     glass: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassClear: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
@@ -119,7 +118,7 @@ export function createMaterials() {
     cabinMetal: std({ color: 0x8e9196, roughness: 0.35, metalness: 0.9 }, { ao: 0.6 }),
     // lamp lenses (emissive driven by VehicleView)
     headLens: std({ color: 0xc9cfd4, roughness: 0.08, metalness: 0.2, emissive: 0xfff1de, emissiveIntensity: 0 }, { env: 1.0 }),
-    barLens: std({ color: 0xb8bec4, roughness: 0.08, metalness: 0.2, emissive: 0xf2f6ff, emissiveIntensity: 0 }, { env: 1.0 }),
+    auxLens: std({ color: 0xb8bec4, roughness: 0.08, metalness: 0.2, emissive: 0xf2f6ff, emissiveIntensity: 0 }, { env: 1.0 }),
     workLens: std({ color: 0xb8bec4, roughness: 0.1, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 0 }, { env: 1.0 }),
     sideLens: std({ color: 0xd6d9dc, roughness: 0.1, metalness: 0.1, emissive: 0xfff4e0, emissiveIntensity: 0 }, { env: 1.0 }),
     tail: std({ color: 0x4a0604, roughness: 0.22, emissive: 0xff1a08, emissiveIntensity: 0 }, { env: 1.0 }),
@@ -132,7 +131,6 @@ export function createMaterials() {
   return m;
 }
 
-// Tileable rubber texture for the tyres (no dependency on the world textures)
 export function makeRubberTexture() {
   const S = 128;
   const data = new Uint8Array(S * S * 4);

@@ -2,9 +2,9 @@ import * as THREE from 'three/webgpu';
 import { D } from './dims.js';
 import { mesh, rbox, span, bar, pipe, extrudeProfile, plate, frame } from '../geom.js';
 
-// Defender cabin, left-hand drive. Laid out from the driver's eye (D.DX, 1.78, 0.10):
-// the dash top sits at the windscreen base (~25° below the eye line), the instrument pod looks over the
-// steering-wheel rim, the bonnet shows over the dash, the header with visors and mirror closes the view.
+// Defender cabin, left-hand drive. Laid out from the driver's eye (EYE): the dash top sits at the windscreen
+// base (~25° below the eye line), the instrument pod looks over the steering-wheel rim, the bonnet shows over
+// the dash, the header with visors and mirror closes the view.
 
 export const EYE = new THREE.Vector3(D.DX, 1.71, 0.03);
 
@@ -105,22 +105,17 @@ export function buildInterior(mats, body) {
     add(span(x - 0.16, x + 0.16, DT, DT + 0.004, -0.66, -0.58, mats.dashSoft));
     add(bar([x, DT + 0.005, -0.6], [x, DT + 0.03, -0.55], 0.006, mats.cabinMetal, 6));
   }
-  // padded upper fascia with a rolled front edge
   add(extrudeProfile([[-0.56, DT - 0.02], [-0.47, DT - 0.035], [-0.445, DT - 0.08], [-0.45, 1.22], [-0.56, 1.20]], 1.66, mats.dashSoft, 0.02));
-  // lower fascia + knee panel
   add(span(-0.83, 0.83, 1.0, 1.21, -0.62, -0.5, mats.dash, 0.015));
-  // passenger open shelf (Defender cubby) with a grab rail
   add(span(0.18, 0.80, 1.155, 1.17, -0.56, -0.44, mats.dash, 0.006));
   add(bar([0.22, 1.27, -0.43], [0.76, 1.27, -0.43], 0.011, mats.seatTrim, 8));
   for (const x of [0.22, 0.76]) add(bar([x, 1.27, -0.43], [x, 1.25, -0.47], 0.011, mats.seatTrim, 8));
-  // round vents at the ends, rectangular ones in the centre stack
   for (const s of sides) {
     const v = add(mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 20).rotateX(Math.PI / 2), mats.seal, s * 0.74, 1.31, -0.44));
     v.castShadow = false;
     add(mesh(new THREE.TorusGeometry(0.046, 0.006, 6, 20), mats.dash, s * 0.74, 1.31, -0.428));
     for (let k = -1; k <= 1; k++) add(span(s * 0.74 - 0.04, s * 0.74 + 0.04, 1.31 + k * 0.022 - 0.003, 1.31 + k * 0.022 + 0.003, -0.432, -0.424, mats.dash));
   }
-  // centre stack: vents, radio, heater controls, switches
   add(span(-0.14, 0.14, 0.82, 1.24, -0.62, -0.42, mats.dash, 0.02));
   for (const s of sides) {
     add(span(s * 0.065 - 0.05, s * 0.065 + 0.05, 1.15, 1.215, -0.425, -0.416, mats.seal));
@@ -132,9 +127,9 @@ export function buildInterior(mats, body) {
   for (let k = 0; k < 4; k++) add(rbox(0.024, 0.032, 0.015, 0.004, mats.seal, -0.27 + k * 0.034, 1.17, -0.445)); // rocker switches
 
   // ---------------------------------------------------------------- instrument pod
-  // the binnacle sits on the fascia's front edge, in front of the dash shelf (which would otherwise cut
-  // the lower half of the dials), and looks between the rim top (21-25 deg below the eye line) and the
-  // wheel boss (35 deg); the gauge face tilts back to face the eye
+  // the binnacle sits on the fascia's front edge, in front of the dash shelf (which would cut the lower half of
+  // the dials), between the rim top (21-25 deg below the eye line) and the wheel boss (35 deg); the face tilts back
+  // to face the eye
   const POD = new THREE.Vector3(DX, 1.405, -0.50);
   const pod = new THREE.Group();
   pod.position.copy(POD);
@@ -172,7 +167,6 @@ export function buildInterior(mats, body) {
     pod.add(pivot);
     needles[k] = pivot;
   }
-  // warning lamp strip between the dials
   const warnMat = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.4, emissive: 0xff7a20, emissiveIntensity: 0 });
   for (let k = 0; k < 3; k++) {
     const w = new THREE.Mesh(new THREE.CircleGeometry(0.0055, 12), warnMat);
@@ -215,7 +209,6 @@ export function buildInterior(mats, body) {
   badge.position.z = -0.006;
   swRot.add(badge);
   dynamic.push(steeringWheel);
-  // column shroud along the wheel axis, stalks
   {
     const axis = new THREE.Vector3(0, Math.sin(tilt), Math.cos(tilt));
     const hub = new THREE.Vector3(DX, 1.36, -0.36);
@@ -239,14 +232,11 @@ export function buildInterior(mats, body) {
   transferLever.add(mesh(new THREE.SphereGeometry(0.022, 14, 10), mats.tail, 0, 0.225, 0));
   add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.04, 14), mats.seal, 0.04, 1.0, -0.1));
   dynamic.push(gearLever, transferLever);
-  // handbrake between the seats
   add(rbox(0.04, 0.05, 0.26, 0.015, mats.seal, 0.0, 1.03, 0.08)).rotation.x = 0.35;
-  // pedals
   for (const [x, w] of [[DX - 0.12, 0.06], [DX + 0.01, 0.07], [DX + 0.15, 0.08]]) {
     add(rbox(w, 0.08, 0.015, 0.006, mats.seal, x, 0.92, -0.58)).rotation.x = -0.5;
     add(bar([x, 0.95, -0.6], [x, 1.05, -0.62], 0.008, mats.cabinMetal, 6));
   }
-  // floor mats
   for (const x of [DX, -DX]) add(span(x - 0.24, x + 0.24, FLOOR, FLOOR + 0.008, -0.68, -0.2, mats.rubber, 0.003));
 
   // ---------------------------------------------------------------- seats
@@ -282,7 +272,6 @@ export function buildInterior(mats, body) {
   // ---------------------------------------------------------------- door cards, pillars, trims
   for (const s of sides) {
     const xi = s * (W - 0.05);
-    // front door card with armrest, pull, winder, interior handle
     add(span(xi - 0.012, xi + 0.012, 0.8, WAIST - 0.01, -0.665, 0.215, mats.dashSoft, 0.008));
     add(span(xi, xi - s * 0.03, WAIST - 0.03, WAIST + 0.012, -0.67, 0.22, mats.dash, 0.01));   // capping
     add(rbox(0.06, 0.05, 0.36, 0.02, mats.dash, xi - s * 0.035, 1.12, -0.18));                // armrest
@@ -290,17 +279,13 @@ export function buildInterior(mats, body) {
     add(mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.015, 14).rotateZ(Math.PI / 2), mats.cabinMetal, xi - s * 0.02, 1.27, -0.05));
     add(bar([xi - s * 0.03, 1.27, -0.05], [xi - s * 0.03, 1.22, 0.02], 0.006, mats.cabinMetal, 6));
     add(rbox(0.02, 0.03, 0.09, 0.008, mats.cabinMetal, xi - s * 0.02, 1.3, -0.5));
-    // rear door card
     add(span(xi - 0.012, xi + 0.012, 0.8, WAIST - 0.01, 0.255, 0.96, mats.dashSoft, 0.008));
     add(span(xi, xi - s * 0.03, WAIST - 0.03, WAIST + 0.012, 0.25, 0.965, mats.dash, 0.01));
-    // rear quarter trim
     add(span(xi - 0.012, xi + 0.012, 1.1, WAIST - 0.01, 0.99, REAR - 0.06, mats.dashSoft, 0.008));
-    // B pillar trim + seat belt
     const xb = s * (WG * D.tumble(1.6) - 0.045);
     add(span(xb - 0.015, xb + 0.015, WAIST, EAVE - 0.03, 0.17, 0.29, mats.dashSoft, 0.01));
     add(rbox(0.02, 0.05, 0.05, 0.01, mats.seatTrim, xb - s * 0.02, 1.86, 0.25));
     add(span(xb - s * 0.02 - 0.002, xb - s * 0.02 + 0.002, 1.0, 1.85, 0.255, 0.30, mats.seatTrim));
-    // grab handle above the door
     add(pipe([[xb - s * 0.02, 1.88, -0.32], [xb - s * 0.05, 1.86, -0.3], [xb - s * 0.05, 1.86, -0.1], [xb - s * 0.02, 1.88, -0.08]], 0.009, mats.seatTrim, 0.02, 6));
   }
 
@@ -309,16 +294,12 @@ export function buildInterior(mats, body) {
     const hy = EAVE - 0.01;
     const xw = WG * D.tumble(hy) - 0.04;
     add(span(-xw + 0.06, xw - 0.06, hy - 0.004, hy + 0.012, D.HEADER + 0.03, REAR - 0.06, mats.headliner, 0.006));
-    // coves down to the window tops
     for (const s of sides) add(span(s * (xw - 0.07), s * xw, hy - 0.05, hy + 0.01, D.HEADER + 0.03, REAR - 0.06, mats.headliner, 0.02));
-    // transverse seams + dome lamp
     for (const z of [0.25, 1.05, 1.75]) add(span(-xw + 0.07, xw - 0.07, hy - 0.007, hy - 0.004, z - 0.004, z + 0.004, mats.dashSoft));
     add(rbox(0.16, 0.02, 0.08, 0.008, mats.seatTrim, 0, hy - 0.01, 0.42));
     add(rbox(0.12, 0.012, 0.05, 0.006, mats.sideLens, 0, hy - 0.019, 0.42)).castShadow = false;
-    // header rail over the screen
     const zH = D.HEADER;
     add(span(-xw, xw, hy - 0.06, hy + 0.005, zH - 0.02, zH + 0.06, mats.dashSoft, 0.015));
-    // sun visors folded up
     for (const x of [DX, -DX]) {
       const v = add(rbox(0.38, 0.022, 0.16, 0.012, mats.headliner, x, hy - 0.072, zH + 0.13));
       v.rotation.x = 0.12;
@@ -333,7 +314,6 @@ export function buildInterior(mats, body) {
     add(rbox(0.215, 0.066, 0.03, 0.02, mats.seatTrim, 0, 0, 0), mg);
     add(rbox(0.2, 0.053, 0.004, 0.016, mats.mirror, 0, 0, 0.0155), mg).castShadow = false;
   }
-  // A-pillar trims inside the screen frame
   for (const s of sides) {
     const p0 = [s * (WG - 0.045), WAIST + 0.01, D.SCREEN + 0.035], p1 = [s * (WG * D.tumble(EAVE) - 0.045), EAVE - 0.03, D.HEADER + 0.035];
     add(bar(p0, p1, 0.028, mats.dashSoft, 10));

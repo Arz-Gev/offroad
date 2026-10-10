@@ -1,13 +1,11 @@
 import * as THREE from 'three/webgpu';
 import { cornerName } from '../suspension.js';
 
-// Running gear of an independent corner with double wishbones, made of the model's own parts (tools/
-// prepcar.mjs `parts` cuts them out of the hull per corner): armLow_k / armUp_k (they may have two legs)
-// pivot on the hull's inner shafts and reach for the ball joints; barLow_k / barUp_k (the ball joints)
-// follow the knuckle; shockEyeUp_k + shockBody_k turn about the top mount on the hull, shockRod_k +
-// shockEyeLo_k ride on the upper arm and telescope out of the body. A knuckle (a post between the ball
-// joints and a stub axle out to the wheel) is ours, in the wheel's steer group. Everything moves in the
-// corner's cross plane (x-y of the body frame), driven by the physics: compression, camber and lateral path.
+// Independent corner with double wishbones, made of the model's own parts (tools/prepcar.mjs `parts` cuts them
+// out of the hull per corner): armLow_k / armUp_k (may have two legs) pivot on the hull's inner shafts and reach
+// for the ball joints; barLow_k / barUp_k follow the knuckle; shockEyeUp_k + shockBody_k turn about the top mount
+// on the hull, shockRod_k + shockEyeLo_k ride on the upper arm and telescope out of the body. Everything moves
+// in the corner's cross plane (x-y of the body frame), driven by the physics: compression, camber, lateral path.
 //
 // spec (the car's look.suspension): { parts: 'wishbones', pivotLow, pivotUp } – the arms' inner pivots
 // [x, y] in the model's hub frame (y 0 at the static hub), mirrored to both sides. A part a model doesn't
@@ -48,8 +46,7 @@ export function wishboneCorners(root, shell, P, wheels, spec, take, hubY) {
       // rod: from just above the lower eye to 1.3 cm into the shock body (static)
       cr.rod0 = { lo: p.shockRod.box.min.y, hi: p.shockRod.box.max.y, bodyLo: p.shockBody.box.min.y };
     }
-    // our knuckle: a post between the ball joints and a stub axle out to the wheel, in the steer group
-    // (it turns with camber and steering about the hub), sized from the static ball joints
+    // our knuckle (post + stub axle) in the steer group: turns with camber and steering; sized from the static ball joints
     const kn = new THREE.Group();
     const post = new THREE.Mesh(knuckleGeo, knuckleMat), stub = new THREE.Mesh(stubGeo, knuckleMat);
     const bl = cr.ballLow0.clone().sub(hub0), bu = cr.ballUp0.clone().sub(hub0);
@@ -99,7 +96,6 @@ function updateCorners(corners, v) {
     cr.barLow.grp.matrix.makeTranslation(_bl.x - cr.ballLow0.x, _bl.y - cr.ballLow0.y, 0);
     cr.barUp.grp.matrix.makeTranslation(_bu.x - cr.ballUp0.x, _bu.y - cr.ballUp0.y, 0);
     if (!cr.rod0) continue;
-    // shock: the lower eye rides on the upper arm, the top eye is on the hull
     _le.copy(cr.lowEye0).applyMatrix4(_mUp);
     cr.shockEyeLo.grp.matrix.makeTranslation(_le.x - cr.lowEye0.x, _le.y - cr.lowEye0.y, 0);
     const _d0x = cr.topEye.x - cr.lowEye0.x, _d0y = cr.topEye.y - cr.lowEye0.y;

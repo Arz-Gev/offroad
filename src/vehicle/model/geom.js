@@ -92,7 +92,6 @@ export function extrudePlan(points, height, mat, bevel = 0.01, curveSegments = 8
   return mesh(geo, mat);
 }
 
-// rounded rectangle path/shape helpers (2D)
 export function roundRect(shapeOrPath, x0, y0, x1, y1, r) {
   const s = shapeOrPath;
   r = Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2);

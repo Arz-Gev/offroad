@@ -1,61 +1,48 @@
 # Tasks
 
-Player feedback and the work list. Status: ✅ done · 🔄 in progress · ⏳ waiting for an answer · 📋 to do · ⏸ parked.
-Technical notes live in `DEVNOTES.md`.
+The player's open work list. Status: 🔄 in progress · ⏳ waiting for an answer · 📋 to do · ⏸ parked.
+A finished task is deleted, not kept: the PR says what was done. Technical notes live in `DEVNOTES.md`.
 
-## Done
+## Waiting for an answer
 
 | Task | Notes |
 |---|---|
-| ✅ WebGPU renderer (asked Oct 6) | The game runs on WebGPU (Chrome, Edge, Safari 26, Firefox on Windows / new Macs) and falls back to WebGL 2 elsewhere. Grass and bushes are culled on the GPU, tree crowns cast cheaper shadows, leaves let a low sun through. Forest on High 27 -> 10.5 ms per frame, on Ultra 70 -> ~25 ms. Anti-aliasing choices are now Off / FXAA / SMAA / MSAA 4x (WebGPU has no 2x). Next: weather (rain, wet ground, mist), birds, falling leaves, fireflies, fake GI, denser vegetation in the presets. |
-| ✅ Seats looked reversed | Seat backs leaned forward; tilt sign fixed (front seats and rear bench). |
-| ✅ ABS on / off | Key **B**; HUD shows "ABS OFF". |
-| ✅ Truck creeps / accelerates with the handbrake on | At a stop the handbrake now also holds the transfer output, so the front can't pull through an open centre diff. Holds at full throttle, also on a 20° slope. |
-| ✅ Handbrake modes | Menu → Settings → Driving: **Hold**, **Toggle**, **Auto** (short tap toggles, long press holds). |
-| ✅ Rear-wheel-drive mode | Key **F**: 2WD ⇄ 4WD, HIGH range only, below 30 km/h. |
-| ✅ Wide graphics settings | Menu → **Graphics** tab: preset, resolution, pixel density cap, shadows, SSAO, anti-aliasing, bloom, terrain distance and shading, distant tree shadows. Changing any option switches the preset to Custom. The full-detail tree distance is no longer a setting: 40 m on Low and Medium, 50 m on High, Ultra and Custom. |
-| ✅ Grass and bushes: taller, denser, much further | Own section in Graphics with exact-value sliders (density, height, blade width, distance, dense-layer radius, far-layer width and spacing; bush density, size, distance) and an on / off switch that also hides the sliders. The four presets use the player's hand-tuned values; slider ranges are ±20 % around the presets. Density now sets the cell spacing, so a low density is really cheaper. Ultra's grass and bushes cost about 20 ms. |
-| ✅ SSAO | Graphics → Ambient occlusion: Off / Low / High. On by default on High (Low) and Ultra (High) presets. |
-| ✅ Fullscreen switch in Graphics, Welcome card button removed | |
-| ✅ SSAO pattern on some displays | Banding / dot grid on flat ground on the Mac and in 1440p fullscreen. Fixed in the AO depth reconstruction; confirmed gone by the player. |
-| ✅ Glass shader | Windows were grey and almost opaque. Now one face per pane (it was dimming the view twice), Fresnel alpha, a lighter tint; every pane is as clear as the front door glass. |
-| ✅ Gap between rim and tyre | The rim face was smaller than the barrel and the barrel was one-sided, so you could see through a ring around the face. |
-| ✅ Pixel density cap hidden where it does nothing | Shown only on screens with a device pixel ratio above 1. |
-| ✅ Cloud shadows | Tried, then removed at the player's request. |
-| ✅ Night road too dark from the cockpit | Checked by the player: fine. |
-| ✅ Time-of-day slider | Menu → Settings → Time of day: a slider (HH:MM, 5-minute steps) that the picture follows at once, plus Day / Dusk / Night buttons (13:00, 19:30, 23:00, which look exactly as the old presets). The sun and moon travel on arcs, dawn and dusk are continuous, exposure and lamps have no jumps. **N** still jumps day → dusk → night with a 2.5 s sweep. Headlights come on once when it gets dark. Old saved settings (`night`, ...) are migrated. |
-| ✅ At speed the truck spins out after a small steer, and keeps turning when you lift off | Caused by the Oct 2 fix for "doesn't turn at speed": the anti-roll bars were moved to the rear (8000 / 8500), which with the rear-heavy weight made the truck nearly neutral. Fixed with physics, not a stability aid: the tyre model now loses grip with load like a real tyre, weight 51 % front, bars back to 11000 / 4000, steering compliance and rear axle roll steer. Now ~1.9°/g understeer; lifting off at the limit only tucks the nose in a little. If you saved a setup in the Tab panel with the old bars, they are reset to the new stock. |
-| ✅ Engine start sounded wrong (squeal, too fast) | The old start could never work (the starter couldn't reach the speed the engine needed to fire), and the Oct 2 fix made it catch instantly after 0.4 s with a pure rising tone. Now, from V8 start recordings: ~1–1.5 s of uneven "rrr-rrr" cranking (noisy starter, compression strokes), a stumbling catch, a flare that settles to idle over ~3 s, and a bit more bass. Then fine-tuned by ear by the player with a temporary panel: short crank (0.35–0.5 s), deep rhythm, quiet ~600 Hz starter tone, loud catch pops, flare to ~2100 rpm. |
-| ✅ Keyboard steering assist setting | Menu → Settings → Driving. The held-key angle follows the grip under the truck right now (surface, pressure, tyre grip): **Strong** asks for 1.2× the grip limit (dirt 0.62 g → 0.75 g), **Light** 1.6× (→ 1.0 g), **Off** full lock 35.5° at any speed. Short taps always give small angles (the key ramps in over 0.5 s). Only the angle is assisted: floor the gas at the limit and the truck can still spin. |
-| ✅ In-game vehicle tuning (was four tasks: too fast and powerful, bigger wheels and higher suspension, can't climb steep slopes, tuning settings) | **Tab** opens a panel over the running game (no pause; the mouse works the panel, the keys still drive). Engine: 4.6 V8 (stock), 5.0 Works V8, 3.5 V8, 300Tdi, Td5, 2.4 TDCi, plus torque and rev limiter. Gearbox ratios, final drive, transfer high / low, driveline switches. Tyres 31–37″, width, pressure front / rear, grip. Lift 0–15 cm, springs, bump / rebound, anti-roll bars, bump travel per axle. Brakes (force, front share, handbrake). Cargo, roof load, centre of mass height. Steering lock and ratio. Readouts show consequences: power, 0–100 estimate, top speed, km/h per gear, ride frequency and damping (softer / stiffer than stock), clearance, approach / departure / breakover, room in the arches, axle loads, rollover limit, which axle locks first, turning circle. **Measure 0–100** runs the real physics on a flat pad (stock V8 8.7 s, Td5 17.5 s, 5.0 V8 5.5 s, 300Tdi 21.4 s, auto). Stock button, per-section reset, saved setups, Export / Import JSON. **Show physics** draws the collision boxes (red where they touch), wheel cylinders, tyres against the arches, suspension travel and contact patches; a box editor moves and resizes them live. The steep-slope problem was the invisible nose: the front bumper box sat 10 cm lower and 11 cm further forward than the visible bumper. Colliders now fit the model: approach 32° → 43°, the truck climbs 40–42° ramps it used to stop at. |
-| ✅ Multiplayer: drive with friends | Menu → **Friends**: **Invite** copies a link; whoever opens it spawns next to you (any number of friends, 4–6 is comfortable). Name tags, **Go to friend**, **Your name**. **Solid trucks** off = ghosts, on = trucks with their real weight that shove each other. Peer to peer, no server: a friend on some mobile hotspots or work networks may not connect (then a small Cloudflare relay would fix it). Friends' trucks have no engine sound and no headlight beams (lenses glow). |
-| ✅ More cars: G-Class and Lancia Delta, each its own car | Menu → Settings → Driving → **Vehicle**: Defender 110, G-Class (G 500: 4.0 V8 biturbo, 2.45 t, 0-100 5.4 s) or Lancia Delta HF Integrale (2.0 turbo, 1.34 t, 0-100 5.7 s). Each has its real engine, weight, gears, tyres and springs, its own wheels, and its own stock and saved setups in the Tab panel; all use the same solid-axle physics. Downloaded models (Sketchfab, CC BY). Their cockpits are the model's interior (no working gauges), lamp lenses don't glow at night, and every car still has the V8 sound. |
-| ✅ BTR-80 (asked Oct 5) | Menu → Settings → Driving → **Vehicle** → BTR-80. The BTR-82A model you wanted can't be downloaded, so it's the BTR-80 (Goga.Danelia, CC BY). Real numbers: 13.6 t, KamAZ-7403 260 hp, 5-speed + 2-speed transfer, 8x8, front two axles steer, torsion bars and double wishbones on every wheel. Measured: 80 km/h top (real 80), 0–60 in 24 s, climbs 30° in 1st low, holds on 30° with the handbrake, turning radius 13.6 m (real 13.2). The suspension under it is the model's own and moves (arms, torsion bars, shocks). The turret works: **right mouse** for the gunner's sight, the mouse aims, the turret follows at hand-wheel speeds (estimated: no published figures), **left mouse** fires, **1** switches KPVT 14.5 mm ⇄ PKT 7.62 mm, belts and reloads, tracers, impacts, recoil. The tyre pressure keys work as the CTIS. Not done: the 30 mm BTR-82A turret, a damage model, swimming. |
-| ✅ BTR muzzle flash: real flames and light (asked Oct 6) | The round sprite (which floated in front of the barrel) is gone. Now real photographed flames (US Marines and Wikimedia CC0 night photos, keyed onto black): 3 side views that start exactly at the barrel tip and turn with the camera, 3 front views when you look down the barrel; every shot picks a flame, flip, length, width and rotation at random, so no two look alike. Each shot also flashes a light: at night it lights the ground ahead, grass, trees and the BTR's own nose, wheels and turret front; by day only a faint warm tint on the nose and the ground right under the gun. The hull stays dark behind the muzzle, as it would in its own shadow. A friend's BTR flashes too (without light). Not done: real shadows from the flash (one texture slot too many for the terrain shader). |
-| ✅ Tyres wrap round rocks (tyre v2) | All cars: the tyre now feels every one of its 39 rays and spreads the load over the patch, so a rock or an edge pushes only where it touches and the tyre wraps round it (more at low pressure); the drawn tyre deforms from the same data, the rim doesn't. Rocks are now drawn exactly as their physics shape, so wheels no longer float over dents. Small changes to the other cars' numbers (tyre squash 3.2 → 3.3 cm, 0–100 unchanged). |
-| ✅ Tyre damping follows pressure and speed (asked Oct 6) | The tyre's own bump damping was a fixed number. Now, as on real tyres, aired-down tyres damp more (10 psi about 1.5× the 20 psi value, 32 psi about 0.75×), and a standing or crawling tyre damps about 3× more than a rolling one. The shocks still do most of the work, so the Defender feels almost the same; the heavy BTR gains the most (at 10 psi a log at 30 km/h no longer bounces the wheel off the ground). Heat changing the pressure: left out on purpose. |
-
-## Next (waiting for answers)
-
-| Task | Difficulty | Notes |
-|---|---|---|
-| ⏳ Tuning: the player's favourite setup | Easy | Try engines, tyres and lift in the Tab panel. A setup you like goes through Export into `DEFAULT_SETUP` in `src/vehicle/tuning.js` and becomes the truck's stock. |
+| ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
 
 ## To do
 
-| Task | Difficulty | Notes |
+| Task | Size | Notes |
 |---|---|---|
-| 📋 More cars (picked Oct 4) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997, HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail). Recipe in DEVNOTES "Imported cars". The Land Cruiser J200 model is broken (doubled dark surfaces, no textures): pick another Land Cruiser (e.g. the beige FJ40 "4x4 toyota Bj"). The 1997 Wrangler (54 MB) needs slimming down. |
-| 📋 Body bounces off when the roof or side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
-| 📋 PBR textures | Medium–large | Materials are already PBR; this means texture maps (normal, roughness, albedo) for the ground and the truck. Will be a Graphics option. |
-| 📋 Suspension, shocks and wheel arches: model + animation | Large | Axles, links and shocks that follow the physics. Tyre size and lift now come from the tuning panel (the springs stretch with the lift, the wheels scale); the arches and links are still the stock model. |
-| 📋 Tuning: what's left | Medium | The engine sound is the V8 for every engine (diesels need their own sound). Tyres rubbing the arches are shown (red tyre outline), not simulated as a stop. Tyre width changes the look, the contact rays and the side cylinders, not the grip. The model's long rear overhang limits the departure angle to 31° (the rear bumper scrapes at the foot of 30°+ ramps); lift and bigger tyres fix that, as on the real truck. |
-| 📋 River is badly built | Medium | Must be fixed, but later. Most of its length floats in the air, and from below it isn't even visible: the water surface doesn't follow the terrain / the riverbed isn't carved into it. |
-| ✅ Phones and tablets | On-screen controls (`touch.js`): thumb stick or tilt steering, analog gas / brake / clutch pedals, handbrake, ▲ ▼ shift, camera, recover, a 4×4 drawer (range, diff locks, 2WD, engine, lights, tyres, tuning), fullscreen. Drag to look, pinch to zoom. Shown automatically on touch (Settings → Touch screen). HUD moves out of the thumbs' way (compact cluster top right); touch welcome card and Controls column; the menu fills a landscape phone screen. Phones and iPads get the Low preset. Web app manifest: Add to Home Screen starts full screen in landscape. |
+| 📋 More cars (picked by the player) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997 (54 MB, needs slimming), HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail), a Land Cruiser (not the J200; e.g. the beige FJ40 "4x4 toyota Bj"). Recipe: `src/cars/README.md`. |
+| 📋 Body bounces off when the roof or a side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
+| 📋 PBR textures | Medium–large | Texture maps (normal, roughness, albedo) for the ground and the truck, as a Graphics option. |
+| 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
+| 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
+| 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
+| 📋 WebGPU slower on the Windows PC | Medium | Ryzen 5 5600 + RTX 3070, Chrome: about half the old WebGL frame rate almost everywhere (forests still faster); AO and dust barely matter there. Likely CPU-side per-draw cost in three's WebGPURenderer: profile main thread vs GPU on that PC first. Phones also seem slower (not measured). |
+| 📋 Faster first load | Medium | ~110 render pipelines compile on the first visit. |
+| 📋 Weather and life (asked with the WebGPU work) | Large | Rain (streaks and splashes, wet ground and puddles through the terrain's wetness uniforms, wet grip, mist, rain sound), birds, falling leaves, petals / pollen, fireflies, fake GI (canopy sky occlusion, ground bounce light), wind sheen on the grass, denser vegetation presets. Ship in small PRs. |
+
+## Known gaps (not asked for yet)
+
+- Tuning: tyres rubbing the arches are drawn, not simulated as a stop; tyre width doesn't change grip.
+- Imported cars: cockpits have no working gauges.
+- BTR-80: no 30 mm BTR-82A turret, no damage model, no swimming; the muzzle flash light casts no shadows.
+- Multiplayer: friends' trucks have no engine sound and no headlight beams; friends on some mobile or work networks can't connect (needs a relay).
+- Driving: the rock garden can wedge the chassis on boulders (fair, but watch for frustration); corner rollovers at 60–70 km/h are plausible (threshold ≈ 0.7 g vs dirt μ 0.72) but may feel harsh.
+- World: no terrain or trees in water reflections, undergrowth casts no shadow, no ramp into the quarry, no hut interior, no snow on the near mountains.
+- Ideas: water and fording (the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, hill descent control, damage model, force feedback.
 
 ## Parked
 
 | Task | Notes |
 |---|---|
+| ⏸ Suspension / landing / body impact sounds | Removed: nothing tried sounded right. See `DEVNOTES.md` → Sound. |
 | ⏸ Lake physics (driving into water) | Not a priority. |
-| ⏸ Short hitch on the first switch to night | Not a priority. |
+
+## Decided by the player (don't redo unasked)
+
+- Cloud shadows: tried, removed.
+- The welcome card on first start: removed; only the short line at the bottom shows.
+- The night road from the cockpit is bright enough.
+- Impact sounds: see Parked.

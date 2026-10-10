@@ -2,8 +2,11 @@ import * as THREE from 'three/webgpu';
 import { spriteCloud } from './render/sprites.js';
 import { MAP_SIZE } from './world/terrain.js';
 
-// Dust / mud particles and water splashes kicked up by the tyres + persistent tyre tracks painted into a
-// map-wide texture.
+// Dust / mud / water particles kicked up by the tyres, and tyre tracks painted into a map-wide texture.
+
+// Soft dust puffs alive at once; emission thins out near it (wheelspin in place leaves a haze, not a
+// wall), so clumps and splashes always find room in the buffer.
+const PUFF_CAP = 450;
 
 export class Dust {
   constructor(scene, max = 4000) {
@@ -19,6 +22,7 @@ export class Dust {
     this.heavy = new Uint8Array(max);
     this.next = 0;
     this.live = 0;
+    this.puffs = 0;        // live soft particles (counted in update, plus this frame's emits)
     this.enabled = true;   // setting 'dust' (Graphics)
     this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
     this.points = this.cloud.mesh;
@@ -42,9 +46,10 @@ export class Dust {
     this.color[i * 3] = col[0]; this.color[i * 3 + 1] = col[1]; this.color[i * 3 + 2] = col[2];
     this.heavy[i] = heavy ? 1 : 0;
     this.live = this.max;
+    if (!heavy) this.puffs++;
   }
 
-  // water: droplets thrown up and back by the tread plus a bow wave to the sides, more with speed and depth
+  // droplets off the tread plus a bow wave, more with speed and depth
   splash(v, w, depth, dt, rnd) {
     const s = w.surf, muddy = !!s.mud;
     const sp = Math.abs(w.vcx), slip = w.slipVel || 0;
@@ -60,13 +65,11 @@ export class Dust {
       const col = [base[0] * k, base[1] * k, base[2] * k];
       const sgn = rnd() < 0.5 ? -1 : 1;
       if (rnd() < 0.65) {
-        // droplets: up and back off the tread, some sideways
         const up = 1.2 + rnd() * 2.0 + sp * 0.12, out = (rnd() - 0.3) * 1.5 + sp * 0.08;
         this.emit(P.x + (rnd() - 0.5) * 0.35, wl + 0.02, P.z + (rnd() - 0.5) * 0.35,
           -back.x * sp * (0.15 + rnd() * 0.35) + side.x * out * sgn + v.vel.x * 0.5, up, -back.z * sp * (0.15 + rnd() * 0.35) + side.z * out * sgn + v.vel.z * 0.5,
           0.05 + rnd() * 0.07, 0.7 + rnd() * 0.5, col, true);
       } else {
-        // bow wave / spray: fine mist that hangs a moment
         this.emit(P.x + side.x * sgn * 0.3, wl + 0.05, P.z + side.z * sgn * 0.3,
           side.x * sgn * (0.8 + sp * 0.15) + v.vel.x * 0.6, 0.5 + rnd() * 0.8, side.z * sgn * (0.8 + sp * 0.15) + v.vel.z * 0.6,
           0.25 + rnd() * 0.35 + sp * 0.02, 0.5 + rnd() * 0.5, col.map(c => Math.min(1, c * 1.25)), false);
@@ -84,15 +87,27 @@ export class Dust {
       }
       const s = w.surf;
       const roll = Math.abs(w.vcx);
-      const slip = w.slipVel || 0;
-      const intensity = s.mud ? slip * 1.2 + roll * 0.15 : s.dust * (roll * 0.35 + slip * 1.6);
+      const slip = Math.min(w.slipVel || 0, 12);
+      // past ~3 m/s of wheelspin, more adds little (a stuck car spins at 10-15 m/s)
+      const slipK = slip < 3 ? slip : 3 + (slip - 3) * 0.25;
+      const room = Math.max(0, 1 - this.puffs / PUFF_CAP);
+      const intensity = s.mud ? slipK * 1.2 + roll * 0.15 : s.dust * (roll * 0.3 + slipK * 1.3) * room;
       let n = intensity * dt * 9;
+      let m = s.mud ? slipK * 0.6 * room * dt * 9 : 0;
+      while (m > 0) {
+        if (m < 1 && rnd() > m) break;
+        m -= 1;
+        const P = w.P, back = w.fc, k = 0.85 + rnd() * 0.3;
+        this.emit(P.x + (rnd() - 0.5) * 0.4, P.y + 0.15, P.z + (rnd() - 0.5) * 0.4,
+          -back.x * slipK * 0.3 + (rnd() - 0.5) * 0.6 + v.vel.x * 0.25, 0.4 + rnd() * 0.6, -back.z * slipK * 0.3 + (rnd() - 0.5) * 0.6 + v.vel.z * 0.25,
+          0.25 + rnd() * 0.25, 0.8 + rnd() * 0.7, [0.40 * k, 0.29 * k, 0.18 * k], false);
+      }
       while (n > 0) {
         if (n < 1 && rnd() > n) break;
         n -= 1;
         const P = w.P;
         const back = w.fc;
-        const sp = (s.mud ? 0.5 : 0.25) * Math.min(slip, 12);
+        const sp = (s.mud ? 0.5 : 0.25) * slip;
         if (s.mud) {
           const c = 0.3 + rnd() * 0.1;
           this.emit(P.x + (rnd() - 0.5) * 0.3, P.y + 0.12, P.z + (rnd() - 0.5) * 0.3,
@@ -103,7 +118,7 @@ export class Dust {
           const k = 0.85 + rnd() * 0.25;
           this.emit(P.x + (rnd() - 0.5) * 0.4, P.y + 0.1, P.z + (rnd() - 0.5) * 0.4,
             -back.x * sp + (rnd() - 0.5) * 0.8 + v.vel.x * 0.25, 0.4 + rnd() * 0.9, -back.z * sp + (rnd() - 0.5) * 0.8 + v.vel.z * 0.25,
-            0.5 + rnd() * 0.6, 1.6 + rnd() * 1.8, [c[0] * k, c[1] * k, c[2] * k], false);
+            0.35 + rnd() * 0.4, 1.3 + rnd() * 1.4, [c[0] * k, c[1] * k, c[2] * k], false);
         }
       }
     }
@@ -112,7 +127,7 @@ export class Dust {
   update(dt, light) {
     this.cloud.light.value = light;
     if (!this.live) return;
-    let any = 0;
+    let any = 0, puffs = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
       any++;
@@ -126,11 +141,13 @@ export class Dust {
         const drag = Math.exp(-dt * 1.6);
         this.vel[o] *= drag; this.vel[o + 2] *= drag;
         this.vel[o + 1] = this.vel[o + 1] * drag + 0.15 * dt;
-        this.size[i] += dt * 1.1;
-        this.alpha[i] = 0.2 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
+        this.size[i] += dt * 0.75;
+        puffs++;
+        this.alpha[i] = 0.175 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
       }
       this.pos[o] += this.vel[o] * dt; this.pos[o + 1] += this.vel[o + 1] * dt; this.pos[o + 2] += this.vel[o + 2] * dt;
     }
+    this.puffs = puffs;
     if (!any) this.live = 0;
     this.cloud.commit(any ? this.max : 0);
   }

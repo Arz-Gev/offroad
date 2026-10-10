@@ -4,19 +4,14 @@ import { SURFACES, tireCoefs, tireForces, tireRelax, tireRadialStiffness, tireRa
 import { axleShares, steerRefLength, ackermann, cornerKin } from './suspension.js';
 
 // Physics model
-// - Chassis: one Rapier rigid body (sprung + unsprung mass, gravity on the unsprung part cancelled).
-// - Any number of axles, two wheels each (P.axles, front to back), each with its own suspension type,
-//   steering (Ackermann about one turning centre, suspension.js) and drive (drivetrain.js):
-//   - beam axle ('beam', the default): 2 DOF (heave c, roll phi) relative to the chassis, with its own mass
-//     and roll inertia, integrated in substeps with absolute velocities, so wheels hop, axles articulate
-//     and axle wrap exists;
-//   - independent ('independent'): 1 DOF per wheel (compression c) with kinematic curves (camber, roll
-//     centre height via the contact patch's lateral path), wheel-rate spring, damper, bump stop, droop
-//     stop and an optional anti-roll bar. The diff sits on the body, so the drive torque reaction stays in
-//     the body.
-// - Tyres: fan of rays in the wheel plane (3 rows across the tread) gives contact point, normal and
-//   radial deflection; the tyre is a radial spring/damper in series with the coil spring.
-// - Friction: transient tyre model (tire.js) driven by the drivetrain's wheel speeds (drivetrain.js).
+// - Chassis: one Rapier rigid body (sprung + unsprung mass, gravity on the unsprung part cancelled), with
+//   any number of axles (P.axles, front to back), two wheels each, each with its own suspension, steering
+//   (Ackermann about one turning centre) and drive (drivetrain.js).
+// - Beam axle (default): 2 DOF (heave c, roll phi) relative to the chassis, own mass and roll inertia,
+//   integrated in substeps with absolute velocities (wheel hop, articulation, axle wrap). Independent: 1 DOF
+//   per wheel (compression c), kinematic camber / roll-centre curves; the diff sits on the body.
+// - Tyres: ray fan in the wheel plane (castContact), a radial spring/damper in series with the coil spring;
+//   friction: transient model (tire.js) driven by the drivetrain's wheel speeds.
 
 const V3 = THREE.Vector3;
 const G = 9.81;
@@ -29,11 +24,11 @@ const X = new V3(1, 0, 0), Y = new V3(0, 1, 0), Z = new V3(0, 0, 1);
 
 // Rapier collision groups: high 16 bits = membership, low 16 bits = filter.
 const GROUND_BIT = 0x0001, WHEEL_BIT = 0x0002;
+const RIM_GIVE_BACK = 0.15;   // share of the rim strike's force on the way back out (crushed rubber)
 export const GROUP_GROUND = (GROUND_BIT << 16) | 0xffff;
 const GROUP_WHEEL_SIDE = (WHEEL_BIT << 16) | (0xffff & ~GROUND_BIT);
 
-// Keyboard steering assist (Settings): a held key asks for the angle that corners at k x the current grip
-// limit plus c x the front tyres' peak slip angle. 'off' = full lock at any speed.
+// Keyboard steering assist: a held key asks for k x the grip limit + c x the front peak slip angle ('off' = full lock).
 export const STEER_ASSIST = { strong: { k: 1.2, c: 0.5 }, light: { k: 1.6, c: 0.6 } };
 
 export class Vehicle {
@@ -44,11 +39,10 @@ export class Vehicle {
     this.surfaceAt = opts.surfaceAt || (() => SURFACES.dirt);
     this.substeps = opts.substeps || 4;
     this.pressures = [P.tire.pressure, P.tire.pressure];   // front, rear (psi): the front / rear half of the axles
-    // geometry the physics uses right now; retune() eases it towards P (tyre radius, axle droop height)
     this.R = P.tire.radius;
     this.nA = P.axles.length;
     this.nW = 2 * this.nA;
-    this.steerL = steerRefLength(P);     // reference length of the steering geometry (wheelbase on a 4x4)
+    this.steerL = steerRefLength(P);
 
     const unsprung = P.axles.reduce((s, a) => s + a.mass, 0);
     this.totalMass = P.bodyMass + unsprung;
@@ -96,23 +90,16 @@ export class Vehicle {
         latOff: 0, surf: SURFACES.dirt, fc: new V3(), sc: new V3(), vcx: 0, vcy: 0, vHubPerp: new V3(),
         ux: 0, uy: 0, Fx: 0, Fy: 0, Fn: 0, Re: P.tire.radius, slipNorm: 0, slipSteady: 0,
         co: {}, accF: new V3(), FnAvg: 0, slipVel: 0, collider: null,
-        // tyre v2 (castContact): per ray the intrusion (m, < 0 clear: the tyre shader's data), hit distance,
-        // surface tilt across the tread, collider, surface; the patch's force and stiffness at the cast
+        // tyre v2 (castContact): per ray the intrusion (m, < 0 clear), hit distance, tilt across the tread, collider, surface; the patch's force and stiffness
         rayPen: new Float32Array(TIRE_ROWS.length * NF).fill(-1), rayT: new Float64Array(TIRE_ROWS.length * NF),
         rayN: new Float64Array(TIRE_ROWS.length * NF), rayCol: new Array(TIRE_ROWS.length * NF).fill(null),
         raySurfs: new Array(TIRE_ROWS.length * NF).fill(SURFACES.dirt), raySurfAt: new Int32Array(TIRE_ROWS.length * NF).fill(-1),
         F0: 0, kEff: 0, pen0: 0, muRatio: 1, crrRatio: 1, ct: 0,
-        // independent corner: compression, absolute vertical speed, mount speed, spring + damper sums, camber
         c: ax.c, vz: 0, vMountU: 0, accS: 0, accD: 0, Qc: 0, camber: 0, out: 0,
       });
     }
 
-    // Side-impact cylinders for the wheels. Ground contact is handled by the ray fan; these only stop
-    // rocks, logs and walls from passing through the sidewall. They must never touch the terrain
-    // heightfield: they are teleported to the hub every step, so a contact there turns into a huge
-    // impulse on the whole truck (that was the "pogo stick" ride). Radius sits near the rim-bottoming
-    // depth for the same reason.
-    // Collision groups: heightfields are put in GROUND only; the wheel cylinders filter GROUND out.
+    // heightfields are GROUND only; the wheel cylinders filter GROUND out
     world.forEachCollider(c => {
       if (c.shape.type === RAPIER.ShapeType.HeightField) c.setCollisionGroups(GROUP_GROUND);
     });
@@ -144,7 +131,6 @@ export class Vehicle {
     this.time = 0;
     this.stepNo = 0;
 
-    // body state cache
     this.pos = new V3(); this.quat = new THREE.Quaternion(); this.vel = new V3(); this.angVel = new V3(); this.com = new V3();
     this.right = new V3(); this.up = new V3(); this.back = new V3(); this.fwd = new V3();
     this.accel = new V3(); this._lastVel = new V3(); // for head motion / g-meter
@@ -165,11 +151,9 @@ export class Vehicle {
     });
   }
 
-  // Side-impact cylinders for the wheels. Ground contact is handled by the ray fan; these only stop
-  // rocks, logs and walls from passing through the sidewall. They must never touch the terrain
-  // heightfield: they are teleported to the hub every step, so a contact there turns into a huge
-  // impulse on the whole truck (that was the "pogo stick" ride). Radius sits near the rim-bottoming
-  // depth for the same reason.
+  // Side-impact cylinders: only stop rocks, logs and walls from passing through the sidewall (ground contact is
+  // the ray fan). They must never touch the terrain heightfield: teleported to the hub every step, a contact
+  // there is a huge impulse on the truck (the "pogo stick" ride). Radius near the rim-bottoming depth.
   makeWheelColliders() {
     const { RAPIER, world, P } = this;
     this.wheelColR = this.R;
@@ -184,8 +168,7 @@ export class Vehicle {
     if (this.quat) this.updateGeometry();
   }
 
-  // Mass, centre of mass and inertia from P (cargo, roof load, wheel mass) on the live body. They blend
-  // over ~0.5 s (morphGeometry): dropping 850 kg of load in one step would throw the body off its springs.
+  // Mass, COM and inertia from P (cargo, roof, wheel mass). They blend over ~0.5 s (morphGeometry): dropping 850 kg at once would throw the body off its springs.
   updateMass(snap = false) {
     const P = this.P;
     this.massTarget = [P.axles.reduce((s, a) => s + a.mass, P.bodyMass), ...P.com, ...P.bodyInertia];
@@ -198,9 +181,7 @@ export class Vehicle {
     this.body.setAdditionalMassProperties(m[0], { x: m[1], y: m[2], z: m[3] }, { x: m[4], y: m[5], z: m[6] }, { x: 0, y: 0, z: 0, w: 1 }, true);
   }
 
-  // Called after tuning.applySetup changed P. Everything the step reads from P is already live; this
-  // applies what lives elsewhere: mass properties, colliders, drivetrain inertias. Tyre radius and axle
-  // droop (lift) ease towards P in step(), unless snap (teleports, load).
+  // After tuning.applySetup changed P: mass, colliders, drivetrain inertias. Tyre radius and droop ease in step() unless snap.
   retune({ colliders = true, snap = false } = {}) {
     this.updateMass(snap);
     if (colliders) this.setColliders(this.P.colliders);
@@ -216,8 +197,7 @@ export class Vehicle {
     if (Math.abs(this.R - this.wheelColR) > 1e-4 || Math.abs(this.P.tire.width * 0.42 - this.wheelColW) > 1e-4) this.makeWheelColliders();
   }
 
-  // ease the geometry towards P: the body rises / settles on its springs, no wheels teleported into the ground
-  // (raising 0.15 m/s; lowering slower, 0.05 m/s, so the body follows on its springs instead of dropping)
+  // ease the geometry towards P (raising 0.15 m/s, lowering 0.05 m/s so the body follows on its springs)
   morphGeometry(h) {
     const up = 0.15 * h, down = 0.05 * h;
     const R = this.P.tire.radius;
@@ -227,8 +207,7 @@ export class Vehicle {
     }
     // droop: a lower droopY = axle further below the body = the body sits higher
     for (const ax of this.axles) if (ax.droopY !== ax.p.droopY) ax.droopY += Math.max(-up, Math.min(down, ax.p.droopY - ax.droopY));
-    // spring rates and mass blend in over ~0.5 s (a stiffer spring on a deeply compressed axle, or a load
-    // taken off at once, would launch the body)
+    // spring rates and mass blend in over ~0.5 s; a sudden change would launch the body
     const b = Math.min(1, h * 5);
     for (const ax of this.axles) if (ax.k !== ax.p.k) ax.k = Math.abs(ax.p.k - ax.k) < 50 ? ax.p.k : ax.k + (ax.p.k - ax.k) * b;
     const mt = this.massTarget, mn = this.massNow;
@@ -250,8 +229,7 @@ export class Vehicle {
     this.pressures = this.pressures.map(p => lim(p + d));
   }
 
-  // Handbrake modes. 'auto': a short tap toggles the handbrake on / off, a long press works like 'hold'
-  // (applied while pressed, released with the key).
+  // Handbrake modes. 'auto': a short tap toggles, a long press works like 'hold'.
   handbrakeLogic(raw, h) {
     const key = raw.handbrake > 0.5, prev = this._hbPrev > 0;
     this._hbPrev = key ? 1 : 0;
@@ -269,8 +247,7 @@ export class Vehicle {
     let throttle = raw.throttle, brake = raw.brake;
     if (dt.mode === 'auto') {
       const v = this.speed;
-      // realistic automatic: W is always the gas, S always the brake, reverse only from the R selector.
-      // arcade: R swaps the pedals and holding a pedal at a standstill picks R / D by itself.
+      // arcadeAuto: R swaps the pedals, a pedal held at a standstill picks R / D by itself
       if (this.arcadeAuto && dt.selector === 'R') { throttle = raw.brake; brake = raw.throttle; }
       if (this.arcadeAuto && Math.abs(v) < 0.8) {
         const wantR = raw.brake > 0.5 && raw.throttle < 0.05 && dt.selector !== 'R';
@@ -283,10 +260,9 @@ export class Vehicle {
     c.brake = brake;
     c.clutch = raw.clutch;
     c.handbrake = this.handbrakeLogic(raw, h);
-    // steering: speed sensitive limit (an input filter: what the "driver" asks for; the physics is the same
-    // in every mode). A held key can't be dosed like a wheel, so at speed it asks for the angle that corners
-    // at k x the grip under the truck right now (surface, pressure, tyre grip), plus c x the front tyres'
-    // peak slip angle. Strong stays just past the limit, light goes well past it (tap and release to dose).
+    // steering: speed sensitive limit (an input filter; the physics is the same in every mode). A held key can't
+    // be dosed, so at speed it asks for the STEER_ASSIST angle for the grip under the truck right now (strong:
+    // just past the limit, light: well past it, tap and release to dose).
     const v = Math.abs(this.speed), maxA = this.P.steer.maxAngle;
     this.updateGripEstimate(h);
     let lim = 1;
@@ -302,9 +278,9 @@ export class Vehicle {
     c.steer = this.steerAngle;
   }
 
-  // What the truck can corner at right now, from the tyres in contact (last step's coefficients): lateral
-  // limit in g (0.80 x mean mu: load transfer and load sensitivity, measured with tools/handling.mjs) and
-  // the front tyres' peak slip angle. Smoothed over ~0.3 s so a patch of grass doesn't twitch the wheel.
+  // What the truck can corner at right now, from the tyres in contact (last step's coefficients): lateral limit
+  // in g (0.80 x mean mu: load transfer and load sensitivity, measured with tools/handling.mjs) and the front
+  // tyres' peak slip angle. Smoothed over ~0.3 s.
   updateGripEstimate(h) {
     let mu = 0, n = 0, ap = 0, nf = 0;
     for (const w of this.wheels) {
@@ -347,7 +323,6 @@ export class Vehicle {
     for (const ax of this.axles) {
       const p = ax.p;
       if (ax.ind) {
-        // derived for the HUD / telemetry: mean compression and the left / right difference as a roll angle
         const wl = this.wheels[ax.i * 2], wr = this.wheels[ax.i * 2 + 1];
         ax.c = (wl.c + wr.c) / 2; ax.phi = (wr.c - wl.c) / P.track;
       }
@@ -359,8 +334,7 @@ export class Vehicle {
     for (const w of this.wheels) {
       const ax = w.axle;
       if (ax.ind) { this.cornerGeometry(w); continue; }
-      // roll steer: the axle's links swing it about a vertical axis as the body rolls on it.
-      // rollSteer > 0 = roll understeer (rear axle turns into the bend, front axle out of it)
+      // roll steer: the axle's links swing it about a vertical axis as the body rolls; rollSteer > 0 = roll understeer
       w.steer = (ax.p.steered ? (w.side < 0 ? ax.steer[0] : ax.steer[1]) : 0) + Math.sign(ax.p.z) * -(ax.p.rollSteer || 0) * ax.phi;
       w.hub.set(w.side * P.track / 2, 0, 0).applyQuaternion(ax.q).add(ax.A);
       _q.setFromAxisAngle(Y, -w.steer);
@@ -403,19 +377,14 @@ export class Vehicle {
     }
   }
 
-  // Tyre v2: the contact patch from the ray fan, ray by ray. Each ray (3 rows across the tread x 13 angles in
-  // the wheel plane) measures how far the ground reaches into the tyre: delta = row radius - hit distance
-  // (the outer rows sit lower by the tread's crown drop). Between two neighbouring rays the ground is taken
-  // as the straight line through their hit points (exact on flat ground) and sampled TIRE_SUB times. Every
-  // sample pushes the hub back along its own ray with a force density K sqrt(delta) per unit angle: the
-  // patch of an inflated toroid is ~sqrt(delta) wide and carries the pressure (membrane), so a rock pushes
-  // only where it reaches in and the tyre wraps round it, and a lower pressure (softer K) wraps deeper and
-  // makes a longer patch. K is set so that flat ground gives back the tyre's radial stiffness
-  // kt(psi): integral of sqrt(pen - R th^2 / 2) over the patch = (pi / 2) sqrt(2 / R) pen.
-  // The resultant gives the normal, its force-weighted centroid the contact point (friction acts there),
-  // the load-weighted surfaces the patch's grip and rolling resistance, and the deepest sample the rim
-  // strike. Within the step the force follows the hub with the patch's own stiffness (kEff, a second pass
-  // with the hub 2 mm closer). The per-ray intrusions are also what the tyre shader deforms the mesh by.
+  // Tyre v2: the contact patch from the ray fan (3 rows x 13 angles in the wheel plane), ray by ray: delta =
+  // row radius - hit distance. The ground between neighbouring rays is the line through their hits, sampled
+  // TIRE_SUB times; each sample pushes the hub back along its ray with K sqrt(delta) per unit angle (an
+  // inflated toroid's patch is ~sqrt(delta) wide: a rock pushes only where it reaches in, lower pressure wraps
+  // deeper). K gives flat ground the tyre's radial stiffness kt(psi): integral of sqrt(pen - R th^2 / 2) over
+  // the patch = (pi / 2) sqrt(2 / R) pen. The resultant is the normal, its force-weighted centroid the contact
+  // point, the load-weighted surfaces the grip. Within the step the force follows the hub with the patch's
+  // stiffness kEff (a second pass with the hub 2 mm closer).
   castContact(w) {
     const T = this.P.tire;
     const R = this.R, margin = 0.06;
@@ -433,7 +402,7 @@ export class Vehicle {
         const hit = this.world.castRayAndGetNormal(ray, R + margin, true, undefined, undefined, undefined, this.body);
         if (!hit) { rt[i] = R + margin; rc[i] = null; rp[i] = Rr - rt[i]; continue; }
         rt[i] = hit.timeOfImpact; rc[i] = hit.collider;
-        rn[i] = hit.normal.x * w.spinAxis.x + hit.normal.y * w.spinAxis.y + hit.normal.z * w.spinAxis.z;   // lateral tilt of the surface
+        rn[i] = hit.normal.x * w.spinAxis.x + hit.normal.y * w.spinAxis.y + hit.normal.z * w.spinAxis.z;
         rp[i] = Rr - hit.timeOfImpact;
         any = true;
       }
@@ -448,8 +417,7 @@ export class Vehicle {
       w.kEff = Math.max(0.2 * kt, Math.min(4 * kt, (r1 - r0) / 0.002));
       w.F0 = r0;
     } else {
-      // rays within the margin but nothing reaching in yet: normal from the nearest rays (as before), and the
-      // tyre's own stiffness for the first millimetres within the step
+      // rays within the margin but nothing reaching in yet: normal from the nearest rays, the tyre's own stiffness
       let nx = 0, ny = 0, nz = 0, sw = 0, maxPen = -1e9, kMax = 0;
       for (let i = 0; i < 3 * NF; i++) {
         if (!rc[i]) continue;
@@ -469,13 +437,11 @@ export class Vehicle {
     w.contact = w.pen > -margin;
   }
 
-  // The patch integral (see castContact). shift: the hub moved that far towards the ground along w.n (for the
-  // stiffness pass). full: also the normal, centroid, deepest point, surfaces and the shader's per-ray data.
-  // Returns the force along the normal (N).
-  // The belt: a tyre's tread band is a stiff ring, it can't follow a sharp edge or a rock tip. The intrusion
-  // that carries load is the upper envelope of the raw profile under parabolas of curvature R / (2 BELT)
-  // (a rock tip deflects the band over a zone around it, like a cam). On flat ground that widens the patch by
-  // sqrt(1 + BELT); K is set for it, so flat ground still gives kt(psi).
+  // The patch integral (see castContact). shift: the hub moved that far towards the ground along w.n (stiffness
+  // pass). full: also normal, centroid, deepest point, surfaces and the shader's per-ray data. Returns N.
+  // The belt: the tread band is stiff and can't follow a sharp edge or a rock tip, so the load-carrying
+  // intrusion is the upper envelope of the raw profile under parabolas of curvature R / (2 BELT). On flat
+  // ground that widens the patch by sqrt(1 + BELT); K allows for it.
   integrateTyre(w, K, crown, shift, full) {
     const T = this.P.tire, R = this.R, rt = w.rayT, rc = w.rayCol, rn = w.rayN, M = TIRE_SUB, NS = (NF - 1) * M;
     const up = w.up, fw = w.fwd, sa = w.spinAxis;
@@ -487,10 +453,13 @@ export class Vehicle {
     let mu = 0, crr = 0;
     for (let r = 0; r < 3; r++) {
       const row = r - 1, o = row * TIRE_ROW_OFFSET * T.width, Rr = R - (row ? crown : 0);
-      // the raw profile on the fine grid: the ground between two rays is the straight line through their hits
+      // the tread runs on past the outer rows: on ground tilted across the wheel (n·axle = s) the downhill edge
+      // sits lower than its row by overhang x s (else a tilted landing sank ~10 cm on its shoulder)
+      const edge = row ? (0.5 - TIRE_ROW_OFFSET) * T.width : 0;
       let rowMax = -1e9;
       for (let k = 0; k < NF - 1; k++) {
         const i = r * NF + k, t0 = rt[i], t1 = rt[i + 1];
+        const sh = edge && rc[i] && rc[i + 1] ? edge * Math.max(0, -row * 0.5 * (rn[i] + rn[i + 1])) : 0;
         const clear = Math.min(t0, t1) - shift >= Rr + 0.15;   // far from touching even with the belt's spread
         const th0 = FAN[k], th1 = FAN[k + 1];
         const h0x = t0 * Math.sin(th0), h0y = -t0 * Math.cos(th0), ex = t1 * Math.sin(th1) - h0x, ey = -t1 * Math.cos(th1) - h0y;
@@ -500,7 +469,7 @@ export class Vehicle {
           const th = th0 + (m + 0.5) * dth, ux = Math.sin(th), uy = -Math.cos(th);
           const den = ux * ey - uy * ex;
           const t = Math.abs(den) > 1e-9 ? (h0x * ey - h0y * ex) / den : t0 + (t1 - t0) * (m + 0.5) / M;
-          let d = Rr - t;
+          let d = Rr - t + sh;
           if (shift) d += shift * (nu * Math.cos(th) - nf * ux);
           dr[j] = d; tt[j] = t;
           if (d > rowMax) rowMax = d;
@@ -557,8 +526,11 @@ export class Vehicle {
     if (sq <= 0) return 0;
     const F = Math.hypot(fx, fy, fz);
     const n = w.n.set(fx / F, fy / F, fz / F);
-    // the lateral tilt of the actual surface (side slopes, slanted rock faces)
-    n.addScaledVector(sa, snl / sq).normalize();
+    // the lateral tilt of the actual surface (side slopes, slanted rock faces): the rays only see the wheel
+    // plane, so the normal is that direction x cos + the axle x sin of the tilt. (n + axle x sin leaves a 56°
+    // tilt at 40°: a steeply rolled truck could stand on its tyre shoulders, held up by side grip.)
+    const sl = Math.max(-0.99, Math.min(0.99, snl / sq));
+    n.multiplyScalar(Math.sqrt(1 - sl * sl)).addScaledVector(sa, sl).normalize();
     w.pen = dMax;
     w.latOff = lat / sq;
     w.P.set(w.hub.x + cx / sq, w.hub.y + cy / sq, w.hub.z + cz / sq);
@@ -602,7 +574,6 @@ export class Vehicle {
     for (const ax of this.axles) {
       const p = ax.p;
       if (ax.ind) {
-        // each corner's mount: the body point at its hub
         for (let s = 0; s < 2; s++) {
           const w = this.wheels[ax.i * 2 + s];
           _v2.set(w.side * (P.track / 2 + w.out), ax.droopY + w.c, p.z).applyQuaternion(this.quat).add(this.pos);
@@ -626,7 +597,6 @@ export class Vehicle {
       const psi = this.pressures[w.axle.front ? 0 : 1];
       tireCoefs(T, psi, w.surf, w.co);
       w.ct = tireRadialDamping(T, psi, dt.w[2 + w.i] * R0);
-      // a patch over two surfaces grips and rolls by the load on each (tyre v2)
       if (w.muRatio !== 1) w.co.mu *= w.muRatio;
       if (w.crrRatio !== 1) w.co.crr *= w.crrRatio;
       w.Re = R0 - Math.max(0, w.pen) * 0.33;
@@ -647,8 +617,8 @@ export class Vehicle {
 
     const S = this.substeps, hs = h / S;
     const hbT = c.handbrake * P.brakes.handbrake;
-    // at a standstill the handbrake holds the whole transfer output (all driven wheels), not just the rear axle,
-    // so the front can't pull through an open centre diff; fades out above ~2 m/s to keep handbrake turns
+    // at a standstill the handbrake holds the whole transfer output (all driven wheels), so the front can't pull
+    // through an open centre diff; fades out above ~2 m/s to keep handbrake turns
     const holdT = c.handbrake > 0.5 ? P.brakes.handbrakeHold * Math.max(0, Math.min(1, 2 - Math.abs(this.speed))) : 0;
     // brakes with a simple ABS, one channel per wheel (releases a wheel that is about to lock, then reapplies)
     const nW = this.nW;
@@ -663,9 +633,7 @@ export class Vehicle {
       this.brakeT[i] = c.brake * f * (w.axle.front ? P.brakes.front : P.brakes.rear);
     }
     this.absActive = Math.max(0, this.absActive - h);
-    // Traction control (like Land Rover ETC): brake a wheel that spins faster than the ground under it.
-    // An open diff always splits torque evenly, so braking the spinning wheel lets the others drive.
-    // Works across the axle diffs and, when a whole axle spins, across the centre diff too.
+    // Traction control (like Land Rover ETC): brake a wheel spinning faster than the ground; an open diff splits torque evenly, so the others drive
     for (let i = 0; i < nW; i++) {
       const w = this.wheels[i];
       let T = this.tcT[i];
@@ -674,8 +642,9 @@ export class Vehicle {
         const ref = w.contact && w.Fn > 0 ? w.vcx : this.speed;
         const excess = Math.sign(surfV) === Math.sign(ref) || Math.abs(ref) < 0.05 ? Math.abs(surfV) - Math.abs(ref) : Math.abs(surfV) + Math.abs(ref);
         const thr = 0.7 + 0.12 * Math.abs(ref);
-        // full authority while crawling and climbing, fading out at speed
-        const tMax = 2400 * Math.max(0.15, Math.min(1, 1 - (Math.abs(this.speed) - 8) / 12));
+        // full authority while crawling and climbing, fading out at speed; the Defender's value, scaled by the
+        // brakes (the BTR's low range spun all eight wheels through 2400 Nm and sat on a 30° ramp for good)
+        const tMax = 2400 * Math.max(1, P.brakes.front / 2700) * Math.max(0.15, Math.min(1, 1 - (Math.abs(this.speed) - 8) / 12));
         if (excess > thr) { T = Math.min(tMax, T + h * 9000 * (excess - thr) + h * 600); this.tcActive = 0.3; }
         else T = Math.max(0, T - h * (excess < thr * 0.5 ? 9000 : 3000));
       } else T = Math.max(0, T - h * 8000);
@@ -692,11 +661,14 @@ export class Vehicle {
       for (const w of this.wheels) {
         this.hubPenDot(w);
         if (w.contact && (w.F0 > 0 || w.pen > 0)) {
-          // the patch force at the cast, following the hub with the patch's stiffness; radial damping
           let Fn = Math.max(0, w.F0 + w.kEff * (w.pen - w.pen0)) + w.ct * w.penDot;
-          // the rim strikes where the ground reaches deepest (a rock edge, a step)
+          // the rim strikes where the ground reaches deepest (a rock edge, a step): stiff, very lossy crushed
+          // rubber that gives back a fraction of what it took. A near-elastic spring bounced the truck on landings.
           const rimLim = (this.R - T.rimRadius * this.R / T.radius) * 0.62;
-          if (w.pen > rimLim) Fn += 2.5e6 * (w.pen - rimLim) + 3000 * Math.max(0, w.penDot);
+          if (w.pen > rimLim) {
+            const el = 2.5e6 * (w.pen - rimLim);
+            Fn += w.penDot > 0 ? el + 8000 * w.penDot : RIM_GIVE_BACK * el;
+          }
           w.Fn = Math.max(0, Fn);
         } else w.Fn = 0;
       }
@@ -709,7 +681,7 @@ export class Vehicle {
           tireForces(w, w.Fn, vsx, -w.vcy, Math.hypot(w.vcx, w.vcy), w.surf, w.co);
         } else { w.Fx = 0; w.Fy = 0; }
         this.tireT[i] = -w.Fx * w.Re;
-        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + (T.hubDrag ?? 2.5) + (T.hubDragV ? T.hubDragV * Math.abs(om) : 0);   // + bearing / hub drag (Nm), + speed-dependent driveline losses (hub reductions, oil churning)
+        this.rrT[i] = (w.Fn > 0 ? w.co.crr * w.Fn * w.Re : 0) + (T.hubDrag ?? 2.5) + (T.hubDragV ? T.hubDragV * Math.abs(om) : 0);   // + hub drag (Nm), + speed-dependent driveline losses
       }
       // c. drivetrain
       dt.substep(hs, this.tireT, this.rrT, this.brakeT, hbT, holdT);
@@ -782,7 +754,6 @@ export class Vehicle {
     for (const ax of this.axles) if (ax.ind) rollT += tp[ax.i] * inv;
     _v.copy(this.back).multiplyScalar(rollT);
     b.addTorque(_v, true);
-    // aero drag
     const v2 = this.vel.lengthSq();
     if (v2 > 0.01) {
       _v.copy(this.vel).multiplyScalar(-0.5 * P.aero.rho * P.aero.cdA * Math.sqrt(v2));
@@ -793,10 +764,9 @@ export class Vehicle {
     this.steerCompliance(h);
   }
 
-  // Steering compliance. The front tyres' side force acts behind the kingpins (caster trail + pneumatic
-  // trail), and the box, drag link and track rod are not rigid, so the wheels yield a little towards
-  // smaller slip angles. That is a big part of a real truck's understeer. The pneumatic trail shrinks as
-  // the tyre slides (s -> 1), which is why the steering goes light at the limit.
+  // Steering compliance. The front tyres' side force acts behind the kingpins (caster + pneumatic trail) and the
+  // linkage isn't rigid, so the wheels yield towards smaller slip angles (a big part of a truck's understeer).
+  // The pneumatic trail shrinks as the tyre slides: the steering goes light at the limit.
   steerCompliance(h) {
     const S = this.P.steer;
     if (!S.stiffness) { this.steerComp = 0; return; }
@@ -818,8 +788,8 @@ export class Vehicle {
     w.penDot = -((v.x + up.x * vU) * n.x + (v.y + up.y * vU) * n.y + (v.z + up.z * vU) * n.z);
   }
 
-  // Coil spring + bump stop + droop limit, at the spring seat. x = compression, xd = compression rate.
-  // stopScale: the stops of a heavier vehicle (BTR-80: x3), 1 for the 2.4 t trucks they were set on
+  // Coil spring + bump stop + droop limit, at the spring seat. x = compression, xd = rate.
+  // stopScale: heavier vehicles' stops (BTR-80: x3), 1 for the 2.4 t trucks they were set on
   springForce(p, x, xd, k = p.k) {
     let F = Math.max(0, k * (x + p.preload));
     const ss = p.stopScale ?? 1;
@@ -845,9 +815,8 @@ export class Vehicle {
   axleSubstep(ax, hs, gU, propT) {
     const p = ax.p, up = this.up;
     const wl = this.wheels[ax.i * 2], wr = this.wheels[ax.i * 2 + 1];
-    // tyre force components along body-up go into the axle, the rest straight into the chassis
-    // roll moment on the axle: full tyre force about the axle centre (vertical loads at +-track/2 and
-    // side forces acting at the contact patch, below the axle, which is located by the panhard rod)
+    // tyre force along body-up goes into the axle, the rest straight into the chassis; roll moment on the axle:
+    // full tyre force about the axle centre (side forces act at the patch, below the axle, held by the panhard rod)
     let FuL = 0, FuR = 0, tyreRoll = 0;
     const back = this.back;
     for (const w of [wl, wr]) {
@@ -885,9 +854,8 @@ export class Vehicle {
   }
 
   // Independent corners of one axle. The tyre force F at the contact patch drives the corner through the
-  // patch's path J = up + right * side * q (virtual work: generalised force Qc = F . J); the rest of F
-  // (F - Qc up) does no work on the corner, so it is the linkage's constraint force and goes into the body
-  // at the patch. Spring, damper and bar push between the body and the corner at the hub.
+  // patch's path J = up + right * side * q (virtual work: Qc = F . J); the rest (F - Qc up) is the linkage's
+  // constraint force and goes into the body at the patch.
   cornerSubstep(ax, hs, gU) {
     const p = ax.p, up = this.up, right = this.right, q = ax.kin.q;
     const wl = this.wheels[ax.i * 2], wr = this.wheels[ax.i * 2 + 1];
@@ -911,10 +879,10 @@ export class Vehicle {
     }
   }
 
-  // put the truck back on its wheels
-  reset(position, yaw) {
+  // put the truck back on its wheels (level, or tilted by `rot` to sit on a slope)
+  reset(position, yaw, rot = null) {
     const b = this.body;
-    const q = new THREE.Quaternion().setFromAxisAngle(Y, yaw);
+    const q = rot || new THREE.Quaternion().setFromAxisAngle(Y, yaw);
     b.setTranslation(position, true);
     b.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     b.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -923,8 +891,8 @@ export class Vehicle {
     for (const w of this.wheels) { w.ux = w.uy = 0; w.vz = 0; }
     const d = this.drivetrain;
     for (let i = 2; i < d.nB; i++) d.w[i] = 0;
-    // the wheels stop dead: drop the converter lock-up and let the engine ride it out (a teleport at
-    // speed in a locked-up gear used to stall it)
+    // the wheels stop dead: drop the converter lock-up and let the engine ride it out (a teleport at speed in
+    // a locked-up gear used to stall it)
     d.lockup = 0;
     if (d.mode === 'auto') d.w[1] = 0;
     if (d.running) d.startGrace = Math.max(d.startGrace, 0.6);

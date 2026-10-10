@@ -1,5 +1,6 @@
-// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, bump-stop knocks, transfer whine.
-// Started on the first user gesture (browsers block audio before that).
+// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine.
+// No suspension / impact sound on purpose: see DEVNOTES.md "Impact sounds" before adding one.
+// Started on the first user gesture.
 
 export class GameAudio {
   constructor() {
@@ -7,12 +8,11 @@ export class GameAudio {
     this.ready = false;
     this.muted = false;
     this.volume = 1;              // player volume 0..1 on top of the mix level
-    this.paused = false;          // game paused: master faded out, synthesis keeps running
-    this.knockCooldown = 0;
+    this.paused = false;          // master faded out, synthesis keeps running
     this.lastGrind = 0;
   }
 
-  // start / starter sound knobs (engine-worklet.js STARTER_DEFAULTS), changed live
+  // starter sound knobs (engine-worklet.js STARTER_DEFAULTS), changed live
   setStarterTune(t) {
     this.starterTune = { ...t };
     this.engine?.port.postMessage({ starter: this.starterTune });
@@ -34,13 +34,11 @@ export class GameAudio {
     if (this.starterTune) this.engine.port.postMessage({ starter: this.starterTune });
     this.engineGain = ctx.createGain();
     this.engineGain.gain.value = 0.9;
-    // cabin vs outside filtering
     this.engineFilter = ctx.createBiquadFilter();
     this.engineFilter.type = 'lowpass';
     this.engineFilter.frequency.value = 9000;
     this.engine.connect(this.engineFilter).connect(this.engineGain).connect(master);
 
-    // shared noise source
     const len = ctx.sampleRate * 2;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -62,7 +60,6 @@ export class GameAudio {
     this.mud = chain('bandpass', 260, 1.2);
     this.grind = chain('bandpass', 1400, 4);
 
-    // transfer case / gear whine
     this.whine = ctx.createOscillator();
     this.whine.type = 'triangle';
     this.whineGain = ctx.createGain(); this.whineGain.gain.value = 0;
@@ -71,28 +68,8 @@ export class GameAudio {
     this.ready = true;
   }
 
-  knock(strength) {
-    if (!this.ready || this.knockCooldown > 0) return;
-    this.knockCooldown = 0.12;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(95, t);
-    o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(Math.min(0.9, 0.25 + strength), t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    o.connect(g).connect(this.master);
-    o.start(t); o.stop(t + 0.2);
-    const n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
-    const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 900; nf.Q.value = 1;
-    const ng = ctx.createGain(); ng.gain.setValueAtTime(Math.min(0.5, strength * 0.6), t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    n.connect(nf).connect(ng).connect(this.master);
-    n.start(t, Math.random()); n.stop(t + 0.08);
-  }
-
-  // Gunfire (weapons.js). The KPVT: a sharp crack over a deep chest thump and the bolt's clank; the PKT: the
-  // same, higher and shorter; 'far': a friend's gun, muffled. Synthesised like the knock (noise + sine).
+  // Gunfire (weapons.js): crack over a chest thump and the bolt's clank; PKT higher and shorter; 'far':
+  // a friend's gun, muffled.
   gunshot(kind) {
     if (!this.ready) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.003;
@@ -100,19 +77,18 @@ export class GameAudio {
       pkt: { lp: 4200, dec: 0.07, f0: 140, f1: 70, thump: 0.45, crack: 0.5, clank: 0.1 },
       far: { lp: 900, dec: 0.25, f0: 60, f1: 30, thump: 0.25, crack: 0.12, clank: 0 } }[kind] || { lp: 2600, dec: 0.12, f0: 80, f1: 40, thump: 0.6, crack: 0.5, clank: 0.1 };
     const out = this.master;
-    // crack: broadband noise, fast attack, short decay, a little random colour shot to shot
+    // crack: broadband noise, fast attack, short decay, random colour per shot
     const n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = K.lp * (0.9 + Math.random() * 0.2); lp.Q.value = 0.8;
     const ng = ctx.createGain();
     ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(K.crack, t + 0.002); ng.gain.exponentialRampToValueAtTime(0.001, t + K.dec);
     n.connect(lp).connect(ng).connect(out);
     n.start(t, Math.random() * 1.5); n.stop(t + K.dec + 0.02);
-    // thump: the muzzle blast felt in the chest, falling in pitch
+    // thump: falling pitch
     const o = ctx.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(K.f0, t); o.frequency.exponentialRampToValueAtTime(K.f1, t + K.dec);
     const og = ctx.createGain(); og.gain.setValueAtTime(K.thump, t); og.gain.exponentialRampToValueAtTime(0.001, t + K.dec * 1.3);
     o.connect(og).connect(out); o.start(t); o.stop(t + K.dec * 1.4);
-    // clank of the action, a hair later
     if (K.clank) {
       const c = ctx.createBufferSource(); c.buffer = this.noiseBuf;
       const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 2300; bf.Q.value = 6;
@@ -121,7 +97,7 @@ export class GameAudio {
     }
   }
 
-  // a round landing at p (world): heard after the sound's travel time, fainter with distance
+  // a round landing at p: heard after the sound's travel time, fainter with distance
   impact(kind, p) {
     if (!this.ready || !this.listener || this.impactCool > 0) return;
     const L = this.listener, d = Math.hypot(p.x - L.x, p.y - L.y, p.z - L.z);
@@ -163,23 +139,23 @@ export class GameAudio {
     }
     const m = this.muted ? 0 : 1;
     const amb = inside ? 0.7 : 1;
-    // levels were set on 4 wheels: per wheel more wheels make more noise, but not twice as much (8 wheels: x1.4)
+    // levels were set on 4 wheels; more wheels are louder, but not twice as much (8 wheels: x1.4)
     const nW = v.wheels.length, wk = Math.sqrt(nW / 4) / nW;
-    this.gravel.g.gain.setTargetAtTime(m * amb * 0.09 * rough * wk, t, 0.05);
+    // tyre roll and mud are broadband hiss that the player found annoying: keep them low
+    this.gravel.g.gain.setTargetAtTime(m * amb * 0.03 * rough * wk, t, 0.05);
     this.gravel.f.frequency.setTargetAtTime(500 + speed * 25, t, 0.1);
     this.rumble.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, speed / 15) * (contact / nW), t, 0.05);
     this.skid.g.gain.setTargetAtTime(m * 0.06 * Math.min(1.5, skid), t, 0.03);
-    this.mud.g.gain.setTargetAtTime(m * 0.25 * Math.min(1, mud), t, 0.05);
+    this.mud.g.gain.setTargetAtTime(m * 0.1 * Math.min(1, mud), t, 0.05);
     this.wind.g.gain.setTargetAtTime(m * amb * Math.min(0.35, speed * speed * 0.00025), t, 0.1);
     this.wind.f.frequency.setTargetAtTime(300 + speed * 30, t, 0.2);
-    // whine from the transfer gears in low range, proportional to prop speed and torque
+    // transfer gear whine in low range, by prop speed and torque
     const prop = Math.abs(d.wheelMean() * v.P.finalDrive);
     const tq = Math.min(1, d.propTorque.reduce((s, x) => s + Math.abs(x), 0) / 3000);
     this.whine.frequency.setTargetAtTime(Math.max(20, prop * 9 / (2 * Math.PI) * 4), t, 0.03);
     this.whineGain.gain.setTargetAtTime(m * (d.range === 'low' ? 0.025 : 0.008) * Math.min(1, prop / 40) * (0.3 + tq), t, 0.05);
-    // gear grind (a clutchless shift that didn't match revs). Was 0.4 at 1.8-3.4 kHz with a hard attack and
-    // the band jumping every frame: too loud and harsh (player). Now quieter, lower, softer edges, and the
-    // band wanders instead of jumping; it still rasps (the level flutters like teeth clashing).
+    // gear grind (a clutchless shift that didn't match revs): the band wanders and the level flutters like
+    // teeth clashing; a loud hard-edged band with frame-to-frame jumps was harsh
     if (d.grind > 0 && this.lastGrind <= 0) this.grind.g.gain.setTargetAtTime(m * 0.16, t, 0.025);
     if (d.grind <= 0 && this.lastGrind > 0) this.grind.g.gain.setTargetAtTime(0, t, 0.06);
     if (d.grind > 0) {
@@ -187,28 +163,16 @@ export class GameAudio {
       this.grind.g.gain.setTargetAtTime(m * 0.16 * (0.6 + 0.4 * Math.random()) * Math.min(1, d.grind / 0.15), t, 0.015);
     }
     this.lastGrind = d.grind;
-    // bump stops / landing knocks
-    this.knockCooldown -= dt;
-    for (const ax of v.axles) {
-      for (let s = 0; s < 2; s++) {
-        // beam axle: heave and roll at the spring; independent corner: its own compression and speed
-        const w = v.wheels[ax.i * 2 + s];
-        const comp = ax.ind ? w.c : ax.c + (s ? 1 : -1) * ax.p.springTrack / 2 * Math.sin(ax.phi);
-        const rate = ax.ind ? w.vz - w.vMountU : ax.vz - ax.vMountU;
-        if ((comp > ax.p.travel - 0.025 || comp < 0.005) && Math.abs(rate) > 0.6) this.knock(Math.min(1, Math.abs(rate) / 3));
-      }
-    }
   }
 
   toggleMute() { this.setMuted(!this.muted); return this.muted; }
   setMuted(m) { this.muted = !!m; this.applyMaster(); }
 
-  // UI controls: they only scale the master gain, the mix itself is unchanged.
-  // Mute also closes the master so one-shots (bump-stop knocks) are silenced too.
+  // UI controls only scale the master gain, so mute also silences one-shots (gunfire)
   masterLevel() { return this.paused || this.muted ? 0 : 0.8 * this.volume; }
   applyMaster() { if (this.master) this.master.gain.setTargetAtTime(this.masterLevel(), this.ctx.currentTime, 0.04); }
   setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); this.applyMaster(); }
   setPaused(p) { this.paused = !!p; this.applyMaster(); }
-  // 'locked' until the browser lets the context run (needs a user gesture), then 'running'
+  // 'locked' until the browser lets the context run, then 'running'
   get state() { return this.ctx ? this.ctx.state : 'locked'; }
 }

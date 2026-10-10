@@ -2,9 +2,8 @@ import * as THREE from 'three/webgpu';
 import { shared } from './model/materials.js';
 import { setTireContact } from './model/tireMaterial.js';
 
-// Drives a car model (model/index.js) from the physics state: body pose (interpolated), the wheels (steer,
-// roll, the tuned size; an independent corner's hub and camber), every part's own motion (model.kits: beam
-// axles with their springs and links, wishbones, the spare wheel, a turret), tyre deformation (per ray,
+// Drives a car model (model/index.js) from the physics state: body pose (interpolated), wheels (steer, roll,
+// tuned size, independent hub and camber), every part's motion (model.kits), tyre deformation (per ray,
 // model/tireMaterial.js), the cabin (model.cockpit) and the lamps (model.lights, model.lenses).
 
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
@@ -18,7 +17,7 @@ export class VehicleView {
     this.m = model;
     this.v = vehicle;
     this.P = vehicle.P;
-    this.lights = { head: 0, bar: false, hazard: false }; // head: 0 off, 1 low, 2 high
+    this.lights = { head: 0, aux: false, hazard: false }; // head: 0 off, 1 low, 2 high
     this.blink = 0;
   }
 
@@ -31,7 +30,6 @@ export class VehicleView {
     for (let i = 0; i < m.wheels.length; i++) {
       const w = v.wheels[i], mw = m.wheels[i];
       if (w.axle.ind) {
-        // independent corner: the wheel group follows the hub (body frame), camber, then steer
         mw.steer.position.set(w.side * (P.track / 2 + (w.out || 0)), w.axle.droopY + w.c, w.axle.p.z);
         _q.setFromAxisAngle(Z, -w.side * (w.camber || 0));
         mw.steer.quaternion.copy(_q).multiply(_q2.setFromAxisAngle(Y, -w.steer));
@@ -89,7 +87,6 @@ export class VehicleView {
     const amb = this.ambientLevel();
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
-    // head: one beam between the lamps, cookie switches low / high
     const hp = L.head.userData.peak;
     const beam = head === 2 ? 'high' : 'low';
     if (L.head.userData.beam !== beam) {
@@ -102,17 +99,17 @@ export class VehicleView {
     L.head.shadow.autoUpdate = head > 0 && env.shadows !== false;
     // keep the cookie level with the truck, not with the world, when it rolls
     L.head.shadow.camera.up.set(0, 1, 0).applyQuaternion(quat);
-    if (L.bar) {
-      L.bar.shadow.camera.up.copy(L.head.shadow.camera.up);
-      L.bar.intensity = ls.bar ? L.bar.userData.peak * k : 0;
+    for (const l of L.aux) {
+      l.shadow.camera.up.copy(L.head.shadow.camera.up);
+      l.intensity = ls.aux ? l.userData.peak * k : 0;
     }
 
     // lens glow by role (a model without a lens for a role skips it; roles sharing a material: the later wins)
     this.blink += dt;
     const blinkOn = ls.hazard && (this.blink % 0.8) < 0.4;
     const glow = this.glow ||= {};
-    glow.head = head === 0 ? 0 : head === 1 ? 2.6 : 5.0; glow.side = tailOn ? 1.2 : 0; glow.bar = ls.bar ? 6.0 : 0;
-    glow.work = ls.bar && reversing ? 4.0 : 0; glow.tail = tailOn ? 1.6 : 0; glow.brake = braking ? 3.2 : tailOn ? 1.0 : 0;
+    glow.head = head === 0 ? 0 : head === 1 ? 2.6 : 5.0; glow.side = tailOn ? 1.2 : 0; glow.aux = ls.aux ? 6.0 : 0;
+    glow.work = ls.aux && reversing ? 4.0 : 0; glow.tail = tailOn ? 1.6 : 0; glow.brake = braking ? 3.2 : tailOn ? 1.0 : 0;
     glow.reverse = reversing ? 4.0 : 0; glow.amber = blinkOn ? 5.0 : 0; glow.beacon = 0;
     for (const role in glow) {
       const mats = lens[role];
@@ -123,13 +120,11 @@ export class VehicleView {
       }
     }
 
-    // rear: tail / brake glow on the ground behind + the reversing lamps (one small spot)
     const red = (braking ? 0.5 : 0) + (tailOn ? 0.08 : 0);
     const white = reversing ? 9 : 0;
     L.rear.intensity = (red + white) * k;
     if (red + white > 0) L.rear.color.setRGB(1, 0.16, 0.06).multiplyScalar(red / (red + white)).add(_c.setRGB(1, 0.97, 0.92).multiplyScalar(white / (red + white)));
 
-    // instrument backlight (night / lights on) and warning lamps
     const dark = env.darkness ?? (env.night ? 1 : 0);
     const back = tailOn ? 1 : dark;
     const c = m.cockpit;

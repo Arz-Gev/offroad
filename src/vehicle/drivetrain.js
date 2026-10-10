@@ -4,18 +4,16 @@
 // Rotating bodies: 0 engine crank, 1 gearbox input (clutch disc / turbine), 2.. wheels, two per axle
 // from the front (left, right): FL FR RL RR on a 4x4, 1L 1R 2L 2R 3L 3R 4L 4R on an 8x8.
 // Couplings are velocity constraints solved with projected Gauss-Seidel each substep:
-//   gear: w_in = G * (s * mean(group 0) + (1 - s) * mean(group 1)): the open centre diff's kinematics,
-//     which split the torque s : 1 - s between its outputs (P.drive.centreSplit, 0.5 unless the car says;
-//     open axle diffs give each wheel of an axle the same torque for free)
+//   gear: w_in = G * (s * mean(group 0) + (1 - s) * mean(group 1)): the open centre diff's kinematics, which
+//     split the torque s : 1 - s (P.drive.centreSplit, 0.5 unless the car says); open axle diffs give each
+//     wheel of an axle the same torque for free
 //   clutch / lockup clutch: w_e = w_in, impulse limited by clutch capacity
-//   centre lock: mean(group 0) = mean(group 1). The centre diff's two outputs each drive a group of axles;
-//     axles in one group are coupled rigidly (link rows: BTR-80 axles 1 + 3 and 2 + 4, no diff between them)
-//   viscous coupling across the centre diff (P.drive.centre 'viscous', no lock): the same row, its torque
-//     limited by the prop shafts' speed difference
+//   centre lock: mean(group 0) = mean(group 1). Axles in one group are coupled rigidly (link rows: BTR-80
+//     axles 1 + 3 and 2 + 4, no diff between them)
+//   viscous coupling (P.drive.centre 'viscous', no lock): the same row, its torque limited by the prop
+//     shafts' speed difference
 //   axle lockers, limited-slip rows, brakes, park pawl, friction: more rows.
 // Torque sources (combustion, starter, torque converter, tyres) are applied explicitly.
-// The drive layout comes from P.axles (driven, group, diff) and P.drive; a car without them is the 4x4
-// it always was: front axle = group 0, rear axle = group 1, open diffs, 2WD drives the rear axle.
 
 export const RPM = 30 / Math.PI; // rad/s -> rpm
 
@@ -42,16 +40,14 @@ class Row {
   bound(b) { this.lo = -b; this.hi = b; return this; }
 }
 
-// The drive layout of a car (P.drive, P.axles). P.drive.layout says what kind of drive it is:
-//   'awd'      permanent all-wheel drive (the default): every axle driven through a centre diff, `centre`
-//              'open' (the driver can lock it) or 'viscous' (a viscous coupling across it); a 2WD switch
-//              where drive.rwd lists the axles 2WD keeps ([] = none)
-//   'parttime' selectable 4WD without a centre diff (Jimny, Hilux, Wrangler): it starts in 2WD (the rear
-//              half); 4WD engages the front, which then turns with the rear (no diff between them)
-//   'rwd'      rear-wheel drive: the rear half of the axles only
-//   'fwd'      front-wheel drive: the front half only
-// An axle's own `driven` overrides the layout. Also: which centre-diff output (group) each axle hangs on,
-// its diff type, which axles the handbrake holds, the centre diff's split, the lockers.
+// The drive layout (P.drive.layout, per-axle driven / group / diff):
+//   'awd'      permanent all-wheel drive (default): every axle through a centre diff, `centre` 'open' (the
+//              driver can lock it) or 'viscous'; drive.rwd lists the axles a 2WD switch keeps ([] = none)
+//   'parttime' selectable 4WD without a centre diff (Jimny, Hilux): starts in 2WD (rear half); 4WD engages
+//              the front, which then turns with the rear
+//   'rwd' / 'fwd'  rear / front half of the axles only
+// An axle's own `driven` overrides the layout. A car without P.drive is the plain 4x4: front axle = group 0,
+// rear = group 1, open diffs, 2WD drives the rear axle.
 export function driveLayout(P) {
   const n = P.axles.length, D = P.drive || {}, layout = D.layout || 'awd';
   const front = i => i < n / 2;
@@ -81,18 +77,18 @@ export class Drivetrain {
   constructor(P) {
     this.P = P;
     this.mode = 'auto';             // 'auto' | 'manual'
-    this.clutchAssist = true;       // manual: automatic clutch
+    this.clutchAssist = true;
     this.autoShift = false;         // manual-only cars (P.manualOnly) in "automatic": the gears are picked for you
     this.manualGear = 0;            // -1 R, 0 N, 1..5
-    this.selector = 'D';            // auto selector
+    this.selector = 'D';
     this.autoGear = 1;
     this.range = 'high';
     this.centerLock = false;
     this.layout = driveLayout(P);
     this.nA = P.axles.length;
     this.nW = 2 * this.nA;
-    this.nB = 2 + this.nW;          // rotating bodies
-    this.locks = new Array(this.nA).fill(false);   // axle lockers
+    this.nB = 2 + this.nW;
+    this.locks = new Array(this.nA).fill(false);
     this.rwd = this.layout.layout === 'parttime';   // 2WD: only the axles in layout.rwd driven (high range)
 
     this.w = new Float64Array(this.nB);
@@ -119,7 +115,6 @@ export class Drivetrain {
     this.grind = 0;                 // >0 while gears grind (for audio)
     this.message = null;
 
-    // outputs
     this.Tcomb = 0;
     this.load = 0;
     this.engineAlpha = 0;
@@ -201,8 +196,8 @@ export class Drivetrain {
   say(msg) { this.message = { text: msg, t: 2.2 }; }
 
   // ---------------------------------------------------------------- commands
-  // what the gearbox setting shows: a car with only a manual box (BTR-80) has no automatic, so 'auto' is
-  // the manual box with automatic gear selection (and the auto-clutch)
+  // what the gearbox setting shows: a manual-only car (BTR-80) has no automatic, so 'auto' is the manual box
+  // with automatic gear selection (and the auto-clutch)
   get gearboxSetting() { return this.P.manualOnly ? (this.autoShift ? 'auto' : 'manual') : this.mode; }
   setGearbox(v) {
     if (!this.P.manualOnly) { if (this.mode !== v) this.toggleMode(); return; }
@@ -312,9 +307,8 @@ export class Drivetrain {
     const rpm = this.rpm;
 
     // ---- engine state
-    // The starter turns the engine at ~200 rpm, unevenly: it slows on every compression stroke (the
-    // "rrr-rrr"). After catchAt the first cylinders fire, more of them each revolution (fire ramps over
-    // ~0.35 s), the engine pulls away from the starter and flares (idle governor below), then settles.
+    // The starter turns the engine at ~200 rpm, unevenly (it slows on every compression stroke). After catchAt the
+    // first cylinders fire, more each revolution (fire ramps over ~0.35 s); it pulls away, flares (idle governor), settles.
     if (this.starterTime > 0) {
       this.starterTime -= h;
       this.crankTime += h;
@@ -344,8 +338,8 @@ export class Drivetrain {
     // ---- idle governor + throttle lag
     let idleThr = 0;
     if (this.running) {
-      // start flare: the idle valve opens wide for the start, the engine runs up (startFlare 1000: peak ~2100
-      // rpm, player-tuned; recordings showed ~1500) and settles to idle over ~3 s (hold 1.1 s, then tau 0.9 s)
+      // start flare: the idle valve opens wide, peak ~2100 rpm (player-tuned; recordings showed ~1500),
+      // settling to idle over ~3 s (hold 1.1 s, then tau 0.9 s)
       const sc = this.sinceCatch, flare = (E.startFlare ?? 1000) * (sc < 1.1 ? 1 : Math.exp(-(sc - 1.1) / 0.9));
       const err = E.idleRpm + flare - rpm;
       // (no integral while the cylinders are still catching: it would wind up and overshoot the flare)
@@ -373,7 +367,6 @@ export class Drivetrain {
         } else {
           cut = Math.min(1, sh.t / 0.25);
           pedalTarget = this.autoClutchTarget(ctl);
-          // blend from fully pressed down to the target
           pedalTarget = Math.max(pedalTarget, 1 - sh.t / 0.28);
           if (sh.t > 0.3) this.shift = null;
         }
@@ -390,10 +383,8 @@ export class Drivetrain {
     return cut;
   }
 
-  // manual box, automatic gear choice (manual-only cars): like the automatic's schedule, on engine rpm at
-  // the wheel (or ground) speed; 1 s between shifts. E / Q still shift by hand (the logic waits after that).
-  // Load detection, as a truck automatic does on a hill: at full throttle it only upshifts while the vehicle
-  // is still gaining speed (a 30° climb in 1st low otherwise shifts to 2nd at the rev limit and bogs down).
+  // manual box, automatic gear choice (manual-only cars): the automatic's schedule on engine rpm at the wheel
+  // (or ground) speed; 1 s between shifts. E / Q still shift by hand (the logic waits after that).
   autoShiftLogic(ctl, speed, h = 1 / 240) {
     const P = this.P, g = this.manualGear, top = P.manual.ratios.length;
     const acc = this._asV === undefined ? 0 : (speed - this._asV) / h;
@@ -405,9 +396,8 @@ export class Drivetrain {
     const t = ctl.throttle, sr = P.engine.shiftRpm || 4800, idle = P.engine.idleRpm;
     const up = idle + 500 + (sr - idle - 500) * Math.pow(t, 1.2);
     const down = idle + 150 + (0.6 * sr - idle - 150) * Math.pow(t, 1.5);
-    // would it still gain speed in the next gear? Resistance now = drive force - m a; the next gear pulls
-    // with the engine's full torque at its rpm (a 30° climb in 1st low at the governor otherwise shifts to
-    // 2nd and bogs down)
+    // would it still gain speed in the next gear? Resistance now = drive force - m a; the next gear pulls with
+    // the engine's full torque at its rpm (else a 30° climb in 1st low upshifts at the governor and bogs down)
     let pulling = ctl.throttle < 0.8 || g >= top;
     if (!pulling) {
       const m = this._mass || (this._mass = P.axles.reduce((a, x) => a + (x.mass || 0), P.bodyMass || 0) || 1);
@@ -445,14 +435,13 @@ export class Drivetrain {
       else cut = 0.55 + 0.45 * (sh.t / P.auto.shiftTime);
     }
     if (this.selector === 'D' && !this.shift && this.sinceShift > 0.7) {
-      // output speed from the wheels, but don't let wheelspin drive upshifts (use ground speed too)
       const wmWheels = Math.max(0, this.wheelMean());
       const wmGround = Math.max(0, speed) / P.tire.radius;
       const wm = Math.min(wmWheels, wmGround * 1.25 + 0.5);
       const rpmAt = g => wm * Math.abs(this.ratioFor('auto', g)) * RPM;
       const t = ctl.throttle;
       const lowR = this.range === 'low' ? 250 : 0;
-      // shift points follow the engine (shiftRpm = full-throttle upshift; 4800 for the stock V8)
+      // shift points follow the engine (shiftRpm: full-throttle upshift)
       const sr = P.engine.shiftRpm || 4800;
       const up = 1650 + lowR + (sr - 1650) * Math.pow(t, 1.3);
       const down = 1050 + (0.625 * sr - 1050) * Math.pow(t, 1.6);
@@ -463,7 +452,6 @@ export class Drivetrain {
         this.autoGear = g - 1; this.shift = { t: 0 }; this.sinceShift = 0;
       }
     }
-    // lock-up clutch
     const lineRpm = this.wheelMean() * this.currentRatio() * RPM;
     const want = this.running && this.selector === 'D' && this.autoGear >= 3 && !this.shift && lineRpm > 1250 && ctl.throttle < 0.9 ? 1 : 0;
     this.lockup += clamp(want - this.lockup, -6 * h, 1.5 * h);
@@ -483,8 +471,7 @@ export class Drivetrain {
     let Tc = 0;
     if (this.running && !this.limiterCut) Tc = this.thr * this.fire * table(E.torque, Math.max(rpm, 0));
     this.Tcomb = Tc;
-    // compression strokes (4 per revolution) of the cylinders that aren't firing: they brake the crank
-    // and give the energy back on the way down, so a cranking or stopping engine turns unevenly
+    // compression strokes (4 per revolution) of the cylinders not firing brake the crank and give the energy back: a cranking or stopping engine turns unevenly
     this.crankAng = (this.crankAng + w[0] * h) % (4 * Math.PI);
     if (this.fire < 1) Tc -= (E.compressionTorque ?? 120) * (1 - this.fire) * Math.sin(4 * this.crankAng) * clamp(1.5 - Math.abs(rpm) / 800, 0, 1);
     if (this.cranking) Tc += E.starterTorque * clamp(1 - rpm / (E.starterRpm ?? 420), 0, 1);
@@ -528,9 +515,8 @@ export class Drivetrain {
       if (cap > 0) { const r = R.clutch.clear(); r.j[0] = 1; r.j[1] = -1; A.push(r.bound(cap * h)); } else R.clutch.lambda = 0;
       if (this.selector === 'P') A.push(spread(R.park, 1).bound(Infinity));
     }
-    // centre lock (the driver's, or a part-time box in 4WD: no centre diff at all): mean speed of group 0 =
-    // mean speed of group 1 (driven axles only). The row's impulse is the torque (at the wheels) it moves
-    // from one group to the other.
+    // centre lock (the driver's, or a part-time box in 4WD): mean speed of group 0 = mean speed of group 1
+    // (driven axles only). The row's impulse is the torque (at the wheels) it moves between the groups.
     const lockC = this.centreLocked;
     const across = r => { r.clear(); for (let a = 0; a < nA; a++) if (this.isDriven(a)) { const v = L.axles[a].group === 0 ? 1 / n0 : -1 / n1; r.j[2 + 2 * a] = v; r.j[3 + 2 * a] = v; } return r; };
     if (lockC) {
@@ -564,9 +550,8 @@ export class Drivetrain {
     }
     const hbA = L.handbrake, hbMulti = hbA.length > 1;
     if (hbMulti) {
-      // several axles (BTR: every wheel's brake): each axle held on its own. One row on the mean of them all
-      // would let axles counter-rotate through the centre diff and hold nothing. The standstill hold joins
-      // in on the same rows.
+      // several axles (BTR: every wheel's brake): each axle held on its own; one row on the mean of them all
+      // would let axles counter-rotate through the centre diff and hold nothing. The standstill hold joins in.
       R.hb.lambda = 0;
       for (let a = 0; a < nA; a++) {
         const r = R.hbAx[a];
@@ -595,7 +580,6 @@ export class Drivetrain {
 
     this.solve(A, 24);
 
-    // ---- outputs
     this.engineAlpha = (w[0] - w0Old) / h;
     const lg = G !== 0 ? R.gear.lambda : 0;
     const lc = lockC ? R.center.lambda : 0;
@@ -624,7 +608,6 @@ export class Drivetrain {
     const K0 = this.P.auto.stallK;
     const visc = 0.06 * (we - wt);   // keeps a little coupling when both sides are nearly stopped
     if (we >= wt) {
-      // forward flow: pump (engine) drives the turbine
       const base = Math.max(we, 0);
       const sr = base > 1e-3 ? clamp(wt / base, -1, 1) : -1;
       const K = K0 * table(TC_K, Math.max(sr, 0));

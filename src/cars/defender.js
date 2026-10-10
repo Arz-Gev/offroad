@@ -1,9 +1,8 @@
 import { ROAD_ENGINES } from '../vehicle/engines.js';
 
 // Land Rover Defender 110 station wagon, lifted, on 33" mud tyres, Rover 4.6 V8 (the game's first car).
-// Everything the game knows about this car is in this file: physics (vehicle/carParams.js turns it into
-// the params P), looks (vehicle/model/index.js) and test bands (tools/simtest.mjs). Format and fields:
-// src/cars/README.md.
+// Everything about this car is in this file: physics (vehicle/carParams.js), looks (vehicle/model/index.js)
+// and test bands (tools/simtest.mjs). Fields: src/cars/README.md.
 export default {
   id: 'defender',
   label: 'Defender 110',
@@ -14,9 +13,8 @@ export default {
     name: 'Defender 110 V8',
     engine: { preset: 'v8', choices: ROAD_ENGINES },
     bodyMass: 1880,                       // sprung mass incl. roof rack, winch, spare
-    // principal inertia about the COM: pitch (x), yaw (y), roll (z). The axles' mass sits in this body, so
-    // yaw includes them at +-1.4 m (they swing sideways with the body); pitch and roll only their small
-    // horizontal part (their vertical motion is the axle DOF).
+    // principal inertia about the COM: pitch (x), yaw (y), roll (z). The axles' mass sits in this body: yaw
+    // includes it at +-1.4 m, pitch and roll only its small horizontal part (the vertical part is the axle DOF).
     bodyInertia: [3400, 4400, 1040],
     // centre of mass (local): 51 % on the front axle (engine, winch and bumper ahead of it)
     com: [0, 0.90, -0.04],
@@ -26,20 +24,18 @@ export default {
     archTop: 1.01,                        // the lowest body over the tyres: the inner wheel tubs (the arch openings: 1.03)
 
     // Solid beam axles on coil springs (front: radius arms + panhard, rear: trailing links + A-frame).
-    // droopY: the axle centre height at full droop, set by hand on this car (the others' is computed from
-    // the static ride; the hand value puts the Defender's ground 1.2 cm off y 0, simtest "ride height").
+    // droopY (axle centre height at full droop) is set by hand on this car (the others' is computed from the
+    // static ride); it puts the ground 1.2 cm off y 0 (simtest "ride height").
     axles: [
       {
         type: 'beam', steered: true,
-        // springs: the static ride uses ~40 % of the travel, so ~60 % is left for bumps (the softer 43000
-        // spring sat at 46 % with 8 cm to the bump rubber; droopY moved up with it, same ride height)
+        // springs: the static ride uses ~40 % of the travel, ~60 % is left for bumps
         droopY: 0.29, travel: 0.24,
         mass: 185, rollInertia: 75,
         springTrack: 1.0, k: 50000,
         // dampers sit outboard, close to the wheels; digressive above the knee (m/s)
         damperTrack: 1.24, bump: 4100, rebound: 6500,
         // roll stiffness ~53 % front, a little over its weight share: a stable, mildly understeering truck
-        // (the bar gave back what the stiffer springs added)
         arb: 7500,
       },
       {
@@ -66,12 +62,10 @@ export default {
     transfer: { high: 1.211, low: 3.32 },                                         // LT230 style
     finalDrive: 3.54,
     // permanent 4WD: an open centre diff (50 : 50) with a driver's lock, lockers on both axles, and a 2WD
-    // switch (front prop shaft disconnected, a game addition) (defaults, vehicle/drivetrain.js driveLayout)
+    // switch (a game addition) (defaults, vehicle/drivetrain.js driveLayout)
     drive: {},
 
     // chassis collision boxes: [cx, cy, cz, hx, hy, hz, rounding], fitted to the visible model (model/defender/body.js)
-    // on Oct 3: the old front bumper box sat 10 cm lower and 11 cm further forward than the bumper you see
-    // (an invisible nose: approach 32° instead of 38°).
     colliders: [
       ['Cabin / rear body', [0, 1.33, 0.745, 0.89, 0.67, 1.585, 0.06]],    // sill 0.66 to roof 2.0, bulkhead to rear face 2.33
       ['Engine bay', [0, 1.00, -1.36, 0.87, 0.38, 0.64, 0.06]],            // 0.62 to the raised bonnet centre 1.38, wing face -2.0
@@ -83,7 +77,6 @@ export default {
       ['Belly', [0, 0.51, -0.625, 0.30, 0.09, 1.125, 0.04]],               // sump, gearbox, transfer case (lowest, 0.42)
       ['Fuel tank', [0.58, 0.56, 1.91, 0.22, 0.08, 0.29, 0.03]],           // right of the rear rails
     ],
-    // where the tuning panel's cargo and roof load sit (body frame)
     load: { cargo: [0, 0.98, 1.45], roof: [0, 2.45, 0.75] },   // load bay floor behind the rear seats; on the rack
   },
 

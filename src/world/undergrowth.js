@@ -8,14 +8,12 @@ import { MAP_SIZE } from './terrain.js';
 import { buildPlant } from './foliage.js';
 import { FoliageMaterial } from '../render/foliage.js';
 
-// Undergrowth: ferns under the trees, shrubs, meadow flowers and tall grass tufts, placed like the grass
-// (grass.js): a camera-centred grid of world cells, one plant per cell at most, the cell's hash gives its
-// position, size and yaw, so plants never move as the grid follows the camera. Density comes from the
-// terrain's ground-data map (forest floor, grass density, wetness) and surface splat (none on trails, rock,
-// sand, mud). Plants shrink to nothing at the edge of their radius instead of popping. Alpha-tested cards
-// from the foliage atlas, swaying in the shared wind, lit through the leaves (render/foliage.js).
-// WebGPU: a compute pass per kind keeps the plants that exist and are in view, drawn with one indirect
-// draw each. WebGL 2 fallback: vertex-placed tiles as before.
+// Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
+// cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
+// wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
+// of popping. Alpha-tested foliage-atlas cards in the shared wind, lit through the leaves (render/foliage.js).
+// WebGPU: a compute pass per kind keeps the plants that exist and are in view, one indirect draw each. WebGL 2
+// fallback: vertex-placed tiles.
 
 const HALF = MAP_SIZE / 2;
 const TILES = 6;
@@ -138,7 +136,8 @@ export function buildUndergrowth(terrainView, atlas, windUniform, renderer, uCam
         const gid = float(instanceIndex);
         const cellIdx = K.uGrid.xy.add(tile.mul(k)).add(vec2(gid.sub(floor(gid.div(k)).mul(k)), floor(gid.div(k))));
         const P = plantOf(cellIdx);
-        return select(P.ok, place(P.d0, P.yaw), vec3(0.0, -1e4, 0.0));
+        // a world position: undo the mesh's offset (the tile index)
+        return select(P.ok, place(P.d0, P.yaw).sub(vec3(tile.x, 0.0, tile.y)), vec3(0.0, -1e4, 0.0));
       })());
       for (let tx = 0; tx < TILES; tx++) for (let tz = 0; tz < TILES; tz++) {
         const g = new THREE.InstancedBufferGeometry();
@@ -160,7 +159,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform, renderer, uCam
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]  light through
   const kinds = [
     makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0], 0.6),
-    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.6, 1.5, 0.55, 7.7], [0, 0, 1, 0], 0.45),
+    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0], 0.45),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0], 0.7),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1], 0.6),
   ];

@@ -2,9 +2,8 @@
 // and the view: how the sprung weight splits over N axles, Ackermann steering about one turning centre,
 // and the kinematic curves of an independent (double wishbone) corner.
 
-// Share of the sprung weight on each axle. Two axles: the lever rule. More axles are statically
-// indeterminate; this is the split of a rigid body on equal springs (carParams sets each axle's droop
-// height from it, so the body sits level at this split whatever the spring rates).
+// Share of the sprung weight on each axle. Two axles: the lever rule. More axles are statically indeterminate;
+// this is a rigid body on equal springs (carParams sets each axle's droopY from it, so the body sits level).
 export function axleShares(P) {
   const A = P.axles, n = A.length;
   if (n === 2) { const L = P.wheelbase, f = (L / 2 - P.com[2]) / L; return [f, 1 - f]; }

@@ -4,10 +4,10 @@ import { steelWheel } from '../wheels.js';
 import { buildExterior } from './body.js';
 import { buildInterior } from './interior.js';
 
-// The procedural Defender 110 station wagon (modelled after reference.webp): exterior (body.js), cabin
-// with gauges and levers (interior.js), the spare wheel on the rear door. A body source for the model
-// builder (model/index.js, look.body 'defender'): the body group, where its lamps are, the driver's eye,
-// the cabin's moving parts, its lens materials and its own moving extras (the spare follows the tyre size).
+// The procedural Defender 110 station wagon (after reference.webp): exterior (body.js), cabin with gauges and
+// levers (interior.js), the spare wheel on the rear door. A body source for model/index.js (look.body 'defender'):
+// the body group, lamp places, the driver's eye, the cabin's moving parts, lens materials and its own moving
+// extras (the spare follows the tyre size).
 
 export function defenderBody(mats) {
   const body = new THREE.Group();
@@ -33,7 +33,7 @@ export function defenderBody(mats) {
     eye: cab.driverEye,
     cockpit: { steeringWheel: cab.steeringWheel, gearLever: cab.gearLever, transferLever: cab.transferLever, needles: cab.needles,
       gaugeMat: cab.gaugeMat, needleMat: cab.needleMat, warnMat: cab.warnMat },
-    lenses: { head: [L.headLens], side: [L.sideLens], bar: [L.barLens], work: [L.workLens], tail: [L.tail], brake: [L.brake],
+    lenses: { head: [L.headLens], side: [L.sideLens], aux: [L.auxLens], work: [L.workLens], tail: [L.tail], brake: [L.brake],
       reverse: [L.reverse], amber: [L.amber], beacon: [L.beacon] },
     kits: [{
       // the spare follows the tuned tyre size, its face stays at the door

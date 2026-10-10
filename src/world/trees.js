@@ -12,15 +12,13 @@ import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { FoliageMaterial } from '../render/foliage.js';
 
-// Trees and undergrowth.
-// - ~12k trees in forests (spruce, pine, birch, dead snags), every one with a trunk collider.
-// - Near the camera (preset radius, ~40-50 m) trees are real geometry: bark trunks and branches plus
-//   alpha-tested foliage cards, swaying in the wind (also in the shadow pass). Crowns use the foliage
-//   lighting (render/foliage.js): a low sun shines through them.
-// - Beyond that every tree is an impostor: a camera-facing card showing the tree baked from 8 directions
-//   at startup (albedo + normals, so it is lit like the real tree). The two cross-fade with a dither.
-// - Fallen logs near the camera.
-// - The forest also writes the ground data map: forest floor under crowns, less grass, darker ground.
+// Trees. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
+// - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
+//   foliage cards, swaying in the wind (also in the shadow pass). Crowns use the foliage lighting
+//   (render/foliage.js): a low sun shines through them.
+// - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
+//   normals, so it is lit like the real tree), cross-faded with a dither.
+// - Fallen logs near the camera. The forest also writes the ground data map (forest floor under crowns).
 
 const HALF = MAP_SIZE / 2;
 const VIEWS = 8, CELL_W = 192, CELL_H = 384;
@@ -237,9 +235,8 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     for (const m of logMeshes) { m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); }
   }
 
-  // ---- colliders (trunks) are streamed in around the truck: Rapier's step cost grows with the number of
-  // colliders even when they are static (16k trunks: +1.9 ms per 240 Hz step), so only the chunks within
-  // ~70 m of the truck have them (a few hundred trunks).
+  // ---- trunk colliders are streamed in around the truck: Rapier's step cost grows with static colliders too
+  // (16k trunks: +1.9 ms per 240 Hz step), so only chunks within ~70 m have them (a few hundred trunks).
   const chunksOf = (ci) => chunks[ci];
   const activeChunks = new Map(); // chunk index -> [colliders]
   const addChunk = (ci) => {

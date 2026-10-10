@@ -3,7 +3,7 @@
 // Per axle: static spring compression (sag) and its share of the travel, droop left, room to the bump rubber
 // (5 cm before the hard stop) and to the stop, the extra load the springs take before the rubber (in g of
 // the static load), the sprung heave frequency (spring only, no tyre), and for 2 axles the roll stiffness
-// share of the front (springs at springTrack + bar). Targets for a new car: .claude/skills/add-car/SKILL.md.
+// share of the front (springs at springTrack + bar). Targets for a new car: src/cars/README.md.
 import { makeCarParams } from '../src/vehicle/carParams.js';
 import { CAR_IDS } from '../src/cars/index.js';
 import { axleShares } from '../src/vehicle/suspension.js';
@@ -18,7 +18,8 @@ for (const id of process.argv.slice(2).length ? process.argv.slice(2) : CAR_IDS)
     const sag = load / a.k - (a.preload || 0);
     const hz = Math.sqrt(a.k / (load / G)) / (2 * Math.PI);
     const rubber = a.travel - 0.05 - sag;
-    roll.push(a.k * (a.springTrack ?? P.track) ** 2 / 2 + (a.arb || 0));
+    // bar: beam N·m per rad of axle roll; independent N per m of left-right difference at the wheels (x track²)
+    roll.push(a.k * (a.springTrack ?? P.track) ** 2 / 2 + (a.arb || 0) * (a.type === 'independent' ? P.track ** 2 : 1));
     console.log(`  axle ${a.name.padEnd(5)} ${(a.type || 'beam').padEnd(11)} k ${a.k}  travel ${cm(a.travel)}  sag ${cm(sag)} (${Math.round(100 * sag / a.travel)} %)` +
       `  to rubber ${cm(rubber)}  to stop ${cm(a.travel - sag)} cm  margin ${(a.k * rubber / load).toFixed(2)} g  ${hz.toFixed(2)} Hz`);
   });

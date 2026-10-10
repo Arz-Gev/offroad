@@ -8,19 +8,15 @@ import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL } from './terrain.js';
 import { bakeGroundLayers, LAYER_TILE } from './textures.js';
 import { makeSimplex2D, fbm } from './noise.js';
 
-// Terrain renderer: CDLOD (continuous distance-dependent level of detail) over the 1 km physics map and
-// the 8 km render-only vista, drawn as one instanced grid patch.
-// - Patches are 32x32 quads; level k has a vertex spacing of 0.5 * 2^k m. The CPU walks a quadtree each
-//   frame (frustum culled, ~150-300 patches) and writes one instance per patch.
-// - The vertex stage reads heights straight from the physics heightfield (R32F texture). At level 0 the
-//   triangles use the same cell split as Rapier, so wheels sit exactly on what you see. Odd vertices
-//   morph towards the next level near each range limit, so there are no cracks or pops.
-// - Lighting uses a per-pixel normal texture (computed from the heights), so far patches keep the
-//   full-resolution shading.
-// - Material: six baked ground layers (texture arrays) blended by the surface map, slope, forest
-//   canopy and height, with two-scale anti-tiling, triplanar rock on steep faces and distance LOD.
-//   Wetness (shore, mud, rain from weather.js) darkens the ground, makes it glossy and fills puddles
-//   in the hollows.
+// Terrain renderer: CDLOD over the 1 km physics map and the 8 km render-only vista, drawn as one instanced grid
+// patch (32x32 quads; level k has vertex spacing 0.5 * 2^k m). The CPU walks a quadtree each frame (frustum culled,
+// ~150-300 patches) and writes one instance per patch.
+// - The vertex stage reads heights from the physics heightfield (R32F texture); level 0 uses Rapier's cell split, so
+//   wheels sit exactly on what you see. Odd vertices morph to the next level near each range limit (no cracks / pops).
+// - Per-pixel normals come from a baked normal texture, so far patches keep full-resolution shading.
+// - Material: six baked ground layers (texture arrays) blended by surface map, slope, canopy and height, with
+//   two-scale anti-tiling, triplanar rock on steep faces and distance LOD. Wetness (shore, mud, rain) darkens the
+//   ground, makes it glossy and fills puddles in the hollows.
 // The whole surface is worked out once in the colour node; roughness, AO and the normal read its results.
 
 const P = 32;                         // quads per patch side

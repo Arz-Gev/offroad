@@ -6,7 +6,7 @@
 // The deflection is clamped by the steady-state slip, which stops wind-up when a wheel spins in place.
 
 export const SURFACES = {
-  dirt:     { name: 'Dirt',     mu: 0.72, crr: 0.026, kPeak: 0.15, aPeak: 0.16, C: 1.35, soft: 0.5, dust: 1.0, color: [0.55, 0.45, 0.33] },
+  dirt:     { name: 'Dirt',     mu: 0.72, crr: 0.026, kPeak: 0.15, aPeak: 0.16, C: 1.35, soft: 0.5, dust: 1.0, color: [0.54, 0.40, 0.26] },
   grass:    { name: 'Grass',    mu: 0.58, crr: 0.034, kPeak: 0.14, aPeak: 0.15, C: 1.40, soft: 0.4, dust: 0.25, color: [0.36, 0.40, 0.24] },
   rock:     { name: 'Rock',     mu: 0.98, crr: 0.013, kPeak: 0.11, aPeak: 0.13, C: 1.55, soft: 0.0, dust: 0.15, color: [0.5, 0.5, 0.5] },
   mud:      { name: 'Mud',      mu: 0.42, crr: 0.10,  kPeak: 0.30, aPeak: 0.22, C: 1.05, soft: 1.0, dust: 0.0, mud: 1, color: [0.25, 0.18, 0.11] },
@@ -27,19 +27,15 @@ export const TIRE_ROW_OFFSET = 0.34;
 export const TIRE_SUB = 6;   // samples of the ground between two neighbouring rays (tyre v2 patch integral)
 export const TIRE_BELT = 1.0; // the tread band's stiffness as a spread of the load (Vehicle.integrateTyre)
 
-// Lateral load sensitivity. A real tyre's cornering stiffness grows much slower than its load (roughly
-// Fz^0.6-0.7), so the slip angle at the force peak grows with load. This is what makes lateral load
-// transfer cost grip: the axle that takes more of it (stiffer roll, more weight) slides first. With a
-// constant peak slip angle the cornering stiffness was almost proportional to load (exponent 0.86) and the
-// truck came out nearly neutral whatever its weight split and anti-roll bars.
+// Lateral load sensitivity: a real tyre's cornering stiffness grows slower than its load (~Fz^0.6-0.7), so
+// the slip angle at the force peak grows with load. That makes lateral load transfer cost grip: the axle
+// taking more of it slides first. A constant peak slip angle gave a nearly neutral truck whatever its split.
 const LAT_LOAD_EXP = 0.35;
 // ref: the tyre's nominal load (P.tire.fnRef; the 33" tyre's 5.2 kN by default): load sensitivity is relative to it
 export const latPeak = (surf, Fn, ref = FN_REF) => surf.aPeak * Math.pow(Math.max(0.25, Math.min(2.5, Fn / ref)), LAT_LOAD_EXP);
 
-// Radial stiffness (N/m) as a function of pressure (psi): carcass + air, for the 33x10.5 tyre the numbers
-// were set on; kScale scales it for a bigger or smaller tyre (P.tire.kScale, 1 by default).
-// Nominal tyre size (inches) -> metres: the radius and the tread width the physics uses. Calibrated on
-// the 33x10.5 mud tyre (R 0.42, width 0.27); every car's tyre goes through these (carParams, tuning).
+// Nominal tyre size (inches) -> metres, calibrated on the 33x10.5 mud tyre (R 0.42, width 0.27); every car's
+// tyre goes through these. The radial stiffness below (N/m vs psi) is set on it too; P.tire.kScale scales it.
 export const tyreRadius = inches => 0.42 * inches / 33;
 export const tyreWidth = inches => 0.27 * inches / 10.5;
 
@@ -47,18 +43,16 @@ export function tireRadialStiffness(psi, kScale = 1) {
   return (46000 + 6300 * psi) * kScale;
 }
 
-// Radial damping (N·s/m): the rubber and cords losing energy as the carcass flexes; the air inside is an
-// almost lossless spring. Real tyres (drop and drum tests) damp more at lower pressure (the carcass flexes
-// more) and several times more standing or creeping than rolling: it falls over the first few km/h and is
-// about flat above ~15 km/h. P.tire.damping is the rolling tyre at 20 psi; kScale scales it with the tyre
-// (same loss factor: damping grows with stiffness). treadSpeed: the tread's speed round the hub (m/s).
+// Radial damping (N·s/m): rubber and cords losing energy as the carcass flexes (the air is a lossless spring).
+// Real tyres damp more at lower pressure and several times more standing or creeping than rolling (falls over
+// the first few km/h, flat above ~15 km/h). P.tire.damping is the rolling tyre at 20 psi; kScale scales it
+// (damping grows with stiffness). treadSpeed: the tread's speed round the hub (m/s).
 export function tireRadialDamping(tire, psi, treadSpeed) {
   const pressure = Math.pow(20 / Math.max(psi, 4), 0.6);           // 10 psi x1.52, 32 psi x0.75
   const rolling = 1 + 2 * Math.exp(-Math.abs(treadSpeed) / 1.5);   // standing x3, 5 km/h x2.6, 15 km/h x1.1
   return (tire.damping ?? 650) * (tire.kScale ?? 1) * pressure * rolling;
 }
 
-// Per-wheel tyre parameters that depend on pressure and surface. Cheap enough to call every substep.
 export function tireCoefs(tire, psi, surf, out) {
   const low = Math.max(0, Math.min(1, (30 - psi) / 24)); // 0 at 30 psi, 1 at 6 psi
   // aired-down tyres grip better on loose / soft ground and on rock (they wrap around it)
@@ -74,7 +68,6 @@ export function tireCoefs(tire, psi, surf, out) {
   return out;
 }
 
-// Contact force in the contact frame. Uses the current deflection state and slip velocities.
 // w: wheel state with ux, uy. Writes w.Fx, w.Fy, w.slipNorm.
 export function tireForces(w, Fn, vsx, vsy, speed, surf, co) {
   if (Fn <= 0) { w.Fx = 0; w.Fy = 0; w.slipNorm = 0; return; }
@@ -104,7 +97,6 @@ export function tireForces(w, Fn, vsx, vsy, speed, surf, co) {
   w.slipNorm = s;
 }
 
-// Advance the contact patch deflection with implicit Euler and clamp it by the steady-state slip.
 export function tireRelax(w, h, vsx, vsy, avx, surf, co) {
   w.ux = (w.ux + h * vsx) / (1 + h * avx / co.Lx);
   w.uy = (w.uy + h * vsy) / (1 + h * avx / co.Ly);
