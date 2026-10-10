@@ -3,11 +3,11 @@ import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './rend
 import { storage } from './settings.js';
 
 // Graphics settings -> renderer: the preset or Custom values, resolution, dynamic resolution (Mobile) and Auto
-// quality by measurement. ctx: { renderer, pipeline, env, scenery, settings, dust, gunnery, game, say, started() }.
+// quality by measurement. ctx: { renderer, pipeline, env, scenery, settings, dust, life, gunnery, game, say, started() }.
 export const GFX_KEYS = Object.keys(presetToGfx(QUALITY.high));
 
 export function createGraphics(ctx) {
-  const { renderer, pipeline, env, scenery, settings, dust, gunnery, game, say } = ctx;
+  const { renderer, pipeline, env, scenery, settings, dust, life, gunnery, game, say } = ctx;
   const gfx = { auto: autoQuality(renderer), preset: null, q: null, dyn: 1 };
   const _db = new THREE.Vector2();
 
@@ -50,6 +50,7 @@ export function createGraphics(ctx) {
     renderer.getDrawingBufferSize(_db);
     pipeline.setSize(_db.x, _db.y);
     dust.setViewport(_db.y);
+    life?.setViewport(_db.y);
     gunnery?.setViewport(_db.y);
     game.redraw = 3;
   }

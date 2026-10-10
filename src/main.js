@@ -9,6 +9,7 @@ import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
 import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
+import { buildLife } from './world/life.js';
 import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
@@ -89,6 +90,9 @@ async function main() {
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
+  const life = buildLife(terrainView, env);   // pollen, butterflies, fireflies
+  scene.add(life.group);
+  scenery.parts.push(life);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
@@ -144,7 +148,7 @@ async function main() {
   const { teleports, nearestLocation, placeVehicle, recover: recoverVehicle } = createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced: afterPlace });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { gunnery, scenery, grass, trees, water, undergrowth, life, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -158,7 +162,7 @@ async function main() {
 
   // ---------------------------------------------------------------- graphics quality
   let started = false;
-  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, gunnery, game, say, started: () => started });
+  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, life, gunnery, game, say, started: () => started });
   const applyGraphics = gfx.apply;
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
