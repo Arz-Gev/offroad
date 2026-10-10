@@ -1,6 +1,6 @@
 // Screenshots at fixed views for before / after comparisons of a rendering change: the wind stopped, the game
 // paused, the camera settled, same frame count every run. Same Chrome / server as gfxbench.
-//   node tools/gfxshots.mjs out=dir [preset=high] [views=all|meadow,...] [size=1920x1080@2]
+//   node tools/gfxshots.mjs out=dir [preset=high] [views=all|meadow,...] [size=1920x1080@2] [car=defender]
 // Compare two runs: node tools/gfxshots.mjs diff=dirA,dirB out=dirDiff (needs nothing else: the diff runs in Chrome).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -72,7 +72,7 @@ const [sw, rest] = (args.size || '1920x1080@2').split('x');
 const [sh, sdpr] = rest.split('@');
 const names = !args.views || args.views === 'all' ? Object.keys(VIEWS) : args.views.split(',');
 await send('Emulation.setDeviceMetricsOverride', { width: +sw, height: +sh, deviceScaleFactor: +sdpr, mobile: false });
-const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true, hudScale: 0 };
+const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true, ...(args.car ? { car: args.car } : {}) };
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url: (process.env.URL || 'http://localhost:5181/') + '?t=' + Date.now() + (process.env.PARAMS ? '&' + process.env.PARAMS : '') });
 await evaluate(`new Promise((res, rej) => { (function poll() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); if (l && l.classList.contains('error')) return rej(new Error(l.textContent)); setTimeout(poll, 200); })(); })`);
