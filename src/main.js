@@ -39,7 +39,7 @@ import './ui.css';
 
 installShaderPatches();     // before any material compiles
 
-const H = 1 / 240;          // physics step
+const H = 1 / (+new URLSearchParams(location.search).get('hz') || 40);   // physics step (experiment: ?hz=240 for the old rate)
 const MAX_STEPS = 16;
 
 async function main() {
