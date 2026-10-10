@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { installLamps } from './lamps.js';
+import { batchSubmits } from './batch.js';
 
 // The renderer: three's WebGPURenderer on a WebGPU device when the browser has one, otherwise the same
 // renderer on its WebGL 2 backend (every shader is written in TSL, which compiles to WGSL or GLSL).
@@ -17,7 +18,7 @@ import { installLamps } from './lamps.js';
 //   floatFilter - linear filtering of 32-bit float textures (heights read with one fetch)
 
 export async function createRenderer(canvas, { forceWebGL = false } = {}) {
-  let device = null, gpu = '';
+  let device = null, gpu = '', batch = null;
   if (!forceWebGL && typeof navigator !== 'undefined' && navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
@@ -29,10 +30,11 @@ export async function createRenderer(canvas, { forceWebGL = false } = {}) {
         for (const k of ['maxStorageBufferBindingSize', 'maxBufferSize', 'maxComputeWorkgroupStorageSize', 'maxStorageBuffersPerShaderStage', 'maxSampledTexturesPerShaderStage', 'maxColorAttachmentBytesPerSample', 'maxComputeInvocationsPerWorkgroup', 'maxComputeWorkgroupSizeX', 'maxTextureArrayLayers'])
           if (L[k] !== undefined) want[k] = L[k];
         device = await adapter.requestDevice({ requiredFeatures: features, requiredLimits: want });
+        if (!/[?&]batch=0\b/.test(location.search)) batch = batchSubmits(device);   // ?batch=0: three's own submits
       }
     } catch (e) {
       console.warn('WebGPU device creation failed, using WebGL 2', e);
-      device = null;
+      device = null; batch = null;
     }
   }
   const renderer = new THREE.WebGPURenderer({
@@ -56,6 +58,8 @@ export async function createRenderer(canvas, { forceWebGL = false } = {}) {
     floatFilter: webgpu ? renderer.backend.hasFeature('float32-filterable') : !!renderer.backend.extensions?.has?.('OES_texture_float_linear'),
   };
   renderer.caps = caps;
+  // the frame's submits go to the GPU together (render/batch.js); main.js flushes at the end of each frame
+  renderer.batch = webgpu ? batch : null;
   installLamps(renderer);
   return renderer;
 }

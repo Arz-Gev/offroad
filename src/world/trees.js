@@ -296,20 +296,24 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     crownMat.positionNode = windPos;
     crownMat.maskNode = nearMask;
     crownMat.normalNode = normalViewGeometry;
-    const base = new THREE.InstancedBufferAttribute(new Float32Array(MAXN * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    // static usage: three's WebGPU backend re-uploads a DynamicDrawUsage attribute in full on every render
+    // call (each shadow pass too); update() uploads only the changed range, and only when the camera moved
+    const base = new THREE.InstancedBufferAttribute(new Float32Array(MAXN * 4), 4);
     const trunk = new THREE.InstancedMesh(v.geo.trunk.clone(), trunkMat, MAXN);
     const crown = new THREE.InstancedMesh(v.geo.crown.clone(), crownMat, MAXN);
-    // the crown's shadow comes from its lighter twin, which only the shadow cameras see
-    const shadowMat = new THREE.MeshBasicNodeMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
+    // the crown's shadow comes from its lighter twin, which only the shadow cameras see. Its cut-out is in the
+    // mask, not alphaTest: the shadow pass copies each caster's alphaTest onto one shared depth material, and
+    // every switch between zero and non-zero bumps that material's version, so three re-keyed every shadow
+    // draw every frame (see impMat below)
+    const shadowMat = new THREE.MeshBasicNodeMaterial({ map: atlas, side: THREE.DoubleSide });
     shadowMat.positionNode = windPos;
-    shadowMat.maskNode = nearMask;
+    shadowMat.maskNode = nearMask.and(texture(atlas).a.greaterThan(0.42));
     const crownShadow = new THREE.InstancedMesh(shadowCrown(v.geo.crown), shadowMat, MAXN);
     crownShadow.instanceMatrix = trunk.instanceMatrix;
     crownShadow.layers.set(SHADOW_LAYER);
     for (const m of [trunk, crown, crownShadow]) {
       m.geometry.setAttribute('aBase', base);
       m.count = 0; m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true;
-      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       group.add(m);
     }
     crown.castShadow = false;
@@ -333,7 +337,9 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   impGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
   const uImpH = uniformArray(heights, 'float');
   const vImpUv = varyingProperty('vec2', 'vImpUv'), vImpYaw = varyingProperty('float', 'vImpYaw');
-  const impMat = new FoliageMaterial({ alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, translucency: 0.35 });
+  // alpha test as alphaTestNode (the view) and in maskShadowNode (the shadow pass), never alphaTest: see shadowMat
+  const impMat = new FoliageMaterial({ roughness: 0.85, metalness: 0, side: THREE.DoubleSide, translucency: 0.35 });
+  impMat.alphaTestNode = float(0.45);
   impMat.positionNode = Fn(() => {
     const A = attribute('aImp', 'vec4'), B = attribute('aImpB', 'vec2');
     const ip = A.xyz, yaw = B.x, vr = B.y;
@@ -360,6 +366,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   })();
   const impDist = varying(distance(attribute('aImp', 'vec4').xyz, viewPos), 'vImpDist');
   impMat.maskNode = ditherHash(screenCoordinate.xy).lessThan(smoothstep(fade.x, fade.y, impDist));
+  impMat.maskShadowNode = impMat.maskNode.and(impMat.colorNode.a.greaterThan(0.45));
   const impMesh = new THREE.Mesh(impGeo, impMat);
   impMesh.frustumCulled = false;
   impMesh.castShadow = true; impMesh.receiveShadow = true;

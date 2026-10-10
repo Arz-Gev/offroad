@@ -15,7 +15,8 @@ export function spriteCloud(max, opts = {}) {
   g.setAttribute('uv', quad.getAttribute('uv'));
   g.setIndex(quad.getIndex());
   const pos = new Float32Array(max * 3), size = new Float32Array(max), alpha = new Float32Array(max), color = new Float32Array(max * 3);
-  const attr = (a, n) => new THREE.InstancedBufferAttribute(a, n).setUsage(THREE.DynamicDrawUsage);
+  // not DynamicDrawUsage: three's WebGPU backend re-uploads those in full on every render call; commit() marks the range
+  const attr = (a, n) => new THREE.InstancedBufferAttribute(a, n);
   const aPos = attr(pos, 3), aSize = attr(size, 1), aAlpha = attr(alpha, 1), aColor = attr(color, 3);
   g.setAttribute('iPos', aPos); g.setAttribute('iSize', aSize); g.setAttribute('iAlpha', aAlpha); g.setAttribute('iColor', aColor);
   g.instanceCount = 0;

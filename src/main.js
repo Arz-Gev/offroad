@@ -472,6 +472,7 @@ async function main() {
     tuning.update(dt, vehicle, raw);
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
+    renderer.batch?.flush();
     mark('render');
     gfx.updateDynamicResolution(dt, paused);
     input.endFrame();

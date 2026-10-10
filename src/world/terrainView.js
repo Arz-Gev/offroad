@@ -198,7 +198,8 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   geo.setIndex(idx);
   const MAX_INST = 2048;
   const instData = new Float32Array(MAX_INST * 4);
-  const instAttr = new THREE.InstancedBufferAttribute(instData, 4).setUsage(THREE.DynamicDrawUsage);
+  // static usage (update() marks the range): a DynamicDrawUsage attribute is re-uploaded in full on every render call
+  const instAttr = new THREE.InstancedBufferAttribute(instData, 4);
   geo.setAttribute('aPatch', instAttr);
   geo.instanceCount = 0;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
