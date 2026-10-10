@@ -1,7 +1,7 @@
 // Hitch test: per-frame timing around lamp switches and the time-of-day sweep (N key), to catch freezes
 // (shader rebuilds when the set of lights or the environment texture changes, see DEVNOTES "Never change
 // the set of lights"). Same setup as tools/gfxbench.mjs (dev server on 5181, headless Chrome on 9341).
-//   node tools/hitchtest.mjs [preset]      env: URL, PARAMS (e.g. "webgl=1")
+//   node tools/hitchtest.mjs [preset]      env: URL, PARAMS (e.g. "webgl=1"), SIZE=window (a visible window's own size)
 // Each line: median and worst frame (ms, until the GPU is done; cpu = time inside game.frame) and how many
 // frames took over 50 ms.
 const port = process.env.CDP_PORT || 9341, url = process.env.URL || 'http://localhost:5181/';
@@ -14,7 +14,8 @@ ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.id &
 const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (e) => { const r = await send('Runtime.evaluate', { expression: e, awaitPromise: true, returnByValue: true, timeout: 300000 }); if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description); return r.result?.result?.value; };
 await send('Runtime.enable'); await send('Page.enable');
-await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false });
+if (process.env.SIZE === 'window') await send('Emulation.clearDeviceMetricsOverride');   // a visible window keeps its own size
+else await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false });
 const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true };
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 't=' + Date.now() + (process.env.PARAMS ? '&' + process.env.PARAMS : '') });

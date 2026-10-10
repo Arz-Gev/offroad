@@ -3,9 +3,10 @@
 // in batches of 10 (WebGPU: queue.onSubmittedWorkDone, WebGL: a 1-pixel readPixels), so the number is the
 // real cost of a frame (CPU + GPU, whichever is slower), not the rAF rate.
 //
-// 1. A dev server (npx vite --port 5181 --strictPort) and a headless Chrome with a real GPU:
-//    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --remote-debugging-port=9341 \
-//      --user-data-dir=/tmp/offroad-chrome-9341 --no-first-run --enable-unsafe-webgpu about:blank &
+// 1. A dev server (npx vite --port 5181 --strictPort) and a visible Chrome window (the player wants real-window
+//    numbers; --headless=new works too, without size=window):
+//    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9341 \
+//      --user-data-dir=/tmp/offroad-chrome-9341 --no-first-run --test-type --mute-audio about:blank &
 // 2. node tools/gfxbench.mjs [preset=high] [views=all|forest,meadow,...] [frames=90] [out=dir] [size=1920x1080@2] [dust=0] [raf=5]
 //    env: CDP_PORT (9341), URL (http://localhost:5181/), PARAMS (extra query string, e.g. "webgl=1")
 // Prints one line per view: median / p90 frame ms (of the 10-frame batches), draw calls, triangles; writes <out>/<view>.jpg.
