@@ -37,31 +37,31 @@ export const QUALITY = {
   mobile: {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off',
+    terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off', clouds: 'off',
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
+    terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low', clouds: 'low',
     grassCurve: grass(GRASS_LOW), bushes: 0.31, bushHeight: 2.6, bushDist: 3.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
+    terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium', clouds: 'medium',
     grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.3,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
     impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
+    terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high', clouds: 'high',
     grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 3.2,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
+    terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra', clouds: 'ultra',
     grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
   },
 };
@@ -75,6 +75,16 @@ export const SHADOWS = {
   medium: { map: 2048, far: 130, cascades: 2, splits: [38], soft: 0.08, car: 1024 },
   high: { map: 2560, far: 180, cascades: 2, splits: [48], soft: 0.07, car: 1024 },
   ultra: { map: 3072, far: 260, cascades: 2, splits: [52], soft: 0.06, car: 2048 },
+};
+
+// Volumetric clouds per level (world/clouds.js): resolution of the cloud texture, steps along a ray. off: the
+// flat cloud layer of the sky dome instead.
+export const CLOUDS = {
+  off: null,
+  low: { scale: 0.25, steps: 28 },
+  medium: { scale: 0.25, steps: 36 },
+  high: { scale: 0.33, steps: 48 },
+  ultra: { scale: 0.5, steps: 64 },
 };
 
 // Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
@@ -91,6 +101,7 @@ export function gfxToQuality(g) {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
     impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
+    clouds: g.gShadows in CLOUDS ? g.gShadows : 'medium',   // the clouds follow the shadow level
     veg: g.gVeg, ...vegOf(g.gVeg),
   };
 }

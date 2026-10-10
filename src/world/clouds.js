@@ -1,0 +1,275 @@
+import * as THREE from 'three';
+import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+
+// Volumetric clouds: cumulus in a slab from BASE to TOP metres, raymarched at a fraction of the screen
+// resolution with a jittered start and a temporal blend (the history is reprojected by ray direction: the
+// clouds are kilometres away, so the camera's travel hardly moves them).
+// - Where: a 2D coverage field (procedural, shared with every lit material through CLOUD_GLSL, so the cloud
+//   shadows on the ground match the clouds above), drifting with the wind.
+// - Shape: a height profile (flat bellies, puffy tops, taller where the coverage is thick) carved by a 3D
+//   Perlin-Worley noise and eroded at the edges by finer Worley noise (a 64^3 tileable texture made on the GPU).
+// - Light: Beer-Lambert to the sun in a few steps, a "powder" darkening of thin cloud facing the light, two
+//   Henyey-Greenstein lobes (bright rims towards the sun), sky light from above; far clouds fade into the sky.
+
+export const BASE = 1500, TOP = 3300;
+
+// shared plain-object uniforms (UniformsUtils.clone keeps plain objects by reference: one write reaches every
+// material): xy wind offset (m), z coverage 0..1, w cloud-shadow strength; sun: xyz towards the sun, w mid height
+export const CLOUD = {
+  map: { x: 0, y: 0, z: 0.45, w: 0.0 },
+  sun: { x: 0, y: 1, z: 0, w: (BASE + TOP) / 2 },
+};
+
+export const CLOUD_GLSL = /* glsl */`
+uniform vec4 uCloudMap;
+uniform vec4 uCloudSun;
+float cHash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float cNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cHash(i), cHash(i + vec2(1.0, 0.0)), f.x), mix(cHash(i + vec2(0.0, 1.0)), cHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// cloud coverage over a world xz (m): 0 clear sky .. 1 a thick cloud
+float cloudCover(vec2 xz) {
+  vec2 p = (xz + uCloudMap.xy) / 2400.0;
+  float n = cNoise(p) * 0.54 + cNoise(p * 2.07 + 1.7) * 0.27 + cNoise(p * 4.13 + 3.1) * 0.13 + cNoise(p * 8.3 + 5.3) * 0.06;
+  return smoothstep(1.0 - uCloudMap.z, 1.0 - uCloudMap.z + 0.22, n);
+}
+// sunlight left after the clouds above a world point (soft: the shadow of the coverage, not of every puff)
+float cloudShadow(vec3 p) {
+  if (uCloudMap.w <= 0.0) return 1.0;
+  vec2 q = p.xz + uCloudSun.xz / max(uCloudSun.y, 0.12) * max(uCloudSun.w - p.y, 0.0);
+  return 1.0 - uCloudMap.w * smoothstep(0.02, 0.5, cloudCover(q));
+}
+`;
+
+export function cloudUniforms() {
+  return { uCloudMap: { value: CLOUD.map }, uCloudSun: { value: CLOUD.sun } };
+}
+
+// ---- 3D noise, made on the GPU slice by slice: r Perlin-Worley (shape), g / b / a Worley at 3 scales (detail)
+const NOISE_FRAG = /* glsl */`
+precision highp float;
+uniform float uZ;
+varying vec2 vUv;
+vec3 h33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+float worley(vec3 p, float per) {
+  p *= per;
+  vec3 c = floor(p), f = fract(p);
+  float d = 1.0;
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec3 o = vec3(float(x), float(y), float(z));
+    vec3 fp = h33(mod(c + o, per) + 0.5);
+    d = min(d, length(o + fp - f));
+  }
+  return clamp(1.0 - d, 0.0, 1.0);
+}
+float grad(vec3 c, vec3 f, float per) { vec3 g = h33(mod(c, per) + 7.7) * 2.0 - 1.0; return dot(normalize(g), f); }
+float perlin(vec3 p, float per) {
+  p *= per;
+  vec3 c = floor(p), f = fract(p), u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float n000 = grad(c, f, per), n100 = grad(c + vec3(1, 0, 0), f - vec3(1, 0, 0), per);
+  float n010 = grad(c + vec3(0, 1, 0), f - vec3(0, 1, 0), per), n110 = grad(c + vec3(1, 1, 0), f - vec3(1, 1, 0), per);
+  float n001 = grad(c + vec3(0, 0, 1), f - vec3(0, 0, 1), per), n101 = grad(c + vec3(1, 0, 1), f - vec3(1, 0, 1), per);
+  float n011 = grad(c + vec3(0, 1, 1), f - vec3(0, 1, 1), per), n111 = grad(c + vec3(1, 1, 1), f - vec3(1, 1, 1), per);
+  return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y), mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
+}
+void main() {
+  vec3 p = vec3(vUv, uZ);
+  float pf = perlin(p, 4.0) * 0.6 + perlin(p, 8.0) * 0.3 + perlin(p, 16.0) * 0.15;
+  pf = clamp(pf * 0.8 + 0.5, 0.0, 1.0);
+  float wl = worley(p, 4.0) * 0.625 + worley(p, 8.0) * 0.25 + worley(p, 16.0) * 0.125;
+  float pw = clamp(wl + pf * (1.0 - wl) - 0.25, 0.0, 1.0) / 0.75;   // Perlin-Worley: billows with round tops
+  float w1 = worley(p, 6.0) * 0.625 + worley(p, 12.0) * 0.25 + worley(p, 24.0) * 0.125;
+  float w2 = worley(p, 12.0) * 0.625 + worley(p, 24.0) * 0.25 + worley(p, 48.0) * 0.125;
+  float w3 = worley(p, 20.0) * 0.625 + worley(p, 40.0) * 0.25 + worley(p, 80.0) * 0.125;
+  gl_FragColor = vec4(pw, w1, w2, w3);
+}`;
+
+function makeNoise3D(renderer, N = 64) {
+  const rt = new THREE.WebGL3DRenderTarget(N, N, N, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false });
+  const t = rt.texture;
+  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: NOISE_FRAG, uniforms: { uZ: { value: 0 } }, depthTest: false, depthWrite: false,
+  });
+  const q = new FullScreenQuad(mat), prev = renderer.getRenderTarget();
+  for (let z = 0; z < N; z++) {
+    mat.uniforms.uZ.value = (z + 0.5) / N;
+    renderer.setRenderTarget(rt, z);
+    q.render(renderer);
+  }
+  renderer.setRenderTarget(prev);
+  mat.dispose(); q.dispose();
+  return rt;
+}
+
+// ---- the raymarch
+const MARCH_FRAG = /* glsl */`
+precision highp float;
+precision highp sampler3D;
+${CLOUD_GLSL}
+uniform sampler3D tShape;
+uniform sampler2D tLUT, tPrev, tDepth;
+uniform mat4 uInvViewProj, uPrevViewProj;
+uniform vec3 uCam, uLight, uLightCol, uAmbTop, uAmbBot;
+uniform vec2 uWind3, uTexel;
+uniform float uFrame, uDensity, uBlend, uHaze, uSteps;
+varying vec2 vUv;
+const float BASE = ${BASE.toFixed(1)}, TOP = ${TOP.toFixed(1)};
+vec3 lut(vec3 d) {
+  float el = asin(clamp(d.y, -1.0, 1.0));
+  float t = sign(el) * sqrt(abs(el) / 1.5707963);
+  return texture2D(tLUT, vec2(fract(atan(d.x, d.z) / 6.2831853), t * 0.5 + 0.5)).rgb;
+}
+float remap(float v, float a, float b, float c, float d) { return c + (v - a) / (b - a) * (d - c); }
+// cloud density at a world point; lod 1 adds the eroding detail
+float density(vec3 p, float detail) {
+  float h = (p.y - BASE) / (TOP - BASE);
+  if (h < 0.0 || h > 1.0) return 0.0;
+  float cov = cloudCover(p.xz);
+  if (cov < 0.01) return 0.0;
+  // flat bellies, rounded tops; thick coverage grows taller towers
+  float hg = smoothstep(0.0, 0.07, h) * (1.0 - smoothstep(0.25 + 0.6 * cov, 0.35 + 0.65 * cov, h));
+  vec3 q = vec3(p.x + uWind3.x, p.y, p.z + uWind3.y);
+  float shape = texture(tShape, q / 2000.0).r;
+  float d = clamp(remap(shape * hg, 1.0 - cov * 0.92, 1.0, 0.0, 1.0), 0.0, 1.0);
+  if (d <= 0.0 || detail < 0.5) return d;
+  vec4 dn = texture(tShape, q / 270.0);
+  float fine = dn.g * 0.625 + dn.b * 0.25 + dn.a * 0.125;
+  // the edges (low density, the top of the cloud) are eroded the most: wisps and cauliflower billows
+  fine = mix(fine, 1.0 - fine, clamp(h * 4.0, 0.0, 1.0));
+  return clamp(remap(d, fine * 0.55, 1.0, 0.0, 1.0), 0.0, 1.0);
+}
+float hg(float mu, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * mu, 1.5)); }
+void main() {
+  // any sky in this low-res texel's footprint? (the composite masks with the full-res depth)
+  float sky = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 o = (vec2(float(i & 1), float(i >> 1)) - 0.5) * uTexel;
+    sky = max(sky, step(0.99999, texture2D(tDepth, vUv + o).r));
+  }
+  vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+  vec4 wp = uInvViewProj * ndc;
+  vec3 dir = normalize(wp.xyz / wp.w - uCam);
+  vec4 res = vec4(0.0, 0.0, 0.0, 1.0);
+  if (sky > 0.0 && dir.y > -0.03) {
+    float t0 = (BASE - uCam.y) / max(dir.y, 1e-4), t1 = (TOP - uCam.y) / max(dir.y, 1e-4);
+    if (dir.y < 1e-4) { t0 = 0.0; t1 = 0.0; }
+    t1 = min(t1, 42000.0);
+    if (t1 > t0) {
+      float n = uSteps;
+      float dt = (t1 - t0) / n;
+      // interleaved gradient noise, moving every frame: the temporal blend turns it into smooth gradients
+      float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy + uFrame * vec2(5.588238, 5.588238), vec2(0.06711056, 0.00583715))));
+      float t = t0 + dt * jit;
+      float mu = dot(dir, uLight);
+      float phase = hg(mu, 0.72) * 0.65 + hg(mu, -0.2) * 0.35;
+      vec3 col = vec3(0.0); float T = 1.0, dsum = 0.0, tw = 0.0;
+      for (int i = 0; i < 96; i++) {
+        if (float(i) >= n || T < 0.02) break;
+        vec3 p = uCam + dir * t;
+        float d = density(p, 1.0) * uDensity;
+        if (d > 0.002) {
+          // light: optical depth towards the sun in a few growing steps
+          float od = 0.0, ls = 70.0;
+          vec3 lp = p + uLight * ls * (jit - 0.5);   // jittered too: fixed steps banded the self-shadow
+          for (int j = 0; j < 5; j++) { lp += uLight * ls; od += density(lp, j < 2 ? 1.0 : 0.0) * uDensity * ls; ls *= 1.7; }
+          float sigma = 0.026;
+          float Tl = exp(-od * sigma);
+          // "powder": light that has gone only a little way in is not yet scattered back: crisp, darker creases
+          float powder = 1.0 - exp(-od * sigma * 2.0);
+          float h = (p.y - BASE) / (TOP - BASE);
+          vec3 S = uLightCol * Tl * phase * mix(1.0, powder, 0.5) * 15.0 + mix(uAmbBot, uAmbTop, h) * (0.4 + 0.6 * h);
+          float ext = exp(-d * sigma * dt);
+          col += T * S * (1.0 - ext);
+          T *= ext;
+          dsum += t * (1.0 - ext); tw += 1.0 - ext;
+        }
+        t += dt;
+      }
+      // far clouds melt into the sky
+      float dist = tw > 0.0 ? dsum / tw : t0;
+      float fog = 1.0 - exp(-dist * uHaze);
+      col = mix(col, lut(dir) * (1.0 - T), fog);
+      res = vec4(col, T);
+    }
+  }
+  // temporal blend with last frame's clouds in the same direction
+  vec4 pp = uPrevViewProj * vec4(uCam + dir * 2000.0, 1.0);
+  vec2 puv = pp.xy / pp.w * 0.5 + 0.5;
+  if (uBlend < 1.0 && pp.w > 0.0 && all(greaterThan(puv, vec2(0.0))) && all(lessThan(puv, vec2(1.0)))) {
+    res = mix(texture2D(tPrev, puv), res, uBlend);
+  }
+  gl_FragColor = res;
+}`;
+
+export class Clouds {
+  constructor(renderer, sky) {
+    this.renderer = renderer;
+    this.sky = sky;
+    this.enabled = true;
+    this.scale = 0.25;          // resolution of the cloud texture
+    this.steps = 48;
+    this.noise = makeNoise3D(renderer);
+    const opt = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false };
+    this.rts = [new THREE.WebGLRenderTarget(1, 1, opt), new THREE.WebGLRenderTarget(1, 1, opt)];
+    this.idx = 0;
+    this.frame = 0;
+    this.reset = true;
+    this.wind = new THREE.Vector2();
+    this.prevViewProj = new THREE.Matrix4();
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: MARCH_FRAG, depthTest: false, depthWrite: false,
+      uniforms: {
+        ...cloudUniforms(),
+        tShape: { value: this.noise.texture }, tLUT: { value: sky.lut.texture }, tPrev: { value: null }, tDepth: { value: null },
+        uInvViewProj: { value: new THREE.Matrix4() }, uPrevViewProj: { value: new THREE.Matrix4() },
+        uCam: { value: new THREE.Vector3() }, uLight: { value: new THREE.Vector3(0, 1, 0) }, uLightCol: { value: new THREE.Vector3(1, 1, 1) },
+        uAmbTop: { value: new THREE.Vector3(0.3, 0.35, 0.45) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.2, 0.25) },
+        uWind3: { value: new THREE.Vector2() }, uTexel: { value: new THREE.Vector2() },
+        uFrame: { value: 0 }, uDensity: { value: 1 }, uBlend: { value: 1 }, uHaze: { value: 0.00004 }, uSteps: { value: 48 },
+      },
+    });
+    this.quad = new FullScreenQuad(this.mat);
+    this.width = 1; this.height = 1;
+  }
+  get texture() { return this.rts[this.idx].texture; }
+  setSize(w, h) {
+    const cw = Math.max(1, Math.round(w * this.scale)), ch = Math.max(1, Math.round(h * this.scale));
+    if (cw === this.width && ch === this.height) return;
+    this.width = cw; this.height = ch;
+    for (const rt of this.rts) rt.setSize(cw, ch);
+    this.reset = true;
+  }
+  // wind drift (m/s) and coverage come from the environment each frame
+  update(dt, windX, windZ) {
+    this.wind.x += windX * dt; this.wind.y += windZ * dt;
+    CLOUD.map.x = this.wind.x; CLOUD.map.y = this.wind.y;
+  }
+  render(camera, depthTexture) {
+    const u = this.mat.uniforms, r = this.renderer;
+    _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    u.uInvViewProj.value.copy(_vp).invert();
+    u.uPrevViewProj.value.copy(this.reset ? _vp : this.prevViewProj);
+    u.uCam.value.copy(camera.position);
+    u.uWind3.value.set(this.wind.x * 1.35, this.wind.y * 1.35);   // the shape drifts a little faster than the coverage: the clouds churn
+    u.uTexel.value.set(1 / this.width, 1 / this.height);
+    u.uFrame.value = this.frame++ % 64;
+    u.uBlend.value = this.reset ? 1 : 0.15;
+    u.uSteps.value = this.steps;
+    u.tDepth.value = depthTexture;
+    u.tPrev.value = this.rts[this.idx].texture;
+    this.idx = 1 - this.idx;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this.rts[this.idx]);
+    this.quad.render(r);
+    r.setRenderTarget(prev);
+    this.prevViewProj.copy(_vp);
+    this.reset = false;
+  }
+}
+const _vp = new THREE.Matrix4();

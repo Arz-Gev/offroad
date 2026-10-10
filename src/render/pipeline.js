@@ -170,12 +170,13 @@ void main() {
 // in front of the dome), smeared towards the sun in two passes; trunks, crowns, hills and the truck cut it
 // into beams. Added to the scene light before the grade.
 const SHAFT_MASK_FRAG = /* glsl */`
-uniform sampler2D tDepth;
+uniform sampler2D tDepth, tClouds;
 uniform vec2 uSun;
-uniform float uAspect;
+uniform float uAspect, uCloudsOn;
 varying vec2 vUv;
 void main() {
   float sky = step(0.99999, texture2D(tDepth, vUv).r);
+  if (uCloudsOn > 0.5) sky *= texture2D(tClouds, vUv).a;   // a cloud in front of the sun blocks the beams
   vec2 dv = (vUv - uSun) * vec2(uAspect, 1.0);
   gl_FragColor = vec4(sky * exp(-dot(dv, dv) * 5.0), 0.0, 0.0, 1.0);
 }`;
@@ -191,6 +192,16 @@ void main() {
   for (int i = 0; i < 24; i++) { sum += texture2D(tSrc, p).r * w; wsum += w; w *= 0.94; p += step; }
   gl_FragColor = vec4(sum / wsum, 0.0, 0.0, 1.0);
 }`;
+
+// clouds onto the scene: a quad at the far plane, depth-tested LEQUAL, so it lands on the sky only
+// (the dome writes no depth); premultiplied: scene x transmittance + cloud light
+const CLOUD_VERT = /* glsl */`
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = vec4(position.xy, 1.0, 1.0); }`;
+const CLOUD_COMP_FRAG = /* glsl */`
+uniform sampler2D tClouds;
+varying vec2 vUv;
+void main() { gl_FragColor = texture2D(tClouds, vUv); }`;
 
 const COMPOSITE_FRAG = /* glsl */`
 uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts;
@@ -329,7 +340,14 @@ export class RenderPipeline {
     this.aoMat.defines = { AO_SAMPLES: 8 };
     this.aoBlurMat = mat(AO_BLUR_FRAG, { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } });
     this.shafts = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false }));
-    this.shaftMaskMat = mat(SHAFT_MASK_FRAG, { tDepth: { value: this.hdr.depthTexture }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
+    this.shaftMaskMat = mat(SHAFT_MASK_FRAG, { tDepth: { value: this.hdr.depthTexture }, tClouds: { value: null }, uCloudsOn: { value: 0 }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
+    this.clouds = null;   // Clouds (world/clouds.js), set by the environment
+    this.cloudCompMat = new THREE.ShaderMaterial({
+      vertexShader: CLOUD_VERT, fragmentShader: CLOUD_COMP_FRAG, uniforms: { tClouds: { value: null } },
+      depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth, transparent: true,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.SrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    });
     this.shaftBlurMat = mat(SHAFT_BLUR_FRAG, { tSrc: { value: null }, uSun: { value: new THREE.Vector2() }, uLen: { value: 1 } });
     this.blackTex = new THREE.DataTexture(new Uint8Array(4), 1, 1); this.blackTex.needsUpdate = true;
     this.compMat.uniforms.tAO = { value: this.ao[1].texture };
@@ -365,6 +383,7 @@ export class RenderPipeline {
     for (const m of this.mips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
     for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     for (const t of this.shafts) t.setSize(Math.ceil(w / 4), Math.ceil(h / 4));
+    this.clouds?.setSize(w, h);
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
   }
@@ -382,6 +401,19 @@ export class RenderPipeline {
     r.autoClear = true;
     r.setRenderTarget(this.hdr);
     r.render(this.scene, this.camera);
+
+    // ---- volumetric clouds: marched at low resolution, then laid onto the sky of the HDR scene
+    const cloudsOn = !!(this.clouds && this.clouds.enabled);
+    if (cloudsOn) {
+      this.clouds.setSize(this.width, this.height);
+      this.clouds.render(this.camera, this.hdr.depthTexture);
+      this.cloudCompMat.uniforms.tClouds.value = this.clouds.texture;
+      r.autoClear = false;
+      this.pass(this.cloudCompMat, this.hdr);
+      r.autoClear = true;
+    }
+    this.shaftMaskMat.uniforms.uCloudsOn.value = cloudsOn ? 1 : 0;
+    this.shaftMaskMat.uniforms.tClouds.value = cloudsOn ? this.clouds.texture : null;
 
     // ---- SSAO (half resolution), multiplied into the scene colour in the composite
     const aoOn = this.ssao !== 'off';

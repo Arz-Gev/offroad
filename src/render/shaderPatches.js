@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { installCascadeShadowChunks } from './cascadeShadow.js';
+import { cloudUniforms } from '../world/clouds.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
 // 1. Atmosphere: three's fog chunks become exponential height fog plus aerial perspective, coloured by
@@ -116,7 +117,9 @@ export function installShaderPatches() {
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;
     if (u && 'fogDensity' in u) Object.assign(u, atmosphereUniforms());
+    if (u && 'directionalLights' in u) Object.assign(u, cloudUniforms());   // cloud shadows (getSunShadow)
   }
+  THREE.UniformsLib.lights = { ...THREE.UniformsLib.lights, ...cloudUniforms() };
   THREE.UniformsLib.fog = { ...THREE.UniformsLib.fog, ...atmosphereUniforms() };
 
   // lights: skip lamps that contribute nothing to this pixel

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CLOUD_GLSL } from '../world/clouds.js';
 
 // Sun shadow in one depth atlas, in two parts:
 // - the world (terrain, trees, rocks, props): 1-2 cascades with explicit splits (render/quality.js SHADOWS) and a
@@ -272,6 +273,7 @@ export class CascadedSunShadow extends THREE.LightShadow {
 // The filter is a 3x3 grid of hardware compares `radius` texels apart: a smooth penumbra, no noise, no rings
 // (three's 5-tap rotated Vogel disk is noisy when wide).
 const GET_SUN_SHADOW = /* glsl */`
+		${CLOUD_GLSL}
 		float sunPCF( sampler2DShadow shadowMap, vec2 mapSize, vec4 coord, float bias, float radius ) {
 			coord.xyz /= coord.w;
 			coord.z += bias;
@@ -353,7 +355,7 @@ const GET_SUN_SHADOW = /* glsl */`
 			}
 			#endif
 
-			return mix( 1.0, shadow, sunLightShadow.shadowIntensity );
+			return mix( 1.0, shadow, sunLightShadow.shadowIntensity ) * cloudShadow( worldPos );
 
 		}`;
 

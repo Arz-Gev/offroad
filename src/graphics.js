@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { QUALITY, SHADOWS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
+import { QUALITY, SHADOWS, CLOUDS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 import { storage } from './settings.js';
 
 // Graphics settings -> renderer: the preset or Custom values, resolution, dynamic resolution (Mobile) and Auto
@@ -39,6 +39,7 @@ export function createGraphics(ctx) {
       }
       sh.camera.far = S.far;
     }
+    env.setCloudQuality(CLOUDS[q.clouds] ?? null);
     scenery.configure(q);
     game.redraw = 3;
   }

@@ -4,6 +4,7 @@ import { Sky } from './sky.js';
 import { scatter, transmittance } from './atmosphere.js';
 import { ATMO, setVec4 } from '../render/shaderPatches.js';
 import { CascadedSunShadow, installCascadeShadowChunks } from '../render/cascadeShadow.js';
+import { Clouds, CLOUD } from './clouds.js';
 
 // Time of day: sun / moon light (cascaded shadows), physically based sky + clouds + stars, height fog and
 // aerial perspective matched to the sky, image-based ambient light from the sky, and the post-processing
@@ -141,6 +142,9 @@ export class Environment {
     this.pipeline = pipeline;
     this.sky = new Sky(renderer);
     scene.add(this.sky.dome);
+    this.clouds = new Clouds(renderer, this.sky);   // volumetric (the quality level turns them on)
+    this.clouds.enabled = false;
+    if (pipeline) pipeline.clouds = this.clouds;
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
     this.envJob = null;                // the probe refresh in progress (see updateProbe)
@@ -201,6 +205,13 @@ export class Environment {
     else this.anim = { from: this.hour, dist: wrapHour(h - this.hour), t: 0 };
     this.dirty = true;
   }
+  // q: CLOUDS[level] (render/quality.js) or null: the flat cloud layer instead
+  setCloudQuality(q) {
+    const on = !!q;
+    if (q) { this.clouds.scale = q.scale; this.clouds.steps = q.steps; this.clouds.reset = true; }
+    if (on !== this.clouds.enabled) { this.clouds.enabled = on; this.dirty = true; }
+  }
+
   // apply a pending hour change right away (otherwise it happens in the next update())
   flush() { this.dirty = false; this.apply(); }
 
@@ -256,7 +267,7 @@ export class Environment {
     su.uMoonDisc.value.set(0.9, 0.93, 1.0).multiplyScalar(c.moonE * 1.2 * sstep(c.moonElev, -1, 2));
     su.uStars.value = c.stars;
     su.uCover.value = c.cover;
-    su.uCloudAlpha.value = c.cloudAlpha;
+    su.uCloudAlpha.value = this.clouds.enabled ? 0 : c.cloudAlpha;   // the flat layer only without volumetric clouds
 
     // Horizon colours for fog / aerial perspective, from the same scattering model. Twilight keeps colouring the fog
     // until the sun is ~14° down; the moon adds its own.
@@ -298,6 +309,17 @@ export class Environment {
     su.uGround.value.set(side[0] * 0.25 + 0.002, side[1] * 0.25 + 0.002, side[2] * 0.25 + 0.0015);
     su.uSunSize.value = 0.0125 * (1 + (1 - sstep(c.sunElev, 0, 15)) * 0.4);
 
+    // volumetric clouds: coverage from the key, lit by the sun (or the moon), sky light from above; their
+    // shadows on the ground (through every lit material's sun shadow)
+    const cu = this.clouds.mat.uniforms, Lc = this.sunDir.y > -0.05 ? this.sunDir : this.moonDir;
+    CLOUD.map.z = c.cover;
+    CLOUD.map.w = this.clouds.enabled ? 0.68 * sstep(c.sunElev, -4, 6) : 0;
+    CLOUD.sun.x = Lc.x; CLOUD.sun.y = Lc.y; CLOUD.sun.z = Lc.z;
+    cu.uLight.value.copy(Lc);
+    cu.uLightCol.value.copy(su.uCloudLit.value);
+    cu.uAmbTop.value.copy(su.uCloudAmb.value);
+    cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.32);
+
     const bounce = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04;
     this.hemi.groundColor.setRGB(0.36 * bounce, 0.30 * bounce, 0.22 * bounce);
     this.hemi.userData.level = bounce;   // the ambient level the lamps scale against (VehicleView.ambientLevel)
@@ -332,6 +354,7 @@ export class Environment {
     }
     if (this.dirty) this.flush();
     if (camera) this.sky.update(dt, camera);
+    this.clouds.update(dt, 5.5, 3.2);   // drift with the wind (m/s)
     this.updateProbe(dt);
   }
 
