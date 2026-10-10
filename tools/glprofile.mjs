@@ -3,7 +3,7 @@
 // JavaScript spent issuing them; then the frame time with each system switched off in turn (the difference is
 // that system's cost). GPU timer queries are useless here: on the M1 Pro (ANGLE on Metal) they report 4-7x the
 // real frame time.
-//   node tools/glprofile.mjs [preset=high] [view=forest] [frames=60] [toggles=0]     (same Chrome / server as gfxbench)
+//   node tools/glprofile.mjs [preset=high] [view=forest] [frames=60] [toggles=0] [size=1920x1080@2|window]     (same Chrome / server as gfxbench)
 // view: meadow, forest, ford, lookout, forestNight, drive (the truck on the main trail at 50 km/h).
 const args = Object.fromEntries(process.argv.slice(2).map(a => a.split('=')));
 const preset = args.preset || 'high', view = args.view || 'forest', frames = +(args.frames || 60);
@@ -18,7 +18,8 @@ ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.id &
 const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const evaluate = async (expr) => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, timeout: 180000 }); if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text); return r.result?.result?.value; };
 await send('Runtime.enable'); await send('Page.enable');
-await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false });
+if (args.size === 'window') await send('Emulation.clearDeviceMetricsOverride');   // a visible window keeps its own size
+else { const [w, rest] = (args.size || '1920x1080@2').split('x'), [h, d] = rest.split('@'); await send('Emulation.setDeviceMetricsOverride', { width: +w, height: +h, deviceScaleFactor: +d, mobile: false }); }
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify({ autoPause: false, quality: preset, time: hour, hints: false, muted: true }))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url });
 await evaluate(`new Promise((res) => { (function poll() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); setTimeout(poll, 200); })(); })`);

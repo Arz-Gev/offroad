@@ -116,12 +116,29 @@ export class CascadedSunShadow extends THREE.LightShadow {
       try {
         camera.layers.mask = WORLD_MASK;
         if (_rest.length) render.call(sm, _rest, scene, camera);
-        if (_sun.length) { this._rendering = true; this._viewCamera = camera; render.call(sm, _sun, scene, camera); }
+        if (_sun.length) {
+          if (!this.map) this._makeMap(renderer);
+          this._rendering = true; this._viewCamera = camera; render.call(sm, _sun, scene, camera);
+        }
       } finally {
         this._rendering = false; this._viewCamera = null;
         camera.layers.mask = mask;
       }
     };
+  }
+
+  // the atlas as WebGLShadowMap would make it (depth texture with compare), but a one-channel colour attachment:
+  // nothing reads the colour, and RGBA cost ~0.2-0.4 ms of bandwidth a frame (63 MB at High)
+  _makeMap(renderer) {
+    const w = this.mapSize.x * this._frameExtents.x, h = this.mapSize.y * this._frameExtents.y;
+    const map = new THREE.WebGLRenderTarget(w, h, { format: THREE.RedFormat });
+    map.texture.name = 'sun.shadowMapColour';
+    map.depthTexture = new THREE.DepthTexture(w, h, THREE.UnsignedIntType);
+    map.depthTexture.name = 'sun.shadowMap';
+    map.depthTexture.format = THREE.DepthFormat;
+    map.depthTexture.compareFunction = renderer.state.buffers.depth.getReversed() ? THREE.GreaterEqualCompare : THREE.LessEqualCompare;
+    map.depthTexture.minFilter = map.depthTexture.magFilter = THREE.LinearFilter;
+    this.map = map;
   }
 
   // WebGLShadowMap asks for each tile's camera right before drawing the tile: set the layers it draws
