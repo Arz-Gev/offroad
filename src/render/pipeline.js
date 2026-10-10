@@ -166,8 +166,35 @@ void main() {
   gl_FragColor = vec4(wsum > 0.0 ? sum / wsum : 1.0, c.g, 0.0, 1.0);
 }`;
 
+// Light shafts (screen space, quarter resolution): open sky near the sun is the source (depth: nothing drawn
+// in front of the dome), smeared towards the sun in two passes; trunks, crowns, hills and the truck cut it
+// into beams. Added to the scene light before the grade.
+const SHAFT_MASK_FRAG = /* glsl */`
+uniform sampler2D tDepth;
+uniform vec2 uSun;
+uniform float uAspect;
+varying vec2 vUv;
+void main() {
+  float sky = step(0.99999, texture2D(tDepth, vUv).r);
+  vec2 dv = (vUv - uSun) * vec2(uAspect, 1.0);
+  gl_FragColor = vec4(sky * exp(-dot(dv, dv) * 5.0), 0.0, 0.0, 1.0);
+}`;
+const SHAFT_BLUR_FRAG = /* glsl */`
+uniform sampler2D tSrc;
+uniform vec2 uSun;
+uniform float uLen;
+varying vec2 vUv;
+void main() {
+  vec2 step = (uSun - vUv) * uLen / 24.0;
+  vec2 p = vUv;
+  float sum = 0.0, w = 1.0, wsum = 0.0;
+  for (int i = 0; i < 24; i++) { sum += texture2D(tSrc, p).r * w; wsum += w; w *= 0.94; p += step; }
+  gl_FragColor = vec4(sum / wsum, 0.0, 0.0, 1.0);
+}`;
+
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure, tAO;
+uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts;
+uniform vec3 uShaftCol;
 uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
@@ -196,6 +223,7 @@ void main() {
   vec3 c = texture2D(tScene, vUv).rgb * ex;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
+  c += texture2D(tShafts, vUv).r * uShaftCol * ex;
   c = max(c * uTint + uLift, 0.0);
   c = neutral(c);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -225,6 +253,8 @@ uniform sampler2D tSrc;
 varying vec2 vUv;
 void main() { gl_FragColor = texture2D(tSrc, vUv); }`;
 
+const _sunNdc = new THREE.Vector3(), _camFwd = new THREE.Vector3();
+
 export class RenderPipeline {
   constructor(renderer, scene, camera) {
     this.renderer = renderer;
@@ -240,6 +270,8 @@ export class RenderPipeline {
       exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
       vignette: 0.25, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
       shadowCol: new THREE.Color(0, 0, 0), highCol: new THREE.Color(1, 1, 1), vigCol: new THREE.Color(0, 0, 0), vibrance: 0,
+      // light shafts: direction towards the sun, its colour x strength (0: off)
+      shaftDir: new THREE.Vector3(0, 1, 0), shaftCol: new THREE.Vector3(),
     };
     this.time = 0;
     this.resetExposure = true;
@@ -273,7 +305,13 @@ export class RenderPipeline {
     });
     this.aoMat.defines = { AO_SAMPLES: 8 };
     this.aoBlurMat = mat(AO_BLUR_FRAG, { tSrc: { value: null }, uDir: { value: new THREE.Vector2() } });
+    this.shafts = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false }));
+    this.shaftMaskMat = mat(SHAFT_MASK_FRAG, { tDepth: { value: this.hdr.depthTexture }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
+    this.shaftBlurMat = mat(SHAFT_BLUR_FRAG, { tSrc: { value: null }, uSun: { value: new THREE.Vector2() }, uLen: { value: 1 } });
+    this.blackTex = new THREE.DataTexture(new Uint8Array(4), 1, 1); this.blackTex.needsUpdate = true;
     this.compMat.uniforms.tAO = { value: this.ao[1].texture };
+    this.compMat.uniforms.tShafts = { value: this.blackTex };
+    this.compMat.uniforms.uShaftCol = { value: new THREE.Vector3() };
     this.compMat.uniforms.uAOOn = { value: 0 };
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
@@ -303,6 +341,7 @@ export class RenderPipeline {
     let mw = w, mh = h;
     for (const m of this.mips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
     for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+    for (const t of this.shafts) t.setSize(Math.ceil(w / 4), Math.ceil(h / 4));
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
   }
@@ -334,6 +373,32 @@ export class RenderPipeline {
       const bm = this.aoBlurMat.uniforms;
       bm.tSrc.value = this.ao[0].texture; bm.uDir.value.set(1 / this.ao[0].width, 1 / this.ao[0].height);
       this.pass(this.aoBlurMat, this.ao[1]);
+    }
+
+    // ---- light shafts: only while the sun is on (or near) the screen
+    const cu0 = this.compMat.uniforms;
+    cu0.tShafts.value = this.blackTex;
+    if (P.shaftCol.lengthSq() > 1e-8) {
+      const cam = this.camera;
+      _sunNdc.copy(P.shaftDir).multiplyScalar(1000).add(cam.position).project(cam);
+      cam.getWorldDirection(_camFwd);
+      const facing = THREE.MathUtils.smoothstep(_camFwd.dot(P.shaftDir), 0.0, 0.35);
+      const onScreen = THREE.MathUtils.smoothstep(Math.max(Math.abs(_sunNdc.x), Math.abs(_sunNdc.y)), 1.8, 0.9);
+      const k = facing * onScreen;
+      if (k > 0.001) {
+        const sx = _sunNdc.x * 0.5 + 0.5, sy = _sunNdc.y * 0.5 + 0.5;
+        const mm = this.shaftMaskMat.uniforms;
+        mm.uSun.value.set(sx, sy); mm.uAspect.value = this.width / this.height;
+        this.pass(this.shaftMaskMat, this.shafts[0]);
+        const bm2 = this.shaftBlurMat.uniforms;
+        bm2.uSun.value.set(sx, sy);
+        bm2.tSrc.value = this.shafts[0].texture; bm2.uLen.value = 0.9;
+        this.pass(this.shaftBlurMat, this.shafts[1]);
+        bm2.tSrc.value = this.shafts[1].texture; bm2.uLen.value = 0.25;
+        this.pass(this.shaftBlurMat, this.shafts[0]);
+        cu0.tShafts.value = this.shafts[0].texture;
+        cu0.uShaftCol.value.copy(P.shaftCol).multiplyScalar(k);
+      }
     }
 
     // ---- eye adaptation (or a fixed exposure written to the same 1x1 target)
@@ -401,6 +466,6 @@ export class RenderPipeline {
   }
 
   dispose() {
-    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt, ...this.ao]) t.dispose();
+    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt, ...this.ao, ...this.shafts]) t.dispose();
   }
 }
