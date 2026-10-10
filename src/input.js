@@ -1,12 +1,9 @@
 // Keyboard + gamepad + touch input. Digital keys are ramped like real pedals so you can feather the throttle.
-// Touch (touch.js) writes analog pedals / steering into Input.touch; they count while the device is 'touch'.
-//
-// BINDINGS is the single source of truth for every control: main.js dispatches the discrete actions,
-// and the HUD hints and the menu's controls page are all generated from it. A car
-// without some of them (no low range, no extra lamps, no turret: vehicle/controls.js) sets them aside with
-// setCarControls: they don't run and aren't shown.
-// Discrete actions fire immediately from the key/pad event (onAction), not from the game loop.
-// While a menu is open, uiHandler receives the keys / pad buttons instead of the game.
+// BINDINGS is the single source of truth: main.js dispatches the actions; the HUD hints and the menu's
+// controls page are generated from it. A car without some controls (vehicle/controls.js) sets them aside
+// with setCarControls: they don't run and aren't shown.
+// Discrete actions fire from the key/pad event (onAction), not the game loop. While a menu is open,
+// uiHandler gets the keys / pad buttons instead of the game.
 
 // standard-mapping gamepad buttons
 export const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, LS: 10, RS: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
@@ -62,8 +59,7 @@ export const BINDINGS = [
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));
 
-// the controls this car doesn't have (vehicle/controls.js missingControls); set once, before the HUD,
-// the touch controls and the menu are built
+// controls this car doesn't have (vehicle/controls.js); set once, before the HUD, touch and menu are built
 const MISSING = new Set();
 export function setCarControls(missing) { MISSING.clear(); for (const id of missing) MISSING.add(id); }
 export const hasControl = id => !MISSING.has(id);
@@ -103,12 +99,12 @@ export function padCapHTML(id) {
 export class Input {
   constructor(el) {
     this.keys = new Set();
-    this.pressed = new Set();      // edge-triggered this frame (kept for console tests)
+    this.pressed = new Set();      // edge-triggered this frame (tests)
     this.raw = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, analogSteer: false, fire: 0, aimX: 0, aimY: 0 };
     this.mouse = { dx: 0, dy: 0, wheel: 0, down: false, lastMove: 0, fire: false };
     this.touch = { throttle: 0, brake: 0, steer: 0, clutch: 0, handbrake: 0, fire: 0 };   // written by touch.js
     this.gunner = false;           // in the gunner's sight (main.js): the mouse aims, LMB fires
-    this.turret = false;           // the vehicle has a turret (main.js): the arrows turn it, W A S D drive
+    this.turret = false;           // has a turret (main.js): the arrows turn it, W A S D drive
     this.sightLock = null;         // () => request pointer lock for the sight (main.js)
     this.device = 'kb';            // last used: 'kb' | 'pad' | 'touch'
     this.onAction = null;          // (id, device) => void
@@ -118,10 +114,8 @@ export class Input {
     this.padRepeat = {};
 
     window.addEventListener('keydown', e => {
-      // typing in a text field (tuning panel: setup name, import box) is not driving
       if (e.target?.matches?.('input[type=text], textarea, select')) return;
-      // let browser / OS shortcuts through untouched (Cmd+R, Ctrl+W, Cmd+L, ...).
-      // On macOS no keyup arrives for keys held while Cmd is down, so drop held keys to avoid stuck pedals.
+      // let browser / OS shortcuts through. macOS sends no keyup for keys held while Cmd is down: drop held keys (stuck pedals)
       if (e.metaKey || e.ctrlKey || e.altKey) { if (e.key === 'Meta') this.keys.clear(); return; }
       this.setDevice('kb');
       if (this.uiHandler) { if (this.uiHandler({ type: 'key', e })) e.preventDefault(); return; }
@@ -136,12 +130,11 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
     el.addEventListener('mousedown', e => {
       e.preventDefault();
-      // right button: the gunner's sight (turret vehicles); in the sight the left button fires once the
-      // pointer is locked to the view (the first click only locks it)
+      // right button: the gunner's sight; in it the left button fires once the pointer is locked (the first click only locks it)
       if (e.button === 2) { if (this.onAction) this.onAction('gunner', 'kb'); return; }
       if (this.gunner && e.button === 0) {
         if (document.pointerLockElement) { this.mouse.fire = true; return; }
-        this.sightLock?.();   // locks from now on; a drag aims meanwhile (and if the browser refuses the lock)
+        this.sightLock?.();   // a drag aims meanwhile (and if the browser refuses the lock)
       }
       this.mouse.down = true; this.mouse.lastMove = performance.now();
     });
@@ -162,7 +155,6 @@ export class Input {
     if (this.onDevice) this.onDevice(d);
   }
 
-  // drop held keys and pedal ramps (menu opened, focus lost)
   reset() {
     this.keys.clear();
     this.pressed.clear();
@@ -174,10 +166,8 @@ export class Input {
   down(...codes) { return codes.some(c => this.keys.has(c)); }
   hit(code) { return this.pressed.has(code); }
 
-  // call once per rendered frame
   update(dt) {
     const r = this.raw;
-    // on a turret vehicle the arrows turn the turret (W A S D drive); elsewhere they drive too
     const arrows = !this.turret;
     const up = this.down('KeyW') || (arrows && this.down('ArrowUp')), dn = this.down('KeyS') || (arrows && this.down('ArrowDown'));
     const lt = this.down('KeyA') || (arrows && this.down('ArrowLeft')), rt = this.down('KeyD') || (arrows && this.down('ArrowRight'));
@@ -185,7 +175,6 @@ export class Input {
     const ay = (this.down('Numpad8') || (!arrows && this.down('ArrowUp')) ? 1 : 0) - (this.down('Numpad2') || (!arrows && this.down('ArrowDown')) ? 1 : 0);
     let aimX = ax, aimY = ay;
     let fire = this.down('Enter', 'NumpadEnter') || (this.mouse.fire && !!document.pointerLockElement) ? 1 : 0;
-    // pedal ramps (keyboard)
     const ramp = (cur, on, upRate, downRate) => on ? Math.min(1, cur + upRate * dt) : Math.max(0, cur - downRate * dt);
     let thr = ramp(this._thr || 0, up, 2.2, 5);
     let brk = ramp(this._brk || 0, dn, 3.5, 6);
@@ -199,7 +188,7 @@ export class Input {
     let hb = this.down('Space') ? 1 : 0;
     r.analogSteer = false;
     if (this.device === 'touch') {
-      // on-screen pedals and stick (or tilt) are analog; the steering gets the gamepad's speed curve
+      // analog; the steering gets the gamepad's speed curve
       const t = this.touch;
       thr = Math.max(thr, t.throttle); brk = Math.max(brk, t.brake);
       if (!lt && !rt) { steer = t.steer; r.analogSteer = true; }
@@ -207,7 +196,6 @@ export class Input {
       fire = Math.max(fire, t.fire);
     }
 
-    // gamepad (standard mapping)
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find(p => p && p.connected);
     if (gp) {

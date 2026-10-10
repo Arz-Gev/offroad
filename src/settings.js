@@ -16,7 +16,7 @@ export const DEFAULTS = {
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   muted: false,
-  volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud (player, Oct 7)
+  volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud
   speedUnit: 'kmh',         // 'kmh' | 'mph'
   pressureUnit: 'psi',      // 'psi' | 'bar'
   cluster: 'auto',          // 'auto' (compact in cockpit / small windows) | 'full' | 'compact'
@@ -39,25 +39,13 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..2
   gTreeShadows: true,       // distant (impostor) trees cast shadows
-  // grass and undergrowth (the High preset's values; render/quality.js has the preset table)
-  gGrass: 0.15,             // grass density multiplier (cell spacing; 1 = one blade per 0.1 m cell)
-  gGrassHeight: 3.25,       // blade height multiplier (1 = 0.34 m near blades)
-  gGrassWidth: 2,           // blade width multiplier
-  gGrassNear: 60,           // radius of the dense near grass layer (m)
-  gGrassDist: 239,          // grass radius (m)
-  gGrassFarWidth: 1.65,     // far grass layer: blade width multiplier
-  gGrassFarSpacing: 1.1,    // far grass layer: cell spacing multiplier
-  gGrassFarGrow: 0,         // far grass layer: how much it coarsens with distance past 52 m (0 = not at all)
-  gBushes: 0.65,            // undergrowth density multiplier
-  gBushHeight: 1.6,         // undergrowth size multiplier
-  gBushDist: 1.55,          // undergrowth distance multiplier
+  gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
-  vegetation: true,         // grass and undergrowth on / off (not part of the presets, except Mobile turns it off)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
 
-// the time of day used to be one of three presets; saved games still hold those names
+// saved games may still hold the old preset names
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
@@ -65,7 +53,7 @@ const CHOICES = {
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],
-  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'],   // gunner: turret vehicles only (main.js falls back to chase)
+  camera: ['chase', 'cockpit', 'hood', 'wheel', 'orbit', 'gunner'],   // gunner: turret vehicles only
   speedUnit: ['kmh', 'mph'],
   pressureUnit: ['psi', 'bar'],
   cluster: ['auto', 'full', 'compact'],
@@ -75,15 +63,12 @@ const CHOICES = {
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
+  gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
   gTerrain: [0, 1, 2],
 };
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
-  // grass and undergrowth: from 20% below the lowest preset value to 20% above the highest (render/quality.js)
-  gGrass: [0.04, 0.96], gGrassHeight: [1.8, 3.9], gGrassWidth: [0.8, 2.4], gGrassNear: [42, 72], gGrassDist: [119, 287],
-  gGrassFarWidth: [1.3, 3.6], gGrassFarSpacing: [0.85, 1.6], gGrassFarGrow: [0, 1.5],
-  gBushes: [0.05, 2.2], gBushHeight: [1.1, 2.6], gBushDist: [1, 2.25],
 };
 
 export const storage = {
@@ -105,6 +90,11 @@ export class Settings {
     try {
       const saved = JSON.parse(storage.get(KEY) || '{}');
       if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
+      // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset
+      if (saved.vegetation === false && !('gVeg' in saved)) {
+        saved.gVeg = 'off';
+        if (saved.quality !== 'mobile') saved.quality = 'custom';     // keep it off: a preset would turn it on
+      }
       for (const k in saved) if (valid(k, saved[k])) this.v[k] = saved[k];
     } catch { /* corrupt entry: keep defaults */ }
     this.subs = [];
@@ -113,7 +103,6 @@ export class Settings {
   get(k) { return this.v[k]; }
   get all() { return this.v; }
 
-  // opts.silent: apply without player feedback (startup)
   set(k, value, opts = {}) {
     if (!valid(k, value)) return false;
     if (this.v[k] === value && !opts.force) return false;

@@ -9,12 +9,10 @@ import { escapeHTML } from './hud.js';
 // Drive together: friends join a room from an invite link (?room=<id>). Peer to peer (WebRTC, Trystero;
 // public Nostr relays only introduce the browsers to each other), no server of our own.
 //
-// Every player simulates only their own truck and sends its state 20 times a second. Friends' trucks are
-// drawn ~0.1 s behind from those snapshots (interpolated, extrapolated for a moment when packets are late)
-// through the normal VehicleView, fed by a proxy object with the fields the view reads. No physics, no
+// Everyone simulates only their own truck and sends its state 20 times a second. Friends' trucks are
+// drawn ~0.1 s behind from the snapshots through the normal VehicleView, fed by a proxy object. No
 // sound and no lamp beams for them (a spot light per truck would change the lights hash and recompile
-// every shader); the lenses still glow. "Solid trucks" puts the friend's collision boxes on a kinematic
-// body in our world: we bounce off it, they bounce off ours on their side.
+// every shader); the lenses still glow. Solid trucks: see "solid trucks" below.
 
 const APP_ID = 'offroad-defender-arzgev';
 const SEND_HZ = 20;
@@ -24,9 +22,9 @@ const BUF = 40;             // snapshots kept per friend
 const PUPPET_W = 2 * Math.PI * 2;                                     // solid trucks: spring to the network pose (rad/s)
 const GROUP_PUPPET = (0x0004 << 16) | (0xffff & ~0x0001);             // everything but the ground heightfield (Vehicle.js GROUND_BIT)
 
-// state packet layout (one flat array, JSON), from the car's axle count: per axle [a, b] (beam axle: heave,
-// roll; independent: left and right compression) and its droop height, per wheel [steer, spin, pen], and
-// for a car with a turret [yaw, pitch, shots fired]. A 4x4's layout is the one the game always sent.
+// state packet layout (one flat JSON array) from the axle count: per axle [a, b] (beam axle: heave, roll;
+// independent: left and right compression) and its droop height, per wheel [steer, spin, pen], and with a
+// turret [yaw, pitch, shots fired]
 function layout(nA, turret) {
   const S = { t: 0, pos: 1, quat: 4, vel: 8, ax: 11, droop: 11 + 2 * nA };
   S.R = S.droop + nA; S.steer = S.R + 1; S.speed = S.R + 2; S.rpm = S.R + 3; S.brake = S.R + 4; S.flags = S.R + 5; S.wheels = S.R + 6;
@@ -36,7 +34,7 @@ function layout(nA, turret) {
   return S;
 }
 const layoutFor = P => layout(P.axles.length, !!P.turret);
-const S = layout(2, false);   // only for the fields every layout shares (t, pos, quat, vel); per car: p.S, this.S
+const S = layout(2, false);   // only for fields every layout shares (t, pos, quat, vel); per car: p.S, this.S
 
 const r3 = x => Math.round(x * 1000) / 1000;
 const r4 = x => Math.round(x * 10000) / 10000;
@@ -49,7 +47,7 @@ export const roomFromURL = () => {
 const inviteURL = id => `${location.origin}${location.pathname}?room=${id}`;
 const newRoomId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
-// the fields VehicleView reads from a Vehicle
+// fields VehicleView reads from a Vehicle
 function makeProxy(P) {
   const axles = P.axles.map((p, i) => ({ p, i, droopY: p.droopY, c: 0, phi: 0, ind: p.type === 'independent', kin: p.type === 'independent' ? cornerKin(P, p, P.tire.radius) : null }));
   return {
@@ -70,7 +68,7 @@ export class Multiplayer {
     this.roomId = null;
     this.peers = new Map();
     this.sendAcc = 0;
-    this.follow = false;      // joined from a link: go to the first friend we hear from
+    this.follow = false;      // joined from a link: go to the first friend heard
     this.gotoIndex = 0;
     this.tags = document.createElement('div');
     this.tags.id = 'mp-tags';
@@ -105,7 +103,6 @@ export class Multiplayer {
     this.api.changed?.();
   }
 
-  // Invite: start a room if needed, then copy its link
   async invite() {
     if (!this.room) {
       const id = newRoomId();
@@ -141,7 +138,6 @@ export class Multiplayer {
     this.api.changed?.();
   }
 
-  // teleport next to a friend (cycles through them)
   gotoFriend() {
     const list = [...this.peers.values()].filter(p => p.snaps.length);
     if (!list.length) { this.api.say('mp', this.room ? 'No friends in the room yet' : 'Invite friends first', 'warn'); return; }
@@ -197,7 +193,6 @@ export class Multiplayer {
       if (+h.sr) P.steer.ratio = +h.sr;
       if (+h.tr) P.tire.radius = +h.tr;
       const model = await buildCarModel(car);
-      // no lamp beams for friends (see the header): only the lens glow
       for (const L of [model.lights.head, ...model.lights.aux, model.lights.rear]) { L.parent?.remove(L); L.target.parent?.remove(L.target); }
       if (!this.peers.has(p.id)) return;    // left while loading
       this.removeModel(p);
@@ -215,7 +210,7 @@ export class Multiplayer {
       this.syncBody(p);
     } catch (e) { console.warn('multiplayer: could not build the friend\'s truck', e); }
     finally { p.building = false; }
-    if (this.peers.has(p.id) && p.car !== car) this.build(p, p.lastHello);   // the friend switched cars meanwhile
+    if (this.peers.has(p.id) && p.car !== car) this.build(p, p.lastHello);   // switched cars meanwhile
   }
 
   removeModel(p) {
@@ -236,7 +231,7 @@ export class Multiplayer {
   onState(id, s) {
     const p = this.peer(id);
     if (!p.S || !Array.isArray(s) || s.length !== p.S.N || !s.every(Number.isFinite)) return;   // layout known from the hello
-    // clock offset to the sender: the smallest seen (the fastest packet), creeping up slowly for drift
+    // clock offset: the smallest seen (fastest packet), creeping up for drift
     const off = performance.now() / 1000 - s[S.t];
     p.off = p.off === null || off < p.off ? off : p.off + (off - p.off) * 0.01;
     const last = p.snaps[p.snaps.length - 1];
@@ -246,7 +241,6 @@ export class Multiplayer {
     if (this.follow && p.snaps.length === 1) { this.follow = false; this.placeBeside(p); }
   }
 
-  // the friend's state at local time t: interpolated between snapshots into `out` (a flat array)
   sample(p, t, out) {
     const sn = p.snaps, S = p.S, N = S?.N;
     if (!sn.length || !S) return false;
@@ -255,7 +249,7 @@ export class Multiplayer {
     while (i > 0 && sn[i - 1][S.t] > ts) i--;
     const b = sn[i], a = i > 0 ? sn[i - 1] : null;
     if (!a || ts >= b[S.t]) {
-      // newer than everything: hold, moving on along the last velocity for a moment
+      // newer than everything: hold, drifting along the last velocity
       for (let k = 0; k < N; k++) out[k] = b[k];
       const dt = Math.min(EXTRAP, Math.max(0, ts - b[S.t]));
       for (let k = 0; k < 3; k++) out[S.pos + k] += b[S.vel + k] * dt;
@@ -279,11 +273,9 @@ export class Multiplayer {
   }
 
   // ------------------------------------------------------------------ solid trucks
-  // The friend's truck as a "puppet" in our world: a dynamic body with its real mass and inertia, no
-  // gravity, pulled onto the network pose by a stiff critically damped spring (2 Hz). A kinematic body
-  // would be an immovable wall: we stopped dead against it and the friend felt almost nothing. The
-  // puppet gets shoved, we lose speed as against a real truck, and the friend's game sees our puppet
-  // push into their real truck. It ignores the ground heightfield (the friend's wheels hold it up).
+  // The friend's truck as a "puppet": a dynamic body with its real mass and inertia, no gravity, pulled
+  // to the network pose by a stiff critically damped 2 Hz spring. A kinematic body would be an immovable
+  // wall (we stop dead, the friend feels nothing). It ignores the ground heightfield (the friend's wheels hold it up).
   syncBody(p) {
     const solid = !!this.api.settings.get('solidTrucks');
     if (!solid || !p.proxy) {
@@ -311,7 +303,7 @@ export class Multiplayer {
   }
   setSolid() { for (const p of this.peers.values()) this.syncBody(p); }
 
-  // before each physics step (h): pull the puppets towards where the friends are at that instant
+  // before each physics step (h): pull the puppets to where the friends are then
   stepBodies(t, h) {
     if (!this.peers.size) return;
     const out = this._sb || (this._sb = new Float64Array(256));
@@ -322,8 +314,7 @@ export class Multiplayer {
       const tq = _q.set(out[S.quat], out[S.quat + 1], out[S.quat + 2], out[S.quat + 3]).normalize();
       const ex = out[S.pos] - x.x, ey = out[S.pos + 1] - x.y, ez = out[S.pos + 2] - x.z;
       if (!p.bodyPlaced || ex * ex + ey * ey + ez * ez > 25) {
-        // first frame or a teleport: snap
-        b.setTranslation({ x: out[S.pos], y: out[S.pos + 1], z: out[S.pos + 2] }, true);
+          b.setTranslation({ x: out[S.pos], y: out[S.pos + 1], z: out[S.pos + 2] }, true);
         b.setRotation({ x: tq.x, y: tq.y, z: tq.z, w: tq.w }, true);
         b.setLinvel({ x: out[S.vel], y: out[S.vel + 1], z: out[S.vel + 2] }, true);
         b.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -332,7 +323,7 @@ export class Multiplayer {
       }
       const m = p.mass;
       b.applyImpulse({ x: m * (kp * ex + kd * (out[S.vel] - lv.x)), y: m * (kp * ey + kd * (out[S.vel + 1] - lv.y)), z: m * (kp * ez + kd * (out[S.vel + 2] - lv.z)) }, true);
-      // rotation error and the target's spin rate (from the last target), as axis * angle
+      // rotation error and the target's spin rate, as axis * angle
       const r = b.rotation();
       const e = _q2.set(r.x, r.y, r.z, r.w).invert().premultiply(tq);
       const se = e.w < 0 ? -2 : 2;
@@ -349,7 +340,7 @@ export class Multiplayer {
   }
 
   // ------------------------------------------------------------------ per frame
-  // t: the local time the physics state stands for; send ours, draw theirs
+  // t: the local time of the physics state; send ours, draw theirs
   update(dt, t, env) {
     if (!this.room) return;
     this.sendAcc += dt;
@@ -399,7 +390,7 @@ export class Multiplayer {
       const ax = x.axles[a];
       ax.droopY = s[S.droop + a];
       if (!ax.ind) { ax.c = s[S.ax + a * 2]; ax.phi = s[S.ax + a * 2 + 1]; continue; }
-      // independent corners: compression of each, the kinematic curves give camber and lateral path
+      // independent corners: the kinematic curves give camber and lateral path
       for (let k = 0; k < 2; k++) {
         const w = x.wheels[2 * a + k], dc = (w.c = s[S.ax + a * 2 + k]) - ax.kin.c0;
         w.camber = ax.kin.g * dc; w.out = ax.kin.hubOut * dc;
@@ -416,7 +407,7 @@ export class Multiplayer {
     if (x.turret && S.N > S.turret) {
       const T = x.turret, shots = s[S.turret + 2];
       T.yaw = s[S.turret]; T.pitch = s[S.turret + 1];
-      if (shots > T.shots && T.shots > 0) this.api.friendShots?.(p, shots - T.shots);   // muzzle flash + tracer on our side
+      if (shots > T.shots && T.shots > 0) this.api.friendShots?.(p, shots - T.shots);   // flash + tracer on our side
       T.shots = shots;
     }
     p.view.lights.head = f & 3; p.view.lights.aux = !!(f & 4); p.view.lights.hazard = !!(f & 8);
@@ -426,7 +417,6 @@ export class Multiplayer {
     p.view.update(_v, _q, dt, env);
   }
 
-  // name tags over the friends' trucks (after the camera moved)
   updateTags(camera) {
     for (const p of this.peers.values()) {
       if (!p.tag) continue;

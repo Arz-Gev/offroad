@@ -2,14 +2,11 @@ import * as THREE from 'three';
 import { makeSimplex2D, mulberry32, fbm, ridged, smoothstep, lerp } from './noise.js';
 import { SURFACES } from '../vehicle/tire.js';
 
-// Procedural map, 1 km square with a 0.5 m physics grid:
-// - the original 400 m core: rolling hills, a big hill, the trail loop + branch with ruts and a mud hole,
-//   and the proving ground with five test lanes (unchanged);
-// - around it: an outer trail loop through a lake shore with a ford, meadows and a ruined hut, an old
-//   quarry, a rocky lookout peak with a spur trail to the top, and a conifer forest;
-// - mountains along the edge that continue into a render-only vista (8 km, 8 m grid, see `far`).
-// Heights are a coarse low-frequency field (2 m grid, bilinear) plus per-vertex detail, which keeps the
-// generation of 4.2 M heights well under a second.
+// Procedural map, 1 km square, 0.5 m physics grid. Core 400 m: hills, big hill, trail loop + branch with ruts and a
+// mud hole, proving ground with five test lanes. Outside: outer trail loop (lake shore with ford, meadows, ruined hut,
+// quarry, lookout peak with spur trail, conifer forest) and edge mountains continuing into a render-only vista
+// (8 km, 16 m grid, see `far`).
+// Heights = coarse 2 m field (bilinear) + per-vertex detail, so 4.2 M heights generate in well under a second.
 
 export const MAP_SIZE = 1024;
 export const CELL = 0.5;
@@ -17,7 +14,7 @@ export const N = Math.round(MAP_SIZE / CELL); // cells per side
 export const SURF = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4 };
 export const SURF_LIST = [SURFACES.grass, SURFACES.dirt, SURFACES.rock, SURFACES.mud, SURFACES.sand];
 
-export const FAR_SIZE = 8192, FAR_CELL = 16, FAR_N = FAR_SIZE / FAR_CELL; // render-only vista heightmap (16 m grid)
+export const FAR_SIZE = 8192, FAR_CELL = 16, FAR_N = FAR_SIZE / FAR_CELL;
 
 export const SPAWN = { x: 0, z: 46, yaw: 0 };
 export const PAD = { x0: -80, x1: -12, z0: -38, z1: 52 };
@@ -36,7 +33,6 @@ export const POI = {
 };
 
 export const TRAILS = [
-  // core loop + branch (original)
   { closed: true, pts: [[0, 50], [0, -20], [15, -70], [60, -108], [112, -100], [136, -42], [132, 28], [110, 78], [60, 105], [15, 92], [0, 72]] },
   { closed: false, pts: [[0, -20], [-40, -62], [-100, -84], [-134, -30], [-132, 60], [-100, 112], [-40, 126], [15, 92]] },
   // outer loop: from the core loop's north-east corner, round the map clockwise, back in through the forest
@@ -92,7 +88,6 @@ export class Terrain {
     const r = Math.hypot(x, z), rb = Math.max(Math.abs(x), Math.abs(z));
     const wCore = smoothstep(200, 140, r);
     const base = r < 1400 ? fbm(n1, x * 0.0055, z * 0.0055, 4) * 10 : 0;
-    // core (original map): fbm hills + the big hill
     let core = base;
     if (wCore > 0) {
       const dh = Math.hypot(x - HILL.x, z - HILL.z);
@@ -109,7 +104,7 @@ export class Terrain {
       const gaps = smoothstep(0.15, 0.55, Math.abs(Math.sin(Math.atan2(z, x) * 2.5 + 0.6)));
       if (gaps > 0) outer += ring * gaps * (9 + 12 * ridged(n5, x * 0.012, z * 0.012, 3));
     }
-    // edge mountains (rise from ~430 m), continuing into the vista
+    // edge mountains (from ~430 m), continuing into the vista
     const edge = smoothstep(400, 520, rb) * (1 - smoothstep(1200, 2200, r));
     if (edge > 0) {
       const mtn = 40 + 85 * ridged(n6, x * 0.0045, z * 0.0045, 5) + 30 * fbm(n3, x * 0.002, z * 0.002, 3);
@@ -118,13 +113,12 @@ export class Terrain {
     // vista: big ranges further out (precomputed on a 16 m grid when available)
     const far = smoothstep(500, 1400, r);
     if (far > 0) outer += far * (this.rangeGrid ? this.rangeAt(x, z) : this.ranges(x, z));
-    // lookout peak (west-north-west)
     const pk = POI.peak, dp = Math.hypot(x - pk.x, z - pk.z);
     if (dp < pk.r) {
       const cone = smoothstep(pk.r, 0, dp);
       outer += pk.h * (cone * (0.6 + 0.4 * cone)) * (0.9 + 0.1 * ridged(n2, x * 0.03, z * 0.03, 2));
     }
-    // quarry pit (south-west): flat floor, steep terraced walls
+    // quarry pit: flat floor, steep terraced walls
     const q = POI.quarry, eq = Math.hypot((x - q.x) / q.rx, (z - q.z) / q.rz);
     if (eq < 1.2) {
       const pit = smoothstep(1.15, 0.85, eq);
@@ -147,8 +141,8 @@ export class Terrain {
   mid(x, z) { return fbm(this.n2, x * 0.028, z * 0.028, 3) * 1.4; }
   // fine detail (per vertex): bumpiness you feel in the seat
   fine(x, z) { return fbm(this.n3, x * 0.22, z * 0.22, 2) * 0.13; }
-  // the same kind of detail as a seamless 128 m tile of periodic gradient noise (4.2 M simplex lookups
-  // per vertex were the slowest part of the generation otherwise)
+  // same kind of detail as a seamless 128 m tile of periodic gradient noise (per-vertex simplex was the slowest
+  // part of generation)
   makeFineTile() {
     const T = 256, t = new Float32Array(T * T);
     const rnd = mulberry32(this.seed * 977 + 13);
@@ -483,7 +477,6 @@ export class Terrain {
         }
       }
       trailSamples.push({ sp, hs });
-      // rasterise this trail's distance field into the band around it
       const R = 6, touched = [];
       for (let k = 0; k < sp.length - 1; k++) {
         const a = sp[k], b = sp[k + 1];
@@ -524,8 +517,8 @@ export class Terrain {
       const x = -half + ix * CELL, z = -half + iz * CELL;
       const dmin = this.trailDist[i], wm = wmax[i];
       H[i] = lerp(H[i], hsum[i] / wsum[i], wm);
-      // twin ruts worn by traffic, slightly crowned middle, a little noise
-      // (wide enough for the 0.5 m grid: narrower ruts alias into a washboard on diagonal trails)
+      // twin ruts, slightly crowned middle, a little noise; ruts must stay wide for the 0.5 m grid (narrower alias
+      // into a washboard on diagonal trails)
       const rut = Math.exp(-(((dmin - 0.8) / 0.34) ** 2));
       detail[k] = wm * (-0.055 * rut + 0.02 * Math.exp(-((dmin / 0.5) ** 2)) + fbm(this.n2, x * 0.25, z * 0.25, 2) * 0.03);
       weight[k] = wm;
@@ -535,11 +528,9 @@ export class Terrain {
     this.trailBand = { list: Int32Array.from(touchedAll), detail, weight };
   }
 
-  // Ride quality: blending trails into each other (junctions) and stamping features onto them (the mud
-  // hole) leaves short crests that throw the truck off the ground at 40-50 km/h. The bed under the trail
-  // band (without its rut / crown detail) gets a Gaussian low-pass (sigma 2 m) that only averages the
-  // driven bed itself (normalised convolution with a mask of the cells within ~2.7 m of a centreline), so
-  // cut walls and banks next to the trail don't leak in; the detail is added back on top.
+  // Blending trails at junctions and stamping features (mud hole) leaves short crests that launch the truck at
+  // 40-50 km/h. Gaussian low-pass (sigma 2 m) of the bed under the trail band (rut/crown detail removed, added back
+  // after), normalised over cells within ~2.7 m of a centreline so cut walls and banks don't leak in.
   smoothTrailBeds(sigma = 2.0) {
     const { list, detail, weight } = this.trailBand;
     const H = this.heights, NN = this.NN, td = this.trailDist;
@@ -649,7 +640,6 @@ export class Terrain {
     return this.heightAt(x, z);
   }
 
-  // bilinear height
   heightAt(x, z) {
     const half = MAP_SIZE / 2;
     const fx = Math.max(0, Math.min(N - 1e-4, (x + half) / CELL));

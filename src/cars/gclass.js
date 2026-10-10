@@ -4,24 +4,25 @@ import { ROAD_ENGINES } from '../vehicle/engines.js';
 export default {
   id: 'gclass',
   label: 'G-Class',
+  suspensionV: 3,           // older saved setups (before the independent front, v3) take the stock suspension
 
   physics: {
     name: 'G-Class G 500',
     engine: { preset: 'g500', choices: ROAD_ENGINES },
-    bodyMass: 2050, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
+    bodyMass: 2105, bodyInertia: [4100, 5300, 1300], com: [0, 0.86, -0.03], aero: { cdA: 1.65 },
     wheelbase: 2.907, track: 1.635,
     archTop: 0.86,   // the lowest body over the tyres (tools/rigview.html measureArches)
-    // character: heavy, torquey, flat (stiffer bars than the Defender), quicker modern steering. Long travel
-    // and 20 psi for the trails: its real road travel and 26 psi bounced off the bump stops above 60.
-    // Front spring stiff enough that the static ride uses ~40 % of the travel (47000 sat at 45 %, 8 cm to the
-    // bump rubber); the front bar gave back the roll stiffness the spring added.
-    // Beam axles here (the real W463A has double wishbones in front and a five-link beam behind). The axle
-    // roll inertias and the rear roll steer are the Defender's, kept from when the car was added.
+    // character: heavy, torquey, flat, quicker modern steering. Trail travel and 20 psi (the real road setup
+    // bounces off the bump stops above 60); the static ride uses ~40 % of the travel.
+    // As the real W463A: double wishbones in front, a five-link beam behind (its roll inertia and roll steer are
+    // copied from the Defender's rear axle). The front springs at the wheel track give ~72 kN·m/rad of roll
+    // stiffness alone: no front bar, a stiff rear one keeps the inner front wheel down in a fast slalom.
+    // Front unsprung mass is an estimate (the diff is in the body)
     axles: [
-      { type: 'beam', steered: true, mass: 205, rollInertia: 75,
-        k: 54000, bump: 4400, rebound: 7000, arb: 9000, travel: 0.24, springTrack: 1.05, damperTrack: 1.30 },
+      { type: 'independent', linkage: 'wishbones', rcHeight: 0.10, camberGain: -0.3, steered: true, mass: 150,
+        k: 54000, bump: 4400, rebound: 7000, arb: 0, travel: 0.24 },
       { type: 'beam', mass: 195, rollInertia: 72, rollSteer: 0.06,
-        k: 51000, bump: 4300, rebound: 6800, arb: 4500, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
+        k: 51000, bump: 4300, rebound: 6800, arb: 20000, travel: 0.25, springTrack: 1.08, damperTrack: 1.30 },
     ],
     tire: { size: 31.5, widthIn: 11, rimRadius: 0.254, inertia: 3.0, pressure: 20 },
     steer: { maxAngle: 0.58, ratio: 15.5, kingpinTrack: 1.45 },
@@ -53,13 +54,11 @@ export default {
     wheel: { R: 0.4015, width: 0.285 },   // its own tyre (the wheel nodes scale from this to the tuned size)
     eye: [-0.40, 1.62, 0.10],             // left-hand drive
     hoodEye: [0, 1.68, -1.05],
-    // beams; the lamps' glass and inserts were cut out of the model (tools/cutparts.mjs, model frame, both
-    // sides mirrored): lens_head x [0.52, 0.76] y [0.43, 0.67] z [-2.13, -2.02], lens_tail x [0.55, 0.84]
-    // y [0.34, 0.47] z [2.14, 2.24]
+    // beams; the lamps' glass and inserts were cut out of the model (tools/cutparts.mjs, model frame, both sides
+    // mirrored): lens_head x [0.52, 0.76] y [0.43, 0.67] z [-2.13, -2.02], lens_tail x [0.55, 0.84] y [0.34, 0.47] z [2.14, 2.24]
     lamps: { head: [0, 0.95, -2.42], rear: [0, 0.80, 2.62],
       lenses: { head: '^lens_head', tail: '^lens_tail', brake: '^lens_tail' } },
-    // the steering wheel cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.56, -0.26], [0.82, 1.07],
-    // [-0.41, -0.25]] in the model frame); it turns about its own axis
+    // the steering wheel was cut out of the cabin mesh (tools/cutparts.mjs, box [[-0.56, -0.26], [0.82, 1.07], [-0.41, -0.25]], model frame)
     cockpit: { steeringWheel: 'steering_wheel' },
   },
 

@@ -4,17 +4,16 @@ import { TIRE_FAN, TIRE_ROWS, TIRE_ROW_OFFSET } from '../tire.js';
 // Tyre material whose vertex shader deforms the tyre by the physics contact data, ray by ray (tyre v2).
 //
 // The physics casts a fan of rays from the hub (tire.js TIRE_FAN angles x TIRE_ROWS rows across the tread)
-// and knows, for each ray, how far the ground reaches into the tyre (radial intrusion, m). The shader gets
-// that table (uProf, in the tyre's own units) and moves every vertex towards the axle by the intrusion at
-// its angle and row, interpolated between rays. A flat road gives a flat patch, a rock gives a dent that
-// wraps around it, an edge gives a step. The lugs keep their height (the whole carcass moves, not just the
-// surface), the sidewalls bulge out next to the patch, and nothing inside the rim radius moves: a rim
-// merged into the same mesh (G-Class) stays round, a separate rim (BTR-80) never gets this material.
+// and knows how far the ground reaches into the tyre along each (radial intrusion, m). The shader gets that
+// table (uProf, in the tyre's own units) and moves every vertex towards the axle by the intrusion at its angle
+// and row, interpolated between rays. The whole carcass moves (lugs keep their height), the sidewalls bulge next
+// to the patch, and nothing inside the rim radius moves: a rim merged into the same mesh (G-Class) stays round,
+// a separate rim (BTR-80) never gets this material.
 //
-// Frames: object space -> wheel space (uToWheel: the mesh's matrix in the spinning wheel group, axle along
-// x, centre at the origin, unscaled) -> the steering frame (undo the spin uSpin about x), where the ray
-// angles live: angle 0 points straight down, + towards the front (-z). The same code runs in the shadow
-// depth pass (customDepthMaterial), so the shadow is the squashed tyre too.
+// Frames: object space -> wheel space (uToWheel: the mesh's matrix in the spinning wheel group, axle along x,
+// centre at the origin, unscaled) -> the steering frame (undo the spin uSpin about x), where the ray angles
+// live: angle 0 points straight down, + towards the front (-z). The same code runs in the shadow depth pass
+// (customDepthMaterial), so the shadow is the squashed tyre too.
 
 const NF = TIRE_FAN.length, NR = TIRE_ROWS.length;
 const FAN0 = TIRE_FAN[0], FANSTEP = TIRE_FAN[1] - TIRE_FAN[0];
@@ -88,8 +87,10 @@ export function createTireMaterial(base) {
     uHalfW: { value: 0.135 },
   };
   mat.userData.uniforms = uniforms;
-  mat.onBeforeCompile = sh => patch(sh, uniforms);
-  mat.customProgramCacheKey = () => 'tire-deform-v2';
+  // an imported tyre keeps its own material patch (shell.js realBlack); clone() doesn't copy it
+  const own = base?.isMaterial && base.userData.realBlack ? base.onBeforeCompile : null;
+  mat.onBeforeCompile = sh => { own?.(sh); patch(sh, uniforms); };
+  mat.customProgramCacheKey = () => own ? 'tire-deform-v2-real-black' : 'tire-deform-v2';
   // the shadow of the squashed tyre: same deformation in the depth pass (shares the uniforms)
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   depth.onBeforeCompile = sh => patch(sh, uniforms, true);

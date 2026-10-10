@@ -20,9 +20,28 @@ export async function loadShell(url) {
     // glass: plain alpha blending (transmission would add a second scene render every frame)
     if (m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = Math.min(m.opacity, 0.35); }
     if (m.transparent) { o.castShadow = false; m.depthWrite = false; }
+    else realBlack(m);
   });
   shell.updateMatrixWorld(true);
   return shell;
+}
+
+// Downloaded cabins are darker than any real black and partly flagged metal (a dark metal reflects
+// nothing): dark "metal" becomes plastic, albedo gets a floor, baked AO is halved.
+const BLACK = 0.05;   // linear albedo of black plastic / leather
+const BAKED_AO = 0.5;
+const REAL_BLACK = `#include <metalnessmap_fragment>
+{
+  float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  metalnessFactor *= smoothstep(0.08, 0.25, lum);
+  diffuseColor.rgb = sqrt(diffuseColor.rgb * diffuseColor.rgb + ${(BLACK * BLACK).toFixed(6)});
+}`;
+function realBlack(m) {
+  if (!m.isMeshStandardMaterial) return;
+  if (m.aoMap) m.aoMapIntensity = BAKED_AO;
+  m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', REAL_BLACK); };
+  m.customProgramCacheKey = () => 'real-black';
+  m.userData.realBlack = true;   // createTireMaterial keeps the patch on the deforming copies
 }
 
 // Move a node's meshes into a group, keeping where they are: the group sits at `at` (the frame the node's

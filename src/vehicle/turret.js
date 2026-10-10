@@ -1,10 +1,10 @@
-// Turret and guns of a vehicle (P.turret, the car's file in src/cars/): traverse and elevation driven like the BPU-1's hand
-// wheels (rate and acceleration limited, no stabiliser: the gun moves with the hull), the guns' rate of
-// fire, belts and reloads, barrel recoil, and the ballistics shared by the game (weapons.js) and the tests.
+// Turret and guns of a vehicle (P.turret, the car's file in src/cars/): traverse and elevation driven like the
+// BPU-1's hand wheels (rate and acceleration limited, no stabiliser), the guns' rate of fire, belts and
+// reloads, barrel recoil, and the ballistics shared by the game (weapons.js) and the tests.
 //
 // Angles are relative to the hull: yaw + = right (seen from above, clockwise), pitch + = up.
-// The aim (aimYaw, aimPitch) is where the gunner wants the gun; the mouse moves it, keys and the stick move
-// it at the drive's full rate. The gun follows at the drive's speed.
+// The aim (aimYaw, aimPitch) is where the gunner wants the gun (mouse, or keys / stick at the drive's full
+// rate); the gun follows at the drive's speed.
 
 const wrap = a => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -14,7 +14,7 @@ export class Turret {
     this.spec = spec;
     this.yaw = 0; this.pitch = 0;           // the gun, now (rad)
     this.yawRate = 0; this.pitchRate = 0;   // (rad/s)
-    this.aimYaw = 0; this.aimPitch = 0;     // where the gunner wants it
+    this.aimYaw = 0; this.aimPitch = 0;
     this.weapon = 0;                        // index in spec.weapons
     this.recoil = 0;                        // barrel slide back (m), for the view
     this.shots = 0;                         // rounds fired, all guns (multiplayer: friends draw them)
@@ -53,7 +53,6 @@ export class Turret {
     this.pitch += this.pitchRate * h;
     if (this.pitch < S.pitchMin) { this.pitch = S.pitchMin; this.pitchRate = 0; }
     if (this.pitch > S.pitchMax) { this.pitch = S.pitchMax; this.pitchRate = 0; }
-    // guns
     this.events.length = 0;
     for (let i = 0; i < this.guns.length; i++) {
       const g = this.guns[i], w = S.weapons[i];

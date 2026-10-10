@@ -1,14 +1,12 @@
 import * as THREE from 'three';
 import { mesh, bar, mergeStatic } from './geom.js';
 
-// Running gear of a beam (solid) axle: the axle tube with its diff and pinion, hubs and brake discs, two
-// coil springs and two dampers between the axle and the body, two radius arms / trailing links, a panhard
-// rod, a track rod on a steered axle, and a prop shaft from the transfer case on a driven one. The axle
-// group carries the axle's two wheels (wheels.js) and follows the physics' heave and roll; the springs,
-// dampers and links live in the body frame and are stretched between their ends every frame.
-// Dimensions come from the axle's params (track, springTrack, damperTrack, droopY, travel); the link and
-// rod geometry is a typical coil-sprung 4x4's (the Defender's). opts.transferCase: the transfer case
-// output (body frame) the prop shafts start from.
+// Running gear of a beam (solid) axle: tube, diff and pinion, hubs and brake discs, two coil springs and two
+// dampers, two radius arms / trailing links, a panhard rod, a track rod on a steered axle, a prop shaft on a
+// driven one. The axle group carries the wheels and follows the physics' heave and roll; springs, dampers
+// and links live in the body frame and are stretched between their ends every frame. Dimensions come from
+// the axle's params; the link and rod geometry is a typical coil-sprung 4x4's (the Defender's).
+// opts.transferCase: the transfer case output (body frame) the prop shafts start from.
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
@@ -44,7 +42,6 @@ export function beamAxle(root, mats, P, ai, wheels, opts = {}) {
     add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 20).rotateZ(Math.PI / 2), mats.steel, s * (t2 - 0.1), 0, 0), axle); // brake disc
     add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.16), mats.chassis), axle).position.set(s * (ap.springTrack / 2), 0.055, 0);
   }
-  // springs + shocks live in the body frame and get stretched each frame
   const suspension = [];
   for (const s of [-1, 1]) {
     const sx = s * ap.springTrack / 2;
@@ -65,7 +62,6 @@ export function beamAxle(root, mats, P, ai, wheels, opts = {}) {
   }
   const panhard = { mesh: add(mesh(new THREE.BoxGeometry(1, 0.04, 0.04), mats.chassis), root),
     bodyEnd: new THREE.Vector3(-0.45, 0.62, ap.z + toMid * 0.22), axleEnd: new THREE.Vector3(0.55, 0.06, toMid * 0.22) };
-  // the axle's wheels ride on its ends
   for (const w of wheels) {
     w.steer.position.set(w.side * t2, 0, 0);
     w.steer.userData.isWheel = true;
@@ -85,7 +81,6 @@ export function beamAxle(root, mats, P, ai, wheels, opts = {}) {
   const toBody = (local, out) => out.copy(local).applyEuler(axle.rotation).add(axle.position);
   return {
     axle, suspension, links, panhard, prop,
-    // pose from the physics: the axle's heave and roll, then everything hung between it and the body
     update(view, v) {
       const a = v.axles[ai];
       axle.position.set(0, a.droopY + a.c, ap.z);

@@ -3,12 +3,10 @@ import { MAP_SIZE } from './terrain.js';
 import { buildPlant } from './foliage.js';
 import { NO_FLIP_NORMAL } from './trees.js';
 
-// Undergrowth: ferns under the trees, shrubs, meadow flowers and tall grass tufts, placed on the GPU like
-// the grass (grass.js): a camera-centred grid of world cells, one plant per cell at most, the cell's hash
-// gives its position, size and yaw, so plants never move as the grid follows the camera. Density comes from
-// the terrain's ground-data map (forest floor, grass density, wetness) and surface splat (none on trails,
-// rock, sand, mud). Plants shrink to nothing at the edge of their radius instead of popping. Alpha-tested
-// cards from the foliage atlas, swaying in the shared wind. No shadow casting (cheap); they receive shadows.
+// Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
+// cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
+// wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
+// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive but do not cast shadows (cheap).
 
 const HALF = MAP_SIZE / 2;
 const TILES = 6;
@@ -122,7 +120,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
   const kinds = [
     makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0]),
-    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.6, 1.5, 0.55, 7.7], [0, 0, 1, 0]),
+    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
   ];

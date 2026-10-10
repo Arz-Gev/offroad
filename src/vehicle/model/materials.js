@@ -1,10 +1,8 @@
 import * as THREE from 'three';
 
-// Truck materials. All of them share a few uniforms driven by VehicleView:
-//   uEnvSpec  - multiplier on the specular environment reflection (scene.environmentIntensity is kept
-//               low for the terrain, which leaves glass and clear coat looking dead without this)
-//   uDirt     - overall dirt amount (dust on the lower body, film on flat tops)
-// Shader patches are small string injections into the stock MeshStandard/MeshPhysical programs.
+// Truck materials. Shared uniforms driven by VehicleView: uEnvSpec scales the specular environment
+// reflection (scene.environmentIntensity is low for the terrain, which leaves glass and clear coat dead),
+// uDirt scales the dirt. Shader patches are small injections into the stock MeshStandard/MeshPhysical programs.
 
 const NOISE = /* glsl */`
 float tk_hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -94,10 +92,9 @@ float tkDirt;
     if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance *= uCabinAO * ${(+ao).toFixed(3)}; radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
     if (post) frag = frag.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${post}`);
     if (glass) {
-      // The pane is a closed slab (two caps). Drawing both attenuated the view through it twice
-      // (0.26^2 = 7% transmission: opaque blue-black), so only the cap facing the viewer is drawn.
-      // Premultiplied output: tinted body is attenuated by alpha, reflections are not. Alpha rises
-      // towards grazing angles (Fresnel), so the glass is clearest head-on and mirror-like at a slant.
+      // A closed slab (two caps): drawing both attenuated the view twice (0.26^2 = 7%: opaque blue-black),
+      // so only the viewer-facing cap is drawn. Premultiplied output: the tint is attenuated by alpha,
+      // reflections are not; alpha rises at grazing angles (Fresnel).
       frag = frag
         .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (!gl_FrontFacing) discard;')
         .replace('#include <opaque_fragment>', `float tkNV = abs(dot(normalize(vViewPosition), normal));
@@ -124,8 +121,8 @@ const phys = (o, p = {}) => patch(new THREE.MeshPhysicalMaterial(o), p);
 
 export function createMaterials() {
   const m = {
-    // red with a clear coat; dirt on the lower panels. The base specular is kept low (specularIntensity)
-    // and fairly sharp: a broad satin lobe washed the flat bonnet pink in the sun from the cockpit/hood view
+    // red with a clear coat; dirt on the lower panels. Low, sharp base specular (specularIntensity):
+    // a broad satin lobe washed the flat bonnet pink in the sun (hood view)
     paint: phys({ color: 0x9e150e, roughness: 0.3, metalness: 0.0, specularIntensity: 0.35, clearcoat: 0.25, clearcoatRoughness: 0.12 }, { dirt: 0.75, env: 0.5 }),
     // textured black plastic (flares, grille, trims, mirrors)
     black: std({ color: 0x161719, roughness: 0.7, metalness: 0.0 }, { dirt: 0.4, env: 1.0, grain: 0.5 }),
@@ -138,7 +135,6 @@ export function createMaterials() {
     yellow: std({ color: 0xd9a31a, roughness: 0.45, metalness: 0.1 }, { dirt: 0.6 }),
     rubber: std({ color: 0x111112, roughness: 0.9, metalness: 0.0 }, { dirt: 0.4 }),
     seal: std({ color: 0x0c0c0d, roughness: 0.6, metalness: 0.0 }, { env: 1.0 }),
-    // glass: premultiplied blending so reflections stay at full strength while the tint is see-through
     glass: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassClear: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
@@ -167,7 +163,6 @@ export function createMaterials() {
   return m;
 }
 
-// Tileable rubber texture for the tyres (no dependency on the world textures)
 export function makeRubberTexture() {
   const S = 128;
   const data = new Uint8Array(S * S * 4);
