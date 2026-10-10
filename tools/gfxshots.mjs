@@ -21,6 +21,10 @@ const VIEWS = {
   hut: { tp: 'Ruined hut', hour: 18.25 },
   lookout: { tp: 'Lookout', hour: 13 },
   forestNight: { tp: 'Pine forest', hour: 23, lights: 1 },
+  lake: { tp: 'Lake shore', hour: 10 },
+  hill: { tp: 'The big hill', hour: 15.5 },
+  morning: { tp: 'Spawn', hour: 7.5 },
+  dusk: { tp: 'Ruined hut', hour: 19.6 },
 };
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();

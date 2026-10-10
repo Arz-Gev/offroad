@@ -37,7 +37,7 @@ export function makeFoliageAtlas() {
         const t = k / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
         for (const sd of [-1, 1]) {
           const a = ang + sd * R(0.75, 1.15), l = R(11, 17) * (1 - t * 0.35);
-          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 140), R(28, 42), R(14, 27)));
+          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 145), R(30, 46), R(22, 37)));
         }
       }
       if (depth > 0) for (let k = 1; k < 6; k++) {
@@ -57,7 +57,7 @@ export function makeFoliageAtlas() {
       for (let k = 0; k < 55; k++) {
         const a = a0 + R(-1.7, 1.7), l = R(26, 62), u = R(0.4, 1);
         const px = S / 2 + (cx - S / 2) * u, py = S - 4 + (cy - S + 4) * u;
-        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(92, 118), R(28, 40), R(18, 30)));
+        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(90, 120), R(30, 44), R(26, 40)));
       }
     }
   });
@@ -76,7 +76,7 @@ export function makeFoliageAtlas() {
       line(x0, y0, x1, y1, 3, hsl(20, 25, 22));
       for (let k = 0; k < 26; k++) {
         const u = R(0.15, 1), px = x0 + (x1 - x0) * u, py = y0 + (y1 - y0) * u;
-        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(78, 98), R(35, 55), R(26, 42)));
+        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(72, 100), R(38, 58), R(34, 52)));
       }
     }
   });
@@ -89,7 +89,7 @@ export function makeFoliageAtlas() {
     for (let k = 3; k < 34; k++) {
       const t = k / 34, y = -len * t, pl = 150 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - t * 0.3) + 8;
       for (const sd of [-1, 1]) {
-        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(95, 115), R(40, 55), R(22, 32));
+        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(92, 118), R(40, 56), R(29, 41));
         g.beginPath(); g.moveTo(0, -3); for (let s = 0; s <= 8; s++) { const u = s / 8; g.lineTo(u * pl, -3 - Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) + (s % 2) * 3); }
         for (let s = 8; s >= 0; s--) { const u = s / 8; g.lineTo(u * pl, 3 + Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) - (s % 2) * 3); }
         g.closePath(); g.fill(); g.restore();
@@ -102,7 +102,7 @@ export function makeFoliageAtlas() {
   cell(CELLS.bush, () => {
     for (let k = 0; k < 260; k++) {
       const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(85, 120), R(30, 50), R(16, 30)));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(80, 125), R(32, 52), R(24, 40)));
     }
   });
 
@@ -120,7 +120,7 @@ export function makeFoliageAtlas() {
   cell(CELLS.grassTuft, () => {
     for (let k = 0; k < 60; k++) {
       const x = S / 2 + R(-90, 90), a = -Math.PI / 2 + R(-0.5, 0.5), l = R(200, 470);
-      g.strokeStyle = hsl(R(70, 95), R(35, 50), R(22, 38)); g.lineWidth = R(4, 8); g.lineCap = 'round';
+      g.strokeStyle = hsl(R(70, 98), R(35, 50), R(28, 44)); g.lineWidth = R(4, 8); g.lineCap = 'round';
       g.beginPath(); g.moveTo(x, S); g.quadraticCurveTo(x + Math.cos(a) * l * 0.5, S + Math.sin(a) * l * 0.6, x + Math.cos(a) * l + R(-40, 40), S + Math.sin(a) * l); g.stroke();
     }
   });

@@ -105,10 +105,10 @@ void main() {
     float m = pfbm(uv, 4.0, 4), m2 = pfbm(uv + 0.31, 12.0, 3);
     float b1 = blades(uv, 48.0, 1.0), b2 = blades(uv, 64.0, 5.0), b3 = blades(uv, 90.0, 9.0);
     float bl = max(b1, max(b2 * 0.9, b3 * 0.8));
-    vec3 dark = srgb(vec3(0.16, 0.22, 0.08)), mid = srgb(vec3(0.30, 0.38, 0.13)), dry = srgb(vec3(0.50, 0.47, 0.25));
+    vec3 dark = srgb(vec3(0.25, 0.34, 0.13)), mid = srgb(vec3(0.41, 0.51, 0.20)), dry = srgb(vec3(0.60, 0.57, 0.31));
     vec3 g = mix(dark, mid, smoothstep(0.3, 0.7, m));
     g = mix(g, dry, smoothstep(0.55, 0.8, m2) * 0.55);
-    vec3 soil = srgb(vec3(0.22, 0.17, 0.11));
+    vec3 soil = srgb(vec3(0.36, 0.29, 0.19));
     float gap = smoothstep(0.42, 0.3, m * 0.6 + m2 * 0.4) * (1.0 - bl);
     col = mix(g * (0.7 + 0.45 * bl), soil, gap * 0.55);
     col *= 0.9 + 0.2 * hash12(floor(uv * 256.0));
@@ -116,7 +116,7 @@ void main() {
   } else if (uLayer == 1) {
     // dirt track: compacted soil, fine gravel, a few larger stones, fine cracks
     float m = pfbm(uv, 3.0, 5), m2 = pfbm(uv + 0.5, 16.0, 3), m3 = pfbm(uv + 0.21, 40.0, 2);
-    vec3 soil = mix(srgb(vec3(0.38, 0.30, 0.21)), srgb(vec3(0.52, 0.43, 0.31)), m);
+    vec3 soil = mix(srgb(vec3(0.50, 0.40, 0.28)), srgb(vec3(0.64, 0.53, 0.38)), m);
     soil *= 0.88 + 0.24 * m2 + 0.1 * (m3 - 0.5);
     vec3 vf = pvoronoi(uv + 0.37, 150.0);
     float fine = smoothstep(0.34, 0.12, vf.x) * step(0.55, vf.z);
@@ -163,13 +163,13 @@ void main() {
   } else {
     // forest floor: humus, needles, twigs, moss
     float m = pfbm(uv, 3.0, 5), m2 = pfbm(uv + 0.6, 12.0, 3);
-    vec3 hum = mix(srgb(vec3(0.15, 0.10, 0.06)), srgb(vec3(0.27, 0.19, 0.11)), m);
+    vec3 hum = mix(srgb(vec3(0.27, 0.20, 0.12)), srgb(vec3(0.41, 0.31, 0.18)), m);
     float n1 = blades(uv, 70.0, 3.0), n2 = blades(uv, 110.0, 11.0), tw = blades(uv, 14.0, 17.0);
-    vec3 needle = mix(srgb(vec3(0.42, 0.26, 0.12)), srgb(vec3(0.58, 0.40, 0.20)), hash12(floor(uv * 300.0)));
+    vec3 needle = mix(srgb(vec3(0.56, 0.39, 0.20)), srgb(vec3(0.70, 0.52, 0.29)), hash12(floor(uv * 300.0)));
     col = mix(hum, needle, max(n1, n2 * 0.8) * 0.85);
-    col = mix(col, srgb(vec3(0.30, 0.22, 0.14)), tw * 0.7);
+    col = mix(col, srgb(vec3(0.42, 0.32, 0.20)), tw * 0.7);
     float moss = smoothstep(0.58, 0.72, m2);
-    col = mix(col, srgb(vec3(0.20, 0.28, 0.09)), moss * 0.75);
+    col = mix(col, srgb(vec3(0.33, 0.45, 0.15)), moss * 0.75);
     h = 0.3 + 0.2 * m + 0.25 * max(n1, n2) + 0.4 * tw + 0.15 * moss;
   }
   gl_FragColor = vec4(col, clamp(h, 0.0, 1.0));

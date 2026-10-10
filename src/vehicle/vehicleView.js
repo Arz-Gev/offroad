@@ -66,7 +66,7 @@ export class VehicleView {
       });
     }
     const { sun, hemi } = this._sky;
-    let a = hemi ? hemi.intensity : 0.3;
+    let a = hemi ? (hemi.userData.level ?? hemi.intensity) : 0.3;
     if (sun) {
       const dy = sun.position.y - sun.target.position.y;
       const len = sun.position.distanceTo(sun.target.position) || 1;

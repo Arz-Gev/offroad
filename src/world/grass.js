@@ -211,7 +211,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   // came out black)
   vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
   // colour: patch tint, per-blade variation, darker roots, lighter dry tips (gShape); flowers get a coloured head
-  vec3 lush = vec3(0.115, 0.175, 0.04), dry = vec3(0.30, 0.27, 0.10), deep = vec3(0.07, 0.125, 0.03);
+  vec3 lush = vec3(0.085, 0.16, 0.05), dry = vec3(0.25, 0.25, 0.10), deep = vec3(0.045, 0.105, 0.04);
   vec3 col = mix(lush, deep, nz.a * 0.8);
   col = mix(col, dry, smoothstep(0.55, 0.85, nz.b) * 0.65 + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
@@ -251,7 +251,7 @@ diffuseColor.rgb = vGCol;
 // the hot spot: with the sun at the viewer's back every blade shows its sunlit side and hides its shadow,
 // so a meadow is at its brightest; against the sun the specular sheen lights it instead
 float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
-diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
+diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif`)
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;');
   };

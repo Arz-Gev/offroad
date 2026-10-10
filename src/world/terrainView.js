@@ -345,7 +345,7 @@ vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
     } else { c = a1.rgb; nn = n1; }
   } else {
     // far away: average layer colours
-    c = vec3(0.075, 0.105, 0.035) * wGrass + vec3(0.17, 0.12, 0.075) * wDirt + vec3(0.06, 0.045, 0.03) * wMud + vec3(0.3, 0.27, 0.2) * wSand + vec3(0.045, 0.06, 0.025) * wForest;
+    c = vec3(0.135, 0.205, 0.062) * wGrass + vec3(0.26, 0.185, 0.115) * wDirt + vec3(0.06, 0.045, 0.03) * wMud + vec3(0.3, 0.27, 0.2) * wSand + vec3(0.095, 0.10, 0.045) * wForest;
     c /= max(1e-3, wGrass + wDirt + wMud + wSand + wForest);
     nn = vec4(0.5, 0.5, 0.9, 1.0);
   }
