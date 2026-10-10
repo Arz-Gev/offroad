@@ -19,6 +19,7 @@ export class Dust {
     this.color = new Float32Array(max * 3);
     this.heavy = new Uint8Array(max);
     this.next = 0;
+    this.alive = 0;        // particles alive at the last update
     this.puffs = 0;        // live soft particles (counted in update, plus this frame's emits)
     this.enabled = true;   // setting 'dust' (Graphics)
     this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
@@ -155,9 +156,10 @@ export class Dust {
 
   update(dt, light) {
     this.mat.uniforms.uLight.value = light;
-    let puffs = 0;
+    let puffs = 0, alive = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
+      alive++;
       this.life[i] -= dt;
       const t = 1 - this.life[i] / this.maxLife[i];
       const o = i * 3;
@@ -175,6 +177,10 @@ export class Dust {
       this.pos[o] += this.vel[o] * dt; this.pos[o + 1] += this.vel[o + 1] * dt; this.pos[o + 2] += this.vel[o + 2] * dt;
     }
     this.puffs = puffs;
+    // nothing alive now or last frame: the buffers on the GPU already hold all zero alphas
+    const idle = alive === 0 && this.alive === 0;
+    this.alive = alive;
+    if (idle) return;
     const g = this.points.geometry;
     g.attributes.position.needsUpdate = true;
     g.attributes.size.needsUpdate = true;
@@ -197,6 +203,7 @@ export class Tracks {
     u.uTrackSize.value = MAP_SIZE;
     this.timer = 0;
     this.dirty = false;
+    this.box = [res, res, -1, -1];   // texels stamped since the last upload: x0, z0, x1, z1
   }
 
   stamp(v, dt) {
@@ -216,10 +223,21 @@ export class Tracks {
         if (dd > r + 0.5) continue;
         const i = pz * res + px;
         this.data[i] = Math.min(220, this.data[i] + add * (1 - dd / (r + 0.6)));
+        const b = this.box;
+        if (px < b[0]) b[0] = px; if (pz < b[1]) b[1] = pz; if (px > b[2]) b[2] = px; if (pz > b[3]) b[3] = pz;
       }
       this.dirty = true;
     }
     this.timer -= dt;
-    if (this.dirty && this.timer <= 0) { this.tex.needsUpdate = true; this.dirty = false; this.timer = 0.25; }
+    if (this.dirty && this.timer <= 0) {
+      // upload only the stamped rows (the whole 4 MB map took a frame's worth of upload every 0.25 s).
+      // three's update ranges count RGBA components (x4) and upload one row each
+      const b = this.box, res = this.res;
+      this.tex.clearUpdateRanges();
+      for (let z = b[1]; z <= b[3]; z++) this.tex.addUpdateRange((z * res + b[0]) * 4, (b[2] - b[0] + 1) * 4);
+      this.tex.needsUpdate = true;
+      this.box = [res, res, -1, -1];
+      this.dirty = false; this.timer = 0.25;
+    }
   }
 }

@@ -1,37 +1,58 @@
 import * as THREE from 'three';
 
-// Cascaded sun shadow, up to four cascades with explicit splits. three's SunLightShadow is fixed at two
-// cascades with a computed split (~20 cm texels far, ~5 cm near at 2048). Same algorithm (bounding sphere
-// per frustum slice, texel snapping, fade band), with cascade count, splits and atlas layout configurable;
-// a drop-in LightShadow.
+// Sun shadow in one depth atlas, in two parts:
+// - the world (terrain, trees, rocks, props): 1-2 cascades with explicit splits (render/quality.js SHADOWS) and a
+//   smooth wide filter, so tree shadows are soft like real ones (the sun is a disc: the further the caster is
+//   from the ground, the softer the edge, and leaves are metres up);
+// - the player's car: its own small, sharp tile that follows the car (setCar: its meshes go on CAR_LAYER, nothing
+//   else is drawn into the tile and the car is in no world cascade), so the contact shadow under the car and its
+//   shadow on itself stay crisp. The shader multiplies it in only where the point projects (along the light) onto
+//   the car's bounding sphere.
+// The world cascades fit like three's SunLightShadow (bounding sphere per frustum slice, texel snapping, fade
+// band), with the count, splits and atlas layout configurable; a drop-in LightShadow.
 //
-// The shader side comes from installCascadeShadowChunks(): four slots are always declared, unused ones
-// carry an empty depth range and are not drawn. The `w` of each cascade vec4 is its texel size in metres,
-// which scales the depth bias, normal offset and filter radius per cascade.
+// three's WebGLShadowMap tests every object's layers against the *view* camera, not the shadow camera, so the
+// shadow pass sets the view camera's layers per tile (attach): world tiles see layers 0 and SHADOW_LAYER (the
+// shadow-only proxies, trees.js), the car tile CAR_LAYER only, the lamps' shadows 0 and SHADOW_LAYER.
+//
+// The shader side comes from installCascadeShadowChunks(): MAX_CASCADES slots are always declared (the last one
+// is the car's); unused ones carry an empty depth range and draw nothing. The `w` of each cascade vec4 is its
+// texel size in metres, which scales the depth bias, normal offset and filter radius per cascade.
 
-export const MAX_CASCADES = 4;
+export const CAR_LAYER = 2;      // the player's car: drawn by the view camera and into the car's tile only
+export const SHADOW_LAYER = 1;   // shadow-only proxies: drawn into the shadow maps only
+const WORLD_MASK = 1 | (1 << SHADOW_LAYER), CAR_MASK = 1 << CAR_LAYER;
+const WORLD_MAX = 2;                       // world cascades
+const CAR = WORLD_MAX;                     // the car's slot
+export const MAX_CASCADES = WORLD_MAX + 1;
 
 const _lightOrientation = new THREE.Matrix4();
 const _viewToLight = new THREE.Matrix4();
+const _lightInverse = new THREE.Matrix4();
 const _lightDir = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _center = new THREE.Vector3();
 const _near = Array.from({ length: 4 }, () => new THREE.Vector3());
 const _far = Array.from({ length: 4 }, () => new THREE.Vector3());
 const _corners = Array.from({ length: 8 }, () => new THREE.Vector3());
+const _sun = [], _rest = [];
 
-// filter radius is clamped to [1, MAX_RADIUS] texels; the tile inset keeps it inside the atlas tile
-const MAX_RADIUS = 2.5;
+// filter radius in texels: soft / texel, clamped to [MIN_RADIUS, MAX_RADIUS]; the tile inset keeps the filter
+// inside its tile
+const MIN_RADIUS = 0.8, MAX_RADIUS = 1.5;
+const INSET = Math.ceil(MAX_RADIUS) + 1;
 
 export class CascadedSunShadow extends THREE.LightShadow {
   constructor() {
     super(new THREE.OrthographicCamera(-5, 5, 5, -5, 0.5, 500));
     this.isSunLightShadow = true;
     this.mapSize.set(2048, 2048);
-    // active cascades and the view distances (m) where each hands over to the next
-    this.cascades = 3;
-    this.splits = [14, 50];
+    // world cascades and the view distances (m) where each hands over to the next
+    this.cascades = 2;
+    this.splits = [48];
     this.fade = 0.12;   // fraction of a cascade's depth range that blends into the next one
+    // the car's tile: texels per side, the car's root (setCar), its bounding sphere (centre in the root's space)
+    this.car = { map: 1024, focus: null, center: new THREE.Vector3(), half: 4 };
 
     this._cameras = [];
     this._matrices = [];
@@ -47,49 +68,95 @@ export class CascadedSunShadow extends THREE.LightShadow {
     }
     this._viewportCount = MAX_CASCADES;
     this._rendering = false;
-    this._frameExtents.set(2, 2);
+    this._viewCamera = null;
+    this.configure({ map: 2048, cascades: 2, splits: [48], car: 1024, far: 170, soft: 0.07 });
   }
 
-  // n active cascades (1..4); splits: n - 1 ascending distances. Two cascades fit an atlas of 2x1 tiles.
-  configure(n, splits) {
-    this.cascades = THREE.MathUtils.clamp(n | 0, 1, MAX_CASCADES);
-    this.splits = splits.slice(0, this.cascades - 1);
-    this._frameExtents.set(this.cascades > 2 ? 2 : this.cascades, this.cascades > 2 ? 2 : 1);
+  // S: a SHADOWS preset (render/quality.js): { map, cascades, splits, car, far, soft }. The atlas holds the world
+  // tiles side by side and then the car's, a fraction of a tile (car / map) wide. A new layout drops the map
+  // (WebGLShadowMap makes a new one on the next frame).
+  configure(S) {
+    this.cascades = THREE.MathUtils.clamp(S.cascades | 0, 1, WORLD_MAX);
+    this.splits = S.splits.slice(0, this.cascades - 1);
+    this.car.map = Math.min(S.car || 1024, S.map);
+    const ex = this.cascades + this.car.map / S.map;
+    if (this.mapSize.x !== S.map || this._frameExtents.x !== ex) {
+      this.mapSize.set(S.map, S.map);
+      this._frameExtents.set(ex, 1);
+      if (this.map) { this.map.depthTexture?.dispose(); this.map.dispose(); this.map = null; }
+    }
+    this.camera.far = S.far;
+    this.radius = S.soft;
   }
 
-  // The renderer sizes the shader uniform arrays (always all four cascades) and draws one shadow pass per
-  // viewport from this count. Inactive cascades must not be drawn (frustumCulled = false meshes such as
-  // trees and grass would be submitted for nothing), so during the shadow render only the active ones are reported.
-  getViewportCount() { return this._rendering ? this.cascades : MAX_CASCADES; }
+  // the player's car: its meshes go on CAR_LAYER (out of the world cascades, into the car's tile); the view
+  // camera must see that layer
+  setCar(root, camera) {
+    camera.layers.enable(CAR_LAYER);
+    root.traverse(o => { if (o.isMesh || o.isLine || o.isPoints) o.layers.set(CAR_LAYER); });
+    root.updateMatrixWorld(true);
+    const sphere = new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
+    this.car.focus = root;
+    this.car.center.copy(root.worldToLocal(sphere.center.clone()));
+    this.car.half = sphere.radius + 0.3;
+  }
 
-  // wrap the shadow map render so getViewportCount() knows when passes are being asked for
+  // the uniform arrays always hold every slot; WebGLShadowMap draws all of them (an unused one draws nothing,
+  // getCamera gives it no layers)
+  getViewportCount() { return MAX_CASCADES; }
+
+  // wrap the shadow map render: the lamps first (world layers), then the sun, which picks the layers per tile
   attach(renderer) {
     const sm = renderer.shadowMap, render = sm.render;
-    sm.render = (...args) => {
-      this._rendering = true;
-      try { return render.apply(sm, args); } finally { this._rendering = false; }
+    sm.render = (lights, scene, camera) => {
+      if (!lights.length) return render.call(sm, lights, scene, camera);
+      _sun.length = _rest.length = 0;
+      for (const l of lights) (l.shadow === this ? _sun : _rest).push(l);
+      const mask = camera.layers.mask;
+      try {
+        camera.layers.mask = WORLD_MASK;
+        if (_rest.length) render.call(sm, _rest, scene, camera);
+        if (_sun.length) {
+          if (!this.map) this._makeMap(renderer);
+          this._rendering = true; this._viewCamera = camera; render.call(sm, _sun, scene, camera);
+        }
+      } finally {
+        this._rendering = false; this._viewCamera = null;
+        camera.layers.mask = mask;
+      }
     };
   }
 
-  getCamera(i = 0) { return this._cameras[i]; }
+  // the atlas as WebGLShadowMap would make it (depth texture with compare), but a one-channel colour attachment:
+  // nothing reads the colour, and RGBA cost ~0.2-0.4 ms of bandwidth a frame (63 MB at High)
+  _makeMap(renderer) {
+    const w = this.mapSize.x * this._frameExtents.x, h = this.mapSize.y * this._frameExtents.y;
+    const map = new THREE.WebGLRenderTarget(w, h, { format: THREE.RedFormat });
+    map.texture.name = 'sun.shadowMapColour';
+    map.depthTexture = new THREE.DepthTexture(w, h, THREE.UnsignedIntType);
+    map.depthTexture.name = 'sun.shadowMap';
+    map.depthTexture.format = THREE.DepthFormat;
+    map.depthTexture.compareFunction = renderer.state.buffers.depth.getReversed() ? THREE.GreaterEqualCompare : THREE.LessEqualCompare;
+    map.depthTexture.minFilter = map.depthTexture.magFilter = THREE.LinearFilter;
+    this.map = map;
+  }
+
+  // WebGLShadowMap asks for each tile's camera right before drawing the tile: set the layers it draws
+  getCamera(i = 0) {
+    if (this._rendering) this._viewCamera.layers.mask = i === CAR ? (this.car.focus ? CAR_MASK : 0) : i < this.cascades ? WORLD_MASK : 0;
+    return this._cameras[i];
+  }
   getMatrix(i = 0) { return this._matrices[i]; }
   getFrustum(i = 0) { return this._frustums[i]; }
 
   updateMatrices(light, viewCamera) {
     if (viewCamera === undefined) return;
-    const n = this.cascades;
-    const ext = this._frameExtents;
+    const n = this.cascades, mw = this.mapSize.x, mh = this.mapSize.y;
 
-    // inset the tiles so the filter cannot read across atlas tiles
-    const insetX = Math.min(0.25, (Math.ceil(MAX_RADIUS) + 1) / this.mapSize.x);
-    const insetY = Math.min(0.25, (Math.ceil(MAX_RADIUS) + 1) / this.mapSize.y);
-    for (let i = 0; i < MAX_CASCADES; i++) {
-      // tile (col, row) in the atlas, filled row by row
-      if (i < n) this._viewports[i].set((i % ext.x) + insetX, Math.floor(i / ext.x) + insetY, 1 - 2 * insetX, 1 - 2 * insetY);
-      else this._viewports[i].set(0, 0, 1, 1);
-    }
-    const resX = this.mapSize.x * (1 - 2 * insetX);
-    const resY = this.mapSize.y * (1 - 2 * insetY);
+    // world tiles inset so the filter cannot read across tiles
+    const insetX = INSET / mw, insetY = INSET / mh;
+    for (let i = 0; i < WORLD_MAX; i++) this._viewports[i].set(i + insetX, insetY, 1 - 2 * insetX, 1 - 2 * insetY);
+    const resX = mw * (1 - 2 * insetX), resY = mh * (1 - 2 * insetY);
     const resolution = Math.min(resX, resY);
 
     const camera = this.camera;
@@ -123,7 +190,7 @@ export class CascadedSunShadow extends THREE.LightShadow {
     globalMaxZ += vFar;
     const shadowNear = camera.near;
 
-    for (let i = 0; i < MAX_CASCADES; i++) {
+    for (let i = 0; i < WORLD_MAX; i++) {
       const data = this._cascadeData[i];
       if (i >= n) { data.set(1e10, -1e10, 1e10, 1); continue; }
 
@@ -158,27 +225,64 @@ export class CascadedSunShadow extends THREE.LightShadow {
 
       _center.z = globalMaxZ + shadowNear;
       _center.applyMatrix4(_lightOrientation);
-
-      const cam = this._cameras[i];
-      cam.position.copy(_center);
-      cam.quaternion.setFromRotationMatrix(_lightOrientation);
-      cam.left = -radius; cam.right = radius; cam.top = radius; cam.bottom = -radius;
-      cam.near = shadowNear;
-      cam.far = globalMaxZ - minZ + 2 * shadowNear;
-      cam.coordinateSystem = camera.coordinateSystem;
-      cam._reversedDepth = camera.reversedDepth;
-      cam.updateProjectionMatrix();
-      cam.updateMatrixWorld();
-      this._updateMatrix(cam, this._matrices[i], this._frustums[i], this._viewports[i]);
+      this._place(i, _center, radius, shadowNear, globalMaxZ - minZ + 2 * shadowNear);
     }
+    this._updateCar();
+  }
+
+  // the car's tile: centred on the car's bounding sphere, the light's direction, snapped to its texels.
+  // Its cascade vec4: the sphere's centre and radius in atlas texels, texel size in metres
+  _updateCar() {
+    const car = this.car, data = this._cascadeData[CAR];
+    const tile = car.map / this.mapSize.x, inset = INSET / this.mapSize.x;
+    const vp = this._viewports[CAR].set(this.cascades + inset, inset, tile - 2 * inset, tile - 2 * inset);
+    if (!car.focus) { data.set(0, 0, 0, 1); return; }
+    const res = vp.z * this.mapSize.x, texel = 2 * car.half / res;
+    car.focus.updateMatrixWorld();
+    _center.copy(car.center).applyMatrix4(car.focus.matrixWorld).applyMatrix4(_lightInverse.copy(_lightOrientation).transpose());
+    _center.x = Math.round(_center.x / texel) * texel;
+    _center.y = Math.round(_center.y / texel) * texel;
+    _center.z += 60;
+    _center.applyMatrix4(_lightOrientation);
+    this._place(CAR, _center, car.half, 1, 120);
+    const w = this.mapSize.x * this._frameExtents.x, h = this.mapSize.y * this._frameExtents.y;
+    data.set((vp.x + vp.z / 2) / this._frameExtents.x * w, (vp.y + vp.w / 2) / this._frameExtents.y * h, res / 2, texel);
+  }
+
+  // an orthographic camera at `pos` looking along the light, `half` metres to each side
+  _place(i, pos, half, near, far) {
+    const cam = this._cameras[i], camera = this.camera;
+    cam.position.copy(pos);
+    cam.quaternion.setFromRotationMatrix(_lightOrientation);
+    cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
+    cam.near = near;
+    cam.far = far;
+    cam.coordinateSystem = camera.coordinateSystem;
+    cam._reversedDepth = camera.reversedDepth;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    this._updateMatrix(cam, this._matrices[i], this._frustums[i], this._viewports[i]);
   }
 }
 
-// getSunShadow with per-cascade texel-scaled bias, normal offset and filter radius:
+// getSunShadow with per-cascade texel-scaled bias, normal offset and filter radius, and the car's tile:
 //   shadow.bias        depth bias in texels of the cascade (a fixed NDC bias was ~15 cm in the near cascade)
 //   shadow.normalBias  offset along the surface normal in texels, scaled by sin(angle to the light)
-//   shadow.radius      filter blur in metres; per cascade at least 1 and at most MAX_RADIUS texels
-const GET_SUN_SHADOW = /* glsl */`float getSunShadow(
+//   shadow.radius      filter width in metres; per cascade MIN_RADIUS..MAX_RADIUS texels (the car: 1 texel)
+// The filter is a 3x3 grid of hardware compares `radius` texels apart: a smooth penumbra, no noise, no rings
+// (three's 5-tap rotated Vogel disk is noisy when wide).
+const GET_SUN_SHADOW = /* glsl */`
+		float sunPCF( sampler2DShadow shadowMap, vec2 mapSize, vec4 coord, float bias, float radius ) {
+			coord.xyz /= coord.w;
+			coord.z += bias;
+			if ( coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 || coord.z > 1.0 ) return 1.0;
+			vec2 s = vec2( radius ) / mapSize;
+			float sum = 0.0;
+			for ( int y = - 1; y <= 1; y ++ ) for ( int x = - 1; x <= 1; x ++ ) sum += texture( shadowMap, vec3( coord.xy + s * vec2( float( x ), float( y ) ), coord.z ) );
+			return sum * ( 1.0 / 9.0 );
+		}
+
+		float getSunShadow(
 			#if defined( SHADOWMAP_TYPE_PCF )
 				sampler2DShadow shadowMap,
 			#else
@@ -194,11 +298,12 @@ const GET_SUN_SHADOW = /* glsl */`float getSunShadow(
 			vec3 worldNormal = nLen > 1e-4 ? vSunShadowWorldNormal / nLen : vec3( 0.0, 1.0, 0.0 );
 			float viewDepth = vSunShadowWorldPosition.w;
 			int cascadeOffset = shadowIndex * SUN_LIGHT_CASCADES;
+			vec2 mapSize = sunLightShadow.shadowMapSize;
 
 			float shadow = 1.0;
 
-			// back to front so each fade band blends with the shadow of the cascade behind it
-			for ( int i = SUN_LIGHT_CASCADES - 1; i >= 0; i -- ) {
+			// world cascades, back to front so each fade band blends with the shadow of the cascade behind it
+			for ( int i = ${WORLD_MAX - 1}; i >= 0; i -- ) {
 
 				// ( begin, end, fade start ) view depths and the texel size of the cascade
 				vec4 cascade = sunShadowCascade[ cascadeOffset + i ];
@@ -215,16 +320,13 @@ const GET_SUN_SHADOW = /* glsl */`float getSunShadow(
 
 					vec3 p = worldPos + worldNormal * ( sunLightShadow.shadowNormalBias * texel * ( 0.3 + 0.7 * sinT ) );
 					float bias = - sunLightShadow.shadowBias * texel * zLen;
-					float radius = clamp( sunLightShadow.shadowRadius / texel, 1.0, ${MAX_RADIUS.toFixed(1)} );
 
-					float cascadeShadow = getShadow(
-						shadowMap,
-						sunLightShadow.shadowMapSize,
-						sunLightShadow.shadowIntensity,
-						bias,
-						radius,
-						m * vec4( p, 1.0 )
-					);
+					#if defined( SHADOWMAP_TYPE_PCF )
+						float radius = clamp( sunLightShadow.shadowRadius / texel, ${MIN_RADIUS.toFixed(1)}, ${MAX_RADIUS.toFixed(1)} );
+						float cascadeShadow = sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), bias, radius );
+					#else
+						float cascadeShadow = getShadow( shadowMap, mapSize, 1.0, bias, 1.0, m * vec4( p, 1.0 ) );
+					#endif
 
 					shadow = mix( cascadeShadow, shadow, smoothstep( cascade.z, cascade.y, viewDepth ) );
 
@@ -232,7 +334,26 @@ const GET_SUN_SHADOW = /* glsl */`float getSunShadow(
 
 			}
 
-			return shadow;
+			#if defined( SHADOWMAP_TYPE_PCF )
+			// the car's tile, only where the point projects (along the light) onto the car's bounding sphere
+			{
+				vec4 car = sunShadowCascade[ cascadeOffset + ${CAR} ];
+				mat4 m = sunShadowMatrix[ cascadeOffset + ${CAR} ];
+				vec4 c = m * vec4( worldPos, 1.0 );
+				vec2 d = c.xy * mapSize - car.xy;
+				if ( dot( d, d ) < car.z * car.z ) {
+					float texel = car.w;
+					vec3 zRow = vec3( m[ 0 ][ 2 ], m[ 1 ][ 2 ], m[ 2 ][ 2 ] );
+					float zLen = max( length( zRow ), 1e-8 );
+					float ndl = dot( worldNormal, zRow / zLen );
+					float sinT = sqrt( max( 1.0 - ndl * ndl, 0.0 ) );
+					vec3 p = worldPos + worldNormal * ( sunLightShadow.shadowNormalBias * texel * ( 0.3 + 0.7 * sinT ) );
+					shadow *= sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), - sunLightShadow.shadowBias * texel * zLen, 1.0 );
+				}
+			}
+			#endif
+
+			return mix( 1.0, shadow, sunLightShadow.shadowIntensity );
 
 		}`;
 

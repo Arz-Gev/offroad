@@ -31,17 +31,13 @@ export function createGraphics(ctx) {
     applyResolution();
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;
     env.sun.castShadow = !!S;
-    if (S) {
-      // new map size or atlas layout: drop the old depth atlas (rebuilt next frame). configure() changes the
-      // frame extents in place, so ext is read again after it
-      const ext = sh.getFrameExtents(), ex = ext.x, ey = ext.y;
-      if (sh.configure) sh.configure(S.cascades, S.splits);
-      if (sh.mapSize.x !== S.map || ext.x !== ex || ext.y !== ey) {
+    if (S && sh.configure) sh.configure(S);   // render/cascadeShadow.js
+    else if (S) {                              // three's own two cascades
+      if (sh.mapSize.x !== S.map) {
         sh.mapSize.set(S.map, S.map);
         if (sh.map) { sh.map.depthTexture?.dispose(); sh.map.dispose(); sh.map = null; }
       }
       sh.camera.far = S.far;
-      sh.radius = sh.configure ? S.soft : 1.4;
     }
     scenery.configure(q);
     game.redraw = 3;

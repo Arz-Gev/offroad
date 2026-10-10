@@ -29,6 +29,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 - Driving: the rock garden can wedge the chassis on boulders (fair, but watch for frustration); corner rollovers at 60–70 km/h are plausible (threshold ≈ 0.7 g vs dirt μ 0.72) but may feel harsh.
 - World: no terrain or trees in water reflections, undergrowth casts no shadow, no ramp into the quarry, no hut interior, no snow on the near mountains.
 - Ideas: water and fording (the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, hill descent control, damage model, force feedback.
+- WebGL speed (after the WebGL perf PR): the 120 Hz screen shows WebGL at 60 fps unless a frame fits in 8.3 ms (High meadow is at 8.8). What's left costs the look, so it needs the player: distant trees' impostors in the near shadow cascade (~0.9 ms in the forest; dropping them loses far trees' shadows on near ground at low sun), the car glass drawn in two passes (~0.1 ms CPU; one pass may sort differently). The terrain shader (~3 ms) is the largest single cost. Not measured on Windows (the car batching was kept for ANGLE on D3D11, where a draw costs more).
 
 ## Parked
 

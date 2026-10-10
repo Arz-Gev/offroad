@@ -187,7 +187,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setIndex(idx);
   const MAX_INST = 2048;
-  const instData = new Float32Array(MAX_INST * 4);
+  const instData = new Float32Array(MAX_INST * 4), sentData = new Float32Array(MAX_INST * 4);   // sent: last uploaded
   const instAttr = new THREE.InstancedBufferAttribute(instData, 4).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('aPatch', instAttr);
   geo.instanceCount = 0;
@@ -474,9 +474,15 @@ reflectedLight.indirectSpecular *= gAO;`);
       frustum.setFromProjectionMatrix(projView);
       camX = camera.position.x; camZ = camera.position.z;
       uniforms.uCamXZ.value.set(camX, camZ);
+      const prev = count;
       count = 0;
       select(LEVELS - 1, 0, 0);
       geo.instanceCount = count;
+      // upload only when the patches changed (most frames with the camera still)
+      let same = count === prev;
+      for (let i = 0, n = count * 4; same && i < n; i++) same = instData[i] === sentData[i];
+      if (same) return;
+      sentData.set(instData.subarray(0, count * 4));
       instAttr.clearUpdateRanges();
       instAttr.addUpdateRange(0, count * 4);
       instAttr.needsUpdate = true;

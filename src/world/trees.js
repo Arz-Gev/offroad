@@ -5,10 +5,11 @@ import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
 import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
+import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
 // - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
-//   foliage cards, swaying in the wind (also in the shadow pass).
+//   foliage cards, swaying in the wind (also in the shadow pass, where a crown casts from a lighter twin).
 // - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
 //   normals, so it is lit like the real tree), cross-faded with a dither.
 // - Undergrowth and fallen logs near the camera. The forest also writes the ground data map (forest floor under crowns).
@@ -67,6 +68,38 @@ outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
     }
   };
   mat.customProgramCacheKey = () => 'tree-' + kind;
+}
+
+// The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
+// so half the cards cast nearly the same shadow at half the cost). Drawn only into shadow maps (SHADOW_LAYER).
+function shadowCrown(geo, scale = 1.35) {
+  const P = geo.attributes.position, N = geo.attributes.normal, UV = geo.attributes.uv, W = geo.attributes.aWind;
+  const cards = P.count / 4, keep = Math.ceil(cards / 2);
+  const pos = new Float32Array(keep * 12), nor = new Float32Array(keep * 12), uvs = new Float32Array(keep * 8), wind = new Float32Array(keep * 4), idx = [];
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  let k = 0;
+  for (let i = 0; i < cards; i += 2, k++) {
+    c.set(0, 0, 0);
+    for (let j = 0; j < 4; j++) c.add(v.fromBufferAttribute(P, i * 4 + j));
+    c.multiplyScalar(0.25);
+    for (let j = 0; j < 4; j++) {
+      const a = i * 4 + j, b = k * 4 + j;
+      v.fromBufferAttribute(P, a).sub(c).multiplyScalar(scale).add(c);
+      pos.set([v.x, v.y, v.z], b * 3);
+      nor.set([N.getX(a), N.getY(a), N.getZ(a)], b * 3);
+      uvs.set([UV.getX(a), UV.getY(a)], b * 2);
+      wind[b] = W.getX(a);
+    }
+    const o = k * 4;
+    idx.push(o, o + 2, o + 1, o + 2, o + 3, o + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  g.setAttribute('aWind', new THREE.BufferAttribute(wind, 1));
+  g.setIndex(idx);
+  return g;
 }
 
 // ---------------------------------------------------------------- impostor baking
@@ -291,15 +324,22 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     patchTreeMaterial(depthC, 'crownDepth', uniformsT);
     const MAXN = 1600;
     const trunk = new THREE.InstancedMesh(v.geo.trunk, trunkMat, MAXN);
+    trunk.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const crown = new THREE.InstancedMesh(v.geo.crown, crownMat, MAXN);
-    for (const m of [trunk, crown]) {
+    // the crown casts from its lighter twin, which only the shadow maps draw (its depth material takes the
+    // crown material's map, alpha test and side)
+    const crownShadow = new THREE.InstancedMesh(shadowCrown(v.geo.crown), crownMat, MAXN);
+    crownShadow.layers.set(SHADOW_LAYER);
+    for (const m of [trunk, crown, crownShadow]) {
+      m.instanceMatrix = trunk.instanceMatrix;   // one buffer, uploaded once
       m.count = 0; m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true;
-      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       group.add(m);
     }
+    crown.castShadow = false;
+    crownShadow.receiveShadow = false;
     trunk.customDepthMaterial = depthT;
-    crown.customDepthMaterial = depthC;
-    return { trunk, crown, crownMat, MAXN };
+    crownShadow.customDepthMaterial = depthC;
+    return { trunk, crown, crownShadow, crownMat, MAXN };
   });
 
   // ---- impostors (all trees; the shader hides the ones the near meshes cover)
@@ -448,13 +488,11 @@ vec3 nonPerturbedNormal = normal;`);
         }
       }
       near.forEach((n, vi) => {
-        n.crown.instanceMatrix.array.set(n.trunk.instanceMatrix.array.subarray(0, counts[vi] * 16));
-        n.trunk.count = n.crown.count = counts[vi];
-        for (const m of [n.trunk, n.crown]) {
-          m.instanceMatrix.clearUpdateRanges();
-          m.instanceMatrix.addUpdateRange(0, counts[vi] * 16);
-          m.instanceMatrix.needsUpdate = true;
-        }
+        n.trunk.count = n.crown.count = n.crownShadow.count = counts[vi];
+        const im = n.trunk.instanceMatrix;   // shared by the crown and its twin
+        im.clearUpdateRanges();
+        im.addUpdateRange(0, counts[vi] * 16);
+        im.needsUpdate = true;
       });
     },
   };

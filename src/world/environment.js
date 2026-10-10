@@ -135,7 +135,7 @@ export class Environment {
     this.envJob = null;                // the probe refresh in progress (see updateProbe)
     this.slicedProbe = true;
 
-    // sun by day, moon by night: one cascaded-shadow light (2-4 cascades, see render/cascadeShadow.js)
+    // sun by day, moon by night: one cascaded-shadow light (world cascades + the car's tile, render/cascadeShadow.js)
     this.sun = new SunLight(0xffffff, 3);
     this.sun.castShadow = true;
     if (installCascadeShadowChunks()) {
@@ -143,7 +143,7 @@ export class Environment {
       this.sun.shadow.attach(renderer);
       this.sun.shadow.bias = 1.0;         // texels of the cascade
       this.sun.shadow.normalBias = 1.5;   // texels of the cascade
-      this.sun.shadow.radius = 0.04;      // filter blur (m)
+      this.sun.shadow.radius = 0.07;      // filter width (m)
     } else {                                // three's own two cascades, bias in depth units
       this.sun.shadow.bias = -0.0004;
       this.sun.shadow.normalBias = 0.05;
