@@ -28,7 +28,7 @@ const ANIM_TIME = 2.5;
 // in the haze (glow), and more sky light in the shade (env).
 const DAY = {
   sunE: 4.0, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.0007, fogFall: 0.012, haze: 0.0002, fogMax: 1, env: 1.6, glow: 0.5,
+  cover: 0.42, cloudAlpha: 0.95, towers: 0.55, stars: 0, fogD: 0.0007, fogFall: 0.012, haze: 0.0002, fogMax: 1, env: 1.6, glow: 0.5,
   exposure: 0.78, auto: 0, key: 0.16, minEx: 0.78, maxEx: 0.78, bloom: 0.11, bloomThr: 1.15,
   sat: 1.03, contrast: 0.1, vignette: 0.26, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.3, shadowCol: [0.07, 0.065, 0.12], highCol: [1.04, 1.0, 0.92], vigCol: [0.82, 0.72, 0.66],
@@ -36,7 +36,7 @@ const DAY = {
 };
 const DUSK = {
   sunE: 5.0, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0009, fogFall: 0.016, haze: 0.00022, fogMax: 0.92, env: 1.5, glow: 1.2,
+  cover: 0.5, cloudAlpha: 1.0, towers: 0.6, stars: 0.08, fogD: 0.0009, fogFall: 0.016, haze: 0.00022, fogMax: 0.92, env: 1.5, glow: 1.2,
   exposure: 1.3, auto: 0, key: 0.16, minEx: 1.3, maxEx: 1.3, bloom: 0.15, bloomThr: 0.95,
   sat: 1.02, contrast: 0.12, vignette: 0.3, tint: [1.02, 0.93, 0.97], lift: [0, 0, 0.0004],
   vibrance: 0.25, shadowCol: [0.1, 0.07, 0.17], highCol: [1.07, 0.96, 0.9], vigCol: [0.75, 0.6, 0.66],
@@ -44,7 +44,7 @@ const DUSK = {
 };
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
-  cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.25, glow: 0.3,
+  cover: 0.32, cloudAlpha: 0.75, towers: 0.35, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.25, glow: 0.3,
   exposure: 2.0, auto: 1, key: 0.06, minEx: 1.0, maxEx: 3.2, bloom: 0.1, bloomThr: 1.1,
   sat: 0.92, contrast: 0.08, vignette: 0.32, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
   vibrance: 0.2, shadowCol: [0.015, 0.025, 0.06], highCol: [1.0, 1.0, 1.04], vigCol: [0.55, 0.6, 0.8],
@@ -97,7 +97,7 @@ for (const k of KEYS) {
 }
 
 // monotone cubic (Fritsch–Carlson) through the keys, periodic in 24 h
-const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
+const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'towers', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
   'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
@@ -259,6 +259,7 @@ export class Environment {
     su.uStars.value = c.stars;
     su.uCover.value = c.cover;
     su.uCloudAlpha.value = c.cloudAlpha;
+    su.uTowers.value = c.towers;
 
     // Horizon colours for fog / aerial perspective, from the same scattering model. Twilight keeps colouring the fog
     // until the sun is ~14° down; the moon adds its own.
