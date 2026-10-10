@@ -83,7 +83,7 @@ const GFX_SECTIONS = [
   { rows: [   // shadows, AO, AA, bloom, dust: no heading
     row('gShadows', 'Shadows', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
     row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] }),
-    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']] }),
+    row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA'], ['msaa4', 'MSAA 4×']] }),
     row('gBloom', 'Bloom', 'switch'),
     row('dust', 'Dust, mud and splashes', 'switch'),
   ] },

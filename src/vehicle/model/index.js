@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { carDef } from '../../cars/index.js';
 import { paramsFromDef } from '../carParams.js';
 import { staticRide } from '../tuning.js';

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { rbox, bar, frame, mergeStatic } from './geom.js';
 
 // Parts any car can carry, placed by its look (body frame).

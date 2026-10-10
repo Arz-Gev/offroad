@@ -1,6 +1,6 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
-// Rough frame times on an M1 Pro (headless Chrome, 1920x1080, dpr 2, trail drive, AA on): low 5 ms, medium 9,
-// high 13, ultra 22.
+// Rough frame times on an M1 Pro, WebGPU (tools/gfxbench.mjs, 1920x1080 @2, trail drive / pine forest):
+// low 8 / 7 ms, medium 9 / 9, high 11 / 14, ultra 13 / 16.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.
@@ -66,31 +66,30 @@ export const QUALITY = {
   },
 };
 
-// Sun shadow per level. map: texels per cascade (the atlas holds 2-4 tiles), far: shadow distance (m),
-// splits: where cascades hand over (m from the camera), soft: filter blur (m). Texel size is about
-// 2.4 * (cascade end distance) / map:
-//   high  2560: 1.3 cm / 4.7 cm / 17 cm, three tiles (105 MB depth atlas)
-//   ultra 4096: 0.6 cm / 1.8 cm / 5 cm / 15 cm, four tiles (268 MB depth atlas)
+// Sun shadow per level (render/shadows.js). The world: map texels per cascade, far: shadow distance (m),
+// splits: where cascades hand over (m from the camera), soft: filter width (m). Texel size is about
+// 2.4 * (cascade end distance) / map. car: texels of the car's own sharp map (only the player's car).
+// At most 2 world cascades + the car map: WebGPU has 16 samplers per stage (DEVNOTES, Renderer).
 export const SHADOWS = {
   off: null,
-  low: { map: 1024, far: 90, cascades: 2, splits: [25], soft: 0.08 },
-  medium: { map: 2048, far: 130, cascades: 2, splits: [34], soft: 0.06 },
-  high: { map: 2560, far: 180, cascades: 3, splits: [13, 48], soft: 0.045 },
-  ultra: { map: 4096, far: 260, cascades: 4, splits: [10, 32, 85], soft: 0.04 },
+  low: { map: 1024, far: 90, cascades: 2, splits: [28], soft: 0.1, car: 512 },
+  medium: { map: 2048, far: 130, cascades: 2, splits: [38], soft: 0.08, car: 1024 },
+  high: { map: 2560, far: 180, cascades: 2, splits: [48], soft: 0.07, car: 1024 },
+  ultra: { map: 3072, far: 260, cascades: 2, splits: [52], soft: 0.06, car: 2048 },
 };
 
 // Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
 // one switches to 'custom', which reads them back.
 export function presetToGfx(q) {
   return {
-    gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
+    gDpr: q.dpr, gAA: q.msaa ? 'msaa4' : q.aa || (q.fxaa ? 'fxaa' : 'off'), gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gVeg: q.veg,
   };
 }
 export function gfxToQuality(g) {
   return {
-    label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
+    label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : 0, fxaa: g.gAA === 'fxaa', aa: g.gAA === 'msaa4' ? 'off' : g.gAA,
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
     impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
     veg: g.gVeg, ...vegOf(g.gVeg),
@@ -105,25 +104,20 @@ function vegOf(level) {
 
 // 'auto': from the GPU name and the window's pixel count
 export function autoQuality(renderer) {
-  let name = '';
-  try {
-    const gl = renderer.getContext();
-    const ext = gl.getExtension('WEBGL_debug_renderer_info');
-    name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-  } catch { /* ignore */ }
-  const n = name.toLowerCase();
+  // render/gpu.js reads the name from the WebGPU adapter (vendor, architecture, description) or WebGL
+  const n = String(renderer.caps?.gpu || '').toLowerCase();
   const px = window.innerWidth * window.innerHeight * Math.min(window.devicePixelRatio || 1, 2) ** 2;
   let q = 'medium';
   if (/swiftshader|llvmpipe|software|microsoft basic/.test(n)) q = 'low';
   else if (/apple m\d+ (pro|max|ultra)/.test(n)) q = 'high';
-  else if (/apple m\d+/.test(n)) q = 'medium';
-  else if (/nvidia|geforce|rtx|radeon rx|radeon pro/.test(n)) q = /rtx|rx [67]\d{3}|rx [6-9]\d00/.test(n) ? 'ultra' : 'high';
-  else if (/intel|uhd|iris|adreno|mali|powervr/.test(n)) q = 'low';
+  else if (/apple/.test(n) && /metal-3|apple-[789]|m\d/.test(n)) q = 'medium';
+  else if (/nvidia|geforce|rtx|radeon rx|radeon pro|amd/.test(n)) q = /rtx|rx [67]\d{3}|rx [6-9]\d00|rdna-?[34]|ada|blackwell|ampere/.test(n) ? 'ultra' : 'high';
+  else if (/intel|uhd|iris|adreno|mali|powervr|qualcomm|arm/.test(n)) q = 'low';
   // very large windows on a mid GPU: one step down
   if (px > 9e6 && q === 'high' && !/max|ultra/.test(n)) q = 'medium';
   // phones and tablets (iPadOS reports a Mac: tell it by the touch screen)
   if (isMobileDevice()) q = 'mobile';
-  return { preset: q, gpu: name };
+  return { preset: q, gpu: n };
 }
 
 export function isMobileDevice() {

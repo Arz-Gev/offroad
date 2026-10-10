@@ -1,7 +1,7 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { installShaderPatches } from './render/shaderPatches.js';
-import { RenderPipeline } from './render/pipeline.js';
+import { createRenderer } from './render/gpu.js';
+import { RenderPipeline } from './render/post.js';
 
 import { Terrain, SPAWN } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
@@ -17,6 +17,7 @@ import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildCarModel } from './vehicle/model/index.js';
+import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';
@@ -37,8 +38,6 @@ import { Dust, Tracks } from './effects.js';
 import { Multiplayer, roomFromURL } from './multiplayer.js';
 import './ui.css';
 
-installShaderPatches();     // before any material compiles
-
 const H = 1 / 240;          // physics step
 const MAX_STEPS = 16;
 
@@ -47,13 +46,12 @@ async function main() {
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  // WebGPU when the browser has it, else the same renderer on WebGL 2 (?webgl=1 forces that)
+  setLoading('Starting the graphics…', 0.12); await frame();
+  const forceWebGL = /[?&]webgl=1\b/.test(location.search);
+  const renderer = await createRenderer(canvas, { forceWebGL });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = THREE.NoToneMapping;     // done in the pipeline's composite pass
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 6000);
@@ -70,7 +68,7 @@ async function main() {
   const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
-  const grass = buildGrass(terrainView);
+  const grass = buildGrass(terrainView, renderer, { sun: env.sun });
   scene.add(grass.group);
   scenery.parts.push(grass);
   const water = buildWater(terrain, terrainView, renderer);
@@ -85,7 +83,7 @@ async function main() {
   const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
   scene.add(trees.group);
   scenery.parts.push(trees);
-  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
+  const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind, renderer, grass.shared.uCam);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
@@ -104,6 +102,8 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
+  env.shadows.setCar(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
+  model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
@@ -126,7 +126,7 @@ async function main() {
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
   input.sightLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed: drag to aim, Enter fires */ } };
-  const tracks = new Tracks(terrainView.material);
+  const tracks = new Tracks(terrainView);
 
 
   const prevPos = new THREE.Vector3().copy(vehicle.pos), curPos = new THREE.Vector3().copy(vehicle.pos);
@@ -474,43 +474,56 @@ async function main() {
     tuning.update(dt, vehicle, raw);
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
+    renderer.batch?.flush();
     mark('render');
     gfx.updateDynamicResolution(dt, paused);
     input.endFrame();
   }
   game.tick = tick;
+  // tools (gfxbench, gfxprofile) drive the frames themselves: holdLoop stops the rAF loop, and frame() is one
+  // whole frame. three advances its node frame once per animation frame, and the scene pass, AO, bloom and
+  // the other FRAME-updated passes render once per node frame: ticks in a row without it skip the scene.
+  game.holdLoop = false;
+  game.frame = (dt = 1 / 60) => {
+    const A = renderer._animation;
+    if (A?.nodes) {
+      if (renderer.info.autoReset) renderer.info.reset();
+      A.nodes.nodeFrame.update();
+      renderer.info.frame = A.nodes.nodeFrame.frameId;
+    }
+    tick(dt);
+  };
 
   settings.applyAll({ startup: true });
   refreshSound();
 
-  // compile for the HDR target: the program variant depends on the output colour space
+  // compile for the pipeline's scene target: the pipeline state depends on its format and sample count
   const compileScene = () => {
     const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(pipeline.hdr);
+    const sp = pipeline.scenePass, db = renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (sp) { sp.setSize(db.x || 1, db.y || 1); renderer.setRenderTarget(sp.renderTarget); }
     const p = renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(prev);
     return p;
   };
   setLoading('Compiling shaders…', 0.86); await frame();
-  // Warm-up behind the loading screen. Lamps change the lights hash (shadow-casting head spot), so
-  // first a frame with every lamp on (compile + a real draw that builds the pipeline states and lamp
-  // shadow map; without it switching lamps on at night stalled ~200 ms), then the real state. The tick
-  // without drawing comes first so the compile sees the lights as they are.
+  // Warm-up behind the loading screen: the pipelines for the scene, then one real frame (post passes,
+  // shadow passes, eye adaptation). The set of lights never changes (the lamps stay in the scene when off,
+  // the reflection probe is copied into one texture), so nothing recompiles later.
   try {
-    const ls = view.lights, head = ls.head, aux = ls.aux;
-    ls.head = 1; ls.aux = model.lights.aux.length > 0;
     tick(1 / 60, false);
-    view.update(rPos, rQ, 0, { night: true, shadows: true });
-    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
-    // the eye-adaptation pass only runs at dusk and night: compile it now
+    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 8000))]);
+    loadLog.push(['compiled', Math.round(performance.now())]);
+    // the eye-adaptation pass only runs at dusk and night: draw it once here too
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
+    // the head lamp's shadow map gets its real texture on its first render: make that now, while every
+    // material's bindings are still being set up (made at the first lamp switch, some kept the old one)
+    model.lights.head.shadow.needsUpdate = true;
     pipeline.render(1 / 60);
     pp.autoExposure = ae; pp.auto = au;
     pipeline.resetExposure = true;
-    ls.head = head; ls.aux = aux;
-    tick(1 / 60, false);
-    await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    loadLog.push(['first frame', Math.round(performance.now())]);
   } catch (e) { console.warn('shader warm-up', e); }
   tick(1 / 60);
 
@@ -530,7 +543,7 @@ async function main() {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1;
-    if (dt <= 0) return;
+    if (dt <= 0 || game.holdLoop) return;
     gfx.updateAutoQuality(dt);
     tick(dt);
   }

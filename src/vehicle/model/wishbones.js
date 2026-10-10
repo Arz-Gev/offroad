@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { cornerName } from '../suspension.js';
 
 // Independent corner with double wishbones, made of the model's own parts (tools/prepcar.mjs `parts` cuts them

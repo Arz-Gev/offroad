@@ -1,5 +1,9 @@
-import * as THREE from 'three';
-import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, If, uniform, uniformArray, attribute, texture, vec2, vec3, vec4, float, int, ivec2, positionGeometry, positionWorld,
+  cameraPosition, cameraViewMatrix, mix, clamp, smoothstep, step, max, min, abs, sqrt, pow, fract, round, floor, distance, length,
+  normalize, dot, dFdx, dFdy, select as sel, mat2,
+} from 'three/tsl';
 import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL } from './terrain.js';
 import { bakeGroundLayers, LAYER_TILE } from './textures.js';
 import { makeSimplex2D, fbm } from './noise.js';
@@ -7,44 +11,39 @@ import { makeSimplex2D, fbm } from './noise.js';
 // Terrain renderer: CDLOD over the 1 km physics map and the 8 km render-only vista, drawn as one instanced grid
 // patch (32x32 quads; level k has vertex spacing 0.5 * 2^k m). The CPU walks a quadtree each frame (frustum culled,
 // ~150-300 patches) and writes one instance per patch.
-// - The vertex shader reads heights from the physics heightfield (R32F texture); level 0 uses Rapier's cell split, so
+// - The vertex stage reads heights from the physics heightfield (R32F texture); level 0 uses Rapier's cell split, so
 //   wheels sit exactly on what you see. Odd vertices morph to the next level near each range limit (no cracks / pops).
-// - Per-pixel normals come from a GPU-baked normal texture, so far patches keep full-resolution shading.
-// - Material: six GPU-baked ground layers (texture arrays) blended by surface map, slope, canopy and height, with
-//   two-scale anti-tiling, triplanar rock on steep faces and distance LOD.
+// - Per-pixel normals come from a baked normal texture, so far patches keep full-resolution shading.
+// - Material: six baked ground layers (texture arrays) blended by surface map, slope, canopy and height, with
+//   two-scale anti-tiling, triplanar rock on steep faces and distance LOD. Wetness (shore, mud, rain) darkens the
+//   ground, makes it glossy and fills puddles in the hollows.
+// The whole surface is worked out once in the colour node; roughness, AO and the normal read its results.
 
 const P = 32;                         // quads per patch side
 const LEVELS = 10;                    // 16 m ... 8192 m patches
 const HALF = MAP_SIZE / 2, NN = N + 1;
 const FAR_HALF = FAR_SIZE / 2, FN = FAR_SIZE / FAR_CELL + 1;
 
-const NORMAL_FRAG = /* glsl */`
-precision highp float;
-uniform highp sampler2D tH;
-uniform float uN, uCell, uSwap;
-varying vec2 vUv;
-float h(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uN) - 1)); return texelFetch(tH, ivec2(g.y, g.x), 0).r; }
-void main() {
-  ivec2 g = ivec2(floor(vUv * uN));
-  float dx = h(g + ivec2(1, 0)) - h(g - ivec2(1, 0));
-  float dz = h(g + ivec2(0, 1)) - h(g - ivec2(0, 1));
-  vec3 n = normalize(vec3(-dx, 2.0 * uCell, -dz));
-  // curvature (positive in hollows): used for ambient occlusion of gullies
-  float c = h(g + ivec2(2, 0)) + h(g - ivec2(2, 0)) + h(g + ivec2(0, 2)) + h(g - ivec2(0, 2)) - 4.0 * h(g);
-  gl_FragColor = vec4(n.x * 0.5 + 0.5, n.z * 0.5 + 0.5, clamp(c / (uCell * 4.0) + 0.5, 0.0, 1.0), 1.0);
-}`;
-
-function bakeNormalTexture(renderer, heightTex, n, cell) {
-  const rt = new THREE.WebGLRenderTarget(n, n, { depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
-  rt.texture.anisotropy = 4;
-  const mat = new THREE.ShaderMaterial({
-    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: NORMAL_FRAG, uniforms: { tH: { value: heightTex }, uN: { value: n }, uCell: { value: cell }, uSwap: { value: 1 } }, depthTest: false, depthWrite: false,
-  });
-  const q = new FullScreenQuad(mat), prev = renderer.getRenderTarget();
-  renderer.setRenderTarget(rt); q.render(renderer); renderer.setRenderTarget(prev);
-  mat.dispose(); q.dispose();
-  return rt.texture;
+// normals (xz) + curvature from a height grid (data layout ix * n + iz), stored RGBA8 with texel (ix, iz)
+// at row iz, column ix... the shader samples it with uv = (x, z)
+function normalTexture(heights, n, cell) {
+  const data = new Uint8Array(n * n * 4);
+  const h = (ix, iz) => heights[Math.max(0, Math.min(n - 1, ix)) * n + Math.max(0, Math.min(n - 1, iz))];
+  for (let iz = 0; iz < n; iz++) for (let ix = 0; ix < n; ix++) {
+    const dx = h(ix + 1, iz) - h(ix - 1, iz), dz = h(ix, iz + 1) - h(ix, iz - 1);
+    const nx = -dx, ny = 2 * cell, nz = -dz, l = Math.hypot(nx, ny, nz);
+    const c = h(ix + 2, iz) + h(ix - 2, iz) + h(ix, iz + 2) + h(ix, iz - 2) - 4 * h(ix, iz);
+    const o = (iz * n + ix) * 4;
+    data[o] = Math.round((nx / l * 0.5 + 0.5) * 255);
+    data[o + 1] = Math.round((nz / l * 0.5 + 0.5) * 255);
+    data[o + 2] = Math.round(Math.min(1, Math.max(0, c / (cell * 4) + 0.5)) * 255);
+    data[o + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+  t.anisotropy = 4;
+  t.needsUpdate = true;
+  return t;
 }
 
 function floatTex(data, n) {
@@ -102,15 +101,16 @@ function blurU8(data, n, ch, r) {
 
 export function buildTerrainView(terrain, renderer, opts = {}) {
   const layers = bakeGroundLayers(renderer, opts.layerSize || 1024, opts.anisotropy || 8);
+  const caps = renderer.caps || {};
 
-  // ---- height textures (data layout ix * n + iz: the shader swaps the fetch coordinates)
+  // ---- height textures (data layout ix * n + iz: the shaders swap the fetch coordinates)
   const hTex = floatTex(terrain.heights, NN);
-  // linear filtering lets the grass read a smooth height with one fetch (texelFetch ignores it)
-  const floatLinear = !!renderer.extensions.has('OES_texture_float_linear');
+  // linear filtering lets the grass read a smooth height with one fetch (textureLoad ignores it)
+  const floatLinear = !!caps.floatFilter;
   if (floatLinear) { hTex.magFilter = THREE.LinearFilter; hTex.minFilter = THREE.LinearFilter; }
   const fTex = floatTex(terrain.far.heights, FN);
-  const nTex = bakeNormalTexture(renderer, hTex, NN, CELL);
-  const fnTex = bakeNormalTexture(renderer, fTex, FN, FAR_CELL);
+  const nTex = normalTexture(terrain.heights, NN, CELL);
+  const fnTex = normalTexture(terrain.far.heights, FN, FAR_CELL);
 
   // ---- splat (dirt, mud, rock, sand), blurred; texel (ix, iz) natural orientation
   const splatData = new Uint8Array(NN * NN * 4);
@@ -174,6 +174,13 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   dataTex.magFilter = THREE.LinearFilter; dataTex.minFilter = THREE.LinearMipmapLinearFilter; dataTex.generateMipmaps = true;
   dataTex.needsUpdate = true;
 
+  // ---- tyre tracks (effects.js Tracks paints it): r = depth of the rut
+  const TRACK_RES = 2048;
+  const trackTex = new THREE.DataTexture(new Uint8Array(TRACK_RES * TRACK_RES), TRACK_RES, TRACK_RES, THREE.RedFormat, THREE.UnsignedByteType);
+  // nearest: three binds no sampler for it (the terrain blends it by hand, the grass reads the nearest texel)
+  trackTex.magFilter = trackTex.minFilter = THREE.NearestFilter;
+  trackTex.needsUpdate = true;
+
   // ---- patch geometry: (P+1)^2 grid of integer coordinates, Rapier's diagonal (x1,z0)-(x0,z1)
   const V = P + 1;
   const pos = new Float32Array(V * V * 3);
@@ -185,211 +192,201 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   }
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  // up normals: only the shadow normal offset reads them (the shading uses the per-pixel normal map)
+  const nrm = new Float32Array(V * V * 3); for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   geo.setIndex(idx);
   const MAX_INST = 2048;
   const instData = new Float32Array(MAX_INST * 4);
-  const instAttr = new THREE.InstancedBufferAttribute(instData, 4).setUsage(THREE.DynamicDrawUsage);
+  // static usage (update() marks the range): a DynamicDrawUsage attribute is re-uploaded in full on every render call
+  const instAttr = new THREE.InstancedBufferAttribute(instData, 4);
   geo.setAttribute('aPatch', instAttr);
   geo.instanceCount = 0;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
-  // ---- material
-  const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
+  // ---- uniforms
   const morph = Array.from({ length: LEVELS }, () => new THREE.Vector2());
   const uniforms = {
-    tHeight: { value: hTex }, tFarHeight: { value: fTex }, tNrm: { value: nTex }, tFarNrm: { value: fnTex },
-    tSplat: { value: splat }, tData: { value: dataTex }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
-    tNoise: { value: opts.noise || null },
-    uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
-    uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
-    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uDetail: { value: 2 },
-    uWet: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
-    uSnow: { value: 330 },
+    uMorph: uniformArray(morph, 'vec2'), uCamXZ: uniform(new THREE.Vector2()),
+    uMap: uniform(new THREE.Vector4(HALF, CELL, NN, MAP_SIZE)), uFar: uniform(new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0)),
+    uDetail: uniform(2), uWet: uniform(0), uPuddles: uniform(0),
+    uTrack: { value: trackTex }, uTrackOrigin: uniform(new THREE.Vector2()), uTrackSize: uniform(MAP_SIZE),
+    uSnow: uniform(330),
   };
-  material.userData.uniforms = uniforms;
-  material.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, uniforms);
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>
-attribute vec4 aPatch;
-uniform highp sampler2D tHeight, tFarHeight;
-uniform vec2 uMorph[${LEVELS}];
-uniform vec2 uCamXZ;
-uniform vec4 uMap, uFar;
-varying vec3 vWPos;
-varying float vMorph;
-float tHgtNear(vec2 xz) {
-  ivec2 g = ivec2(round((xz + uMap.x) / uMap.y));
-  g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1));
-  return texelFetch(tHeight, ivec2(g.y, g.x), 0).r;
-}
-float tHgtFar(vec2 xz) {
-  vec2 f = clamp((xz + uFar.x) / uFar.y, vec2(0.0), vec2(uFar.z - 1.001));
-  ivec2 i = ivec2(floor(f)); vec2 t = f - vec2(i);
-  float a = texelFetch(tFarHeight, ivec2(i.y, i.x), 0).r, b = texelFetch(tFarHeight, ivec2(i.y, i.x + 1), 0).r;
-  float c = texelFetch(tFarHeight, ivec2(i.y + 1, i.x), 0).r, d = texelFetch(tFarHeight, ivec2(i.y + 1, i.x + 1), 0).r;
-  return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
-}
-float tHgt(vec2 xz) { return max(abs(xz.x), abs(xz.y)) <= uMap.x + 0.01 ? tHgtNear(xz) : tHgtFar(xz); }`)
-      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = vec3(0.0, 1.0, 0.0);')
-      .replace('#include <begin_vertex>', `
-vec2 gIdx = position.xz;
-float stp = aPatch.z;
-vec2 wxz = aPatch.xy + gIdx * stp;
-vec2 mm = uMorph[int(aPatch.w)];
-float morphK = clamp((distance(wxz, uCamXZ) - mm.x) * mm.y, 0.0, 1.0);
-vec2 frac2 = fract(gIdx * 0.5) * 2.0;
-vec2 txz = aPatch.xy + (gIdx - frac2) * stp;
-float h0 = tHgt(wxz);
-float h1 = (frac2.x + frac2.y) > 0.0 ? tHgt(txz) : h0;
-vec3 transformed = vec3(mix(wxz, txz, morphK), mix(h0, h1, morphK)).xzy;
-vWPos = transformed;
-vMorph = morphK;`);
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>
-precision highp sampler2DArray;
-uniform sampler2D tNrm, tFarNrm, tSplat, tData, tNoise, uTrack;
-uniform sampler2DArray tAlb, tLNrm;
-uniform vec4 uMap, uFar;
-uniform float uTile[6];
-uniform float uDetail, uWet, uTrackSize, uSnow;
-uniform vec2 uTrackOrigin;
-varying vec3 vWPos;
-varying float vMorph;
-float gRough; float gAO; vec3 gN; float gWet;
-vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control flow)
-vec3 gDpx, gDpy;
-vec4 layerTex(sampler2DArray t, vec2 uv, float l, mat2 m) { return textureGrad(t, vec3(uv, l), m * gDx, m * gDy); }
-// two scales of one layer: the large, rotated one hides tiling at a distance
-void layerAt(float l, vec2 xz, float far, out vec4 alb, out vec4 nrm) {
-  float tile = uTile[int(l)];
-  mat2 mA = mat2(tile, 0.0, 0.0, tile);
-  mat2 mB = mat2(0.8, 0.6, -0.6, 0.8) * (tile * 0.23);
-  vec2 uvB = mB * xz + 0.37;
-  vec4 aB = layerTex(tAlb, uvB, l, mB);
-  vec4 nB = layerTex(tLNrm, uvB, l, mB);
-  if (far < 0.99 && uDetail > 0.5) {
-    vec2 uvA = mA * xz;
-    vec4 aA = layerTex(tAlb, uvA, l, mA);
-    vec4 nA = layerTex(tLNrm, uvA, l, mA);
-    float k = 0.25 + 0.75 * far;
-    alb = mix(aA, aB, k); nrm = mix(nA, nB, k);
-  } else { alb = aB; nrm = nB; }
-}
-vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
-  vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z);
-  float t = uTile[2];
-  vec3 dpx = gDpx, dpy = gDpy;
-  vec4 ax = textureGrad(tAlb, vec3(p.zy * t, 2.0), dpx.zy * t, dpy.zy * t);
-  vec4 ay = textureGrad(tAlb, vec3(p.xz * t, 2.0), dpx.xz * t, dpy.xz * t);
-  vec4 az = textureGrad(tAlb, vec3(p.xy * t, 2.0), dpx.xy * t, dpy.xy * t);
-  vec4 nx = textureGrad(tLNrm, vec3(p.zy * t, 2.0), dpx.zy * t, dpy.zy * t);
-  vec4 ny = textureGrad(tLNrm, vec3(p.xz * t, 2.0), dpx.xz * t, dpy.xz * t);
-  vec4 nz = textureGrad(tLNrm, vec3(p.xy * t, 2.0), dpx.xy * t, dpy.xy * t);
-  nrmOut = nx * w.x + ny * w.y + nz * w.z;
-  return (ax * w.x + ay * w.y + az * w.z).rgb;
-}`)
-      .replace('#include <map_fragment>', `
-{
-  vec3 p = vWPos;
-  gDpx = dFdx(p); gDpy = dFdy(p);
-  gDx = gDpx.xz; gDy = gDpy.xz;
-  float dist = length(p - cameraPosition);
-  bool inMap = max(abs(p.x), abs(p.z)) < uMap.x;
-  // heightfield normal + curvature, surface splat, ground data (sampled unconditionally: mip selection needs uniform flow)
-  vec2 uvN = ((p.xz + uMap.x) / uMap.y + 0.5) / uMap.z;
-  vec4 ntN = texture2D(tNrm, uvN);
-  vec4 sp = texture2D(tSplat, uvN);
-  vec4 gd = texture2D(tData, (p.xz + uMap.x + 0.5) / (uMap.w + 1.0));
-  vec4 nt = ntN;
-  if (!inMap) {
-    // vista: its own normal map (explicit gradients: this is non-uniform control flow) plus procedural
-    // detail normals (its heightmap is only 16 m)
-    vec2 uvF = ((p.xz + uFar.x) / uFar.y + 0.5) / uFar.z;
-    nt = textureGrad(tFarNrm, uvF, gDx / (uFar.y * uFar.z), gDy / (uFar.y * uFar.z));
-    sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0);
-  }
-  vec3 nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
-  nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
-  float curv = nt.b;
-  if (!inMap) {
-    vec4 dz1 = textureGrad(tNoise, p.xz / 41.0, gDx / 41.0, gDy / 41.0), dz2 = textureGrad(tNoise, p.xz / 13.0 + 0.5, gDx / 13.0, gDy / 13.0);
-    nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
-  }
-  // macro variation (large scale) to break everything up
-  float mac = texture2D(tNoise, p.xz / 420.0).r;
-  float mac2 = texture2D(tNoise, p.xz / 97.0 + 0.3).g;
-  float far = smoothstep(18.0, 90.0, dist);
-  // layer weights
-  float slope = 1.0 - nG.y;
-  float wRock = max(sp.b, smoothstep(0.24, 0.36, slope + (mac2 - 0.5) * 0.08));
-  float wMud = sp.g, wSand = sp.a, wDirt = sp.r;
-  wDirt = max(wDirt, smoothstep(0.14, 0.24, slope) * 0.55 * (1.0 - wRock));
-  float wForest = gd.g * (1.0 - wDirt) * (1.0 - wMud);
-  if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
-  float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest);
-  // the two strongest layers, height-blended (more would cost registers and samples for little gain)
-  float w1 = wGrass, l1 = 0.0, w2 = 0.0, l2 = 0.0;
-  #define TOP2(W, L) if (W > w1) { w2 = w1; l2 = l1; w1 = W; l1 = L; } else if (W > w2) { w2 = W; l2 = L; }
-  TOP2(wDirt, 1.0) TOP2(wMud, 3.0) TOP2(wSand, 4.0) TOP2(wForest, 5.0)
-  vec3 c; vec4 nn;
-  if (dist < 600.0) {
-    vec4 a1, n1, a2 = vec4(0.0), n2 = vec4(0.5, 0.5, 0.9, 1.0);
-    layerAt(l1, p.xz, far, a1, n1);
-    if (w2 > 0.02) {
-      layerAt(l2, p.xz, far, a2, n2);
-      float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2, hm = max(h1, h2) - 0.35;
-      float b1 = max(h1 - hm, 0.0) * w1, b2 = max(h2 - hm, 0.0) * w2;
-      float k = b2 / max(b1 + b2, 1e-4);
-      c = mix(a1.rgb, a2.rgb, k); nn = mix(n1, n2, k);
-    } else { c = a1.rgb; nn = n1; }
-  } else {
-    // far away: average layer colours
-    c = vec3(0.075, 0.105, 0.035) * wGrass + vec3(0.17, 0.12, 0.075) * wDirt + vec3(0.06, 0.045, 0.03) * wMud + vec3(0.3, 0.27, 0.2) * wSand + vec3(0.045, 0.06, 0.025) * wForest;
-    c /= max(1e-3, wGrass + wDirt + wMud + wSand + wForest);
-    nn = vec4(0.5, 0.5, 0.9, 1.0);
-  }
-  // rock (triplanar on steep faces)
-  if (wRock > 0.01) {
-    vec4 rn; vec3 rc;
-    if (dist > 600.0) { rc = vec3(0.2, 0.19, 0.17); rn = vec4(0.5, 0.5, 0.85, 1.0); }
-    else if (nG.y < 0.9) rc = triRock(p, nG, rn);
-    else { vec4 ra; layerAt(2.0, p.xz, far, ra, rn); rc = ra.rgb; }
-    c = mix(c, rc, wRock); nn = mix(nn, rn, wRock);
-  }
-  // vista snow on high flats
-  if (!inMap) {
-    float snow = smoothstep(uSnow, uSnow + 60.0, p.y + (mac - 0.5) * 80.0) * smoothstep(0.55, 0.3, slope);
-    c = mix(c, vec3(0.62, 0.64, 0.68), snow);
-  }
-  // macro tint: dry / lush patches, brightness
-  c *= mix(vec3(1.08, 1.02, 0.86), vec3(0.9, 1.0, 1.04), mac) * (0.86 + 0.28 * mac2);
-  // tyre tracks darken (and wet) the ground
-  vec2 tuv = (p.xz - uTrackOrigin) / uTrackSize + 0.5;
-  float track = inMap ? texture2D(uTrack, tuv).r : 0.0;
-  c *= 1.0 - track * 0.3;
-  // wetness: shore, mud, rain
-  gWet = clamp(max(gd.b * 0.9, uWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
-  c *= 1.0 - gWet * 0.35;
-  gRough = mix(nn.b, 0.55, gWet);
-  // ambient occlusion: hollows, canopy, texture cavities
-  gAO = gd.r * mix(1.0, nn.a, 0.8) * clamp(1.15 - curv * 0.3, 0.6, 1.0);
-  // normal: detail (tangent space x/z) on top of the heightfield normal
-  vec2 dn = (nn.xy * 2.0 - 1.0) * (1.0 - smoothstep(30.0, 140.0, dist));
-  gN = normalize(nG + vec3(dn.x, 0.0, dn.y) * 0.9);
-  diffuseColor.rgb *= c;
-}`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = gRough;')
-      .replace('#include <normal_fragment_begin>', `
-float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
-vec3 normal = normalize((viewMatrix * vec4(gN, 0.0)).xyz);
-vec3 nonPerturbedNormal = normal;`)
-      .replace('#include <normal_fragment_maps>', '')
-      .replace('#include <aomap_fragment>', `
-reflectedLight.indirectDiffuse *= gAO;
-reflectedLight.indirectSpecular *= gAO;`);
-  };
-  material.customProgramCacheKey = () => 'terrain-cdlod-v1';
+  const U = uniforms;
+  const tH = texture(hTex), tFH = texture(fTex), tN = texture(nTex), tFN = texture(fnTex);
+  const tSplat = texture(splat), tData = texture(dataTex), tNoise = texture(opts.noise), tTrack = texture(trackTex);
+  const tAlb = texture(layers.albedo), tLNrm = texture(layers.normal);
+  const tiles = LAYER_TILE.map(t => 1 / t);
+
+  // ---- vertex: CDLOD morph over the height textures
+  const aPatch = attribute('aPatch', 'vec4');
+  const hNear = Fn(([xz]) => {
+    const g = clamp(ivec2(round(xz.add(U.uMap.x).div(U.uMap.y))), ivec2(0), ivec2(int(U.uMap.z).sub(1)));
+    return tH.load(ivec2(g.y, g.x)).r;
+  });
+  const hFar = Fn(([xz]) => {
+    const f = clamp(xz.add(U.uFar.x).div(U.uFar.y), vec2(0.0), vec2(U.uFar.z.sub(1.001)));
+    const i = ivec2(floor(f)), t = f.sub(floor(f));
+    const a = tFH.load(ivec2(i.y, i.x)).r, b = tFH.load(ivec2(i.y, i.x.add(1))).r;
+    const c = tFH.load(ivec2(i.y.add(1), i.x)).r, d = tFH.load(ivec2(i.y.add(1), i.x.add(1))).r;
+    return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+  });
+  const hAt = Fn(([xz]) => sel(max(abs(xz.x), abs(xz.y)).lessThanEqual(U.uMap.x.add(0.01)), hNear(xz), hFar(xz)));
+
+  const material = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
+  material.positionNode = Fn(() => {
+    const gIdx = positionGeometry.xz;
+    const stp = aPatch.z;
+    const wxz = aPatch.xy.add(gIdx.mul(stp));
+    const mm = U.uMorph.element(int(aPatch.w));
+    const morphK = clamp(distance(wxz, U.uCamXZ).sub(mm.x).mul(mm.y), 0.0, 1.0);
+    const frac2 = fract(gIdx.mul(0.5)).mul(2.0);
+    const txz = aPatch.xy.add(gIdx.sub(frac2).mul(stp));
+    const h0 = hAt(wxz);
+    const h1 = sel(frac2.x.add(frac2.y).greaterThan(0.0), hAt(txz), h0);
+    const p = mix(wxz, txz, morphK);
+    return vec3(p.x, mix(h0, h1, morphK), p.y);
+  })();
+
+  // ---- fragment: the surface (colour, roughness, AO, normal) in one go
+  const gRough = float(0.9).toVar('gRough'), gAO = float(1).toVar('gAO'), gN = vec3(0, 1, 0).toVar('gN');
+  const surface = Fn(() => {
+    const p = positionWorld;
+    const gDx = dFdx(p), gDy = dFdy(p);
+    const dxz = gDx.xz, dyz = gDy.xz;
+    const layerTex = (tex, uvv, l, scale) => tex.sample(uvv).depth(l).grad(dxz.mul(scale), dyz.mul(scale));
+    const layerTexR = (tex, uvv, l, m) => tex.sample(uvv).depth(l).grad(m.mul(dxz), m.mul(dyz));
+    const dist = length(p.sub(cameraPosition));
+    const inMap = max(abs(p.x), abs(p.z)).lessThan(U.uMap.x);
+    // heightfield normal + curvature, surface splat, ground data
+    const uvN = p.xz.add(U.uMap.x).div(U.uMap.y).add(0.5).div(U.uMap.z);
+    const ntN = tN.sample(uvN), spN = tSplat.sample(uvN);
+    const gdN = tData.sample(p.xz.add(U.uMap.x).add(0.5).div(U.uMap.w.add(1.0)));
+    const uvF = p.xz.add(U.uFar.x).div(U.uFar.y).add(0.5).div(U.uFar.z);
+    const sF = U.uFar.y.mul(U.uFar.z);
+    const ntF = tFN.sample(uvF).grad(dxz.div(sF), dyz.div(sF));
+    const nt = sel(inMap, ntN, ntF);
+    const sp = sel(inMap, spN, vec4(0.0));
+    const gd = sel(inMap, gdN, vec4(1.0, 0.0, 0.0, 1.0));
+    const nG = vec3(nt.r.mul(2).sub(1), 0.0, nt.g.mul(2).sub(1)).toVar();
+    nG.y.assign(sqrt(max(0.0, float(1).sub(nG.x.mul(nG.x)).sub(nG.z.mul(nG.z)))));
+    const curv = nt.b;
+    If(inMap.not(), () => {
+      // vista: procedural detail normals (its heightmap is only 16 m)
+      const dz1 = tNoise.sample(p.xz.div(41.0)).grad(dxz.div(41.0), dyz.div(41.0));
+      const dz2 = tNoise.sample(p.xz.div(13.0).add(0.5)).grad(dxz.div(13.0), dyz.div(13.0));
+      nG.assign(normalize(nG.add(vec3(dz1.r.sub(0.5), 0.0, dz1.g.sub(0.5)).mul(0.7)).add(vec3(dz2.b.sub(0.5), 0.0, dz2.a.sub(0.5)).mul(0.35))));
+    });
+    // macro variation (large scale) to break everything up
+    const mac = tNoise.sample(p.xz.div(420.0)).r;
+    const mac2 = tNoise.sample(p.xz.div(97.0).add(0.3)).g;
+    const far = smoothstep(18.0, 90.0, dist);
+    // layer weights
+    const slope = float(1).sub(nG.y);
+    const wRock = max(sp.b, smoothstep(0.24, 0.36, slope.add(mac2.sub(0.5).mul(0.08))));
+    const wMud = sp.g, wSand = sp.a;
+    const wDirt = max(sp.r, smoothstep(0.14, 0.24, slope).mul(0.55).mul(float(1).sub(wRock)));
+    const wForest = sel(inMap, gd.g.mul(float(1).sub(wDirt)).mul(float(1).sub(wMud)),
+      smoothstep(0.35, 0.65, mac2).mul(smoothstep(0.32, 0.18, slope)).mul(smoothstep(260.0, 120.0, p.y)));
+    const wGrass = max(0.0, float(1).sub(wDirt).sub(wMud).sub(wSand).sub(wForest));
+    // the two strongest layers, height-blended
+    const w1 = wGrass.toVar(), l1 = float(0).toVar(), w2 = float(0).toVar(), l2 = float(0).toVar();
+    const top2 = (W, L) => {
+      If(W.greaterThan(w1), () => { w2.assign(w1); l2.assign(l1); w1.assign(W); l1.assign(L); })
+        .ElseIf(W.greaterThan(w2), () => { w2.assign(W); l2.assign(L); });
+    };
+    top2(wDirt, 1.0); top2(wMud, 3.0); top2(wSand, 4.0); top2(wForest, 5.0);
+    const tileOf = l => sel(l.lessThan(0.5), tiles[0], sel(l.lessThan(1.5), tiles[1], sel(l.lessThan(2.5), tiles[2], sel(l.lessThan(3.5), tiles[3], sel(l.lessThan(4.5), tiles[4], tiles[5])))));
+    // two scales of one layer: the large, rotated one hides tiling at a distance
+    const layerAt = (l, alb, nrm) => {
+      const tile = tileOf(l);
+      const li = int(l);
+      const mB = mat2(0.8, 0.6, -0.6, 0.8).mul(tile.mul(0.23));
+      const uvB = mB.mul(p.xz).add(0.37);
+      const aB = layerTexR(tAlb, uvB, li, mB), nB = layerTexR(tLNrm, uvB, li, mB);
+      alb.assign(aB); nrm.assign(nB);
+      If(far.lessThan(0.99).and(U.uDetail.greaterThan(0.5)), () => {
+        const uvA = p.xz.mul(tile);
+        const aA = layerTex(tAlb, uvA, li, tile), nA = layerTex(tLNrm, uvA, li, tile);
+        const k = far.mul(0.75).add(0.25);
+        alb.assign(mix(aA, aB, k)); nrm.assign(mix(nA, nB, k));
+      });
+    };
+    const c = vec3(0).toVar(), nn = vec4(0.5, 0.5, 0.9, 1.0).toVar();
+    If(dist.lessThan(600.0), () => {
+      const a1 = vec4(0).toVar(), n1 = vec4(0).toVar(), a2 = vec4(0).toVar(), n2 = vec4(0.5, 0.5, 0.9, 1.0).toVar();
+      layerAt(l1, a1, n1);
+      c.assign(a1.rgb); nn.assign(n1);
+      If(w2.greaterThan(0.02), () => {
+        layerAt(l2, a2, n2);
+        const h1 = a1.a.add(w1.mul(1.2)), h2 = a2.a.add(w2.mul(1.2)), hm = max(h1, h2).sub(0.35);
+        const b1 = max(h1.sub(hm), 0.0).mul(w1), b2 = max(h2.sub(hm), 0.0).mul(w2);
+        const k = b2.div(max(b1.add(b2), 1e-4));
+        c.assign(mix(a1.rgb, a2.rgb, k)); nn.assign(mix(n1, n2, k));
+      });
+    }).Else(() => {
+      // far away: average layer colours
+      const sum = vec3(0.075, 0.105, 0.035).mul(wGrass).add(vec3(0.17, 0.12, 0.075).mul(wDirt)).add(vec3(0.06, 0.045, 0.03).mul(wMud))
+        .add(vec3(0.3, 0.27, 0.2).mul(wSand)).add(vec3(0.045, 0.06, 0.025).mul(wForest));
+      c.assign(sum.div(max(1e-3, wGrass.add(wDirt).add(wMud).add(wSand).add(wForest))));
+    });
+    // rock (triplanar on steep faces)
+    If(wRock.greaterThan(0.01), () => {
+      const rc = vec3(0.2, 0.19, 0.17).toVar(), rn = vec4(0.5, 0.5, 0.85, 1.0).toVar();
+      If(dist.lessThan(600.0), () => {
+        If(nG.y.lessThan(0.9), () => {
+          const wv = pow(abs(nG), vec3(4.0)); const w = wv.div(wv.x.add(wv.y).add(wv.z));
+          const t = tiles[2];
+          const tri = (tex, a, b, ga, gb) => tex.sample(a.mul(t)).depth(int(2)).grad(ga.mul(t), gb.mul(t));
+          const ax = tri(tAlb, p.zy, null, gDx.zy, gDy.zy), ay = tri(tAlb, p.xz, null, gDx.xz, gDy.xz), az = tri(tAlb, p.xy, null, gDx.xy, gDy.xy);
+          const nx = tri(tLNrm, p.zy, null, gDx.zy, gDy.zy), ny = tri(tLNrm, p.xz, null, gDx.xz, gDy.xz), nz = tri(tLNrm, p.xy, null, gDx.xy, gDy.xy);
+          rn.assign(nx.mul(w.x).add(ny.mul(w.y)).add(nz.mul(w.z)));
+          rc.assign(ax.rgb.mul(w.x).add(ay.rgb.mul(w.y)).add(az.rgb.mul(w.z)));
+        }).Else(() => {
+          const ra = vec4(0).toVar(), rnn = vec4(0).toVar();
+          layerAt(float(2), ra, rnn);
+          rc.assign(ra.rgb); rn.assign(rnn);
+        });
+      });
+      c.assign(mix(c, rc, wRock)); nn.assign(mix(nn, rn, wRock));
+    });
+    // vista snow on high flats
+    If(inMap.not(), () => {
+      const snow = smoothstep(U.uSnow, U.uSnow.add(60.0), p.y.add(mac.sub(0.5).mul(80.0))).mul(smoothstep(0.55, 0.3, slope));
+      c.assign(mix(c, vec3(0.62, 0.64, 0.68), snow));
+    });
+    // macro tint: dry / lush patches, brightness
+    c.mulAssign(mix(vec3(1.08, 1.02, 0.86), vec3(0.9, 1.0, 1.04), mac).mul(mac2.mul(0.28).add(0.86)));
+    // tyre tracks darken (and wet) the ground
+    const tuv = p.xz.sub(U.uTrackOrigin).div(U.uTrackSize).add(0.5);
+    // the rut map is read with loads + manual bilinear: no sampler (the terrain shader is at WebGPU's limit
+    // of 16 samplers on Ultra at night: 4 shadow cascades, the lamp shadow and cookies, the probe)
+    const tp = tuv.mul(2048.0).sub(0.5), tf = floor(tp), tw = tp.sub(tf);
+    const ti = ivec2(tf).clamp(ivec2(0), ivec2(2046));
+    const tl = (a, b) => tTrack.load(ti.add(ivec2(a, b))).r;
+    const trackRaw = mix(mix(tl(0, 0), tl(1, 0), tw.x), mix(tl(0, 1), tl(1, 1), tw.x), tw.y);
+    const track = sel(inMap, trackRaw, float(0));
+    c.mulAssign(float(1).sub(track.mul(0.3)));
+    // wetness: shore, mud, rain. Rain fills the hollows (curvature + texture height) with puddles that
+    // mirror the sky (low roughness, flat normal)
+    const hollow = smoothstep(0.52, 0.62, curv).add(smoothstep(0.45, 0.2, nn.a.add(far.mul(0.3)))).mul(0.5);
+    const puddle = smoothstep(0.35, 0.75, hollow.add(mac2.sub(0.5).mul(0.6))).mul(U.uPuddles).mul(smoothstep(0.12, 0.04, slope)).mul(float(1).sub(wRock));
+    const wet = clamp(max(gd.b.mul(0.9), U.uWet.mul(float(1).sub(wRock.mul(0.4)))).add(wMud.mul(0.4)).add(track.mul(wMud).mul(0.4)), 0.0, 1.0);
+    c.mulAssign(float(1).sub(wet.mul(0.35)));
+    c.mulAssign(float(1).sub(puddle.mul(0.45)));
+    gRough.assign(mix(mix(nn.b, 0.55, wet), 0.04, puddle));
+    // ambient occlusion: hollows, canopy, texture cavities
+    gAO.assign(gd.r.mul(mix(1.0, nn.a, 0.8)).mul(clamp(float(1.15).sub(curv.mul(0.3)), 0.6, 1.0)));
+    // normal: detail (tangent space x/z) on top of the heightfield normal
+    const dn = nn.xy.mul(2.0).sub(1.0).mul(float(1).sub(smoothstep(30.0, 140.0, dist))).mul(float(1).sub(puddle));
+    gN.assign(normalize(nG.add(vec3(dn.x, 0.0, dn.y).mul(0.9))));
+    return c;
+  });
+  material.colorNode = surface();
+  material.roughnessNode = gRough;
+  material.aoNode = gAO;
+  material.normalNode = cameraViewMatrix.mul(vec4(gN, 0.0)).xyz.normalize();
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
@@ -397,6 +394,7 @@ reflectedLight.indirectSpecular *= gAO;`);
   mesh.castShadow = false;
   mesh.matrixAutoUpdate = false;
   mesh.userData.material = material;
+  material.userData.uniforms = uniforms;
 
   // ---- min/max height pyramid at 16 m cells for culling
   const L0 = FAR_SIZE / 16; // 512 cells
@@ -442,7 +440,7 @@ reflectedLight.indirectSpecular *= gAO;`);
   setRanges();
   const frustum = new THREE.Frustum(), projView = new THREE.Matrix4(), box = new THREE.Box3();
   let count = 0, camX = 0, camZ = 0;
-  const select = (k, cx, cz) => {
+  const pick = (k, cx, cz) => {
     // node at level k, cell index (cx, cz) in that level's grid
     const size = 16 * (1 << k);
     const x0 = -FAR_HALF + cx * size, z0 = -FAR_HALF + cz * size;
@@ -458,11 +456,11 @@ reflectedLight.indirectSpecular *= gAO;`);
       count++;
       return;
     }
-    for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) select(k - 1, cx * 2 + a, cz * 2 + b);
+    for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) pick(k - 1, cx * 2 + a, cz * 2 + b);
   };
 
   const view = {
-    mesh, material, uniforms, layers, splat, dataTex, groundData, groundN: DN, heightTex: hTex, normalTex: nTex, floatLinear,
+    mesh, material, uniforms, layers, splat, dataTex, groundData, groundN: DN, heightTex: hTex, normalTex: nTex, floatLinear, trackTex, noiseTex: opts.noise,
     get patchCount() { return count; },
     configure(q) {
       lodScale = q.lodScale || 1; setRanges();
@@ -471,11 +469,11 @@ reflectedLight.indirectSpecular *= gAO;`);
     update(dt, camera) {
       camera.updateMatrixWorld();
       projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      frustum.setFromProjectionMatrix(projView);
+      frustum.setFromProjectionMatrix(projView, camera.coordinateSystem, camera.reversedDepth);
       camX = camera.position.x; camZ = camera.position.z;
       uniforms.uCamXZ.value.set(camX, camZ);
       count = 0;
-      select(LEVELS - 1, 0, 0);
+      pick(LEVELS - 1, 0, 0);
       geo.instanceCount = count;
       instAttr.clearUpdateRanges();
       instAttr.addUpdateRange(0, count * 4);

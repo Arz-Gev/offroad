@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 // X-ray view of the physics: chassis collision boxes, wheel side cylinders, tyre outlines against the arch
 // tops, suspension travel gauges, contact patches and the points where the body touches the ground or an

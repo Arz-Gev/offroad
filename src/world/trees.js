@@ -1,112 +1,114 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, uniform, uniformArray, attribute, texture, varying, varyingProperty, vec2, vec3, vec4, float, int, positionLocal, positionGeometry,
+  normalGeometry, normalViewGeometry, cameraPosition, cameraViewMatrix, screenCoordinate, uv, sin, cos, atan, floor, fract, dot, mix,
+  smoothstep, distance, normalize,
+} from 'three/tsl';
 import { MAP_SIZE, PAD, SPAWN, POI, SURF } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
-import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
+import { makeSimplex2D, mulberry32, fbm, smoothstep as sstep } from './noise.js';
 import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
+import { FoliageMaterial } from '../render/foliage.js';
 
-// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
+// Trees. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
 // - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
-//   foliage cards, swaying in the wind (also in the shadow pass).
+//   foliage cards, swaying in the wind (also in the shadow pass). Crowns use the foliage lighting
+//   (render/foliage.js): a low sun shines through them.
 // - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
 //   normals, so it is lit like the real tree), cross-faded with a dither.
-// - Undergrowth and fallen logs near the camera. The forest also writes the ground data map (forest floor under crowns).
+// - Fallen logs near the camera. The forest also writes the ground data map (forest floor under crowns).
 
 const HALF = MAP_SIZE / 2;
 const VIEWS = 8, CELL_W = 192, CELL_H = 384;
 const CHUNK = 32, CN = MAP_SIZE / CHUNK;
 
-const WIND_GLSL = /* glsl */`
-uniform vec4 uWind;   // dir x, dir z, strength, time
-attribute float aWind;
-vec3 windOffset(vec3 objPos, float w) {
-  vec3 ip = instanceMatrix[3].xyz;
-  float ph = dot(ip.xz, vec2(0.071, 0.113));
-  float t = uWind.w;
-  float sway = sin(t * 0.85 + ph) * 0.55 + sin(t * 1.9 + ph * 1.7) * 0.2 + 0.45;
-  float gust = 0.6 + 0.4 * sin(t * 0.31 + ip.x * 0.013 + ip.z * 0.009);
-  vec3 ww = vec3(uWind.x, 0.0, uWind.y) * uWind.z * gust * sway * w * 0.32;
-  // tips flutter
-  ww += vec3(sin(t * 5.3 + dot(objPos, vec3(2.1, 1.7, 2.9)) + ph), sin(t * 4.1 + dot(objPos, vec3(1.3, 2.3, 1.1))), cos(t * 4.7 + dot(objPos, vec3(2.7, 1.1, 1.9)))) * 0.045 * w * w * uWind.z;
-  // world -> object space (yaw + uniform scale)
-  float s2 = dot(instanceMatrix[0].xyz, instanceMatrix[0].xyz);
-  return (transpose(mat3(instanceMatrix)) * ww) / s2;
-}
-`;
+// a float modulo that stays positive (WGSL's % on floats keeps the sign of x)
+const fmod = (x, y) => x.sub(floor(x.div(y)).mul(y));
+const ditherHash = Fn(([p]) => fract(fract(dot(p, vec2(0.06711056, 0.00583715))).mul(52.9829189)));
 
-export const NO_FLIP_NORMAL = THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '');
+// wind as a world-space offset: the tree leans with the gusts (phase from its position), tips flutter
+// w = aWind (0 at the root .. 1 at the tips), base = (tree x, y, z, scale)
+export const windOffset = (W, objPos, w, base) => {
+  const ip = base.xyz;
+  const ph = dot(ip.xz, vec2(0.071, 0.113));
+  const t = W.w;
+  const sway = sin(t.mul(0.85).add(ph)).mul(0.55).add(sin(t.mul(1.9).add(ph.mul(1.7))).mul(0.2)).add(0.45);
+  const gust = sin(t.mul(0.31).add(ip.x.mul(0.013)).add(ip.z.mul(0.009))).mul(0.4).add(0.6);
+  const ww = vec3(W.x, 0.0, W.y).mul(W.z).mul(gust).mul(sway).mul(w).mul(0.32)
+    .add(vec3(sin(t.mul(5.3).add(dot(objPos, vec3(2.1, 1.7, 2.9))).add(ph)), sin(t.mul(4.1).add(dot(objPos, vec3(1.3, 2.3, 1.1)))), cos(t.mul(4.7).add(dot(objPos, vec3(2.7, 1.1, 1.9)))))
+      .mul(0.045).mul(w).mul(w).mul(W.z));
+  return ww.div(base.w);
+};
 
-const FADE_GLSL = /* glsl */`
-uniform vec2 uFade;   // near-mesh / impostor cross-fade band (distance from the camera, m)
-uniform vec3 uViewPos; // the view camera (also in the shadow pass, where cameraPosition is the light's)
-varying float vTreeDist;
-float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
-`;
-
-function patchTreeMaterial(mat, kind, uniforms, opts = {}) {
-  mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, uniforms);
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\n' + WIND_GLSL + FADE_GLSL)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-transformed += windOffset(position, aWind);
-vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);`);
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + FADE_GLSL)
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
-    if (opts.translucent) {
-      // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
-      // they faced into the crown
-      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
-      // a touch of light through the leaves when backlit
-      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
-#include <opaque_fragment>`);
+// A lighter crown for the shadow maps: every other card, each scaled up about its centre so the dappled
+// coverage stays about the same. Crowns casting into three cascades were most of a forest frame's cost
+// (alpha-tested cards, no early depth rejection); half the cards halves that.
+export const SHADOW_LAYER = 1;   // drawn by shadow cameras only (render/shadows.js enables it on them)
+function shadowCrown(geo, scale = 1.35) {
+  const P = geo.attributes.position, N = geo.attributes.normal, UV = geo.attributes.uv, W = geo.attributes.aWind;
+  const cards = P.count / 4, keep = Math.ceil(cards / 2);
+  const pos = new Float32Array(keep * 12), nor = new Float32Array(keep * 12), uvs = new Float32Array(keep * 8), wind = new Float32Array(keep * 4), idx = [];
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  let k = 0;
+  for (let i = 0; i < cards; i += 2, k++) {
+    c.set(0, 0, 0);
+    for (let j = 0; j < 4; j++) c.add(v.fromBufferAttribute(P, i * 4 + j));
+    c.multiplyScalar(0.25);
+    for (let j = 0; j < 4; j++) {
+      const a = i * 4 + j, b = k * 4 + j;
+      v.fromBufferAttribute(P, a).sub(c).multiplyScalar(scale).add(c);
+      pos.set([v.x, v.y, v.z], b * 3);
+      nor.set([N.getX(a), N.getY(a), N.getZ(a)], b * 3);
+      uvs.set([UV.getX(a), UV.getY(a)], b * 2);
+      wind[b] = W.getX(a);
     }
-  };
-  mat.customProgramCacheKey = () => 'tree-' + kind;
+    const o = k * 4;
+    idx.push(o, o + 2, o + 1, o + 2, o + 3, o + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  g.setAttribute('aWind', new THREE.BufferAttribute(wind, 1));
+  g.setIndex(idx);
+  return g;
 }
 
 // ---------------------------------------------------------------- impostor baking
-const BAKE_VERT = /* glsl */`
-varying vec2 vUv; varying vec3 vN;
-void main() { vUv = uv; vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const BAKE_FRAG = /* glsl */`
-uniform sampler2D tMap; uniform float uMode, uAlphaTest; uniform vec3 uTint;
-varying vec2 vUv; varying vec3 vN;
-void main() {
-  vec4 c = texture2D(tMap, vUv);
-  if (c.a < uAlphaTest) discard;
-  vec3 n = normalize(vN);
-  gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
-}`;
-
 function bakeImpostors(renderer, variants) {
   const rows = variants.length;
   const W = VIEWS * CELL_W, Hh = rows * CELL_H;
-  const mk = (srgb) => {
-    const rt = new THREE.WebGLRenderTarget(W, Hh, { depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
-    rt.texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  const mk = (type) => {
+    const rt = new THREE.RenderTarget(W, Hh, { type, depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
     rt.texture.anisotropy = 4;
     return rt;
   };
-  const albedo = mk(true), normal = mk(false);
+  // albedo in half float (dark greens keep their precision), normals in 8 bits
+  const albedo = mk(THREE.HalfFloatType), normal = mk(THREE.UnsignedByteType);
   const scene = new THREE.Scene();
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-  const prevRT = renderer.getRenderTarget();
+  const prevRT = renderer.getRenderTarget(), prevAuto = renderer.autoClear;
   const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+  renderer.autoClear = false;
   for (const [rt, mode] of [[albedo, 0], [normal, 1]]) {
     renderer.setRenderTarget(rt);
     renderer.setClearColor(0x000000, 0);
+    rt.viewport.set(0, 0, W, Hh);
     renderer.clear();
     for (let r = 0; r < rows; r++) {
       const v = variants[r];
-      const mats = [
-        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.barkTex }, uMode: { value: mode }, uAlphaTest: { value: 0 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
-        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.atlas }, uMode: { value: mode }, uAlphaTest: { value: 0.45 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
-      ];
+      const mat = (map, alphaTest) => {
+        // every pixel that is drawn is written opaque (cut by the mask): the impostor's mips then keep the
+        // crown's coverage instead of fading it below the alpha test at a distance
+        const m = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+        const tex = texture(map, uv());
+        if (alphaTest > 0) m.maskNode = tex.a.greaterThanEqual(alphaTest);
+        m.colorNode = mode === 0 ? vec4(tex.rgb, 1.0) : vec4(normalGeometry.normalize().mul(0.5).add(0.5), 1.0);
+        return m;
+      };
+      const mats = [mat(v.barkTex, 0), mat(v.atlas, 0.45)];
       const t = new THREE.Mesh(v.geo.trunk, mats[0]), c = new THREE.Mesh(v.geo.crown, mats[1]);
       scene.add(t, c);
       const H = v.geo.height * 1.04, hw = H / 4;
@@ -116,19 +118,19 @@ function bakeImpostors(renderer, variants) {
         cam.position.set(Math.sin(a) * 100, 0, Math.cos(a) * 100);
         cam.lookAt(0, 0, 0);
         rt.viewport.set(k * CELL_W, (rows - 1 - r) * CELL_H, CELL_W, CELL_H);
-        rt.scissor.copy(rt.viewport);
-        rt.scissorTest = true;
         renderer.setRenderTarget(rt);
         renderer.render(scene, cam);
       }
       scene.remove(t, c);
       mats.forEach(m => m.dispose());
     }
+    rt.viewport.set(0, 0, W, Hh);
   }
-  for (const rt of [albedo, normal]) { rt.viewport.set(0, 0, W, Hh); rt.scissor.set(0, 0, W, Hh); rt.scissorTest = false; }
   renderer.setRenderTarget(prevRT);
+  renderer.autoClear = prevAuto;
   renderer.setClearColor(prevClear, prevAlpha);
-  return { albedo: albedo.texture, normal: normal.texture, rows };
+  // (no needsUpdate on these: WebGPU would recreate the textures and lose the bake; the mips are made after each render)
+  return { albedo: albedo.texture, normal: normal.texture, rows, targets: [albedo, normal] };
 }
 
 // ---------------------------------------------------------------- the forest
@@ -159,11 +161,11 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     const r = Math.hypot(x, z);
     let dens = fbm(nForest, x * 0.0065, z * 0.0065, 4) * 1.6 + 0.05;
     // zones: dense conifer forest to the north, groves round the lake, sparse meadows south
-    dens += smoothstep(-160, -260, z) * smoothstep(320, 200, Math.abs(x + 40)) * 0.75;
-    dens -= smoothstep(220, 320, z) * smoothstep(-250, -120, x) * 0.3;
-    dens += smoothstep(420, 470, Math.max(Math.abs(x), Math.abs(z))) * 0.4;
+    dens += sstep(-160, -260, z) * sstep(320, 200, Math.abs(x + 40)) * 0.75;
+    dens -= sstep(220, 320, z) * sstep(-250, -120, x) * 0.3;
+    dens += sstep(420, 470, Math.max(Math.abs(x), Math.abs(z))) * 0.4;
     if (r < 170) dens = dens * 0.7 - 0.08;
-    const p = smoothstep(0.28, 0.8, dens) * 0.72 + 0.008;
+    const p = sstep(0.28, 0.8, dens) * 0.72 + 0.008;
     if (rnd() > p) continue;
     if (terrain.isTrail(x, z, 7.5)) continue;
     if (x > PAD.x0 - 10 && x < PAD.x1 + 10 && z > PAD.z0 - 10 && z < PAD.z1 + 10) continue;
@@ -183,7 +185,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     let vi;
     const roll = rnd();
     if (roll < 0.025) vi = 5;
-    else if (roll < 0.06 + wet * 0.6 + smoothstep(150, 300, z) * 0.35 + (k > 0.45 ? 0.2 : 0)) vi = 4;
+    else if (roll < 0.06 + wet * 0.6 + sstep(150, 300, z) * 0.35 + (k > 0.45 ? 0.2 : 0)) vi = 4;
     else if (y > 30 || k < -0.35 || roll < 0.2) vi = rnd() < 0.5 ? 2 : 3;
     else vi = rnd() < 0.55 ? 0 : 1;
     const s = 0.75 + rnd() * 0.5;
@@ -276,119 +278,108 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   }
   terrainView.groundDataChanged();
 
-  // ---- near meshes (per variant: trunk + crown instanced)
-  const fade = { value: new THREE.Vector2(43, 50) };
-  const viewPos = { value: new THREE.Vector3() };
-  const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos };
+  // ---- near meshes (per variant: trunk + crown instanced; aBase = tree x, y, z, scale for the wind)
+  const fade = uniform(new THREE.Vector2(43, 50));
+  const viewPos = uniform(new THREE.Vector3());   // the view camera (also in the shadow pass)
+  const aBase = attribute('aBase', 'vec4');
+  const vTreeDist = varying(distance(aBase.xyz, viewPos), 'vTreeDist');
+  const nearMask = ditherHash(screenCoordinate.xy).greaterThanEqual(smoothstep(fade.x, fade.y, vTreeDist));
+  const windPos = positionLocal.add(windOffset(windUniform, positionGeometry, attribute('aWind', 'float'), aBase));
+  const MAXN = 1600;
   const near = variants.map((v, i) => {
-    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : 0xb8a898 });
-    patchTreeMaterial(trunkMat, 'trunk', uniformsT);
-    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff });
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true });
-    const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
-    const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
-    patchTreeMaterial(depthC, 'crownDepth', uniformsT);
-    const MAXN = 1600;
-    const trunk = new THREE.InstancedMesh(v.geo.trunk, trunkMat, MAXN);
-    const crown = new THREE.InstancedMesh(v.geo.crown, crownMat, MAXN);
-    for (const m of [trunk, crown]) {
+    const trunkMat = new THREE.MeshStandardNodeMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : 0xb8a898 });
+    trunkMat.positionNode = windPos;
+    trunkMat.maskNode = nearMask;
+    // crowns: both faces keep the outward (crown-volume) normal (a DoubleSide flip made every back-facing
+    // card shade as if it faced into the crown); light through the leaves from the foliage model
+    const crownMat = new FoliageMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, translucency: v.kind === 'birch' ? 0.75 : 0.5 });
+    crownMat.positionNode = windPos;
+    crownMat.maskNode = nearMask;
+    crownMat.normalNode = normalViewGeometry;
+    // static usage: three's WebGPU backend re-uploads a DynamicDrawUsage attribute in full on every render
+    // call (each shadow pass too); update() uploads only the changed range, and only when the camera moved
+    const base = new THREE.InstancedBufferAttribute(new Float32Array(MAXN * 4), 4);
+    const trunk = new THREE.InstancedMesh(v.geo.trunk.clone(), trunkMat, MAXN);
+    const crown = new THREE.InstancedMesh(v.geo.crown.clone(), crownMat, MAXN);
+    // the crown's shadow comes from its lighter twin, which only the shadow cameras see. Its cut-out is in the
+    // mask, not alphaTest: the shadow pass copies each caster's alphaTest onto one shared depth material, and
+    // every switch between zero and non-zero bumps that material's version, so three re-keyed every shadow
+    // draw every frame (see impMat below)
+    const shadowMat = new THREE.MeshBasicNodeMaterial({ map: atlas, side: THREE.DoubleSide });
+    shadowMat.positionNode = windPos;
+    shadowMat.maskNode = nearMask.and(texture(atlas).a.greaterThan(0.42));
+    const crownShadow = new THREE.InstancedMesh(shadowCrown(v.geo.crown), shadowMat, MAXN);
+    crownShadow.instanceMatrix = trunk.instanceMatrix;
+    crownShadow.layers.set(SHADOW_LAYER);
+    for (const m of [trunk, crown, crownShadow]) {
+      m.geometry.setAttribute('aBase', base);
       m.count = 0; m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true;
-      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       group.add(m);
     }
-    trunk.customDepthMaterial = depthT;
-    crown.customDepthMaterial = depthC;
-    return { trunk, crown, crownMat, MAXN };
+    crown.castShadow = false;
+    crownShadow.receiveShadow = false;
+    return { trunk, crown, crownShadow, crownMat, base, MAXN };
   });
 
-  // ---- impostors (all trees; the shader hides the ones the near meshes cover)
+  // ---- impostors (all trees; the mask hides the ones the near meshes cover)
   const imp = bakeImpostors(renderer, variants);
-  const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   const heights = variants.map(v => v.geo.height * 1.04);
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uFade: fade, uViewPos: viewPos };
-  const IMP_VERT = /* glsl */`
-attribute float aVar;
-uniform float uImpRows;
-uniform float uImpH[${variants.length}];
-uniform vec2 uFade;
-uniform vec3 uViewPos;
-varying vec2 vImpUv;
-varying float vImpYaw;
-varying float vTreeDist;
-`;
-  const patchImp = (m, depth) => {
-    m.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, impUniforms);
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\n' + IMP_VERT)
-        .replace('#include <uv_vertex>', `
-vec3 ip = instanceMatrix[3].xyz;
-float isc = length(instanceMatrix[0].xyz);
-float yaw = atan(-instanceMatrix[0].z, instanceMatrix[0].x);
-vec3 toCam = cameraPosition - ip;
-float azW = atan(toCam.x, toCam.z);
-float vf = (azW - yaw) / 6.2831853 * ${VIEWS}.0;
-float view = mod(floor(vf + 0.5), ${VIEWS}.0);
-float H = uImpH[int(aVar)] * isc;
-vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
-vImpYaw = yaw;
-vTreeDist = distance(ip, uViewPos);
-vec2 cuv = vec2(position.x + 0.5, position.y);
-vImpUv = vec2((view + cuv.x) / ${VIEWS}.0, (uImpRows - 1.0 - aVar + cuv.y) / uImpRows);
-#ifdef USE_MAP
-vMapUv = vImpUv;
-#endif`)
-        .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(vec3(toCam.x, 0.0, toCam.z));')
-        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * 0.5 + vec3(0.0, position.y * H, 0.0);`)
-        .replace('#include <project_vertex>', `
-vec4 mvPosition = viewMatrix * vec4(ip + transformed, 1.0);
-gl_Position = projectionMatrix * mvPosition;`)
-        .replace('#include <worldpos_vertex>', `
-#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
-vec4 worldPosition = vec4(ip + transformed, 1.0);
-#endif`)
-        .replace('#include <defaultnormal_vertex>', 'vec3 transformedNormal = normalMatrix * objectNormal;');
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', `#include <common>
-uniform sampler2D tImpN;
-uniform vec2 uFade;
-varying vec2 vImpUv;
-varying float vImpYaw;
-varying float vTreeDist;
-float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
-        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (ditherHash(gl_FragCoord.xy) >= smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
-      if (!depth) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
-float faceDirection = 1.0;
-vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
-float cy = cos(vImpYaw), sy = sin(vImpYaw);
-vec3 nW = normalize(vec3(cy * nObj.x + sy * nObj.z, nObj.y, -sy * nObj.x + cy * nObj.z));
-vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
-vec3 nonPerturbedNormal = normal;`);
-    };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c');
-  };
-  patchImp(impMat, false);
-  const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });
-  patchImp(impDepth, true);
-  const impMesh = new THREE.InstancedMesh(impGeo, impMat, trees.length);
-  const aVar = new Float32Array(trees.length);
-  const mtx = new THREE.Matrix4(), qq = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-  const matrices = new Float32Array(trees.length * 16);
-  trees.forEach((t, i) => {
-    qq.setFromAxisAngle(up, t.yaw); sc.setScalar(t.s); ps.set(t.x, t.y - 0.15, t.z);
-    mtx.compose(ps, qq, sc);
-    mtx.toArray(matrices, i * 16);
-    impMesh.setMatrixAt(i, mtx);
-    aVar[i] = t.v;
-  });
-  impMesh.geometry.setAttribute('aVar', new THREE.InstancedBufferAttribute(aVar, 1));
+  const plane = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+  const impGeo = new THREE.InstancedBufferGeometry();
+  impGeo.setAttribute('position', plane.getAttribute('position'));
+  impGeo.setAttribute('normal', plane.getAttribute('normal'));
+  impGeo.setIndex(plane.getIndex());
+  const aImp = new Float32Array(trees.length * 4), aImpB = new Float32Array(trees.length * 2);
+  trees.forEach((t, i) => { aImp.set([t.x, t.y - 0.15, t.z, t.s], i * 4); aImpB.set([t.yaw, t.v], i * 2); });
+  impGeo.setAttribute('aImp', new THREE.InstancedBufferAttribute(aImp, 4));
+  impGeo.setAttribute('aImpB', new THREE.InstancedBufferAttribute(aImpB, 2));
+  impGeo.instanceCount = trees.length;
+  impGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+  const uImpH = uniformArray(heights, 'float');
+  const vImpUv = varyingProperty('vec2', 'vImpUv'), vImpYaw = varyingProperty('float', 'vImpYaw');
+  // alpha test as alphaTestNode (the view) and in maskShadowNode (the shadow pass), never alphaTest: see shadowMat
+  const impMat = new FoliageMaterial({ roughness: 0.85, metalness: 0, side: THREE.DoubleSide, translucency: 0.35 });
+  impMat.alphaTestNode = float(0.45);
+  impMat.positionNode = Fn(() => {
+    const A = attribute('aImp', 'vec4'), B = attribute('aImpB', 'vec2');
+    const ip = A.xyz, yaw = B.x, vr = B.y;
+    const toCam = cameraPosition.sub(ip);
+    const azW = atan(toCam.x, toCam.z);
+    const vf = azW.sub(yaw).div(6.2831853).mul(VIEWS);
+    const view = fmod(floor(vf.add(0.5)), float(VIEWS));
+    const H = uImpH.element(int(vr)).mul(A.w);
+    const right = normalize(vec3(toCam.z, 0.0, toCam.x.negate()));
+    vImpYaw.assign(yaw);
+    // render-target textures are read with v from the top in both backends (three flips v for them on
+    // WebGPU, and the WebGL backend flips viewports), and the bake puts variant r in row rows-1-r from the top
+    const v = float(variants.length).sub(vr).sub(positionGeometry.y);
+    vImpUv.assign(vec2(view.add(positionGeometry.x).add(0.5).div(VIEWS), v.div(variants.length)));
+    return ip.add(right.mul(positionGeometry.x).mul(H).mul(0.5)).add(vec3(0.0, positionGeometry.y.mul(H), 0.0));
+  })();
+  const tImpA = texture(imp.albedo), tImpN = texture(imp.normal);
+  impMat.colorNode = tImpA.sample(vImpUv);
+  impMat.normalNode = Fn(() => {
+    const nObj = tImpN.sample(vImpUv).xyz.mul(2.0).sub(1.0);
+    const cy = cos(vImpYaw), sy = sin(vImpYaw);
+    const nW = normalize(vec3(cy.mul(nObj.x).add(sy.mul(nObj.z)), nObj.y, sy.negate().mul(nObj.x).add(cy.mul(nObj.z))));
+    return cameraViewMatrix.mul(vec4(nW, 0.0)).xyz;
+  })();
+  const impDist = varying(distance(attribute('aImp', 'vec4').xyz, viewPos), 'vImpDist');
+  impMat.maskNode = ditherHash(screenCoordinate.xy).lessThan(smoothstep(fade.x, fade.y, impDist));
+  impMat.maskShadowNode = impMat.maskNode.and(impMat.colorNode.a.greaterThan(0.45));
+  const impMesh = new THREE.Mesh(impGeo, impMat);
   impMesh.frustumCulled = false;
   impMesh.castShadow = true; impMesh.receiveShadow = true;
-  impMesh.customDepthMaterial = impDepth;
   group.add(impMesh);
+  const matrices = new Float32Array(trees.length * 16);
+  {
+    const mtx = new THREE.Matrix4(), qq = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    trees.forEach((t, i) => {
+      qq.setFromAxisAngle(up, t.yaw); sc.setScalar(t.s); ps.set(t.x, t.y - 0.15, t.z);
+      mtx.compose(ps, qq, sc);
+      mtx.toArray(matrices, i * 16);
+    });
+  }
 
   // ---- chunk index for near selection
   const chunks = Array.from({ length: CN * CN }, () => []);
@@ -416,7 +407,7 @@ vec3 nonPerturbedNormal = normal;`);
   let lastX = 1e9, lastZ = 1e9, nearR = 50; // full-detail tree radius (m); beyond it trees are impostors
   const counts = new Int32Array(variants.length);
   const api = {
-    group, trees, logs, variants, near, impMesh, atlas, fade, updatePhysics,
+    group, trees, logs, variants, near, impMesh, imp, atlas, fade, updatePhysics,
     get colliderCount() { let n = 0; for (const l of activeChunks.values()) n += l.length; return n; },
     configure(q) {
       const r = q.treeNear || 50; // presets: 40 m low/medium, 50 m otherwise
@@ -444,17 +435,21 @@ vec3 nonPerturbedNormal = normal;`);
           const k = counts[t.v];
           if (k >= n.MAXN) continue;
           n.trunk.instanceMatrix.array.set(matrices.subarray(i * 16, i * 16 + 16), k * 16);
+          n.base.array[k * 4] = t.x; n.base.array[k * 4 + 1] = t.y; n.base.array[k * 4 + 2] = t.z; n.base.array[k * 4 + 3] = t.s;
           counts[t.v] = k + 1;
         }
       }
       near.forEach((n, vi) => {
         n.crown.instanceMatrix.array.set(n.trunk.instanceMatrix.array.subarray(0, counts[vi] * 16));
-        n.trunk.count = n.crown.count = counts[vi];
+        n.trunk.count = n.crown.count = n.crownShadow.count = counts[vi];
         for (const m of [n.trunk, n.crown]) {
           m.instanceMatrix.clearUpdateRanges();
           m.instanceMatrix.addUpdateRange(0, counts[vi] * 16);
           m.instanceMatrix.needsUpdate = true;
         }
+        n.base.clearUpdateRanges();
+        n.base.addUpdateRange(0, counts[vi] * 4);
+        n.base.needsUpdate = true;
       });
     },
   };

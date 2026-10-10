@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { mesh, bar, mergeStatic } from './geom.js';
 
 // Running gear of a beam (solid) axle: tube, diff and pinion, hubs and brake discs, two coil springs and two

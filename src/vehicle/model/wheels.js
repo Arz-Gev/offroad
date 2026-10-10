@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { createTireMaterial, makeTireMesh } from './tireMaterial.js';
 import { makeRubberTexture } from './materials.js';
 import { mesh, mergeStatic, mergeGeometries } from './geom.js';
@@ -51,7 +51,7 @@ export function tireGeometry(R = 0.42) {
 
 const _barrelMats = new WeakMap();
 function barrelMat(m) {
-  if (!_barrelMats.has(m)) { const c = m.clone(); c.side = THREE.DoubleSide; c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; _barrelMats.set(m, c); }
+  if (!_barrelMats.has(m)) { const c = m.clone(); c.side = THREE.DoubleSide; _barrelMats.set(m, c); }
   return _barrelMats.get(m);
 }
 

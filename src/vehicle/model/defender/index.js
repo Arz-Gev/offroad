@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { mergeStatic } from '../geom.js';
 import { steelWheel } from '../wheels.js';
 import { buildExterior } from './body.js';

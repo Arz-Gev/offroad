@@ -1,9 +1,10 @@
-import * as THREE from 'three';
-import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import * as THREE from 'three/webgpu';
 import { mulberry32 } from './noise.js';
+import { bakeLayers } from '../render/glbake.js';
 
 // Procedural textures (no external assets).
-// Ground layers are baked on the GPU at startup into two texture arrays:
+// Ground layers are baked on the GPU at startup (render/glbake.js, a throwaway WebGL 2 context) into two
+// texture arrays:
 //   albedo (rgb) + height (a)   and   normal (xy in rg) + roughness (b) + cavity AO (a).
 // Layers: 0 grass, 1 dirt track, 2 rock, 3 mud, 4 sand / gravel, 5 forest floor.
 // Every recipe is built from periodic noise, so the tiles wrap seamlessly.
@@ -172,7 +173,9 @@ void main() {
     col = mix(col, srgb(vec3(0.20, 0.28, 0.09)), moss * 0.75);
     h = 0.3 + 0.2 * m + 0.25 * max(n1, n2) + 0.4 * tw + 0.15 * moss;
   }
-  gl_FragColor = vec4(col, clamp(h, 0.0, 1.0));
+  // stored sRGB-encoded (8-bit precision in the darks), decoded by the sampler
+  vec3 enc = mix(col * 12.92, 1.055 * pow(max(col, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, col));
+  gl_FragColor = vec4(enc, clamp(h, 0.0, 1.0));
 }`;
 
 const NORMAL_FRAG = /* glsl */`
@@ -201,39 +204,26 @@ const STRENGTH = [2.2, 3.5, 5.0, 2.5, 4.0, 3.0];
 const ROUGH = [0.92, 0.9, 0.82, 0.78, 0.88, 0.95];
 
 export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8) {
-  const opts = { depthBuffer: false, type: THREE.UnsignedByteType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping };
-  const albedo = new THREE.WebGLArrayRenderTarget(size, size, LAYER_COUNT, opts);
-  const normal = new THREE.WebGLArrayRenderTarget(size, size, LAYER_COUNT, opts);
-  for (const t of [albedo.texture, normal.texture]) {
+  const albedoL = bakeLayers({ size, layers: LAYER_COUNT, frag: ALBEDO_FRAG, uniforms: l => ({ uLayer: l }) });
+  const normalL = bakeLayers({
+    size, layers: LAYER_COUNT, frag: NORMAL_FRAG, source: albedoL,
+    uniforms: l => ({ uLayer: l, uStrength: STRENGTH[l] * size / 512, uRough: ROUGH[l], uWetRough: 0.25, uTexel: [1 / size, 1 / size] }),
+  });
+  const arr = (list, srgb) => {
+    const data = new Uint8Array(size * size * 4 * LAYER_COUNT);
+    list.forEach((d, l) => data.set(d, l * size * size * 4));
+    const t = new THREE.DataArrayTexture(data, size, size, LAYER_COUNT);
+    t.format = THREE.RGBAFormat; t.type = THREE.UnsignedByteType;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = anisotropy;
     t.generateMipmaps = true;
     t.minFilter = THREE.LinearMipmapLinearFilter;
-  }
-  albedo.texture.colorSpace = THREE.SRGBColorSpace; // stored as sRGB (8-bit precision in the darks), decoded on sampling
-  const aMat = new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: ALBEDO_FRAG, uniforms: { uLayer: { value: 0 } }, depthTest: false, depthWrite: false });
-  const nMat = new THREE.ShaderMaterial({
-    vertexShader: BAKE_VERT, fragmentShader: NORMAL_FRAG, depthTest: false, depthWrite: false,
-    uniforms: { tSrc: { value: albedo.texture }, uLayer: { value: 0 }, uStrength: { value: 3 }, uRough: { value: 0.9 }, uWetRough: { value: 0.25 }, uTexel: { value: new THREE.Vector2(1 / size, 1 / size) } },
-  });
-  const quad = new FullScreenQuad(aMat);
-  const prev = renderer.getRenderTarget();
-  for (let l = 0; l < LAYER_COUNT; l++) {
-    aMat.uniforms.uLayer.value = l;
-    renderer.setRenderTarget(albedo, l);
-    quad.render(renderer);
-  }
-  quad.material = nMat;
-  for (let l = 0; l < LAYER_COUNT; l++) {
-    nMat.uniforms.uLayer.value = l;
-    nMat.uniforms.uStrength.value = STRENGTH[l] * size / 512;
-    nMat.uniforms.uRough.value = ROUGH[l];
-    renderer.setRenderTarget(normal, l);
-    quad.render(renderer);
-  }
-  renderer.setRenderTarget(prev);
-  aMat.dispose(); nMat.dispose(); quad.dispose();
-  return { albedo: albedo.texture, normal: normal.texture, targets: [albedo, normal] };
+    t.magFilter = THREE.LinearFilter;
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return { albedo: arr(albedoL, true), normal: arr(normalL, false) };
 }
 
 // ---------------------------------------------------------------- small CPU textures

@@ -27,14 +27,14 @@ export function hideLoading() {
 export function showError(e) {
   console.error(e);
   const msg = String(e && e.message || e);
-  const webgl = /webgl|context/i.test(msg);
+  const webgl = /webgl|webgpu|context|adapter/i.test(msg);
   loading.classList.remove('done');
   loading.classList.add('error');
   setLoading('Could not start the game');
   const box = loading.querySelector('.ld-err');
   box.hidden = false;
   box.innerHTML = (webgl
-    ? 'WebGL is not available. Turn on hardware acceleration in the browser settings, or try another browser.'
+    ? 'Neither WebGPU nor WebGL 2 is available. Turn on hardware acceleration in the browser settings, or try another browser.'
     : escapeHTML(msg)) + '<br><button type="button">Reload</button>';
   box.querySelector('button').addEventListener('click', () => location.reload());
 }

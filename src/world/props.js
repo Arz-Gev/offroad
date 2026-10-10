@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { makeSimplex2D, mulberry32, fbm } from './noise.js';

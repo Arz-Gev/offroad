@@ -1,6 +1,7 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { materialColor, materialMetalness, vec3, vec4, dot, sqrt, smoothstep } from 'three/tsl';
 
 // A downloaded body (a GLB prepared by tools/prepcar.mjs: +x right, -z forward, metres, the hub centre at
 // y 0, mid-wheelbase at z 0) and the helpers that move its parts into our groups.
@@ -30,18 +31,13 @@ export async function loadShell(url) {
 // nothing): dark "metal" becomes plastic, albedo gets a floor, baked AO is halved.
 const BLACK = 0.05;   // linear albedo of black plastic / leather
 const BAKED_AO = 0.5;
-const REAL_BLACK = `#include <metalnessmap_fragment>
-{
-  float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-  metalnessFactor *= smoothstep(0.08, 0.25, lum);
-  diffuseColor.rgb = sqrt(diffuseColor.rgb * diffuseColor.rgb + ${(BLACK * BLACK).toFixed(6)});
-}`;
 function realBlack(m) {
   if (!m.isMeshStandardMaterial) return;
   if (m.aoMap) m.aoMapIntensity = BAKED_AO;
-  m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', REAL_BLACK); };
-  m.customProgramCacheKey = () => 'real-black';
-  m.userData.realBlack = true;   // createTireMaterial keeps the patch on the deforming copies
+  // the node versions three makes of these materials copy colorNode / metalnessNode
+  const c = materialColor, lum = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  m.metalnessNode = materialMetalness.mul(smoothstep(0.08, 0.25, lum));
+  m.colorNode = vec4(sqrt(c.rgb.mul(c.rgb).add(BLACK * BLACK)), c.a);
 }
 
 // Move a node's meshes into a group, keeping where they are: the group sits at `at` (the frame the node's

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 // The moving parts of a cabin, driven by the physics: steering wheel, gauge needles (speed, rpm, fuel,
 // temperature), gear lever (an H pattern, or the selector) and transfer lever (high / low). Every part is

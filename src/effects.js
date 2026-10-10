@@ -1,4 +1,5 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { spriteCloud } from './render/sprites.js';
 import { MAP_SIZE } from './world/terrain.js';
 
 // Dust / mud / water particles kicked up by the tyres, and tyre tracks painted into a map-wide texture.
@@ -8,64 +9,33 @@ import { MAP_SIZE } from './world/terrain.js';
 const PUFF_CAP = 450;
 
 export class Dust {
-  constructor(scene, max = 2400) {
+  constructor(scene, max = 4000) {
     this.max = max;
-    this.pos = new Float32Array(max * 3);
+    this.cloud = spriteCloud(max, { near: [0.4, 2.5], shape: 'soft' });
+    this.pos = this.cloud.pos;
+    this.size = this.cloud.size;
+    this.alpha = this.cloud.alpha;
+    this.color = this.cloud.color;
     this.vel = new Float32Array(max * 3);
     this.life = new Float32Array(max);
     this.maxLife = new Float32Array(max);
-    this.size = new Float32Array(max);
-    this.alpha = new Float32Array(max);
-    this.color = new Float32Array(max * 3);
     this.heavy = new Uint8Array(max);
     this.next = 0;
+    this.live = 0;
     this.puffs = 0;        // live soft particles (counted in update, plus this frame's emits)
     this.enabled = true;   // setting 'dust' (Graphics)
     this.waterAt = null;   // (x, z) -> water surface height or -Infinity (set by main.js)
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('color', new THREE.BufferAttribute(this.color, 3).setUsage(THREE.DynamicDrawUsage));
-    this.mat = new THREE.ShaderMaterial({
-      // uHalfH: half the render target height in px (setViewport). With the projection's focal length it
-      // turns metres into pixels, so a puff covers the same part of the view at any resolution or fov.
-      uniforms: { uHalfH: { value: 360 }, uLight: { value: 1 } },
-      vertexShader: `
-        attribute float size; attribute float alpha; attribute vec3 color;
-        varying float vA; varying vec3 vC;
-        uniform float uHalfH;
-        void main() {
-          vA = alpha; vC = color;
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          // fade out right in front of the camera (a big soft blob over the view otherwise)
-          vA *= smoothstep(0.4, 2.5, -mv.z);
-          gl_PointSize = size * projectionMatrix[1][1] * uHalfH / max(0.5, -mv.z);
-          gl_Position = projectionMatrix * mv;
-        }`,
-      fragmentShader: `
-        varying float vA; varying vec3 vC;
-        uniform float uLight;
-        void main() {
-          vec2 d = gl_PointCoord - 0.5;
-          float r = dot(d, d) * 4.0;
-          if (r > 1.0) discard;
-          float a = vA * (1.0 - r) * (1.0 - r);
-          gl_FragColor = vec4(vC * uLight, a);
-        }`,
-      transparent: true, depthWrite: false,
-    });
-    this.points = new THREE.Points(g, this.mat);
-    this.points.frustumCulled = false;
+    this.points = this.cloud.mesh;
     scene.add(this.points);
   }
 
-  setViewport(heightPx) { this.mat.uniforms.uHalfH.value = heightPx / 2; }
+  // sizes are in metres now (quads in the view): nothing depends on the viewport
+  setViewport() {}
 
   setEnabled(on) {
     this.enabled = on;
     this.points.visible = on;
-    if (!on) { this.life.fill(0); this.alpha.fill(0); this.points.geometry.attributes.alpha.needsUpdate = true; }
+    if (!on) { this.life.fill(0); this.alpha.fill(0); this.cloud.commit(0); }
   }
 
   emit(x, y, z, vx, vy, vz, size, life, col, heavy) {
@@ -75,6 +45,7 @@ export class Dust {
     this.life[i] = life; this.maxLife[i] = life; this.size[i] = size;
     this.color[i * 3] = col[0]; this.color[i * 3 + 1] = col[1]; this.color[i * 3 + 2] = col[2];
     this.heavy[i] = heavy ? 1 : 0;
+    this.live = this.max;
     if (!heavy) this.puffs++;
   }
 
@@ -154,10 +125,12 @@ export class Dust {
   }
 
   update(dt, light) {
-    this.mat.uniforms.uLight.value = light;
-    let puffs = 0;
+    this.cloud.light.value = light;
+    if (!this.live) return;
+    let any = 0, puffs = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
+      any++;
       this.life[i] -= dt;
       const t = 1 - this.life[i] / this.maxLife[i];
       const o = i * 3;
@@ -170,29 +143,23 @@ export class Dust {
         this.vel[o + 1] = this.vel[o + 1] * drag + 0.15 * dt;
         this.size[i] += dt * 0.75;
         puffs++;
-        this.alpha[i] = 0.28 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
+        this.alpha[i] = 0.175 * Math.sin(Math.min(1, t * 4) * Math.PI / 2) * (1 - t);
       }
       this.pos[o] += this.vel[o] * dt; this.pos[o + 1] += this.vel[o + 1] * dt; this.pos[o + 2] += this.vel[o + 2] * dt;
     }
     this.puffs = puffs;
-    const g = this.points.geometry;
-    g.attributes.position.needsUpdate = true;
-    g.attributes.size.needsUpdate = true;
-    g.attributes.alpha.needsUpdate = true;
-    g.attributes.color.needsUpdate = true;
+    if (!any) this.live = 0;
+    this.cloud.commit(any ? this.max : 0);
   }
 }
 
 export class Tracks {
-  constructor(terrainMaterial, res = 2048) {
-    this.res = res;
-    this.data = new Uint8Array(res * res);
-    this.tex = new THREE.DataTexture(this.data, res, res, THREE.RedFormat, THREE.UnsignedByteType);
-    this.tex.magFilter = THREE.LinearFilter;
-    this.tex.minFilter = THREE.LinearFilter;
-    this.tex.needsUpdate = true;
-    const u = terrainMaterial.userData.uniforms;
-    u.uTrack.value = this.tex;
+  // the map-wide rut texture lives in the terrain view (terrainView.trackTex); this paints into it
+  constructor(terrainView) {
+    this.tex = terrainView.trackTex;
+    this.res = this.tex.image.width;
+    this.data = this.tex.image.data;
+    const u = terrainView.uniforms;
     u.uTrackOrigin.value.set(0, 0);
     u.uTrackSize.value = MAP_SIZE;
     this.timer = 0;

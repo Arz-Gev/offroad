@@ -32,7 +32,7 @@ export const DEFAULTS = {
   renderScale: 1,           // resolution scale on top of the pixel-ratio cap (0.5..1)
   // graphics options (render/quality.js presetToGfx); a preset overwrites them, editing one makes it 'custom'
   gDpr: 1.5,                // device pixel ratio cap
-  gAA: 'off',               // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
+  gAA: 'off',               // 'off' | 'fxaa' | 'smaa' | 'msaa4' (WebGPU multisampling is 1x or 4x only)
   gShadows: 'high',         // 'off' | 'low' | 'medium' | 'high' | 'ultra'
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
   gBloom: true,
@@ -60,7 +60,7 @@ const CHOICES = {
   touchControls: ['auto', 'on', 'off'],
   touchSteer: ['stick', 'tilt'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
-  gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
+  gAA: ['off', 'fxaa', 'smaa', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
   gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
@@ -90,6 +90,7 @@ export class Settings {
     try {
       const saved = JSON.parse(storage.get(KEY) || '{}');
       if (typeof saved.time === 'string') saved.time = OLD_TIMES[saved.time];
+      if (saved.gAA === 'msaa2') saved.gAA = 'msaa4';     // WebGPU multisamples 1x or 4x only
       // the Grass and bushes switch (`vegetation`, outside the presets) became the gVeg preset
       if (saved.vegetation === false && !('gVeg' in saved)) {
         saved.gVeg = 'off';

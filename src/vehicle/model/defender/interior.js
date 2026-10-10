@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { D } from './dims.js';
 import { mesh, rbox, span, bar, pipe, extrudeProfile, plate, frame } from '../geom.js';
 

@@ -19,6 +19,9 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
+| 📋 WebGPU CPU cost: what's left | Small–medium | On the Windows PC (Ryzen 5 5600X + RTX 3070, 1440p Ultra, 180 Hz) WebGPU now matches WebGL in the open (~170 fps, WebGL 160–180) and is ~2.5x faster in forests (~110 vs ~43); see DEVNOTES → Renderer for the causes. Still CPU-bound there: trees (~1.8 ms; per-variant draws in every shadow pass), the car's single-use materials (an uber material would merge them), the 4 MB track texture upload every 0.25 s. Phones also seem slower (not measured). |
+| 📋 Faster first load | Medium | ~110 render pipelines compile on the first visit. |
+| 📋 Weather and life (asked with the WebGPU work) | Large | Rain (streaks and splashes, wet ground and puddles through the terrain's wetness uniforms, wet grip, mist, rain sound), birds, falling leaves, petals / pollen, fireflies, fake GI (canopy sky occlusion, ground bounce light), wind sheen on the grass, denser vegetation presets. Ship in small PRs. |
 
 ## Known gaps (not asked for yet)
 
@@ -36,7 +39,6 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 |---|---|
 | ⏸ Suspension / landing / body impact sounds | Removed: nothing tried sounded right. See `DEVNOTES.md` → Sound. |
 | ⏸ Lake physics (driving into water) | Not a priority. |
-| ⏸ Short hitch on the first switch to night | Not a priority. |
 
 ## Decided by the player (don't redo unasked)
 

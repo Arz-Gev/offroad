@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 
 // A turret made of the model's own nodes: yaw (about the ring) > pitch (the cradle and what rides on it,
 // about the trunnions) > recoil (the barrel, slides back in the cradle). Muzzles and the gunner's sight are
