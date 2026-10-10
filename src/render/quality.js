@@ -1,6 +1,6 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
 // Rough frame times on an M1 Pro, WebGPU (tools/gfxbench.mjs, 1920x1080 @2, trail drive / pine forest):
-// low 8 / 7 ms, medium 9 / 9, high 14 / 19, ultra 17 / 24.
+// low 8 / 7 ms, medium 9 / 9, high 11 / 14, ultra 13 / 16.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.

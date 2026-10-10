@@ -1,17 +1,16 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, pass, mrt, output, uniform, texture, vec2, vec3, vec4, float, uv, screenUV, screenCoordinate, max, min, mix, clamp,
-  dot, exp, exp2, log2, pow, fract, sin, smoothstep, step, select, length, normalize, sub, abs, Loop, int, textureLevel,
-  ivec2, rtt, perspectiveDepthToViewZ,
+  dot, exp, exp2, log2, pow, fract, sin, cos, smoothstep, step, select, length, normalize, sub, abs, Loop, int, textureLevel,
+  ivec2, rtt as rttNode, perspectiveDepthToViewZ, cross, inverseSqrt, floor, mod, round,
 } from 'three/tsl';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
-import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 
 // HDR post pipeline (three's RenderPipeline, every pass a TSL node):
 //   scene -> half-float target (optional MSAA) + depth
-//   -> optional ambient occlusion (GTAO, half resolution, normals from depth)
+//   -> optional ambient occlusion (half resolution, see ssaoNode)
 //   -> sun shafts: the sky seen past the trees and hills, smeared towards the sun on screen (light through
 //      the leaves; only while the sun is in or near the view)
 //   -> bloom (mip chain, threshold after exposure)
@@ -47,6 +46,90 @@ const toSRGB = Fn(([c0]) => {
 
 const hash = Fn(([p]) => fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453)));
 
+// Screen-space ambient occlusion (SAO-style hemisphere estimate), three passes at half resolution:
+//   1. linear depth of every other full-res pixel (one read each)
+//   2. AO: normal from the four neighbours, then a spiral of samples around the pixel; occluders must stand
+//      clearly above the tangent plane (4 cm + 0.6 % of the distance: the terrain's kinks between vertices
+//      showed as a grid of dark dots on flat ground), the spiral's radius is 1 m (High 1.4 m) but at most 8 % of
+//      the screen height, and a 4x4 Bayer pattern turns it per pixel
+//   3. a depth-aware 4x4 box blur that averages exactly one period of that pattern (no residue to beat against
+//      the upsampling)
+// Everything reads the small linear-depth target by integer texel (cheap even where the spiral is wide), and
+// the view position of a texel is that of the full-res pixel its depth came from, so flat ground reads exactly 1.0.
+const AO_FAR = 160;   // m: faded out by here (a near-field effect; far terrain got blotchy)
+function ssaoNode(rtt, depth, camera, proj, high) {
+  const SAMPLES = high ? 16 : 8, RADIUS = high ? 1.4 : 1.0, INTENSITY = 1.8;
+  const near = float(camera.near), far = float(camera.far);
+  const half = { type: THREE.FloatType, format: THREE.RedFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, resolutionScale: 0.5, depthBuffer: false };
+  // 1. distance along the view axis of full-res pixel (2x, 2y); sky = beyond AO_FAR
+  const zHalf = rtt(Fn(() => {
+    const d = depth.load(ivec2(screenCoordinate.xy).mul(2)).r;
+    return vec4(select(d.greaterThanEqual(0.999999), float(1e5), perspectiveDepthToViewZ(d, near, far).negate()), 0, 0, 1);
+  })(), null, null, half);
+  const fullSize = vec2(depth.size(0));
+  // view-space position of half-res texel q (its full-res pixel centre) at distance z
+  const viewPos = (q, z) => {
+    const uvq = vec2(q).mul(2.0).add(0.5).div(fullSize);
+    return vec3(uvq.x.mul(2.0).sub(1.0).div(proj.x).mul(z), float(1).sub(uvq.y).mul(2.0).sub(1.0).div(proj.y).mul(z), z.negate());
+  };
+  // 2. AO in r, the pixel's distance in g (for the blur)
+  const aoRaw = rtt(Fn(() => {
+    const size = ivec2(zHalf.size(0));
+    const p = ivec2(screenCoordinate.xy);
+    const zAt = q => zHalf.load(q.clamp(ivec2(0), size.sub(1))).r;
+    const z = zAt(p).toVar();
+    const out = vec4(1, z, 0, 1).toVar();
+    If(z.lessThan(AO_FAR), () => {
+      const P = viewPos(p, z).toVar();
+      const nb = (dx, dy) => { const q = p.add(ivec2(dx, dy)); return viewPos(q, zAt(q)); };
+      const pr = nb(1, 0), pl = nb(-1, 0), pu = nb(0, -1), pd = nb(0, 1);
+      // central differences on smooth surfaces (stable at grazing angles); across a depth edge the side with
+      // the smaller step, so silhouettes don't smear
+      const ex = abs(pr.z.add(pl.z).sub(P.z.mul(2.0))).greaterThan(z.mul(0.02));
+      const ey = abs(pu.z.add(pd.z).sub(P.z.mul(2.0))).greaterThan(z.mul(0.02));
+      const dx = select(ex, select(abs(pr.z.sub(P.z)).lessThan(abs(P.z.sub(pl.z))), pr.sub(P), P.sub(pl)), pr.sub(pl).mul(0.5));
+      const dy = select(ey, select(abs(pu.z.sub(P.z)).lessThan(abs(P.z.sub(pd.z))), pu.sub(P), P.sub(pd)), pu.sub(pd).mul(0.5));
+      const N = normalize(cross(dx, dy)).toVar();
+      If(dot(N, P).greaterThan(0.0), () => { N.assign(N.negate()); });
+      // spiral radius in half-res pixels: 1 m at this distance, capped
+      const H = float(size.y);
+      const rpx = min(float(RADIUS).mul(proj.y).mul(0.5).mul(H).div(z), H.mul(0.08));
+      If(rpx.greaterThanEqual(1.0), () => {
+        const q = mod(vec2(p), 4.0), lo = mod(q, 2.0), hi = floor(q.mul(0.5));
+        const b = mod(lo.x.mul(2.0).add(lo.y.mul(3.0)), 4.0).mul(4.0).add(mod(hi.x.mul(2.0).add(hi.y.mul(3.0)), 4.0));   // 4x4 Bayer index
+        const ang = b.add(0.5).mul(6.2831853 / 16), jit = fract(b.mul(0.618034));
+        const occ = float(0).toVar();
+        const thr = z.mul(0.006).add(0.04);
+        Loop(SAMPLES, ({ i }) => {
+          const t = float(i).add(jit).div(SAMPLES);
+          const a = ang.add(float(i).mul(2.3999632));
+          const s = p.add(ivec2(round(vec2(cos(a), sin(a)).mul(t.mul(t).mul(rpx).add(1.0)))));
+          const v = viewPos(s, zAt(s)).sub(P);
+          const vv = dot(v, v);
+          occ.addAssign(max(0.0, dot(v, N).sub(thr).mul(inverseSqrt(vv.add(1e-6))).sub(0.15)).mul(max(0.0, float(1).sub(vv.div(RADIUS * RADIUS)))));
+        });
+        const ao = clamp(float(1).sub(occ.mul(INTENSITY / SAMPLES)), 0.0, 1.0);
+        out.x.assign(mix(ao, float(1), smoothstep(AO_FAR * 0.5, AO_FAR, z)));
+      });
+    });
+    return out;
+  })(), null, null, { ...half, type: THREE.HalfFloatType, format: THREE.RGFormat });
+  // 3. blur
+  const aoBlur = rtt(Fn(() => {
+    const size = ivec2(aoRaw.size(0));
+    const p = ivec2(screenCoordinate.xy);
+    const c = aoRaw.load(p).g;
+    const sum = float(0).toVar(), wsum = float(0).toVar();
+    for (let j = -2; j <= 1; j++) for (let i = -2; i <= 1; i++) {
+      const s = aoRaw.load(p.add(ivec2(i, j)).clamp(ivec2(0), size.sub(1)));
+      const w = max(0.0, float(1).sub(abs(s.g.sub(c)).div(c.mul(0.04).add(0.05))));
+      sum.addAssign(s.r.mul(w)); wsum.addAssign(w);
+    }
+    return vec4(select(wsum.greaterThan(0.0), sum.div(wsum), float(1)), 0, 0, 1);
+  })(), null, null, { ...half, type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  return aoBlur.sample(screenUV).r;
+}
+
 export class RenderPipeline {
   constructor(renderer, scene, camera) {
     this.renderer = renderer;
@@ -70,6 +153,7 @@ export class RenderPipeline {
     this.u = {
       bloom: uniform(0.05), bloomOn: uniform(1), vignette: uniform(0.25), sat: uniform(1), contrast: uniform(0.1), time: uniform(0),
       tint: uniform(new THREE.Color(1, 1, 1)), lift: uniform(new THREE.Color(0, 0, 0)), aoOn: uniform(0),
+      proj: uniform(new THREE.Vector2(1, 1)),   // the camera projection's x and y scale (elements 0 and 5)
       sunUV: uniform(new THREE.Vector2(0.5, 0.5)), sunVis: uniform(0), sunCol: uniform(new THREE.Color(1, 0.9, 0.7)), shafts: uniform(0.5),
     };
 
@@ -116,8 +200,11 @@ export class RenderPipeline {
   build() {
     const { scene, camera, u } = this;
     this.scenePass?.dispose?.();
-    this.aoPass?.dispose?.();
     this.bloomPass?.dispose?.();
+    // the render targets of the last graph's own passes (rtt); a rebuild makes new ones
+    for (const n of this.rtts || []) n.renderTarget.dispose();
+    const rtts = this.rtts = [];
+    const rtt = (...a) => { const n = rttNode(...a); rtts.push(n); return n; };
     const scenePass = this.scenePass = pass(scene, camera, { samples: this.msaa });
     const color = scenePass.getTextureNode('output');
     // With MSAA the WebGPU depth texture stays multisampled (no depth resolve): effects that sample depth
@@ -131,34 +218,7 @@ export class RenderPipeline {
     this.lumSrc.value = scenePass.getTexture('output');
     const ex = this.expTex.sample(vec2(0.5)).r;
 
-    let aoNode = float(1);
-    if (this.ssao !== 'off') {
-      const a = this.aoPass = ao(depth, null, camera);
-      a.resolutionScale = 0.5;
-      a.samples.value = this.ssao === 'high' ? 12 : 8;
-      a.radius.value = this.ssao === 'high' ? 1.4 : 1.0;
-      a.distanceFallOff.value = 1.0;
-      a.thickness.value = 1.0;
-      // GTAO's noise repeats every 5x5 pixels: a depth-aware 5x5 box blur at the AO's resolution averages
-      // exactly one period (without it the AO showed as grain around the wheels and under the trees)
-      const aoTex = a.getTextureNode();
-      const near = float(camera.near), far = float(camera.far);
-      const vz = uvv => perspectiveDepthToViewZ(depth.sample(uvv).r, near, far).negate();
-      const aoBlur = rtt(Fn(() => {
-        const texel = vec2(1.0).div(vec2(aoTex.size(0)));
-        const z0 = vz(screenUV);
-        const sum = float(0).toVar(), wsum = float(0).toVar();
-        for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
-          const o = screenUV.add(texel.mul(vec2(i, j)));
-          const w = max(0.0, float(1).sub(abs(vz(o).sub(z0)).div(z0.mul(0.04).add(0.05))));
-          sum.addAssign(aoTex.sample(o).r.mul(w)); wsum.addAssign(w);
-        }
-        return vec4(select(wsum.greaterThan(0.0), sum.div(wsum), float(1)), 0, 0, 1);
-      })(), null, null, { type: THREE.HalfFloatType, resolutionScale: 0.5, depthBuffer: false });
-      aoNode = aoBlur.sample(screenUV).r;
-      // fade it out with distance (it is a near-field effect; far terrain got blotchy)
-      aoNode = mix(aoNode, float(1), smoothstep(80.0, 160.0, vz(screenUV)));
-    } else this.aoPass = null;
+    const aoNode = this.ssao !== 'off' ? ssaoNode(rtt, depth, camera, u.proj, this.ssao === 'high') : float(1);
 
     // sun shafts at quarter resolution: a sky mask (far depth), then the mask smeared towards the sun's
     // screen position (24 bilinear taps of the mask). Skipped while the sun is out of view.
@@ -278,7 +338,8 @@ export class RenderPipeline {
     u.tint.value.copy(P.tint); u.lift.value.copy(P.lift);
     u.aoOn.value = this.ssao !== 'off' ? 1 : 0;
     u.shafts.value = P.shafts;
-    if (this.aoPass) this.aoPass.updateBeforeType = this.ssao !== 'off' ? THREE.NodeUpdateType.FRAME : THREE.NodeUpdateType.NONE;
+    const pe = this.camera.projectionMatrix.elements;
+    u.proj.value.set(pe[0], pe[5]);
 
     this.pipeline.render();
 
