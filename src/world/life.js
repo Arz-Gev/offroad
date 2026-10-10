@@ -92,7 +92,7 @@ void main() {
   p.x += sin(uTime * (0.23 + aSeed.y * 0.15) + ph) * 1.6 + sin(uTime * 0.9 + ph * 3.0) * 0.25;
   p.z += cos(uTime * (0.19 + aSeed.x * 0.15) + ph * 1.3) * 1.6 + cos(uTime * 1.1 + ph * 2.0) * 0.25;
   vec4 gd = lData(p.xz);
-  float home = 0.3 + 0.7 * smoothstep(0.1, 0.4, gd.a + gd.g * 0.8);   // most over meadows and in the forest
+  float home = smoothstep(0.04, 0.3, gd.a + gd.g);   // over meadows and in the forest (not water, sand or rock)
   p.y = lGround(p.xz) + 0.7 + aSeed.y * 2.6 + sin(uTime * 0.7 + ph * 5.0) * 0.3;
   vec3 rel = p - uCam;
   float fade = smoothstep(0.5 * uBox, 0.36 * uBox, length(rel.xz)) * smoothstep(0.8, 2.0, length(rel));

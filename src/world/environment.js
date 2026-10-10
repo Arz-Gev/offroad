@@ -87,7 +87,7 @@ const KEYS = [
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
     fogD: 0.0009, haze: 0.00011, fogMax: 0.96, exposure: 1.6, key: 0.07, bloomThr: 1.1, sat: 1.0, contrast: 0.1,
-    vignette: 0.3, tint: [0.96, 0.95, 1.05], lift: [0, 0.0001, 0.0004], shadowCol: [0.05, 0.035, 0.1], vigCol: [0.62, 0.55, 0.8], fill: 0.05, fillCol: [0.5, 0.45, 1.0] },
+    vignette: 0.3, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], shadowCol: [0.04, 0.035, 0.11], vigCol: [0.55, 0.55, 0.85], fill: 0.07, fillCol: [0.45, 0.45, 1.0] },
   { h: 23, ...NIGHT, pin: [-16, 250] },                                                                                   // night
 ];
 for (const k of KEYS) {
