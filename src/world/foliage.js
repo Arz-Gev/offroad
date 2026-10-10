@@ -131,7 +131,7 @@ export function makeFoliageAtlas() {
     for (let k = 0; k < 26; k++) {
       const x = R(40, S - 40), h = R(200, 440), top = S - h;
       line(x, S, x + R(-30, 30), top, 3, hsl(95, 40, 28));
-      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55)][k % 4];
+      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55), hsl(4, 82, 52), hsl(218, 72, 62), hsl(330, 70, 76)][k % 7];
       g.fillStyle = col;
       for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * 10, top + Math.sin(a) * 10, 9, 6, a, 0, Math.PI * 2); g.fill(); }
       g.fillStyle = hsl(45, 80, 45); g.beginPath(); g.arc(x, top, 6, 0, Math.PI * 2); g.fill();

@@ -216,7 +216,8 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   col = mix(col, dry, smoothstep(0.55, 0.85, nz.b) * 0.65 + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
   float fc = fract(hC.y * 7.0);
-  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.45 ? vec3(0.8, 0.8, 0.75) : fc < 0.75 ? vec3(0.85, 0.62, 0.05) : vec3(0.42, 0.2, 0.6);
+  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.32 ? vec3(0.8, 0.8, 0.75) : fc < 0.55 ? vec3(0.85, 0.62, 0.05) : fc < 0.72 ? vec3(0.42, 0.2, 0.6)
+    : fc < 0.86 ? vec3(0.85, 0.42, 0.58) : vec3(0.3, 0.42, 0.9);
   // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
   // below and above it (the tip: side 0)
   float segs = dCam < ${CLOSE.toFixed(1)} ? 4.0 : dCam < ${NEAR.toFixed(1)} ? 2.0 : 1.0;
