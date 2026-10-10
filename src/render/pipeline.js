@@ -195,7 +195,7 @@ void main() {
 const COMPOSITE_FRAG = /* glsl */`
 uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts;
 uniform vec3 uShaftCol;
-uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance;
+uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
 varying vec2 vUv;
@@ -213,6 +213,28 @@ vec3 neutral(vec3 color) {
   float g = 1.0 - 1.0 / (Desaturation * (peak - newPeak) + 1.0);
   return mix(color, vec3(newPeak), g);
 }
+// ACES (Hill's fit of the RRT + ODT): deep toe, saturated, rich contrast
+vec3 acesFit(vec3 c) {
+  const mat3 IN = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
+  const mat3 OUT = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+  vec3 v = IN * c;
+  v = (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.4329510) + 0.238081);
+  return clamp(OUT * v, 0.0, 1.0);
+}
+// AgX with the "punchy" look (Sobotka; Wrensch's polynomial fit): graceful highlights, strong colour
+vec3 agxPunchy(vec3 c) {
+  const mat3 M = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772, 0.0784336, 0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  const mat3 MI = mat3(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417, -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+  const float lo = -12.47393, hi = 4.026069;
+  vec3 v = clamp(log2(max(M * c, 1e-10)), lo, hi);
+  v = (v - lo) / (hi - lo);
+  vec3 v2 = v * v, v4 = v2 * v2;
+  v = 15.5 * v4 * v2 - 40.14 * v4 * v + 31.96 * v4 - 6.868 * v2 * v + 0.4298 * v2 + 0.1191 * v - 0.00232;
+  v = pow(max(v, 0.0), vec3(1.35));
+  float l = dot(v, vec3(0.2126, 0.7152, 0.0722));
+  v = l + 1.4 * (v - l);
+  return clamp(pow(max(MI * v, 0.0), vec3(2.2)), 0.0, 1.0);
+}
 vec3 toSRGB(vec3 c) {
   c = clamp(c, 0.0, 1.0);
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
@@ -225,7 +247,7 @@ void main() {
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
   c = max(c * uTint + uLift, 0.0);
-  c = neutral(c);
+  c = uTone < 0.5 ? neutral(c) : uTone < 1.5 ? acesFit(c) : agxPunchy(c);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = max(mix(vec3(l), c, uSat), 0.0);
   // gentle S-curve around mid grey in perceptual space
@@ -270,6 +292,7 @@ export class RenderPipeline {
       exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
       vignette: 0.25, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
       shadowCol: new THREE.Color(0, 0, 0), highCol: new THREE.Color(1, 1, 1), vigCol: new THREE.Color(0, 0, 0), vibrance: 0,
+      tone: 1,   // tone curve: 0 Khronos neutral, 1 ACES (the look's), 2 AgX punchy
       // light shafts: direction towards the sun, its colour x strength (0: off)
       shaftDir: new THREE.Vector3(0, 1, 0), shaftCol: new THREE.Vector3(),
     };
@@ -297,7 +320,7 @@ export class RenderPipeline {
       tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null },
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
-      uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 },
+      uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
     });
     this.aoMat = mat(AO_FRAG, {
       tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
@@ -453,7 +476,7 @@ export class RenderPipeline {
     cu.uBloom.value = P.bloomStrength;
     cu.uVignette.value = P.vignette; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
-    cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance;
+    cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;
     if (this.fxaa) {
       this.pass(this.compMat, this.ldr);

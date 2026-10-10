@@ -4,9 +4,8 @@ import { ATMOSPHERE_GLSL } from './atmosphere.js';
 import { mulberry32 } from './noise.js';
 
 // Sky: a 256x128 sky-view LUT rendered with single scattering whenever the light changes (time-of-day
-// blends), then a dome that reads it and adds the sun disc, the moon, stars, the Milky Way, a moving
-// layer of puffy clouds (each lit as a dome, silver edges towards the sun) and cumulus towers standing
-// along the horizon behind the mountains. The same dome (without the sun disc) renders into the PMREM environment map.
+// blends), then a dome that reads it and adds the sun disc, the moon, stars, the Milky Way and a moving
+// layer of puffy clouds (each lit as a dome, silver edges towards the sun). The same dome (without the sun disc) renders into the PMREM environment map.
 
 const LUT_W = 256, LUT_H = 128;
 
@@ -45,7 +44,7 @@ const DOME_FRAG = /* glsl */`
 uniform sampler2D tLUT, tNoise;
 uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround;
 uniform vec3 uCloudLit, uCloudAmb;
-uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase, uTowers;
+uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase;
 uniform vec2 uWind;
 uniform vec3 uCamPos;
 varying vec3 vDir;
@@ -66,26 +65,6 @@ float cloudDensity(vec2 p) {
   float billow = abs(n2.b * 2.0 - 1.0);
   float f = n.r * 0.62 + n.g * 0.24 + billow * 0.09 + n2.a * 0.05;
   return smoothstep(1.0 - uCover, 1.0 - uCover + 0.24, f);
-}
-// cumulus towers along the horizon, a painted backdrop behind the mountains (at infinity, no parallax):
-// clusters come and go along the horizon (uTowers = how much of it they fill), a billowy outline from two
-// scales of noise (a stray puff now and then, as real cumulus have). x = density, y = height in the tower
-// (0 base .. 1 top), z = how close to the outline, w = inner shading
-vec4 towers(vec3 d) {
-  float el = asin(clamp(d.y, -1.0, 1.0));
-  if (el > 0.5 || el < -0.03) return vec4(0.0);
-  float az = atan(d.x, d.z) / 6.2831853;
-  vec4 nb = texture2D(tNoise, vec2(az * 3.0, 0.21));
-  float present = smoothstep(1.0 - uTowers, 1.0 - uTowers + 0.3, nb.r);
-  float H = (0.1 + 0.3 * nb.g) * present;
-  if (H < 0.005) return vec4(0.0);
-  // isotropic puff space: 12 noise tiles around the horizon (wraps), the same scale upwards
-  vec2 q = vec2(az * 12.0, el * 1.9099);
-  float puff = abs(texture2D(tNoise, q * 0.5 + 0.3).g * 2.0 - 1.0) * 0.55 + texture2D(tNoise, q * 1.3).b * 0.45;
-  float top = H * (0.62 + 0.6 * puff);
-  float den = smoothstep(top, top - 0.006 - 0.012 * H, el);
-  float bil = abs(texture2D(tNoise, q * 0.8 + 0.4).g * 2.0 - 1.0) * 0.6 + texture2D(tNoise, q * 2.1).b * 0.4;
-  return vec4(den, clamp(el / max(top, 1e-3), 0.0, 1.0), smoothstep(top - 0.05, top, el), 0.8 + 0.28 * bil);
 }
 float stars(vec3 d) {
   float s = 0.0;
@@ -145,20 +124,6 @@ void main() {
 
   vec3 L = uSunDir.y > -0.05 ? uSunDir : uMoonDir;
   float mu = dot(d, L);
-  // towers on the horizon: lit tops and the side towards the sun, lavender bases melting into the haze,
-  // a bright rim along the outline near the sun
-  if (uTowers > 0.001 && uCloudAlpha > 0.001) {
-    vec4 t = towers(d);
-    if (t.x > 0.001) {
-      float side = dot(normalize(d.xz + 1e-5), normalize(L.xz + 1e-5));
-      float lit = clamp((0.3 + 0.3 * side + 0.5 * t.y) * t.w, 0.0, 1.0);
-      float rim = t.z * pow(max(mu, 0.0), 6.0) * 1.6;
-      vec3 base = uCloudAmb * vec3(0.9, 0.88, 1.1);
-      vec3 cc = base * (0.75 + 0.35 * t.y) * (0.85 + 0.15 * t.w) + uCloudLit * (lit * 0.6 + rim) * (0.5 + 0.5 * smoothstep(-0.1, 0.4, L.y + 0.15));
-      cc = mix(cc, col, (1.0 - smoothstep(-0.01, 0.12, up)) * 0.55);
-      col = mix(col, cc, t.x * uCloudAlpha);
-    }
-  }
   // clouds: a layer at ~1.8 km, lit from the sun/moon direction, fading into the haze at the horizon
   if (up > 0.0 && uCloudAlpha > 0.001) {
     float h = 1800.0;
@@ -236,7 +201,7 @@ export class Sky {
       uSunDir: this.lutMat.uniforms.uSunDir, uMoonDir: this.lutMat.uniforms.uMoonDir,
       uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) },
       uCloudLit: { value: new THREE.Vector3(1, 1, 1) }, uCloudAmb: { value: new THREE.Vector3(0.3, 0.33, 0.4) },
-      uTime: { value: 0 }, uCover: { value: 0.45 }, uTowers: { value: 0.5 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
+      uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
       uWind: { value: new THREE.Vector2(0.0011, 0.0004) }, uCamPos: { value: new THREE.Vector3() },
     };
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({

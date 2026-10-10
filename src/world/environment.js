@@ -22,33 +22,33 @@ export const QUICK_HOURS = { day: 13, dusk: 19.5, night: 23 };
 export const QUICK_ORDER = ['day', 'dusk', 'night'];
 const ANIM_TIME = 2.5;
 
-// The look is a dream of a summer remembered, not a photograph: shadows settle on a soft coloured floor
-// (shadowCol, display space) instead of black, highlights warm up (highCol), dull colours gain the most
-// (vibrance), a wide low-threshold glow, a haze that turns the distance blue, a soft glow around the sun
-// in the haze (glow), and more sky light in the shade (env).
+// The look: a summer remembered, vivid and alive, with its full range: deep shade (no lifted floor, no milky
+// haze), a warm strong sun, saturated colour through an ACES curve, a little warmth in the highlights
+// (highCol), dull colours lifted a bit (vibrance), a darker vignette, a soft glow round the sun in the haze
+// (glow), light shafts (shafts), a faint cool fill from above so shade is blue rather than olive (fill).
 const DAY = {
-  sunE: 4.0, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, towers: 0.72, stars: 0, fogD: 0.0007, fogFall: 0.012, haze: 0.0002, fogMax: 1, env: 1.6, glow: 0.5, shafts: 0.05,
-  exposure: 0.78, auto: 0, key: 0.16, minEx: 0.78, maxEx: 0.78, bloom: 0.11, bloomThr: 1.15,
-  sat: 1.03, contrast: 0.1, vignette: 0.26, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
-  vibrance: 0.3, shadowCol: [0.07, 0.065, 0.12], highCol: [1.04, 1.0, 0.92], vigCol: [0.82, 0.72, 0.66],
-  fill: 0.22, fillCol: [0.55, 0.6, 1.0],
+  sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
+  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00045, fogFall: 0.012, haze: 0.00008, fogMax: 1, env: 1.15, glow: 0.5, shafts: 0.05,
+  exposure: 1.4, auto: 0, key: 0.3, minEx: 1.4, maxEx: 1.4, bloom: 0.06, bloomThr: 1.7,
+  sat: 1.14, contrast: 0.05, vignette: 0.3, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
+  vibrance: 0.12, shadowCol: [0, 0, 0], highCol: [1.03, 1.0, 0.95], vigCol: [0.32, 0.28, 0.34],
+  fill: 0.08, fillCol: [0.55, 0.62, 1.0],
 };
 const DUSK = {
-  sunE: 5.0, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-  cover: 0.5, cloudAlpha: 1.0, towers: 0.72, stars: 0.08, fogD: 0.0009, fogFall: 0.016, haze: 0.00022, fogMax: 0.92, env: 1.5, glow: 1.2, shafts: 0.16,
-  exposure: 1.3, auto: 0, key: 0.16, minEx: 1.3, maxEx: 1.3, bloom: 0.15, bloomThr: 0.95,
-  sat: 1.02, contrast: 0.12, vignette: 0.3, tint: [1.02, 0.93, 0.97], lift: [0, 0, 0.0004],
-  vibrance: 0.25, shadowCol: [0.1, 0.07, 0.17], highCol: [1.07, 0.96, 0.9], vigCol: [0.75, 0.6, 0.66],
-  fill: 0.38, fillCol: [0.6, 0.48, 1.0],
+  sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
+  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0006, fogFall: 0.016, haze: 0.00011, fogMax: 0.92, env: 0.85, glow: 1.2, shafts: 0.16,
+  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.09, bloomThr: 1.3,
+  sat: 1.1, contrast: 0.06, vignette: 0.32, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
+  vibrance: 0.12, shadowCol: [0, 0, 0], highCol: [1.06, 0.97, 0.9], vigCol: [0.3, 0.24, 0.34],
+  fill: 0.32, fillCol: [0.5, 0.45, 1.0],
 };
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
-  cover: 0.32, cloudAlpha: 0.75, towers: 0.35, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.25, glow: 0.3, shafts: 0,
-  exposure: 2.0, auto: 1, key: 0.06, minEx: 1.0, maxEx: 3.2, bloom: 0.1, bloomThr: 1.1,
-  sat: 0.92, contrast: 0.08, vignette: 0.32, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
-  vibrance: 0.2, shadowCol: [0.015, 0.025, 0.06], highCol: [1.0, 1.0, 1.04], vigCol: [0.55, 0.6, 0.8],
-  fill: 0.012, fillCol: [0.4, 0.5, 1.0],
+  cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
+  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2,
+  sat: 0.96, contrast: 0.05, vignette: 0.34, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
+  vibrance: 0.15, shadowCol: [0, 0, 0], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
+  fill: 0.01, fillCol: [0.4, 0.5, 1.0],
 };
 
 // Sun and moon arcs: latitude, declination (deg), hour of upper transit (south), azimuth of south in the game's
@@ -74,20 +74,19 @@ const wrapHour = h => ((h % 24) + 24) % 24;
 const KEYS = [
   { h: 1.5, ...NIGHT, nightBase: [0.0009, 0.0013, 0.0025], cover: 0.3, fogD: 0.0013 },                                   // deep night
   { h: 6, ...NIGHT, moonE: 0.14, nightBase: [0.0008, 0.0012, 0.0024], cover: 0.36, cloudAlpha: 0.82, stars: 0.5,           // pre-dawn
-    fogD: 0.001, haze: 0.00011, exposure: 1.7, key: 0.07, sat: 0.95, contrast: 0.1, vignette: 0.3,
-    tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], shadowCol: [0.04, 0.04, 0.09], vigCol: [0.6, 0.6, 0.8], fill: 0.025 },
-  { h: 7.5, ...DUSK, fogD: 0.001, fogMax: 0.95, tint: [1.0, 0.95, 1.0], pin: [4.5, 2 * SOUTH - 250],                     // dawn: dusk's mirror image,
-    shadowCol: [0.09, 0.08, 0.17], highCol: [1.06, 0.98, 0.92], fill: 0.34 },                                                         //   a little cooler and mistier
-  { h: 10, ...DAY, cover: 0.46, fogD: 0.0008, haze: 0.00022, exposure: 0.8, tint: [1.0, 0.995, 0.985], glow: 0.7, fill: 0.25, shafts: 0.1 },      // morning
+    fogD: 0.001, haze: 0.00011, exposure: 3.1, key: 0.13, sat: 0.98, vignette: 0.32,
+    tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02 },
+  { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
+    highCol: [1.05, 0.99, 0.93], fill: 0.3 },                                                                           //   a little cooler and mistier
+  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00009, exposure: 1.45, tint: [1.0, 0.995, 0.985], glow: 0.7, fill: 0.09, shafts: 0.1 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
-  { h: 18.25, ...DAY, sunE: 4.6, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0008, fogFall: 0.0135,             // golden hour
-    haze: 0.0002, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.0, bloom: 0.14, bloomThr: 1.0, sat: 1.04, glow: 1.0, shafts: 0.13,
-    contrast: 0.11, vignette: 0.28, tint: [1.0, 0.965, 0.95], lift: [0, 0, 0.0002],
-    shadowCol: [0.09, 0.07, 0.16], highCol: [1.08, 0.98, 0.86], vigCol: [0.8, 0.62, 0.58], fill: 0.32, fillCol: [0.6, 0.5, 1.0] },
+  { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
+    haze: 0.0001, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.8, bloom: 0.08, bloomThr: 1.4, sat: 1.12, glow: 1.0, shafts: 0.13,
+    vignette: 0.32, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.34, 0.26, 0.28], fill: 0.2, fillCol: [0.55, 0.5, 1.0], env: 0.95 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
-    fogD: 0.0009, haze: 0.00011, fogMax: 0.96, exposure: 1.6, key: 0.07, bloomThr: 1.1, sat: 1.0, contrast: 0.1,
-    vignette: 0.3, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], shadowCol: [0.04, 0.035, 0.11], vigCol: [0.55, 0.55, 0.85], fill: 0.07, fillCol: [0.45, 0.45, 1.0] },
+    fogD: 0.0009, haze: 0.00011, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
+    vignette: 0.32, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], vigCol: [0.22, 0.22, 0.38], fill: 0.05, fillCol: [0.45, 0.45, 1.0] },
   { h: 23, ...NIGHT, pin: [-16, 250] },                                                                                   // night
 ];
 for (const k of KEYS) {
@@ -97,7 +96,7 @@ for (const k of KEYS) {
 }
 
 // monotone cubic (Fritsch–Carlson) through the keys, periodic in 24 h
-const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'towers', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
+const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
   'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
@@ -162,7 +161,6 @@ export class Environment {
       this.sun.shadow.radius = 1.6;
     }
     this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.intensity = 0.86;   // shade is lit by the sky: never the full depth
     this.sun.shadow.camera.far = 170;   // shadow range (m)
     this.sun.shadow.camera.near = 20;   // caster ceiling above the view slice
     scene.add(this.sun);
@@ -259,7 +257,6 @@ export class Environment {
     su.uStars.value = c.stars;
     su.uCover.value = c.cover;
     su.uCloudAlpha.value = c.cloudAlpha;
-    su.uTowers.value = c.towers;
 
     // Horizon colours for fog / aerial perspective, from the same scattering model. Twilight keeps colouring the fog
     // until the sun is ~14° down; the moon adds its own.

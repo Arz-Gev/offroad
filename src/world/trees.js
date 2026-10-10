@@ -62,13 +62,23 @@ if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) disca
       // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
       // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
-      // a touch of light through the leaves when backlit
+      // a touch of light through the leaves when backlit; a soft crown (opts.soft: the meadow trees) also wraps
+      // the sunlight round to its shade side and glows through its petals, so it is never bright on one side
+      // and dull on the other
+      const soft = opts.soft ? `
+#if NUM_SUN_LIGHTS > 0
+{
+  float ndl = dot(normal, sunLights[0].direction);
+  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
+  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
+}
+#endif` : '';
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
+outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
 #include <opaque_fragment>`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind;
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '');
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -117,6 +127,14 @@ void main() {
   gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
 }`;
 
+// the impostor's width over its height: half for the slim conifers, wider for a round crown
+function impostorWidth(v) {
+  const p = v.geo.crown.getAttribute('position');
+  let r = 0;
+  for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i)));
+  return Math.max(0.5, (2 * r * 1.04) / (v.geo.height * 1.04));
+}
+
 function bakeImpostors(renderer, variants) {
   const rows = variants.length;
   const W = VIEWS * CELL_W, Hh = rows * CELL_H;
@@ -143,7 +161,7 @@ function bakeImpostors(renderer, variants) {
       ];
       const t = new THREE.Mesh(v.geo.trunk, mats[0]), c = new THREE.Mesh(v.geo.crown, mats[1]);
       scene.add(t, c);
-      const H = v.geo.height * 1.04, hw = H / 4;
+      const H = v.geo.height * 1.04, hw = H * v.impW / 2;
       cam.left = -hw; cam.right = hw; cam.top = H; cam.bottom = 0; cam.updateProjectionMatrix();
       for (let k = 0; k < VIEWS; k++) {
         const a = k / VIEWS * Math.PI * 2;
@@ -183,7 +201,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     { kind: 'blossom', geo: buildBlossom(83, 6.8), barkTex: barkC },
     { kind: 'oak', geo: buildOak(91, 12.5), barkTex: barkC },
   ];
-  for (const v of variants) v.atlas = atlas;
+  for (const v of variants) { v.atlas = atlas; v.impW = impostorWidth(v); }
 
   // ---- placement
   const rnd = mulberry32(777);
@@ -363,7 +381,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
     const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff });
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true });
+    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
     const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
@@ -392,12 +410,13 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
-  const heights = variants.map(v => v.geo.height * 1.04);
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uFade: fade, uViewPos: viewPos };
+  const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uFade: fade, uViewPos: viewPos };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
 uniform float uImpRows;
 uniform float uImpH[${variants.length}];
+uniform float uImpW[${variants.length}];
 uniform vec2 uFade;
 uniform vec3 uViewPos;
 varying vec2 vImpUv;
@@ -427,7 +446,7 @@ vImpUv = vec2((view + cuv.x) / ${VIEWS}.0, (uImpRows - 1.0 - aVar + cuv.y) / uIm
 vMapUv = vImpUv;
 #endif`)
         .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(vec3(toCam.x, 0.0, toCam.z));')
-        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * 0.5 + vec3(0.0, position.y * H, 0.0);`)
+        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * uImpW[int(aVar)] + vec3(0.0, position.y * H, 0.0);`)
         .replace('#include <project_vertex>', `
 vec4 mvPosition = viewMatrix * vec4(ip + transformed, 1.0);
 gl_Position = projectionMatrix * mvPosition;`)

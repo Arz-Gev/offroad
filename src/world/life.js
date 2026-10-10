@@ -126,13 +126,14 @@ void main() {
   vec2 off = vec2(sin(uTime * s1 + ph), cos(uTime * s1 * 0.8 + ph)) * 3.0 + vec2(sin(uTime * s2 + ph * 2.0), cos(uTime * s2 * 1.1)) * 0.7;
   vec2 vel = vec2(cos(uTime * s1 + ph) * s1, -sin(uTime * s1 * 0.8 + ph) * s1 * 0.8) * 3.0
            + vec2(cos(uTime * s2 + ph * 2.0) * s2, -sin(uTime * s2 * 1.1) * s2 * 1.1) * 0.7;
-  c.xz += off;
+  // the habitat is judged at the loop's centre (not where it flies now), so one never pops out over a trail
   vec4 gd = lData(c.xz);
-  float home = smoothstep(0.03, 0.2, gd.a) * (1.0 - smoothstep(0.5, 0.85, gd.g));   // meadows, not the forest
+  float home = smoothstep(0.0, 0.12, gd.a) * (1.0 - smoothstep(0.55, 0.9, gd.g));   // meadows, not the forest
+  c.xz += off;
   float flapT = uTime * (9.0 + aSeed.z * 5.0) + ph;
   c.y = lGround(c.xz) + 1.35 + aSeed.y * 1.3 + sin(uTime * 1.3 + ph) * 0.3 + sin(flapT) * 0.03;   // over the tall grass
   vec3 rel = c - uCam;
-  float fade = smoothstep(0.5 * uBox, 0.38 * uBox, length(rel.xz));
+  float fade = smoothstep(0.5 * uBox, 0.42 * uBox, length(rel.xz));
   float scale = 0.12 * (0.8 + 0.4 * aSeed.z) * home * fade * uDay;
   // wings: up and down around the body line, a quick downstroke
   float flap = sin(flapT);
@@ -218,13 +219,13 @@ export function buildLife(terrainView, env) {
     wingGeo.setAttribute('aWing', new THREE.Float32BufferAttribute(w, 3));
     wingGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(w.length), 3));
     wingGeo.setIndex(idx);
-    const N = 70;
+    const N = 150;
     wingGeo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds(N), 4));
     wingGeo.instanceCount = N;
     wingGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
   }
   const wings = new THREE.Mesh(wingGeo, new THREE.ShaderMaterial({
-    vertexShader: WING_VERT, fragmentShader: WING_FRAG, uniforms: { ...shared, uBox: { value: 56 } }, side: THREE.DoubleSide,
+    vertexShader: WING_VERT, fragmentShader: WING_FRAG, uniforms: { ...shared, uBox: { value: 64 } }, side: THREE.DoubleSide,
   }));
   wings.frustumCulled = false;
   group.add(wings);
