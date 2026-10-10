@@ -8,14 +8,14 @@
 // process and as much again in the page, while the GPU itself needed ~4 ms. Metal (the Mac) pays far less.
 //
 // The queue is wrapped so that order is kept exactly:
-//   - writeBuffer: the data is appended to a CPU staging array and a copy from the GPU staging buffer is
-//     recorded in a copy encoder; the copy encoder goes in front of the next command buffer
+//   - writeBuffer / writeTexture: the data is appended to a CPU staging array and a copy from the GPU staging
+//     buffer is recorded in a copy encoder; the copy encoder goes in front of the next command buffer
 //   - submit: the command buffers wait in a list; flush() uploads the staging array with one writeBuffer and
 //     submits the whole list at once
 //   - flush() runs at the end of the frame (main.js), from a microtask (whatever submits outside a frame), when
 //     work has waited `maxDelay` ms (so the GPU starts on the shadow maps and scene while the page encodes the
-//     post passes), and before anything that must see the earlier work: writeTexture, image copies,
-//     onSubmittedWorkDone, mapping a buffer, destroying a buffer or texture.
+//     post passes), and before anything that must see the earlier work: image copies, onSubmittedWorkDone,
+//     mapping a buffer, destroying a buffer or texture.
 // Writes that are not 4-byte aligned or bigger than MAX_INLINE go straight to the queue (after a flush).
 const MAX_INLINE = 1 << 20;
 
@@ -78,7 +78,28 @@ export function batchSubmits(device, { maxDelay = 1 } = {}) {
     schedule();
   };
 
-  q.writeTexture = (...a) => { flush(); return writeTexture0(...a); };
+  // texture uploads the same way (BatchedMesh writes its matrix and index textures every frame): rows staged
+  // 256-byte aligned and copied with copyBufferToTexture. 3D / array uploads, block-compressed formats and big
+  // uploads go straight to the queue.
+  q.writeTexture = (dst, data, layout, size) => {
+    const w = size.width ?? size[0], h = size.height ?? size[1] ?? 1, d = size.depthOrArrayLayers ?? size[2] ?? 1;
+    const bpr = layout.bytesPerRow, fmt = dst.texture.format;
+    const stride = (bpr + 255) & ~255;
+    if (d !== 1 || !bpr || !w || /^(bc|etc|eac|astc)|depth|stencil/.test(fmt) || stride * h > MAX_INLINE) {
+      flush(); stats.direct++;
+      return writeTexture0(dst, data, layout, size);
+    }
+    let at = (used + 255) & ~255;
+    if (at + stride * h > cap) { grow = Math.max(cap * 2, stride * h); flush(); at = 0; }
+    const view = ArrayBuffer.isView(data);
+    const src = new Uint8Array(view ? data.buffer : data, (view ? data.byteOffset : 0) + (layout.offset || 0), data.byteLength - (layout.offset || 0));
+    for (let r = 0; r < h; r++) stage.set(src.subarray(r * bpr, Math.min(src.length, r * bpr + bpr)), at + r * stride);
+    if (!copies) copies = device.createCommandEncoder({ label: 'batched writes' });
+    copies.copyBufferToTexture({ buffer: stageBuf, offset: at, bytesPerRow: stride, rowsPerImage: h }, dst, size);
+    used = at + stride * h;
+    stats.copies++;
+    schedule();
+  };
   q.copyExternalImageToTexture = (...a) => { flush(); return copyImage0(...a); };
   q.onSubmittedWorkDone = () => { flush(); return done0(); };
   // a mapped or destroyed resource must not be in a command buffer that is submitted later

@@ -50,6 +50,7 @@ export class VehicleView {
 
     if (m.cockpit) m.cockpit.update(this, v, dt);
     this.updateLights(dt, env, quat);
+    m.batch?.sync();   // the parts drawn in batches follow their stand-ins (model/batched.js)
   }
 
   // Ambient light level of the scene (sun/moon + sky), used to scale the lamps: the scene is not

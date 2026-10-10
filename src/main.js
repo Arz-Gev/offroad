@@ -17,6 +17,7 @@ import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildCarModel } from './vehicle/model/index.js';
+import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';
@@ -102,6 +103,7 @@ async function main() {
   const model = await buildCarModel(car);
   scene.add(model.root);
   env.shadows.setCar(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
+  model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
