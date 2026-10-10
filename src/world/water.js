@@ -8,6 +8,7 @@ import { NOISE_GLSL } from './textures.js';
 //   shallow water shows the bed, deep water absorbs it, the waterline is soft.
 // - Lit as a smooth dielectric (MeshStandardMaterial underneath); Fresnel decides how much bed shows through
 //   (premultiplied blending).
+// - Sun glitter: two fine ripple layers jitter the normal; facets that mirror the sun sparkle.
 // - Ripples: baked tileable normal map, two layers; the stream's scroll down the flow, faster where steep. Foam along
 //   the shore and in fast shallow water.
 
@@ -51,7 +52,7 @@ const WATER_FRAG_PARS = /* glsl */`
 uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
-uniform float uTime, uAbsorb, uRipple, uFoam;
+uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter;
 uniform vec4 uEdge;   // elliptic fade-out of a disc (centre xz, 1/rx, 1/rz); zero radii: no fade
 uniform vec3 uScatter;
 varying vec3 vFlow;
@@ -80,6 +81,7 @@ export function buildWater(terrain, terrainView, renderer) {
       tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time,
       uEdge: { value: new THREE.Vector4(0, 0, 0, 0) },
       uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
+      uGlitter: { value: opts.glitter ?? 1 },
     };
     m.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uniforms);
@@ -121,6 +123,18 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   vec3 spec = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
   vec3 col = irr * uScatter * (1.0 - T) * (1.0 - Fr) + spec;
   float a = 1.0 - T * (1.0 - Fr);
+  // sun glitter: tiny facets on the ripples that mirror the sun twinkle (the glow turns them into stars)
+  #if NUM_SUN_LIGHTS > 0
+  {
+    vec4 r3 = texture2D(tRipple, vWPos.xz / 0.7 + vec2(uTime * 0.05, -uTime * 0.04));
+    vec4 r4 = texture2D(tRipple, vWPos.zx / 0.45 - vec2(uTime * 0.03, uTime * 0.06));
+    vec3 jit = vec3((r3.x + r4.y - 1.0) * 0.45, 0.0, (r3.y + r4.x - 1.0) * 0.45);
+    vec3 nGl = normalize(normal + (viewMatrix * vec4(jit, 0.0)).xyz);
+    vec3 Rv = reflect(-geometryViewDir, nGl);
+    float glit = pow(max(dot(Rv, sunLights[0].direction), 0.0), 700.0) * smoothstep(0.5, 0.75, r3.b * r4.b * 1.6);
+    col += sunLights[0].color * glit * 25.0 * (1.0 - wFoam) * uGlitter;
+  }
+  #endif
   col = mix(col, irr * 0.8, wFoam); a = mix(a, 1.0, wFoam);
   float edge = smoothstep(-0.03, 0.05, wDepth);
   // the disc's rim: stray hollows near the shore inside it are not part of the lake
@@ -143,9 +157,10 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
     return m;
   };
 
-  const lakeMat = makeMaterial('lake', { absorb: 1.4, ripple: 0.55, foam: 0.6, scatter: [0.05, 0.10, 0.09] });
-  const streamMat = makeMaterial('stream', { absorb: 2.2, ripple: 0.8, foam: 1.0, scatter: [0.07, 0.11, 0.08] });
-  const mudMat = makeMaterial('mud', { absorb: 9.0, ripple: 0.25, foam: 0.0, scatter: [0.16, 0.11, 0.065], rough: 0.12 });
+  // clear, a little turquoise (shallows show the bed, the deep goes teal)
+  const lakeMat = makeMaterial('lake', { absorb: 1.2, ripple: 0.55, foam: 0.6, scatter: [0.035, 0.12, 0.125] });
+  const streamMat = makeMaterial('stream', { absorb: 2.0, ripple: 0.8, foam: 1.0, scatter: [0.05, 0.12, 0.11] });
+  const mudMat = makeMaterial('mud', { absorb: 9.0, ripple: 0.25, foam: 0.0, scatter: [0.16, 0.11, 0.065], rough: 0.12, glitter: 0.3 });
 
   const geoFrom = (pos, flow, dir, idx) => {
     const g = new THREE.BufferGeometry();
