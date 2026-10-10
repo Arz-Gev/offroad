@@ -111,7 +111,7 @@ if (args.toggles !== '0') {
     ['near trees off', `g.trees.near.forEach(n => { n.trunk.visible = n.crown.visible = false; })`],
     ['impostors off', `g.trees.impMesh.visible = false`],
     ['crowns off', `g.trees.near.forEach(n => { n.crown.visible = false; })`],
-    ['crowns no cast', `g.trees.near.forEach(n => { n.crown.castShadow = false; })`],
+    ['crown shadows off', `g.trees.near.forEach(n => { n.crownShadow ? (n.crownShadow.visible = false) : (n.crown.castShadow = false); })`],
     ['trunks off', `g.trees.near.forEach(n => { n.trunk.visible = false; })`],
     ['imp. no cast', `g.trees.impMesh.castShadow = false`],
     ['sun shadow off', `g.env.sun.castShadow = false`],
@@ -122,7 +122,7 @@ if (args.toggles !== '0') {
     ['water off', `g.water.group.visible = false`],
     ['car off', `g.model.root.visible = false`],
   ];
-  const restore = `g.applyGraphics(); for (const o of [g.grass.group, g.undergrowth.group, g.trees.group, g.terrainView.mesh, g.water.group, g.model.root, g.trees.impMesh, g.props]) o.visible = true; g.trees.near.forEach(n => { n.trunk.visible = n.crown.visible = true; n.crown.castShadow = true; }); g.scenery.configure(g.gfx.q); g.grass.update(0, g.camera); g.undergrowth.update(0, g.camera);`;
+  const restore = `g.applyGraphics(); for (const o of [g.grass.group, g.undergrowth.group, g.trees.group, g.terrainView.mesh, g.water.group, g.model.root, g.trees.impMesh, g.props]) o.visible = true; g.trees.near.forEach(n => { n.trunk.visible = n.crown.visible = true; if (n.crownShadow) n.crownShadow.visible = true; else n.crown.castShadow = true; }); g.scenery.configure(g.gfx.q); g.grass.update(0, g.camera); g.undergrowth.update(0, g.camera);`;
   let base = 0;
   for (const [name, code] of toggles) {
     const ms = await evaluate(`(async () => { const g = game; ${restore}; ${code}; return await __measure(); })()`);
