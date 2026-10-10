@@ -74,7 +74,7 @@ void main() {
   vA = fade * uDay;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  float size = mix(0.05, 0.13, big);                        // m
+  float size = mix(0.05, 0.09, big);                        // m
   gl_PointSize = max(1.5, size * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z));
   if (vA < 0.002) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
 }`;
@@ -203,7 +203,7 @@ export function buildLife(terrainView, env) {
     group.add(p);
     return p;
   };
-  const pollen = points(900, POLLEN_VERT, 40, { uSeedK: { value: 0.04 } });
+  const pollen = points(900, POLLEN_VERT, 40, { uSeedK: { value: 0.02 } });
   const flies = points(420, FLY_VERT, 56);
 
   // butterflies: two wing quads per instance

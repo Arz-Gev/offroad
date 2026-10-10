@@ -28,7 +28,7 @@ const ANIM_TIME = 2.5;
 // in the haze (glow), and more sky light in the shade (env).
 const DAY = {
   sunE: 4.0, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, towers: 0.55, stars: 0, fogD: 0.0007, fogFall: 0.012, haze: 0.0002, fogMax: 1, env: 1.6, glow: 0.5, shafts: 0.05,
+  cover: 0.42, cloudAlpha: 0.95, towers: 0.72, stars: 0, fogD: 0.0007, fogFall: 0.012, haze: 0.0002, fogMax: 1, env: 1.6, glow: 0.5, shafts: 0.05,
   exposure: 0.78, auto: 0, key: 0.16, minEx: 0.78, maxEx: 0.78, bloom: 0.11, bloomThr: 1.15,
   sat: 1.03, contrast: 0.1, vignette: 0.26, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.3, shadowCol: [0.07, 0.065, 0.12], highCol: [1.04, 1.0, 0.92], vigCol: [0.82, 0.72, 0.66],
@@ -36,7 +36,7 @@ const DAY = {
 };
 const DUSK = {
   sunE: 5.0, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-  cover: 0.5, cloudAlpha: 1.0, towers: 0.6, stars: 0.08, fogD: 0.0009, fogFall: 0.016, haze: 0.00022, fogMax: 0.92, env: 1.5, glow: 1.2, shafts: 0.16,
+  cover: 0.5, cloudAlpha: 1.0, towers: 0.72, stars: 0.08, fogD: 0.0009, fogFall: 0.016, haze: 0.00022, fogMax: 0.92, env: 1.5, glow: 1.2, shafts: 0.16,
   exposure: 1.3, auto: 0, key: 0.16, minEx: 1.3, maxEx: 1.3, bloom: 0.15, bloomThr: 0.95,
   sat: 1.02, contrast: 0.12, vignette: 0.3, tint: [1.02, 0.93, 0.97], lift: [0, 0, 0.0004],
   vibrance: 0.25, shadowCol: [0.1, 0.07, 0.17], highCol: [1.07, 0.96, 0.9], vigCol: [0.75, 0.6, 0.66],
