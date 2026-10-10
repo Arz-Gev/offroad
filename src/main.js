@@ -17,6 +17,7 @@ import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
 import { Vehicle } from './vehicle/Vehicle.js';
 import { buildCarModel } from './vehicle/model/index.js';
+import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { carDef } from './cars/index.js';
 import { VehicleView } from './vehicle/vehicleView.js';
@@ -104,6 +105,8 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
+  env.sun.shadow.setCar?.(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
+  model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);
   const colliderView = new ColliderView(scene, model, vehicle);
@@ -479,6 +482,15 @@ async function main() {
     input.endFrame();
   }
   game.tick = tick;
+  // tools (gfxbench, gfxprofile) drive the frames themselves: holdLoop stops the rAF loop, and frame() is one
+  // whole frame with the renderer's counters (draw calls, triangles) summed over all its passes
+  game.holdLoop = false;
+  game.frame = (dt = 1 / 60) => {
+    const info = renderer.info, ar = info.autoReset;
+    info.autoReset = false; info.reset();
+    tick(dt);
+    info.autoReset = ar;
+  };
 
   settings.applyAll({ startup: true });
   refreshSound();
@@ -530,7 +542,7 @@ async function main() {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1;
-    if (dt <= 0) return;
+    if (dt <= 0 || game.holdLoop) return;
     gfx.updateAutoQuality(dt);
     tick(dt);
   }

@@ -9,9 +9,14 @@ import { MAP_SIZE, CELL, N } from './terrain.js';
 // and blades at the edge of the drawn share shrink to nothing (no popping). Density from the terrain's surface and
 // ground-data maps; heights from the physics heightfield with the same triangle split. Wind gusts, wheels push
 // blades aside, tyre tracks flatten them, a few far blades are wild flowers.
+// Segments per blade by its own distance: 4 closer than CLOSE, 2 closer than NEAR, 1 beyond (PR #19's WebGPU
+// buckets); a tile is drawn with what its closest blade needs, and a blade that needs fewer puts the extra
+// vertices on its coarser shape's edges. An instance is BATCH blades: an instance of one 3-vertex blade left
+// most of the GPU's vertex lanes idle (the grass cost 4x as much). Tiles with no grass under them are skipped.
 
 const HALF = MAP_SIZE / 2, NN = N + 1;
-const SEG_NEAR = 22;   // tiles closer than this (m) use 2-segment blades, the rest 1-segment
+const CLOSE = 14, NEAR = 30;   // m: 4-segment blades closer than CLOSE, 2-segment closer than NEAR, 1 beyond
+const BATCH = 8;               // blades per instance
 // the grass curves (density, height, width over the distance) are sampled at CURVE_N + 1 distances,
 // d = CURVE_MAX * (i / CURVE_N)^2: closer together near the camera, where the detail is
 const CURVE_N = 64, CURVE_MAX = 300;
@@ -47,17 +52,21 @@ function evalCurve(pts, d, smooth, logY = false, lin = false) {
   return logY ? Math.exp(v) : v;
 }
 
-function bladeGeometry(segments = 3) {
-  // aBlade: x = side (-1, 1, or 0 at the tip), y = t along the blade (0 root .. 1 tip)
-  const v = [], idx = [];
-  for (let s = 0; s < segments; s++) { const t = s / segments; v.push(-1, t, 0, 1, t, 0); }
-  v.push(0, 1, 0);
-  for (let s = 0; s < segments - 1; s++) {
-    const a = s * 2, b = a + 1, c = a + 2, d = a + 3;
-    idx.push(a, b, c, b, d, c);
+function bladeGeometry(segments) {
+  // BATCH blades; aBlade: x = side (-1, 1, or 0 at the tip), y = t along the blade (0 root .. 1 tip), z = which
+  // of the instance's blades
+  const v = [], idx = [], nv = segments * 2 + 1;
+  for (let j = 0; j < BATCH; j++) {
+    const o = j * nv;
+    for (let s = 0; s < segments; s++) { const t = s / segments; v.push(-1, t, j, 1, t, j); }
+    v.push(0, 1, j);
+    for (let s = 0; s < segments - 1; s++) {
+      const a = o + s * 2, b = a + 1, c = a + 2, d = a + 3;
+      idx.push(a, b, c, b, d, c);
+    }
+    const top = o + segments * 2, a = o + (segments - 1) * 2;
+    idx.push(a, a + 1, top);
   }
-  const top = segments * 2, a = (segments - 1) * 2;
-  idx.push(a, a + 1, top);
   const g = new THREE.BufferGeometry();
   g.setAttribute('aBlade', new THREE.Float32BufferAttribute(v, 3));
   g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(v.length), 3));
@@ -91,6 +100,16 @@ float groundAt(vec2 xz) {
   float h00 = gHgt(i), h10 = gHgt(i + ivec2(1, 0)), h01 = gHgt(i + ivec2(0, 1)), h11 = gHgt(i + ivec2(1, 1));
   return t.x + t.y <= 1.0 ? h00 + (h10 - h00) * t.x + (h01 - h00) * t.y : h11 + (h01 - h11) * (1.0 - t.x) + (h10 - h11) * (1.0 - t.y);
 }
+// the blade at (side, t along it): position, lighting normal (mostly up: reads like a lawn), colour, AO;
+// head.r < 0: no flower
+void gShape(float sd, float tb, vec3 base, vec3 side, vec2 bend, float ht, float wd, vec3 col, vec3 head,
+            out vec3 p, out vec3 n, out vec3 c, out float ao) {
+  p = base + side * sd * wd * 0.5 * (1.0 - tb * 0.85)
+    + vec3(bend.x, 0.0, bend.y) * ht * tb * tb * 0.7 + vec3(0.0, ht * tb * (1.0 - 0.25 * min(dot(bend, bend), 1.0)), 0.0);
+  n = normalize(vec3(bend.x, 0.0, bend.y) * 0.3 + side * 0.25 * sign(sd + 0.001) + vec3(0.0, 1.0, 0.0));
+  c = head.r >= 0.0 && tb > 0.75 ? head : mix(col * 0.72, col * (1.08 + 0.2 * tb), tb);
+  ao = mix(0.6, 1.0, tb);
+}
 `;
 
 export function buildGrass(terrainView, opts = {}) {
@@ -104,7 +123,7 @@ export function buildGrass(terrainView, opts = {}) {
   };
   const group = new THREE.Group();
   group.name = 'grass';
-  const geoNear = bladeGeometry(2), geoFar = bladeGeometry(1);
+  const geos = [bladeGeometry(4), bladeGeometry(2), bladeGeometry(1)];
   const uniforms = {
     ...shared,
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
@@ -123,7 +142,7 @@ export function buildGrass(terrainView, opts = {}) {
 // x and z, so every leading part of the list is spread evenly; leading zero pairs = the size of the
 // block this blade stands for (it is jittered over that block)
 int gn = int(uLod.x);
-uint gi = uint(gl_InstanceID), ux = 0u, uz = 0u;
+uint gi = uint(gl_InstanceID) * ${BATCH}u + uint(aBlade.z), ux = 0u, uz = 0u;
 int lead = 0; bool seen = false;
 for (int p = 0; p < 10; p++) {
   if (p >= gn) break;
@@ -151,7 +170,7 @@ float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0);
-if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
+if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vec2 hC = gHash22(cellIdx + 41.3);
   vec4 nz = textureLod(tNoise, bxz / 61.0, 0.0);
   #ifdef FLOAT_LINEAR
@@ -186,27 +205,29 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0) {
   ht *= squash;
   float bl = length(bend);
   if (bl > 1.4) bend *= 1.4 / bl;
-  float tb = aBlade.y;
   vec3 side = vec3(-facing.y, 0.0, facing.x);
-  gPos = vec3(bxz.x, gy - 0.02, bxz.y) + side * aBlade.x * wd * 0.5 * (1.0 - tb * 0.85)
-    + vec3(bend.x, 0.0, bend.y) * ht * tb * tb * 0.7 + vec3(0.0, ht * tb * (1.0 - 0.25 * min(dot(bend, bend), 1.0)), 0.0);
-  // lighting normal: mostly up (reads like a lawn) for both faces of the blade; the blade's own facing is
-  // added in the fragment shader, turned towards the sun (flipping the whole normal on back faces, as
-  // three does for DoubleSide, pointed it down: half the blades came out black)
-  objectNormal = normalize(vec3(bend.x, 0.0, bend.y) * 0.3 + side * 0.25 * sign(aBlade.x + 0.001) + vec3(0.0, 1.0, 0.0));
+  // the blade's own facing is added to the lighting normal in the fragment shader, turned towards the sun
+  // (flipping the whole normal on back faces, as three does for DoubleSide, pointed it down: half the blades
+  // came out black)
   vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
-  // colour: patch tint, per-blade variation, darker roots, lighter dry tips; flowers get a coloured head
+  // colour: patch tint, per-blade variation, darker roots, lighter dry tips (gShape); flowers get a coloured head
   vec3 lush = vec3(0.115, 0.175, 0.04), dry = vec3(0.30, 0.27, 0.10), deep = vec3(0.07, 0.125, 0.03);
   vec3 col = mix(lush, deep, nz.a * 0.8);
   col = mix(col, dry, smoothstep(0.55, 0.85, nz.b) * 0.65 + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
-  col = mix(col * 0.72, col * (1.08 + 0.2 * tb), tb);
-  if (flower > 0.5 && tb > 0.75) {
-    float fc = fract(hC.y * 7.0);
-    col = fc < 0.45 ? vec3(0.8, 0.8, 0.75) : fc < 0.75 ? vec3(0.85, 0.62, 0.05) : vec3(0.42, 0.2, 0.6);
+  float fc = fract(hC.y * 7.0);
+  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.45 ? vec3(0.8, 0.8, 0.75) : fc < 0.75 ? vec3(0.85, 0.62, 0.05) : vec3(0.42, 0.2, 0.6);
+  // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
+  // below and above it (the tip: side 0)
+  float segs = dCam < ${CLOSE.toFixed(1)} ? 4.0 : dCam < ${NEAR.toFixed(1)} ? 2.0 : 1.0;
+  float tf = aBlade.y * segs, j = min(floor(tf), segs - 1.0), f = tf - j;
+  vec3 base = vec3(bxz.x, gy - 0.02, bxz.y);
+  gShape(aBlade.x, j / segs, base, side, bend, ht, wd, col, head, gPos, objectNormal, vGCol, vGAO);
+  if (f > 0.0) {
+    vec3 p1, n1, c1; float a1;
+    gShape(j + 1.0 < segs ? aBlade.x : 0.0, (j + 1.0) / segs, base, side, bend, ht, wd, col, head, p1, n1, c1, a1);
+    gPos = mix(gPos, p1, f); objectNormal = mix(objectNormal, n1, f); vGCol = mix(vGCol, c1, f); vGAO = mix(vGAO, a1, f);
   }
-  vGCol = col;
-  vGAO = mix(0.6, 1.0, tb);
 }`)
       .replace('#include <begin_vertex>', 'vec3 transformed = gPos;')
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
@@ -236,7 +257,7 @@ diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
   };
   mat.customProgramCacheKey = () => 'grass-v2';
 
-  // tiles: a pool of meshes, each with a 2-segment and a 1-segment geometry (near / far tiles)
+  // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];
   const makeGeo = base => {
     const g = new THREE.InstancedBufferGeometry();
@@ -250,8 +271,8 @@ diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
   };
   const ensureTiles = (T) => {
     for (let i = tiles.length; i < T * T; i++) {
-      const m = new THREE.Mesh(makeGeo(geoNear), mat);
-      m.userData.geos = [m.geometry, makeGeo(geoFar)];
+      const m = new THREE.Mesh(makeGeo(geos[0]), mat);
+      m.userData.geos = [m.geometry, makeGeo(geos[1]), makeGeo(geos[2])];
       m.frustumCulled = false;
       m.receiveShadow = true;
       m.castShadow = false;
@@ -299,13 +320,41 @@ diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
     return t;
   }
 
+  // the largest grass density over 2^l x 2^l m blocks (l = 0..10), to skip tiles with no grass under them
+  const densMax = [];
+  {
+    const tex = U.tData.value, D = tex.image.data, W = tex.image.width;
+    let w = W, cur = new Uint8Array(W * W);
+    for (let i = 0; i < W * W; i++) cur[i] = D[i * 4 + 3];
+    densMax.push({ w, a: cur });
+    while (w > 1) {
+      const w2 = Math.ceil(w / 2), nxt = new Uint8Array(w2 * w2);
+      for (let z = 0; z < w2; z++) for (let x = 0; x < w2; x++) {
+        const x0 = 2 * x, z0 = 2 * z, x1 = Math.min(w - 1, x0 + 1), z1 = Math.min(w - 1, z0 + 1);
+        nxt[z * w2 + x] = Math.max(cur[z0 * w + x0], cur[z0 * w + x1], cur[z1 * w + x0], cur[z1 * w + x1]);
+      }
+      w = w2; cur = nxt;
+      densMax.push({ w, a: cur });
+    }
+  }
+  // any grass in the world box? (the shader samples the 1 m density map bilinearly at the blade)
+  const hasGrass = (x0, z0, x1, z1) => {
+    let a = Math.floor(x0 + HALF), b = Math.floor(z0 + HALF), c = Math.floor(x1 + HALF) + 1, d = Math.floor(z1 + HALF) + 1;
+    let l = 0;
+    while ((c - a > 3 || d - b > 3) && l < densMax.length - 1) { a >>= 1; b >>= 1; c >>= 1; d >>= 1; l++; }
+    const { w, a: M } = densMax[l];
+    a = Math.max(0, a); b = Math.max(0, b); c = Math.min(w - 1, c); d = Math.min(w - 1, d);
+    for (let z = b; z <= d; z++) for (let x = a; x <= c; x++) if (M[z * w + x]) return true;
+    return false;
+  };
+
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();
   let time = 0, enabled = true;
   const lay = { s: 0.1, n: 8, k: 256, tile: 25.6, h: 4, T: 9, R: 100, share: new Float32Array(CURVE_N + 1).fill(1) };
   const api = {
     group, shared, uniforms, lay,
     get tiles() { return tiles; },
-    sent: 0,   // instances drawn last frame
+    sent: 0,   // blades sent last frame
     // the GPU timer for the tuner (null if the browser has no timer queries); ms: smoothed grass time
     setTiming(renderer, on) {
       if (on && !timer) { timer = makeTimer(renderer); if (timer) group.add(...timer.markers); }
@@ -365,15 +414,16 @@ diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
         const x0 = (ti + t[0]) * tile, z0 = (tj + t[1]) * tile, x1 = x0 + tile, z1 = z0 + tile;
         const d = Math.hypot(Math.max(x0 - cx, 0, cx - x1), Math.max(z0 - cz, 0, cz - z1));
         const dFar = Math.hypot(Math.max(Math.abs(x0 - cx), Math.abs(x1 - cx)), Math.max(Math.abs(z0 - cz), Math.abs(z1 - cz)));
-        if (d > R || Math.abs(x0) > HALF + 2 && Math.abs(x1) > HALF + 2 || Math.abs(z0) > HALF + 2 && Math.abs(z1) > HALF + 2) { m.visible = false; continue; }
+        if (d > R || Math.abs(x0) > HALF + 2 && Math.abs(x1) > HALF + 2 || Math.abs(z0) > HALF + 2 && Math.abs(z1) > HALF + 2 || !hasGrass(x0, z0, x1, z1)) { m.visible = false; continue; }
         box.min.set(x0, cy - 80, z0); box.max.set(x1, cy + 40, z1);
         m.visible = frustum.intersectsBox(box);
         if (!m.visible) continue;
         // draw the largest share any point of the tile needs; the shader drops what each blade's own distance doesn't
-        const g = m.userData.geos[d < SEG_NEAR ? 0 : 1];
+        const g = m.userData.geos[d < CLOSE ? 0 : d < NEAR ? 1 : 2];
         m.geometry = g;
-        g.instanceCount = Math.min(k * k, Math.ceil(k * k * Math.min(1, api.maxShare(d, Math.min(dFar, R)) * 1.35)) + 4);
-        sent += g.instanceCount;
+        const blades = Math.min(k * k, Math.ceil(k * k * Math.min(1, api.maxShare(d, Math.min(dFar, R)) * 1.35)) + 4);
+        g.instanceCount = Math.ceil(blades / BATCH);
+        sent += blades;
       }
       api.sent = sent;
       timer?.poll();

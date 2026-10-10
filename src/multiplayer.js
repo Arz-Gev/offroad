@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildCarModel } from './vehicle/model/index.js';
+import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
 import { isCar, DEFAULT_CAR } from './cars/index.js';
 import { cornerKin } from './vehicle/suspension.js';
@@ -199,6 +200,7 @@ export class Multiplayer {
       p.proxy = makeProxy(P);
       p.model = model;
       p.view = new VehicleView(model, p.proxy);
+      model.batch = batchByMaterial(model.root);   // one draw per material, like the player's car
       model.root.visible = false;           // until the first snapshot
       this.api.scene.add(model.root);
       if (!p.tag) {
@@ -214,7 +216,7 @@ export class Multiplayer {
   }
 
   removeModel(p) {
-    if (p.model) { this.api.scene.remove(p.model.root); p.model = null; p.view = null; }
+    if (p.model) { this.api.scene.remove(p.model.root); p.model.batch?.dispose(); p.model = null; p.view = null; }
     if (p.body) { this.api.world.removeRigidBody(p.body); p.body = null; }
   }
 
