@@ -388,11 +388,25 @@ export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8, photos =
       renderer.setRenderTarget(normal, l); quad.render(renderer);
     }
   }
+  // each layer's average colour (its last mip), read back once: the terrain's far colours and tints use them as
+  // constants instead of a fetch per pixel
+  const avgRT = new THREE.WebGLRenderTarget(16, 1, { depthBuffer: false });
+  const avgMat = new THREE.ShaderMaterial({
+    vertexShader: BAKE_VERT, depthTest: false, depthWrite: false, uniforms: { tSrc: { value: albedo.texture } },
+    fragmentShader: `precision highp sampler2DArray; uniform sampler2DArray tSrc; varying vec2 vUv;
+      void main() { gl_FragColor = vec4(sqrt(textureLod(tSrc, vec3(0.5, 0.5, floor(vUv.x * 16.0)), 12.0).rgb), 1.0); }`,
+  });
+  quad.material = avgMat;
+  renderer.setRenderTarget(avgRT); quad.render(renderer);
+  const px = new Uint8Array(16 * 4);
+  renderer.readRenderTargetPixels(avgRT, 0, 0, 16, 1, px);
+  const avg = Array.from({ length: LAYER_COUNT }, (_, l) => new THREE.Vector3(...[0, 1, 2].map(k => (px[l * 4 + k] / 255) ** 2)));
+  avgRT.dispose(); avgMat.dispose();
   renderer.setRenderTarget(prev);
   aMat.dispose(); nMat.dispose(); paMat.dispose(); pnMat.dispose(); quad.dispose();
   for (const t of tex) t.dispose();
   if (photos) for (const ph of Object.values(photos)) { ph.a.close(); ph.n.close(); }
-  return { albedo: albedo.texture, normal: normal.texture, targets: [albedo, normal] };
+  return { albedo: albedo.texture, normal: normal.texture, avg, targets: [albedo, normal] };
 }
 
 // ---------------------------------------------------------------- small CPU textures

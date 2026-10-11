@@ -3,9 +3,12 @@
 // medium 6.5 / 9 / 7, high 11 / 15 / 12, ultra 13 / 17 / 14.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.
+// distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow. With the haze and
+// the ground's own colour following the land, grass, bushes, near trees and terrain detail end sooner than they
+// used to (High: grass 196 -> 115 m, bushes 3.2 -> 2.2, near trees 50 -> 40 m, terrain 1.0 -> 0.85): side by side
+// no view changed, and it saved ~1-1.5 ms.
 const GRASS_ULTRA = {
-  end: 300, smooth: false,
+  end: 200, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
   height: [[0, 141], [3.4, 123], [8.4, 150], [28, 135], [297, 124]],
   width: [[0, 8.5], [12, 12], [87, 38], [130, 63], [189, 97], [300, 200]],
@@ -17,13 +20,13 @@ const GRASS_LOW = {
   width: [[0, 13], [25, 26], [55, 43], [90, 59], [128, 71], [173, 120], [207, 140], [247, 143], [288, 127]],
 };
 const GRASS_MEDIUM = {
-  end: 148, smooth: true,
+  end: 120, smooth: true,
   density: [[0, 0.6], [0.5, 7.1], [1.6, 21], [3.6, 21], [11, 7.1], [28, 4.2], [53, 2.5], [112, 1.8], [172, 1.2], [299, 0.6]],
   height: [[0, 100], [5, 109], [44, 119], [120, 142]],
   width: [[0, 8.2], [37, 21], [77, 40], [156, 131], [189, 76], [289, 55]],
 };
 const GRASS_HIGH = {
-  end: 196, smooth: false,
+  end: 115, smooth: false,
   density: [[0, 0.82], [0.5, 9.6], [1.6, 28], [3.6, 29], [11, 9.6], [28, 5.7], [57, 7.7], [108, 5.6], [172, 1.7], [299, 0.82]],
   height: [[0, 144], [3.4, 125], [8.3, 141], [28, 136], [297, 126]],
   width: [[0, 8.2], [13, 14], [60, 25], [130, 63], [189, 97], [300, 200]],
@@ -50,19 +53,19 @@ export const QUALITY = {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium', clouds: 'medium',
-    grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.3,
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.0,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
-    impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high', clouds: 'high',
-    grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 3.2,
+    treeNear: 40, impostorShadows: true,
+    terrainDetail: 2, lodScale: 0.85, bloom: true, veg: 'high', clouds: 'high',
+    grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 2.2,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
-    impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra', clouds: 'ultra',
-    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
+    treeNear: 45, impostorShadows: true,
+    terrainDetail: 2, lodScale: 1.1, bloom: true, veg: 'ultra', clouds: 'ultra',
+    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 3,
   },
 };
 

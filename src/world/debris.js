@@ -18,7 +18,7 @@ const PER_FRAME = 3;   // chunks generated per frame at most
 // per mesh: the radius drawn (m) and the most instances
 // blob: stones (an icosphere of 80 faces, casting shadows), pebble: pebbles, small stones and cones (20 faces),
 // flat: leaves and petals, stick: twigs
-const KINDS = { blob: { r: 40, max: 8000 }, pebble: { r: 26, max: 30000 }, flat: { r: 30, max: 40000 }, stick: { r: 34, max: 6000 } };
+const KINDS = { blob: { r: 34, max: 8000 }, pebble: { r: 22, max: 30000 }, flat: { r: 24, max: 40000 }, stick: { r: 28, max: 6000 } };
 const SMALL_SIZE = 0.12;   // stones smaller than this are pebbles
 const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz seed sink
 

@@ -322,7 +322,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
-    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uDetail: { value: 2 },
+    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uSnow: { value: 330 },
   };
@@ -377,6 +377,7 @@ uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
+uniform vec3 uAvg[${LAYER_COUNT}];   // each layer's average colour
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
 varying vec3 vWPos;
@@ -476,20 +477,34 @@ void triAt(float l, float t, vec3 p, vec3 n0, vec3 w, float nk, out vec4 alb, ou
   }
   alb /= ws; mat /= ws; nW = normalize(acc);
 }
+// the colour of a ground layer by the land (a multiplier on its texture), worked out only for the layers drawn:
+// - the meadow: golden on dry ridges and sunny slopes, deep green down the drainage lines, in hollows and by water,
+//   with patches of clover (blue-green) and of thin, sun-bleached grass
+// - soils: warmer or greyer by region, darker where damp; scree takes the colour of the rock above it
+// - forest floor: mossy where damp; under broadleaves a warmer litter, under blossom a pink one
+vec3 rockTone(float k, float t);
+vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree, float litter) {
+  if (l < 0.5) {
+    vec3 g = lush < 0.5 ? mix(vec3(0.27, 0.22, 0.075), vec3(0.13, 0.2, 0.05), lush * 2.0) : mix(vec3(0.13, 0.2, 0.05), vec3(0.055, 0.13, 0.035), lush * 2.0 - 1.0);
+    g = mix(g, vec3(0.065, 0.15, 0.075), smoothstep(0.62, 0.72, nzP.r) * 0.55);
+    g = mix(g, vec3(0.3, 0.26, 0.12), smoothstep(0.64, 0.76, nzP.g) * smoothstep(0.55, 0.25, lush) * 0.7);
+    return g / vec3(0.13, 0.2, 0.05);
+  }
+  if (l < 3.5 || l > 5.5) return mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush) * (l > 2.5 && l < 3.5 ? 0.95 : 1.0);
+  if (l < 4.5) return mix(vec3(1.0), rockTone(kind, 0.55) / max(uAvg[4], vec3(0.02)), kScree * 0.75);
+  return mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6)
+    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.2, 0.98, 1.0), step(0.75, litter)), step(0.25, litter));
+}
 // ---- rock. Kinds (k: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate) differ in colour, bedding and weathering.
 // light and dark tones of each kind (linear)
-vec3 rockTone(float k, float t) {
-  k = clamp(k, 0.0, 1.0) * 3.0;
-  vec3 l = k < 1.0 ? mix(vec3(0.36, 0.34, 0.29), vec3(0.34, 0.31, 0.28), k) : k < 2.0 ? mix(vec3(0.34, 0.31, 0.28), vec3(0.42, 0.26, 0.14), k - 1.0) : mix(vec3(0.42, 0.26, 0.14), vec3(0.25, 0.24, 0.2), k - 2.0);
-  vec3 d = k < 1.0 ? mix(vec3(0.17, 0.16, 0.14), vec3(0.16, 0.145, 0.13), k) : k < 2.0 ? mix(vec3(0.16, 0.145, 0.13), vec3(0.22, 0.11, 0.055), k - 1.0) : mix(vec3(0.22, 0.11, 0.055), vec3(0.1, 0.1, 0.085), k - 2.0);
-  return mix(d, l, t);
-}
+// (weights of the four kinds: hat functions, so the blends are branch-free matrix products)
+vec4 kindW(float k) { return max(1.0 - abs(vec4(clamp(k, 0.0, 1.0) * 3.0) - vec4(0.0, 1.0, 2.0, 3.0)), 0.0); }
+const mat4x3 ROCK_L = mat4x3(0.36, 0.34, 0.29, 0.34, 0.31, 0.28, 0.42, 0.26, 0.14, 0.25, 0.24, 0.2);
+const mat4x3 ROCK_D = mat4x3(0.17, 0.16, 0.14, 0.16, 0.145, 0.13, 0.22, 0.11, 0.055, 0.1, 0.1, 0.085);
+vec3 rockTone(float k, float t) { vec4 w = kindW(k); return mix(ROCK_D * w, ROCK_L * w, t); }
 // bedding by kind: band height (m), relief of the ledges, tone contrast between beds, joint spacing (m)
-vec4 bedOf(float k) {
-  k = clamp(k, 0.0, 1.0) * 3.0;
-  vec4 a = vec4(2.2, 0.55, 0.45, 2.6), b = vec4(4.5, 0.25, 0.25, 3.5), c = vec4(0.9, 0.9, 0.75, 1.8), d = vec4(0.55, 0.5, 0.35, 0.9);
-  return k < 1.0 ? mix(a, b, k) : k < 2.0 ? mix(b, c, k - 1.0) : mix(c, d, k - 2.0);
-}
+const mat4 BEDS = mat4(2.2, 0.55, 0.45, 2.6, 4.5, 0.25, 0.25, 3.5, 0.9, 0.9, 0.75, 1.8, 0.55, 0.5, 0.35, 0.9);
+vec4 bedOf(float k) { return BEDS * kindW(k); }
 // the rock's structure (textures.js layers 8, 9), triplanar: on the faces the rows of blocks follow the beds (v: the
 // bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile), from above the slabs
 // (12 m tile). alb: tone, joint, streak, height; mat: normal xy, roughness, cavity; nW: the normal on n0
@@ -640,18 +655,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
   // lines, in hollows and by water, with patches of clover (blue-green) and of thin, sun-bleached grass
-  vec3 gT = lush < 0.5 ? mix(vec3(0.27, 0.22, 0.075), vec3(0.13, 0.2, 0.05), lush * 2.0) : mix(vec3(0.13, 0.2, 0.05), vec3(0.055, 0.13, 0.035), lush * 2.0 - 1.0);
-  gT = mix(gT, vec3(0.065, 0.15, 0.075), smoothstep(0.62, 0.72, nzP.r) * 0.55);
-  gT = mix(gT, vec3(0.3, 0.26, 0.12), smoothstep(0.64, 0.76, nzP.g) * smoothstep(0.55, 0.25, lush) * 0.7);
-  vec3 tGrass = gT / vec3(0.13, 0.2, 0.05);
-  // soils: warmer or greyer by region, darker where damp
-  vec3 tSoil = mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush);
-  // scree takes the colour of the rock above it
-  vec3 tGravel = mix(vec3(1.0), rockTone(kind, 0.55) / max(textureLod(tAlb, vec3(0.5, 0.5, 4.0), 12.0).rgb, vec3(0.02)), kScree * 0.75);
-  // forest floor: mossy where damp; under broadleaves a warmer litter, under blossom a pink one
-  vec3 tForest = mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6);
-  tForest *= ld.b < 0.25 ? vec3(1.0) : ld.b < 0.75 ? vec3(1.15, 0.98, 0.78) : vec3(1.2, 0.98, 1.0);
-  #define TINT(L) (L < 0.5 ? tGrass : L < 1.5 || L > 5.5 ? tSoil : L < 3.5 ? tSoil * 0.95 : L < 4.5 ? tGravel : tForest)
+  #define TINT(L) tintOf(L, lush, nzP, mac2, kind, kScree, ld.b)
   // the two strongest layers, height-blended (more would cost registers and samples for little gain)
   float w1 = wGrass, l1 = 0.0, w2 = 0.0, l2 = 0.0;
   #define TOP2(W, L) if (W > w1) { w2 = w1; l2 = l1; w1 = W; l1 = L; } else if (W > w2) { w2 = W; l2 = L; }
@@ -717,9 +721,9 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     }
   } else {
     // far away: the layers' average colours (their last mip)
-    c = textureLod(tAlb, vec3(0.5, 0.5, 0.0), 12.0).rgb * tGrass * wGrass + textureLod(tAlb, vec3(0.5, 0.5, 1.0), 12.0).rgb * tSoil * wDirt
-      + textureLod(tAlb, vec3(0.5, 0.5, 3.0), 12.0).rgb * tSoil * wMud + textureLod(tAlb, vec3(0.5, 0.5, 4.0), 12.0).rgb * tGravel * wSand
-      + textureLod(tAlb, vec3(0.5, 0.5, 5.0), 12.0).rgb * tForest * wForest + textureLod(tAlb, vec3(0.5, 0.5, 6.0), 12.0).rgb * tSoil * wSoil;
+    vec3 tSoil = TINT(1.0);
+    c = uAvg[0] * TINT(0.0) * wGrass + (uAvg[1] * wDirt + uAvg[3] * wMud * 0.95 + uAvg[6] * wSoil) * tSoil
+      + uAvg[4] * TINT(4.0) * wSand + uAvg[5] * TINT(5.0) * wForest;
     c /= max(1e-3, wGrass + wDirt + wMud + wSand + wForest + wSoil);
     nn = vec4(0.5, 0.5, 0.9, 1.0);
   }
