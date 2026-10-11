@@ -215,13 +215,13 @@ void main() {
 // circle of confusion grows from nothing at uDof.y metres towards uDof.x full-res pixels (radius) far away.
 const DOF_COC_GLSL = /* glsl */`
 uniform vec4 uDof;   // x: largest blur radius (full-res px), y: where the blur starts (m), z: how slowly it grows (m), w: on
-uniform vec2 uDofMini;   // miniature (tilt-shift look): x focus distance (m), y on; blur both nearer and farther
+uniform vec3 uDofMini;   // miniature (tilt-shift look): x focus distance (m), y on, z how fast the blur grows; blur both nearer and farther
 // signed: negative in front of the focus (miniature only), positive behind it
 float dofCoc(float d) {
   if (d >= 0.99999) return uDof.x;
   float z = fogLinZ(d);
   // a sharp band 3 m either side of the focus: the whole truck stays in focus, nose to tail
-  if (uDofMini.y > 0.5) return sign(z - uDofMini.x) * uDof.x * min(max(abs(z - uDofMini.x) - 3.0, 0.0) / z * 4.0, 1.0);
+  if (uDofMini.y > 0.5) return sign(z - uDofMini.x) * uDof.x * min(max(abs(z - uDofMini.x) - 3.0, 0.0) / z * uDofMini.z, 1.0);
   return uDof.x * clamp((z - uDof.y) / (z + uDof.z), 0.0, 1.0);
 }`;
 // Half resolution: the scene as the composite will see it before exposure (AO, volumetric fog), its blur radius in
@@ -265,12 +265,13 @@ void main() {
   float c = c0.a, ac = abs(c), R = max(ac, uRmax);
   if (R < 0.5) { gl_FragColor = vec4(c0.rgb, ac); return; }
   float n = clamp(floor(R * R * 2.0), 8.0, uMaxTaps);
+  float lod = max(log2(R / sqrt(n) * 1.3), 0.0);   // taps further apart than a texel read a blurrier level
   vec3 sum = c0.rgb; float ws = 1.0, nw = 0.0, nr = 0.0;
-  for (int i = 0; i < 96; i++) {
+  for (int i = 0; i < 128; i++) {
     float fi = float(i);
     if (fi >= n) break;
     float r = R * sqrt((fi + 0.5) / n), a = fi * 2.39996323;
-    vec4 s = texture2D(tSrc, vUv + vec2(cos(a), sin(a)) * r * uTexel);
+    vec4 s = textureLod(tSrc, vUv + vec2(cos(a), sin(a)) * r * uTexel, lod);
     float as = abs(s.a);
     bool front = s.a < c - 0.5;
     float w = clamp((front ? as : min(as, ac)) - r + 1.0, 0.0, 1.0);
@@ -460,7 +461,7 @@ export class RenderPipeline {
       bow: new THREE.Vector4(0, -1, 0, 0), bowCol: new THREE.Vector3(),
       // depth of field (far field): strength (0: off; 1 = a blur radius of 0.6 % of the picture's height far away),
       // where it starts (m), how slowly it grows with distance (m)
-      dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10,
+      dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10, dofMiniSlope: 4,
     };
     this.time = 0;
     this.resetExposure = true;
@@ -480,7 +481,8 @@ export class RenderPipeline {
     this.adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false }));
     this.adaptIdx = 0;
     this.dofTaps = 0;   // most taps of the depth-of-field gather (0: no depth of field at this quality)
-    this.dofRT = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { ...hf }));
+    // the prefiltered half-res scene keeps mipmaps: a wide gather reads a level matching its tap spacing (no ghosting)
+    this.dofRT = [0, 1].map(i => new THREE.WebGLRenderTarget(1, 1, { ...hf, ...(i === 0 ? { minFilter: THREE.LinearMipmapLinearFilter, generateMipmaps: true } : {}) }));
 
     this.downMat = mat(DOWN_FRAG, { tSrc: { value: null }, tExposure: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1 }, uKnee: { value: 0.5 }, uFirst: { value: 0 }, uMaxBright: { value: 60 } });
     this.upMat = mat(UP_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uRadius: { value: 1 } },
@@ -519,7 +521,7 @@ export class RenderPipeline {
     Object.assign(this.compMat.uniforms, { tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uFogOn: { value: 0 } });
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
-    const dofU = { value: new THREE.Vector4() }, dofMiniU = { value: new THREE.Vector2() };
+    const dofU = { value: new THREE.Vector4() }, dofMiniU = { value: new THREE.Vector3() };
     this.dofPreMat = mat(DOF_PRE_FRAG, {
       tScene: { value: this.hdr.texture }, tDepth: { value: this.hdr.depthTexture }, tAO: { value: this.ao[1].texture }, uAOOn: { value: 0 },
       tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: this.compMat.uniforms.uNearFar, uFogOn: { value: 0 }, uDof: dofU, uDofMini: dofMiniU,
@@ -710,7 +712,7 @@ export class RenderPipeline {
     cu.uNearFar.value.set(this.camera.near, this.camera.far);
     const dofOn = this.dofTaps > 0 && P.dof > 0;
     cu.uDof.value.set(P.dof * 0.006 * this.height, P.dofStart, P.dofRoll, dofOn ? 1 : 0);
-    cu.uDofMini.value.set(P.dofFocus, P.dofMini ? 1 : 0);
+    cu.uDofMini.value.set(P.dofFocus, P.dofMini ? 1 : 0, P.dofMiniSlope);
     if (dofOn) {
       const pu = this.dofPreMat.uniforms;
       pu.uAOOn.value = aoOn ? 1 : 0;
@@ -719,7 +721,7 @@ export class RenderPipeline {
       this.pass(this.dofPreMat, this.dofRT[0]);
       const gu = this.dofGatherMat.uniforms;
       gu.uTexel.value.set(1 / this.dofRT[0].width, 1 / this.dofRT[0].height);
-      gu.uMaxTaps.value = this.dofTaps;
+      gu.uMaxTaps.value = P.dofMini ? Math.max(this.dofTaps, 96) : this.dofTaps;
       gu.uRmax.value = P.dofMini ? cu.uDof.value.x * 0.5 : 0;
       this.pass(this.dofGatherMat, this.dofRT[1]);
       cu.uDofTexel.value.copy(gu.uTexel.value);
