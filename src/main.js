@@ -5,6 +5,7 @@ import { RenderPipeline } from './render/pipeline.js';
 
 import { Terrain, SPAWN } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
+import { loadGroundPhotos } from './world/textures.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
 import { buildWater } from './world/water.js';
@@ -47,6 +48,7 @@ const MAX_STEPS = 16;
 
 async function main() {
   setLoading('Starting physics…', 0.08); await frame();
+  const groundPhotos = loadGroundPhotos(import.meta.env.BASE_URL);   // downloads while the world is generated
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
@@ -70,7 +72,7 @@ async function main() {
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
   const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
-  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
+  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise, photos: await groundPhotos });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
   const grass = buildGrass(terrainView);

@@ -183,8 +183,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   #else
   float gy = groundAt(bxz);
   #endif
-  // tyre tracks flatten the grass
+  // tyre tracks flatten the grass; on the trails (the strip between the ruts, the verges) it is short
   float track = textureLod(tTrack, (bxz - uTrackP.xy) / uTrackP.z + 0.5, 0.0).r;
+  float trailK = textureLod(tSplat, ((bxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0).r;
   float tall = 0.45 + 0.95 * nz.g * nz.g;
   float flower = step(hC.x, uLod.w * smoothstep(12.0, 30.0, dCam)) * step(0.5, nz.b + 0.2);
   // far away, the flower fields (undergrowth.js FIELDS: too small to draw as plants there) ride on the grass tips
@@ -199,7 +200,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
     else if (hC.x < (lav + pop) * 0.85) { flower = 1.0; fieldHead = vec3(0.8, 0.07, 0.03); }
   }
   float hD = cv.y, wD = cv.z;   // the height and width curves at this distance
-  float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (flower > 0.5 ? 0.8 : 1.0);
+  float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (1.0 - 0.6 * trailK) * (flower > 0.5 ? 0.8 : 1.0);
   float wd = wD * (0.7 + 0.6 * hC.y) * fade;
   float ang = hA.x * 6.2831853;
   vec2 facing = vec2(cos(ang), sin(ang));
@@ -284,7 +285,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v4';
+  mat.customProgramCacheKey = () => 'grass-v5';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];
