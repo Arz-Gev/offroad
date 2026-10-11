@@ -18,8 +18,15 @@ const PER_FRAME = 3;   // chunks generated per frame at most
 // per mesh: the radius drawn (m) and the most instances
 // blob: stones (an icosphere of 80 faces, casting shadows), pebble: pebbles, small stones and cones (20 faces),
 // flat: leaves and petals, stick: twigs
-const KINDS = { blob: { r: 34, max: 8000 }, pebble: { r: 22, max: 30000 }, flat: { r: 24, max: 40000 }, stick: { r: 28, max: 6000 } };
-const SMALL_SIZE = 0.12;   // stones smaller than this are pebbles
+const KINDS = { blob: { max: 24000 }, pebble: { max: 40000 }, flat: { max: 40000 }, stick: { max: 6000 } };
+// per level (Ultra with the Ultra grass and bushes): radii (m, before the bushes' distance scale), stone density on
+// scree, at the foot of rock, on gravel and wet gravel, stones under `small` (m) are pebbles, small pieces fade out
+// sooner (sizeFade), shadows from every stone and twig into every cascade or only from the bigger stones into the
+// nearest. Ultra costs ~0.2-1.5 ms more (the most on scree slopes).
+const LEVELS = {
+  normal: { r: { blob: 34, pebble: 22, flat: 24, stick: 28 }, scree: 0.9, rockFoot: 1.5, sand: 0.8, wetSand: 1.2, small: 0.12, sizeFade: 1, allShadows: false },
+  ultra: { r: { blob: 40, pebble: 26, flat: 30, stick: 34 }, scree: 2.0, rockFoot: 2.5, sand: 1.1, wetSand: 1.5, small: 0.07, sizeFade: 0, allShadows: true },
+};
 const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz seed sink
 
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -101,7 +108,7 @@ function stickGeometry() {
 const VERT_PARS = /* glsl */`
 attribute vec4 aA, aB, aC;
 uniform vec3 uCam;
-uniform float uRad;
+uniform float uRad, uSizeFade;
 varying vec3 vDCol;
 varying vec3 vDPos;
 varying float vDAO;
@@ -115,7 +122,7 @@ vec3 dT = normalize(vec3(cos(aA.w), 0.0, sin(aA.w)));
 dT = normalize(dT - dUp * dot(dT, dUp));
 vec3 dB = cross(dT, dUp);
 // (the smaller the piece the sooner it goes: a 3 cm pebble at ~40 % of the radius)
-float dR = uRad * clamp(aB.x / 0.08, 0.35, 1.0);
+float dR = uRad * mix(1.0, clamp(aB.x / 0.08, 0.35, 1.0), uSizeFade);
 float dFade = 1.0 - smoothstep(dR * 0.72, dR, distance(aA.xyz, uCam));
 vec3 dS = aB.xyz * dFade;
 `;
@@ -165,7 +172,8 @@ vec3 nonPerturbedNormal = normal;`);
 
 export function buildDebris(terrain, terrainView) {
   const U = terrainView.uniforms;
-  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet };
+  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 } };
+  let L = LEVELS.normal;
   const group = new THREE.Group();
   group.name = 'debris';
   const geos = { blob: stoneGeometry(1), pebble: stoneGeometry(0), flat: leafGeometry(), stick: stickGeometry() };
@@ -183,22 +191,24 @@ export function buildDebris(terrain, terrainView) {
     g.setAttribute('aC', new THREE.InterleavedBufferAttribute(buf, 4, 8));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-    const uniforms = { ...shared, uRad: { value: KINDS[k].r } };
+    const uniforms = { ...shared, uRad: { value: L.r[k] } };
     const m = new THREE.Mesh(g, makeMaterial(k, uniforms));
     m.frustumCulled = false;
     m.receiveShadow = true;
     m.castShadow = false;
     m.matrixAutoUpdate = false;
+    if (k !== 'flat') m.customDepthMaterial = makeMaterial(k, uniforms, true);   // Ultra: they cast from here
     group.add(m);
+    let twin = null;
     if (k === 'blob') {
-      // the stones cast shadows into the nearest cascade only, from a twin that only the shadow pass draws
-      const sh = new THREE.Mesh(g, m.material);
-      sh.layers.set(NEAR_SHADOW_LAYER);
-      sh.frustumCulled = false; sh.castShadow = true; sh.receiveShadow = false; sh.matrixAutoUpdate = false;
-      sh.customDepthMaterial = makeMaterial(k, uniforms, true);
-      group.add(sh);
+      // otherwise the stones cast shadows into the nearest cascade only, from a twin that only the shadow pass draws
+      twin = new THREE.Mesh(g, m.material);
+      twin.layers.set(NEAR_SHADOW_LAYER);
+      twin.frustumCulled = false; twin.castShadow = true; twin.receiveShadow = false; twin.matrixAutoUpdate = false;
+      twin.customDepthMaterial = m.customDepthMaterial;
+      group.add(twin);
     }
-    meshes[k] = { mesh: m, data, buf, count: 0, rad: uniforms.uRad };
+    meshes[k] = { mesh: m, twin, data, buf, count: 0, rad: uniforms.uRad };
   }
 
   // ---- placement
@@ -230,7 +240,7 @@ export function buildDebris(terrain, terrainView) {
       // (the verges by the trail distance itself: the dirt surface ends before them)
       const verge = smooth(1.05, 1.5, td) * (1 - smooth(2.4, 3.2, td));
       const crownEdge = smooth(0.15, 0.32, td) * (1 - smooth(0.42, 0.6, td));
-      let dStone = verge * 2.6 + trail * (crownEdge * 1.6 + 0.25) + scree * 0.9 + rock * (1 - rock) * 1.5 + sand * 0.8 + wet * sand * 1.2;
+      let dStone = verge * 2.6 + trail * (crownEdge * 1.6 + 0.25) + scree * L.scree + rock * (1 - rock) * L.rockFoot + sand * L.sand + wet * sand * L.wetSand;
       dStone *= (1 - mud) * (1 - 0.6 * grass * (1 - trail) * (1 - verge));
       let n = Math.floor(dStone + rnd());
       for (let k = 0; k < n; k++) {
@@ -238,7 +248,7 @@ export function buildDebris(terrain, terrainView) {
         // the rock's colour, dusted with the soil around it (warmer on the tracks), each stone a little different
         const t = 0.1 + rnd() * 0.6, dust = (trail > 0.3 || verge > 0.3 ? 0.45 : 0.2) + rnd() * 0.3;
         const c = rockColour(kind, t).map((e, k) => (e * (1 - dust) + SOIL[k] * dust) * (0.7 + rnd() * 0.35));
-        put(s < SMALL_SIZE ? out.pebble : out.blob, x + rnd() - 0.5, z + rnd() - 0.5, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), 0.15 + rnd() * 0.2);
+        put(s < L.small ? out.pebble : out.blob, x + rnd() - 0.5, z + rnd() - 0.5, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), 0.15 + rnd() * 0.2);
       }
       // leaves and petals drift a few metres beyond the crowns (onto the tracks too)
       if (forest < 0.05 && wet < 0.5) for (const [ox, oz] of DRIFT) {
@@ -285,12 +295,12 @@ export function buildDebris(terrain, terrainView) {
   }
 
   // ---- per frame: generate the chunks coming into reach, refill the buffers when the camera changes chunk
-  const NC = MAP_SIZE / CHUNK, REACH = Math.max(...Object.values(KINDS).map(k => k.r));
+  const NC = MAP_SIZE / CHUNK, REACH = Math.max(...Object.values(LEVELS.ultra.r));
   let lastKey = '', dirty = true, enabled = true, radiusScale = 1;
   const want = [];
   function refill(cxC, czC) {
     for (const k of Object.keys(KINDS)) {
-      const M = meshes[k], R = KINDS[k].r * radiusScale, rc = Math.ceil(R / CHUNK) + 1;
+      const M = meshes[k], R = L.r[k] * radiusScale, rc = Math.ceil(R / CHUNK) + 1;
       let n = 0;
       for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) {
         const c = cache.get((cxC + a) * NC + czC + b), src = c?.[k];
@@ -311,6 +321,13 @@ export function buildDebris(terrain, terrainView) {
       enabled = q.vegetation !== false && (q.bushes ?? 1) > 0 && q.veg !== 'off';
       group.visible = enabled;
       radiusScale = Math.min(1.25, Math.max(0.6, q.bushDist ?? 1));
+      const level = q.veg === 'ultra' ? LEVELS.ultra : LEVELS.normal;
+      if (level !== L) { L = level; cache.clear(); }
+      shared.uSizeFade.value = L.sizeFade;
+      for (const M of Object.values(meshes)) {
+        M.mesh.castShadow = L.allShadows && !!M.mesh.customDepthMaterial;
+        if (M.twin) M.twin.visible = !L.allShadows;
+      }
       dirty = true;
     },
     update(dt, camera) {

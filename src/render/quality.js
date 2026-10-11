@@ -5,10 +5,11 @@
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow. With the haze and
 // the ground's own colour following the land, grass, bushes, near trees and terrain detail end sooner than they
-// used to (High: grass 196 -> 115 m, bushes 3.2 -> 2.2, near trees 50 -> 40 m, terrain 1.0 -> 0.85): side by side
-// no view changed, and it saved ~1-1.5 ms.
+// used to below Ultra (High: grass 196 -> 115 m, bushes 3.2 -> 2.2, near trees 50 -> 40 m, terrain 1.0 -> 0.85):
+// side by side no view changed, and it saved ~1-1.5 ms. Ultra keeps the full distances and the heavier ground
+// (terrainDetail 3, debris 'ultra'): quality first.
 const GRASS_ULTRA = {
-  end: 200, smooth: false,
+  end: 300, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
   height: [[0, 141], [3.4, 123], [8.4, 150], [28, 135], [297, 124]],
   width: [[0, 8.5], [12, 12], [87, 38], [130, 63], [189, 97], [300, 200]],
@@ -63,9 +64,9 @@ export const QUALITY = {
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
-    treeNear: 45, impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.1, bloom: true, veg: 'ultra', clouds: 'ultra',
-    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 3,
+    impostorShadows: true,
+    terrainDetail: 3, lodScale: 1.3, bloom: true, veg: 'ultra', clouds: 'ultra',
+    grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
   },
 };
 

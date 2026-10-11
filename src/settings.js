@@ -40,7 +40,7 @@ export const DEFAULTS = {
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
   gBloom: true,
   gViewDist: 1,             // terrain LOD distance scale
-  gTerrain: 2,              // terrain shading detail 0..2
+  gTerrain: 2,              // terrain shading detail 0..3
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
@@ -70,7 +70,7 @@ const CHOICES = {
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
   gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
-  gTerrain: [0, 1, 2],
+  gTerrain: [0, 1, 2, 3],
 };
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],

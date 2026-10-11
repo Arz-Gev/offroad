@@ -411,19 +411,19 @@ void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
   }
 }
 // parallax occlusion near the camera: the dominant layer's height (its alpha, top 1) as relief below the surface,
-// depth m deep, marched along the view ray V. Returns the xz where the ray meets it; hitD its depth (0 top .. 1)
+// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1)
 vec2 pomAt(float l, vec2 xz, vec3 V, float depth, out float hitD) {
   float t = uTile[int(l)];
   vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);   // the region's tile offset (layerAt)
-  vec2 dxz = V.xz / max(-V.y, 0.25) * depth / 6.0;
+  vec2 dxz = V.xz / max(-V.y, 0.25) * depth / float(POM_STEPS);
   vec2 cur = xz; float d = 0.0;
   float h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
   hitD = 0.0;
   if (h <= 0.0) return xz;
   float ph = h, pd = 0.0;
-  for (int s = 0; s < 6; s++) {
+  for (int s = 0; s < POM_STEPS; s++) {
     ph = h; pd = d;
-    cur += dxz; d += 1.0 / 6.0;
+    cur += dxz; d += 1.0 / float(POM_STEPS);
     h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
     if (d >= h) break;
   }
@@ -439,8 +439,8 @@ float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, float depth) {
   vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);
   vec2 dir = Lw.xz / max(Lw.y, 0.12) * depth;
   float sh = 0.0;
-  for (int s = 1; s <= 3; s++) {
-    float f = float(s) / 3.0 * hitD;
+  for (int s = 1; s <= POM_SHADOW; s++) {
+    float f = float(s) / float(POM_SHADOW) * hitD;
     float dS = 1.0 - textureGrad(tAlb, vec3((xz + dir * f) * t + oa, l), gDx * t, gDy * t).a;
     sh = max(sh, (hitD - f - dS) * 6.0);
   }
@@ -544,12 +544,19 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
             out vec3 col, out vec3 nW, out float h, out float cav, out float rough, out float moss) {
   vec4 bed = bedOf(kind);
   vec3 w = pow(abs(n0), vec3(8.0)); w /= w.x + w.y + w.z;
-  // weathering: large blotches of lighter and darker rock
-  vec4 ma = textureGrad(tNoise, (p.xz + p.y * 0.7) / 19.0, gDx / 19.0, gDy / 19.0);
+  // weathering: large blotches of lighter and darker rock (Ultra: the 30 m cliff photo, its shapes and colour too)
+  #ifdef GROUND_ULTRA
+  vec4 ma, mm; vec3 cN;
+  triAt(${LAYER.cliff}.0, uTile[${LAYER.cliff}], p, n0, w, nk, ma, mm, cN);
+  float photo = clamp(lum(ma.rgb) / lum(uAvg[${LAYER.cliff}]), 0.25, 2.5);
+  #else
+  vec4 ma = textureGrad(tNoise, (p.xz + p.y * 0.7) / 19.0, gDx / 19.0, gDy / 19.0), mm = vec4(0.5, 0.5, 0.85, 1.0);
   float photo = 0.65 + 0.7 * ma.g;
+  vec3 cN = n0;
+  #endif
   // the structure: blocks and joints on the faces, slabs from above
   vec4 sa, sm;
-  structAt(p, n0, w, sY, sYd, bed.w, nk, sa, sm, nW);
+  structAt(p, cN, w, sY, sYd, bed.w, nk, sa, sm, nW);
   float steep = smoothstep(0.92, 0.6, n0.y);
   vec3 hn = normalize(vec3(n0.x, 0.0, n0.z) + vec3(1e-4, 0.0, 0.0));
   // beds: each one with its own tone and hardness; the harder ones stand out, so where the next bed juts out further
@@ -579,8 +586,12 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float lichK = kind < 0.333 ? mix(0.55, 0.85, kind * 3.0) : mix(0.85, 0.15, clamp((kind - 0.333) * 3.0, 0.0, 1.0));
   col = mix(col, lc, lich * lichK * (1.0 - sa.g) * (1.0 - smoothstep(0.75, 0.95, nW.y) * 0.5));
   h = clamp(sa.a * 0.7 + ma.a * 0.3 + ledge * 0.3, 0.0, 1.0);
-  cav = sm.a * (1.0 - 0.5 * under);
+  cav = mm.a * sm.a * (1.0 - 0.5 * under);
+  #ifdef GROUND_ULTRA
+  rough = mix(mix(mm.b, sm.b, 0.5), 0.92, 0.4);
+  #else
   rough = mix(sm.b, 0.92, 0.5);
+  #endif
   // close up, the rock-face photo's grain and cracks (~0.2-0.5 ms where there is rock near; the 30 m cliff photo under
   // it cost three times that for colour blotches the land already gives)
   float det = uDetail > 0.5 ? 1.0 - smoothstep(20.0, 50.0, dist) : 0.0;
@@ -685,7 +696,11 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     // near the camera the ground has depth: parallax occlusion on the dominant layer, with its own sun shadow
     vec2 pxz = p.xz;
     // (not on the meadow: the grass covers it)
+    #ifdef GROUND_ULTRA
+    float pomK = (1.0 - smoothstep(7.0, 13.0, dist)) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    #else
     float pomK = (uDetail > 1.5 && l1 > 0.5 ? 1.0 - smoothstep(4.0, 8.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    #endif
     if (pomK > 0.0) {
       float pomD;
       pxz = mix(p.xz, pomAt(l1, p.xz, normalize(p - cameraPosition), 0.05, pomD), pomK);
@@ -829,12 +844,15 @@ reflectedLight.indirectSpecular *= gAO;
 }
 #endif`);
   };
+  // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
+  let ultra = false;
+  const defines = (lite) => ({ CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
-    m.defines = { CLOUD_TIGHT: '', ...(lite ? { NO_ROCK: '' } : {}) };   // CLOUD_TIGHT: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v4' + (lite ? '-lite' : '');
+    m.defines = defines(lite);   // CLOUD_TIGHT: at the 16-texture limit with the lamps' cookies (clouds.js)
+    m.customProgramCacheKey = () => 'terrain-cdlod-v4' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);
@@ -939,6 +957,12 @@ reflectedLight.indirectSpecular *= gAO;
     configure(q) {
       lodScale = q.lodScale || 1; setRanges();
       uniforms.uDetail.value = q.terrainDetail ?? 2;
+      const u = (q.terrainDetail ?? 2) >= 3;
+      if (u !== ultra) {
+        ultra = u;
+        material.defines = defines(false); materialLite.defines = defines(true);
+        material.needsUpdate = materialLite.needsUpdate = true;
+      }
     },
     update(dt, camera) {
       camera.updateMatrixWorld();

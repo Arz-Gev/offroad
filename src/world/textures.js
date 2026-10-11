@@ -9,15 +9,16 @@ import { mulberry32 } from './noise.js';
 // scree), 5 forest floor (needles), 6 loose soil (slopes, verges), and two procedural rock structures (data, not
 // colour; terrainView.js colours them by the rock's kind): 7 blocks (a rock face: rows of blocks, one row per bed, each
 // block tilted its own way with bevelled edges, joints between them, water streaks) and 8 slabs (rock seen from
-// above: slabs between joints). Their rgb: tone, joint, streak; a: height.
+// above: slabs between joints). Their rgb: tone, joint, streak; a: height. 9 cliff: an aerial rock photo tiled at
+// 30 m, the large shapes and colour blotches of the rock on Ultra ground shading.
 // They are photo-scanned CC0 textures from Poly Haven (public/ground/, packed by tools/ground-textures.py: albedo +
 // height in one AVIF, the normal map in another). The grass photo is recoloured to the meadow's green, keeping its
 // structure. Procedural recipes (periodic noise, so the tiles wrap) stand in if the photos fail to load.
 
-export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8 };
-export const LAYER_COUNT = 9;
+export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8, cliff: 9 };
+export const LAYER_COUNT = 10;
 // world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js)
-export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12];
+export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30];
 // photo layers: file name, roughness, normal strength, albedo gain and saturation
 const PHOTO = {
   0: { name: 'grass', rough: 0.92, nrm: 1.1, gain: 1.0, sat: 1.0, tint: [0.13, 0.2, 0.05], recolor: 0.85 },
@@ -27,9 +28,10 @@ const PHOTO = {
   4: { name: 'sand', rough: 0.86, nrm: 1.2, gain: 1.0, sat: 1.0 },
   5: { name: 'forest', rough: 0.92, nrm: 1.2, gain: 1.0, sat: 1.0 },
   6: { name: 'soil', rough: 0.88, nrm: 1.3, gain: 1.0, sat: 1.0 },
+  9: { name: 'cliff', rough: 0.84, nrm: 1.5, gain: 1.0, sat: 1.0 },
 };
 // procedural recipe for each layer (the photo layers' stand-ins; the rock structures always)
-const RECIPE = [0, 1, 2, 3, 4, 5, 1, 6, 7];
+const RECIPE = [0, 1, 2, 3, 4, 5, 1, 6, 7, 2];
 
 // fetch and decode the photo layers (unpremultiplied: the alpha is height, not coverage); null if any fails
 export function loadGroundPhotos(base) {
