@@ -17,6 +17,7 @@ export const DEFAULTS = {
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
   weather: 'changing',      // 'fair' | 'changing' (passing showers) | 'rain'
   fog: 'normal',            // the volumetric fog's amount: 'off' | 'light' | 'normal' | 'thick' (environment.js FOG_AMOUNT)
+  dof: 'soft',              // depth of field, the far land softening: 'off' | 'soft' | 'strong' (main.js DOF_AMOUNT)
   brightness: 1,            // the picture's gamma (main.js: 1 = gamma 0.75 on the grade), 0.6..2
   timeFlow: 'normal',       // the day goes by: 'off' | 'slow' (a day in 48 min) | 'normal' (24 min) | 'fast' (8 min)
   muted: false,
@@ -66,6 +67,7 @@ const CHOICES = {
   timeFlow: ['off', 'slow', 'normal', 'fast'],
   weather: ['fair', 'changing', 'rain'],
   fog: ['off', 'light', 'normal', 'thick'],
+  dof: ['off', 'soft', 'strong'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],

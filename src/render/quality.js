@@ -101,6 +101,9 @@ export const FOG = {
   ultra: { scale: 0.33, steps: 28 },
 };
 
+// Depth of field per level (render/pipeline.js): most taps of the half-res gather; it follows the clouds' level.
+export const DOF = { off: 0, low: 0, medium: 24, high: 48, ultra: 80 };
+
 // Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
 // one switches to 'custom', which reads them back.
 export function presetToGfx(q) {

@@ -211,8 +211,67 @@ void main() {
     + texture2D(tClouds, vUv + vec2(-o.x, o.y)) + texture2D(tClouds, vUv + vec2(o.x, o.y)));
 }`;
 
+// Depth of field: the far field only (the land softens away from the camera; nothing near the truck blurs). The
+// circle of confusion grows from nothing at uDof.y metres towards uDof.x full-res pixels (radius) far away.
+const DOF_COC_GLSL = /* glsl */`
+uniform vec4 uDof;   // x: largest blur radius (full-res px), y: where the blur starts (m), z: how slowly it grows (m), w: on
+float dofCoc(float d) {
+  if (d >= 0.99999) return uDof.x;
+  float z = fogLinZ(d);
+  return uDof.x * clamp((z - uDof.y) / (z + uDof.z), 0.0, 1.0);
+}`;
+// Half resolution: the scene as the composite will see it before exposure (AO, volumetric fog), its blur radius in
+// half-res px in alpha. Each 2x2 block is averaged weighted by blur: a sharp texel must not leak its colour into
+// the blurred land behind it. The scene's alpha is the share of a pixel showing the depth buffer's surface: rain and
+// the life's sprites write no depth but lower it (their blending), and stay sharp.
+const DOF_PRE_FRAG = /* glsl */`
+uniform sampler2D tScene, tDepth, tAO;
+uniform float uAOOn;
+varying vec2 vUv;
+${FOG_APPLY_GLSL}
+${DOF_COC_GLSL}
+void main() {
+  ivec2 base = ivec2(gl_FragCoord.xy) * 2, lim = textureSize(tScene, 0) - 1;
+  vec3 sum = vec3(0.0); float ws = 0.0, cmax = 0.0; ivec2 best = base;
+  for (int i = 0; i < 4; i++) {
+    ivec2 q = min(base + ivec2(i & 1, i >> 1), lim);
+    vec4 sc = texelFetch(tScene, q, 0);
+    float coc = dofCoc(texelFetch(tDepth, q, 0).r) * smoothstep(0.9, 1.0, sc.a), w = coc + 0.05;
+    sum += sc.rgb * w; ws += w;
+    if (coc > cmax) { cmax = coc; best = q; }
+  }
+  vec3 c = sum / ws;
+  if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
+  if (uFogOn > 0.5) { vec4 f = fogAt((vec2(best) + 0.5) / vec2(lim + 1), tDepth); c = c * f.a + f.rgb; }
+  gl_FragColor = vec4(c, cmax * 0.5);
+}`;
+// Scatter as gather on a Vogel spiral: a texel counts where its own blur reaches this one, so the blurred land
+// never takes colour from the sharp things in front of it, and a blurred crown still spreads over the sky.
+const DOF_GATHER_FRAG = /* glsl */`
+uniform sampler2D tSrc;
+uniform vec2 uTexel;
+uniform float uMaxTaps;
+varying vec2 vUv;
+void main() {
+  vec4 c0 = texture2D(tSrc, vUv);
+  float R = c0.a;
+  if (R < 0.5) { gl_FragColor = c0; return; }
+  float n = clamp(floor(R * R * 2.0), 8.0, uMaxTaps);
+  vec3 sum = c0.rgb; float ws = 1.0;
+  for (int i = 0; i < 96; i++) {
+    float fi = float(i);
+    if (fi >= n) break;
+    float r = R * sqrt((fi + 0.5) / n), a = fi * 2.39996323;
+    vec4 s = texture2D(tSrc, vUv + vec2(cos(a), sin(a)) * r * uTexel);
+    float w = clamp(s.a - r + 1.0, 0.0, 1.0);
+    sum += s.rgb * w; ws += w;
+  }
+  gl_FragColor = vec4(sum / ws, R);
+}`;
+
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth;
+uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth, tDof;
+uniform vec2 uDofTexel;
 uniform vec3 uShaftCol, uBowCol;
 uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
 uniform mat4 uProjInv;
@@ -222,6 +281,21 @@ uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
 varying vec2 vUv;
 ${FOG_APPLY_GLSL}
+${DOF_COC_GLSL}
+// the half-res blur brought back to full res, each texel weighted by how close its blur is to this pixel's: at a
+// sharp edge the blurred side never takes the sharp side's colour
+vec3 dofAt(float coc) {
+  vec2 q = vUv / uDofTexel - 0.5, f = fract(q), b = (floor(q) + 0.5) * uDofTexel;
+  float h = coc * 0.5;
+  vec3 s = vec3(0.0); float ws = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 o = vec2(float(i & 1), float(i >> 1));
+    vec4 d = texture2D(tDof, b + o * uDofTexel);
+    float w = (o.x > 0.0 ? f.x : 1.0 - f.x) * (o.y > 0.0 ? f.y : 1.0 - f.y) / (0.2 + abs(d.a - h)) + 1e-5;
+    s += d.rgb * w; ws += w;
+  }
+  return s / ws;
+}
 vec3 neutral(vec3 color) {
   const float StartCompression = 0.8 - 0.04;
   const float Desaturation = 0.15;
@@ -288,10 +362,15 @@ vec3 rainbow(float th) {
 }
 void main() {
   float ex = texture2D(tExposure, vec2(0.5)).r;
-  vec3 c = texture2D(tScene, vUv).rgb;
+  vec4 sc = texture2D(tScene, vUv);
+  vec3 c = sc.rgb;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   // volumetric fog (volumetricFog.js): the scene seen through it, plus the light it scatters towards us
   if (uFogOn > 0.5) { vec4 f = fogAt(vUv, tDepth); c = c * f.a + f.rgb; }
+  if (uDof.w > 0.5) {
+    float coc = dofCoc(texture2D(tDepth, vUv).r), t = smoothstep(0.6, 2.4, coc) * smoothstep(0.9, 1.0, sc.a);
+    if (t > 0.0) c = mix(c, dofAt(coc), t);
+  }
   c *= ex;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
@@ -361,6 +440,9 @@ export class RenderPipeline {
       shaftDir: new THREE.Vector3(0, 1, 0), shaftCol: new THREE.Vector3(),
       // rainbow: xyz away from the sun, w strength (0: off); its light (the sun's colour x strength)
       bow: new THREE.Vector4(0, -1, 0, 0), bowCol: new THREE.Vector3(),
+      // depth of field (far field): strength (0: off; 1 = a blur radius of 0.6 % of the picture's height far away),
+      // where it starts (m), how slowly it grows with distance (m)
+      dof: 0, dofStart: 60, dofRoll: 400,
     };
     this.time = 0;
     this.resetExposure = true;
@@ -379,6 +461,8 @@ export class RenderPipeline {
     this.lum = new THREE.WebGLRenderTarget(128, 128, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
     this.adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false }));
     this.adaptIdx = 0;
+    this.dofTaps = 0;   // most taps of the depth-of-field gather (0: no depth of field at this quality)
+    this.dofRT = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { ...hf }));
 
     this.downMat = mat(DOWN_FRAG, { tSrc: { value: null }, tExposure: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1 }, uKnee: { value: 0.5 }, uFirst: { value: 0 }, uMaxBright: { value: 60 } });
     this.upMat = mat(UP_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uRadius: { value: 1 } },
@@ -417,10 +501,18 @@ export class RenderPipeline {
     Object.assign(this.compMat.uniforms, { tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uFogOn: { value: 0 } });
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
+    const dofU = { value: new THREE.Vector4() };
+    this.dofPreMat = mat(DOF_PRE_FRAG, {
+      tScene: { value: this.hdr.texture }, tDepth: { value: this.hdr.depthTexture }, tAO: { value: this.ao[1].texture }, uAOOn: { value: 0 },
+      tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: this.compMat.uniforms.uNearFar, uFogOn: { value: 0 }, uDof: dofU,
+    });
+    this.dofGatherMat = mat(DOF_GATHER_FRAG, { tSrc: { value: this.dofRT[0].texture }, uTexel: { value: new THREE.Vector2() }, uMaxTaps: { value: 48 } });
+    Object.assign(this.compMat.uniforms, { tDof: { value: this.dofRT[1].texture }, uDofTexel: { value: new THREE.Vector2() }, uDof: dofU });
     this.gpuTimer = null;
   }
 
-  configure({ msaa, fxaa, ssao }) {
+  configure({ msaa, fxaa, ssao, dofTaps }) {
+    if (dofTaps !== undefined) this.dofTaps = dofTaps;
     if (ssao !== undefined && ssao !== this.ssao) {
       this.ssao = ssao;
       const n = ssao === 'high' ? 16 : 8;
@@ -446,6 +538,7 @@ export class RenderPipeline {
     for (const m of this.mistMips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
     for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     for (const t of this.shafts) t.setSize(Math.ceil(w / 4), Math.ceil(h / 4));
+    for (const t of this.dofRT) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     this.clouds?.setSize(w, h);
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
@@ -594,13 +687,30 @@ export class RenderPipeline {
       r.autoClear = true;
     }
 
-    // ---- composite (+ FXAA)
+    // ---- depth of field (half resolution): the scene with its AO and fog, then the far blur gathered
     const cu = this.compMat.uniforms;
+    cu.uNearFar.value.set(this.camera.near, this.camera.far);
+    const dofOn = this.dofTaps > 0 && P.dof > 0;
+    cu.uDof.value.set(P.dof * 0.006 * this.height, P.dofStart, P.dofRoll, dofOn ? 1 : 0);
+    if (dofOn) {
+      const pu = this.dofPreMat.uniforms;
+      pu.uAOOn.value = aoOn ? 1 : 0;
+      pu.uFogOn.value = fogOn ? 1 : 0;
+      if (fogOn) { pu.tFog.value = this.fog.texture; pu.uFogSize.value.set(this.fog.width, this.fog.height); }
+      this.pass(this.dofPreMat, this.dofRT[0]);
+      const gu = this.dofGatherMat.uniforms;
+      gu.uTexel.value.set(1 / this.dofRT[0].width, 1 / this.dofRT[0].height);
+      gu.uMaxTaps.value = this.dofTaps;
+      this.pass(this.dofGatherMat, this.dofRT[1]);
+      cu.uDofTexel.value.copy(gu.uTexel.value);
+    }
+
+    // ---- composite (+ FXAA)
     cu.tExposure.value = exposureTex;
     cu.uBloomOn.value = P.bloom && P.bloomStrength > 0 ? 1 : 0;
     cu.uAOOn.value = aoOn ? 1 : 0;
     cu.uFogOn.value = fogOn ? 1 : 0;
-    if (fogOn) { cu.tFog.value = this.fog.texture; cu.uFogSize.value.set(this.fog.width, this.fog.height); cu.uNearFar.value.set(this.camera.near, this.camera.far); }
+    if (fogOn) { cu.tFog.value = this.fog.texture; cu.uFogSize.value.set(this.fog.width, this.fog.height); }
     cu.uBloom.value = P.bloomStrength;
     cu.uMist.value = mistOn ? P.mist : 0;
     cu.uBow.value.copy(P.bow); cu.uBowCol.value.copy(P.bowCol);
@@ -620,6 +730,6 @@ export class RenderPipeline {
   }
 
   dispose() {
-    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt, ...this.ao, ...this.shafts]) t.dispose();
+    for (const t of [this.hdr, this.ldr, this.lum, ...this.mips, ...this.adapt, ...this.ao, ...this.shafts, ...this.dofRT]) t.dispose();
   }
 }

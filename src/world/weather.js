@@ -153,7 +153,10 @@ export class Weather {
     g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds(this.maxDrops, rnd), 4));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-    const blend = { transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor };
+    // alpha: the share of the pixel still showing the depth buffer's surface (render/pipeline.js depth of field: the
+    // drops stay sharp in front of the blurred far land)
+    const blend = { transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor };
     this.drops = new THREE.Mesh(g, new THREE.ShaderMaterial({
       vertexShader: RAIN_VERT, fragmentShader: RAIN_FRAG, side: THREE.DoubleSide, ...blend,
       uniforms: { ...this.shared, uBox: { value: 36 }, uTop: { value: 22 } },

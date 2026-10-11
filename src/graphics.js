@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { QUALITY, SHADOWS, CLOUDS, FOG, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
+import { QUALITY, SHADOWS, CLOUDS, FOG, DOF, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 import { storage } from './settings.js';
 
 // Graphics settings -> renderer: the preset or Custom values, resolution, dynamic resolution (Mobile) and Auto
@@ -26,7 +26,7 @@ export function createGraphics(ctx) {
     }
     q = { ...q, vegetation: settings.get('gVeg') !== 'off' };
     gfx.q = q;
-    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao });
+    pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao, dofTaps: DOF[q.clouds] ?? 0 });
     pipeline.params.bloom = q.bloom !== false;
     applyResolution();
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;

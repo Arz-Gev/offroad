@@ -191,6 +191,9 @@ async function main() {
   env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
+  // depth of field: off in the gunner's sight (the targets are far away)
+  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2 };
+  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; game.redraw = 3; };
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -211,6 +214,7 @@ async function main() {
     camera(v, o) {
       if (!camModes.includes(v)) v = 'chase';   // gunner's sight on a car without a turret
       rig.setMode(v);
+      applyDof();
       if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
       if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
     },
@@ -223,6 +227,7 @@ async function main() {
     },
     // 100% is a gamma of 0.75 on the graded picture: the player found the grade a little light and picked that
     brightness(v) { pipeline.params.gamma = v * 0.75; game.redraw = 3; },
+    dof(v, o) { applyDof(); if (!o.silent) say('dof', { off: 'Depth of field off', soft: 'Depth of field: soft', strong: 'Depth of field: strong' }[v]); },
     fog(v, o) { env.setFogAmount(v); game.redraw = 3; if (!o.silent) say('fog', { off: 'No fog', light: 'Light fog', normal: 'Fog: normal', thick: 'Thick fog' }[v]); },
     weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },

@@ -311,6 +311,8 @@ export function buildLife(terrainView, env, trees) {
     const m = new THREE.ShaderMaterial({
       vertexShader: vert, fragmentShader: SPRITE_FRAG, uniforms: { ...shared, uBox: { value: box }, ...extra },
       transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      // alpha: what the sprites cover, so the depth of field keeps them sharp (render/pipeline.js)
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     });
     const p = new THREE.Points(g, m);
     p.frustumCulled = false; p.renderOrder = 2;
