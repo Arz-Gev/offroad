@@ -101,6 +101,9 @@ for (const k of KEYS) {
 }
 
 // monotone cubic (Fritsch–Carlson) through the keys, periodic in 24 h
+// the setting `fog`: the volumetric fog's density against the keys' `vfog` (normal: a little lighter than they are)
+const FOG_AMOUNT = { off: 0, light: 0.45, normal: 0.8, thick: 1.4 };
+
 const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'vista', 'fogMax', 'env',
   'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
@@ -149,7 +152,8 @@ export class Environment {
     this.clouds = new Clouds(renderer, this.sky);   // volumetric (the quality level turns them on)
     this.clouds.enabled = false;
     if (pipeline) pipeline.clouds = this.clouds;
-    this.fog = new VolumetricFog(renderer, this.clouds.noise.texture);   // the quality level turns it on
+    this.fog = new VolumetricFog(renderer, this.clouds.noise.texture);   // the quality level and the setting turn it on
+    this.fogAmount = FOG_AMOUNT.normal; this.fogQ = null;
     if (pipeline) pipeline.fog = this.fog;
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
@@ -225,8 +229,17 @@ export class Environment {
 
   // q: FOG[level] (render/quality.js) or null: the analytic fog only
   setFogQuality(q) {
-    this.fog.enabled = !!q;
+    this.fogQ = q;
+    this.fog.enabled = !!q && this.fogAmount > 0;
     if (q) { this.fog.scale = q.scale; this.fog.steps = q.steps; this.fog.reset = true; }
+  }
+
+  // the setting `fog` (FOG_AMOUNT): a multiplier on the volumetric fog's density; off skips the pass
+  setFogAmount(name) {
+    this.fogAmount = FOG_AMOUNT[name] ?? FOG_AMOUNT.normal;
+    this.fog.enabled = !!this.fogQ && this.fogAmount > 0;
+    this.fog.reset = true;
+    this.dirty = true;
   }
 
   // apply a pending hour change right away (otherwise it happens in the next update())
@@ -323,7 +336,7 @@ export class Environment {
     ATMO.atmoVista.x = c.vista;
     // volumetric fog: the haze in the low ground, lit through the shadows; in shade it takes the horizon's colour
     const F = this.fog.params;
-    F.density = c.vfog; F.falloff = 0.022; F.floor = 0;
+    F.density = c.vfog * this.fogAmount; F.falloff = 0.022; F.floor = 0;
     const sl = 0.2126 * side[0] + 0.7152 * side[1] + 0.0722 * side[2];
     F.amb.set(side[0] + (sl - side[0]) * 0.4, side[1] + (sl - side[1]) * 0.4, side[2] + (sl - side[2]) * 0.4).multiplyScalar(0.75);
     this.scene.fog.density = c.fogD;
