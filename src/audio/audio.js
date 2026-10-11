@@ -1,4 +1,7 @@
-// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine, rain.
+import { Ambience } from './ambience.js';
+
+// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine, rain; the birds and
+// crickets (ambience.js).
 // No suspension / impact sound on purpose: see DEVNOTES.md "Impact sounds" before adding one.
 // Started on the first user gesture.
 
@@ -71,6 +74,8 @@ export class GameAudio {
     this.whineGain = ctx.createGain(); this.whineGain.gain.value = 0;
     this.whine.connect(this.whineGain).connect(master);
     this.whine.start();
+    this.ambience = new Ambience(ctx, master);
+    this.ambience.load(import.meta.env.BASE_URL);
     this.ready = true;
   }
 
@@ -155,6 +160,7 @@ export class GameAudio {
     this.mud.g.gain.setTargetAtTime(m * 0.1 * Math.min(1, mud), t, 0.05);
     this.wind.g.gain.setTargetAtTime(m * amb * Math.min(0.35, speed * speed * 0.00025), t, 0.1);
     this.wind.f.frequency.setTargetAtTime(300 + speed * 30, t, 0.2);
+    if (opts.amb) this.ambience.update(dt, { ...opts.amb, inside });
     const rain = opts.rain || 0, R = this.rainSnd;
     R.g.gain.setTargetAtTime(m * rain * (inside ? 0.14 : 0.09), t, 0.3);
     R.hp.frequency.setTargetAtTime(inside ? 220 : 700, t, 0.1);

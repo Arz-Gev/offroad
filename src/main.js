@@ -491,7 +491,7 @@ async function main() {
     if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);
     audio.listener = camera.position;
     mark('dust');
-    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit', rain: weather.rain });
+    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit', rain: weather.rain, amb: { dark: env.darkness, hour: env.hour, rain: weather.rain } });
     mark('audio');
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
