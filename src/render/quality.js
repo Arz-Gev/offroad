@@ -1,6 +1,6 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
-// Rough frame times on an M1 Pro (visible Chrome window 1728x996 @2, meadow / forest / trail drive): low 3 / 5 / 4 ms,
-// medium 5 / 8 / 6, high 9 / 14 / 10, ultra 11 / 15 / 11.
+// Rough frame times on an M1 Pro (visible Chrome window 1728x908 @2, meadow / forest / trail drive): low 4 / 6 / 5 ms,
+// medium 6.5 / 9 / 7, high 11 / 15 / 12, ultra 13 / 17 / 14.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.

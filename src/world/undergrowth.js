@@ -11,6 +11,16 @@ import { NO_FLIP_NORMAL } from './trees.js';
 const HALF = MAP_SIZE / 2;
 const TILES = 6;
 
+// The flower fields as plants reach FIELD_RADIUS at most (further out a lavender plant is a few pixels, and at the
+// presets' bush distance, ~150 m, the two fields alone drew 240k plants); beyond, their colour rides on the grass
+// tips (grass.js reads FIELDS: the same drift noise, faded in where the plants shrink away).
+const FIELD_RADIUS = 80;
+export const FIELDS = {
+  far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
+  lavender: { value: new THREE.Vector4(0.95, 260, 0.6, 0.17) },   // weight, patch size (m), threshold, seed
+  poppy: { value: new THREE.Vector4(0.9, 190, 0.62, 0.61) },
+};
+
 const PARS = /* glsl */`
 uniform highp sampler2D tHeight;
 uniform sampler2D tSplat, tData, tNoise;
@@ -138,8 +148,8 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
-    makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], [0.95, 260, 0.6, 0.17]),
-    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], [0.9, 190, 0.62, 0.61]),
+    makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
+    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();
@@ -153,7 +163,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       group.visible = enabled;
       if (!enabled) return;
       for (const K of kinds) {
-        const r = K.baseRadius * dist;
+        const r = Math.min(K.baseRadius * dist, K.uniforms.uField.value.x > 0 ? FIELD_RADIUS : Infinity);
         K.radius = r;
         K.spacing = K.baseSpacing / Math.sqrt(dens);
         K.k = Math.ceil(r * 2 / K.spacing / TILES);

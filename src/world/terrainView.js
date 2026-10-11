@@ -373,7 +373,8 @@ vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
   c *= 1.0 - gWet * 0.35;
   gRough = mix(nn.b, 0.55, gWet);
   // rain (uWet): puddles in the flat dirt and mud, dark and mirror smooth
-  float pud = uWet * smoothstep(0.45, 0.85, wDirt + wMud) * smoothstep(0.1, 0.03, slope) * (1.0 - wRock)
+  float pud = 0.0;
+  if (uWet > 0.0) pud = uWet * smoothstep(0.45, 0.85, wDirt + wMud) * smoothstep(0.1, 0.03, slope) * (1.0 - wRock)
             * smoothstep(0.62, 0.7, texture2D(tNoise, p.xz / 4.5 + 0.71).b + (0.5 - mac2) * 0.2) * (1.0 - smoothstep(80.0, 220.0, dist));
   c *= 1.0 - 0.3 * pud;
   gRough = mix(gRough, 0.03, pud);
@@ -394,7 +395,8 @@ vec3 nonPerturbedNormal = normal;`)
 reflectedLight.indirectDiffuse *= gAO;
 reflectedLight.indirectSpecular *= gAO;`);
   };
-  material.customProgramCacheKey = () => 'terrain-cdlod-v1';
+  material.defines = { ...material.defines, CLOUD_TIGHT: '' };   // at the 16-texture limit with the lamps' cookies (clouds.js)
+  material.customProgramCacheKey = () => 'terrain-cdlod-v2';
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;

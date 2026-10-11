@@ -13,25 +13,60 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 export const BASE = 1500, TOP = 3300;
 
+// The coverage noise: four octaves of smooth value noise summed into one tileable texture, made once. Every
+// lit pixel (cloud shadows) and every raymarch step reads it once; computed in the shader it cost 16 hashes a
+// call (~0.5 ms of cloud shadows at 2592x1362 on an M1 Pro, and most of the march). A DataTexture: the clone
+// each material gets of it shares the source, so one GPU texture.
+const NOISE_CELLS = 32;   // cells of the coarsest octave across the texture (one cell = 2400 m)
+function makeCoverNoise(N = 512) {
+  let seed = 4242;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const sum = new Float32Array(N * N);
+  const W = [0.54, 0.27, 0.13, 0.06];
+  for (let o = 0; o < 4; o++) {
+    const C = NOISE_CELLS << o, lat = new Float32Array(C * C);
+    for (let i = 0; i < lat.length; i++) lat[i] = rnd();
+    for (let y = 0; y < N; y++) {
+      const fy = y / N * C, iy = Math.floor(fy), ty = fy - iy, sy = ty * ty * (3 - 2 * ty), y0 = iy % C, y1 = (iy + 1) % C;
+      for (let x = 0; x < N; x++) {
+        const fx = x / N * C, ix = Math.floor(fx), tx = fx - ix, sx = tx * tx * (3 - 2 * tx), x0 = ix % C, x1 = (ix + 1) % C;
+        const a = lat[y0 * C + x0] + (lat[y0 * C + x1] - lat[y0 * C + x0]) * sx;
+        const b = lat[y1 * C + x0] + (lat[y1 * C + x1] - lat[y1 * C + x0]) * sx;
+        sum[y * N + x] += (a + (b - a) * sy) * W[o];
+      }
+    }
+  }
+  const data = new Uint16Array(N * N);
+  for (let i = 0; i < data.length; i++) data[i] = THREE.DataUtils.toHalfFloat(sum[i]);
+  const t = new THREE.DataTexture(data, N, N, THREE.RedFormat, THREE.HalfFloatType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+
 // shared plain-object uniforms (UniformsUtils.clone keeps plain objects by reference: one write reaches every
 // material): xy wind offset (m), z coverage 0..1, w cloud-shadow strength; sun: xyz towards the sun, w mid height
 export const CLOUD = {
   map: { x: 0, y: 0, z: 0.45, w: 0.0 },
   sun: { x: 0, y: 1, z: 0, w: (BASE + TOP) / 2 },
+  noise: makeCoverNoise(),
 };
 
 export const CLOUD_GLSL = /* glsl */`
 uniform vec4 uCloudMap;
 uniform vec4 uCloudSun;
 float cHash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float cNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(cHash(i), cHash(i + vec2(1.0, 0.0)), f.x), mix(cHash(i + vec2(0.0, 1.0)), cHash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
+#if defined( CLOUD_TIGHT ) && NUM_SPOT_LIGHT_MAPS > 0
+// a material at the 16-texture limit (the terrain with the headlamps' cookies, i.e. at night, when there are no
+// cloud shadows anyway) does without
+float cloudShadow(vec3 p) { return 1.0; }
+#else
+uniform sampler2D tCloudNoise;
 // cloud coverage over a world xz (m): 0 clear sky .. 1 a thick cloud
 float cloudCover(vec2 xz) {
-  vec2 p = (xz + uCloudMap.xy) / 2400.0;
-  float n = cNoise(p) * 0.54 + cNoise(p * 2.07 + 1.7) * 0.27 + cNoise(p * 4.13 + 3.1) * 0.13 + cNoise(p * 8.3 + 5.3) * 0.06;
+  float n = textureLod(tCloudNoise, (xz + uCloudMap.xy) / ${(2400 * NOISE_CELLS).toFixed(1)}, 0.0).r;
   return smoothstep(1.0 - uCloudMap.z, 1.0 - uCloudMap.z + 0.22, n);
 }
 // sunlight left after the clouds above a world point (soft: the shadow of the coverage, not of every puff)
@@ -40,10 +75,11 @@ float cloudShadow(vec3 p) {
   vec2 q = p.xz + uCloudSun.xz / max(uCloudSun.y, 0.12) * max(uCloudSun.w - p.y, 0.0);
   return 1.0 - uCloudMap.w * smoothstep(0.02, 0.5, cloudCover(q));
 }
+#endif
 `;
 
 export function cloudUniforms() {
-  return { uCloudMap: { value: CLOUD.map }, uCloudSun: { value: CLOUD.sun } };
+  return { uCloudMap: { value: CLOUD.map }, uCloudSun: { value: CLOUD.sun }, tCloudNoise: { value: CLOUD.noise } };
 }
 
 // ---- 3D noise, made on the GPU slice by slice: r Perlin-Worley (shape), g / b / a Worley at 3 scales (detail)

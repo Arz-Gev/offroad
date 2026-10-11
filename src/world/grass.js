@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
+import { FIELDS } from './undergrowth.js';
 
 // GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
 // blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
@@ -83,6 +84,8 @@ uniform sampler2D tSplat, tData, tNoise, tTrack;
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing (m), unused
 uniform vec4 uLod;      // log2(cells per tile side), unused, grass distance (m), flower chance
+uniform vec2 uFieldFar;  // undergrowth.js FIELDS
+uniform vec4 uFieldLav, uFieldPop;
 uniform vec2 uRad;      // fade out start, end (m)
 uniform vec4 uCurve[65];  // per sampled distance (CURVE_N + 1): share of the grid drawn, height (m), width (m)
 uniform vec4 uWind;     // dir x, dir z, strength, time
@@ -128,6 +131,7 @@ export function buildGrass(terrainView, opts = {}) {
     ...shared,
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
     uLod: { value: new THREE.Vector4(8, 1, 100, 0.035) },
+    uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy,
     uRad: { value: new THREE.Vector2(72, 100) },
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
   };
@@ -165,7 +169,8 @@ float keep = cv.x;
 float rank = (float(gi) + 0.5) / (gk * gk);
 float fade = (1.0 - smoothstep(uRad.x, uRad.y, dCam)) * clamp((keep * 1.35 - rank) / (keep * 0.35), 0.0, 1.0);
 // density (precomputed: grass surfaces, slope, clearings, canopy) -- most culled blades stop here
-float dens = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).a;
+vec4 gdv = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);
+float dens = gdv.a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
@@ -182,6 +187,17 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   float track = textureLod(tTrack, (bxz - uTrackP.xy) / uTrackP.z + 0.5, 0.0).r;
   float tall = 0.45 + 0.95 * nz.g * nz.g;
   float flower = step(hC.x, uLod.w * smoothstep(12.0, 30.0, dCam)) * step(0.5, nz.b + 0.2);
+  // far away, the flower fields (undergrowth.js FIELDS: too small to draw as plants there) ride on the grass tips
+  vec3 fieldHead = vec3(-1.0);
+  float ff = smoothstep(uFieldFar.x, uFieldFar.y, dCam);
+  if (ff > 0.0) {
+    float fk = smoothstep(0.15, 0.5, dens) * (1.0 - smoothstep(0.25, 0.75, gdv.g)) * ff;
+    vec4 fl = textureLod(tNoise, bxz / uFieldLav.y + uFieldLav.w, 0.0), fp = textureLod(tNoise, bxz / uFieldPop.y + uFieldPop.w, 0.0);
+    float lav = uFieldLav.x * smoothstep(uFieldLav.z, uFieldLav.z + 0.1, fl.r * 0.7 + fl.g * 0.3) * fk;
+    float pop = uFieldPop.x * smoothstep(uFieldPop.z, uFieldPop.z + 0.1, fp.r * 0.7 + fp.g * 0.3) * fk;
+    if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.34, 0.2, 0.72); }
+    else if (hC.x < (lav + pop) * 0.85) { flower = 1.0; fieldHead = vec3(0.8, 0.07, 0.03); }
+  }
   float hD = cv.y, wD = cv.z;   // the height and width curves at this distance
   float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (flower > 0.5 ? 0.8 : 1.0);
   float wd = wD * (0.7 + 0.6 * hC.y) * fade;
@@ -218,6 +234,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   float fc = fract(hC.y * 7.0);
   vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.32 ? vec3(0.8, 0.8, 0.75) : fc < 0.55 ? vec3(0.85, 0.62, 0.05) : fc < 0.72 ? vec3(0.42, 0.2, 0.6)
     : fc < 0.86 ? vec3(0.85, 0.42, 0.58) : vec3(0.3, 0.42, 0.9);
+  if (fieldHead.r >= 0.0) head = fieldHead;
   // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
   // below and above it (the tip: side 0)
   float segs = dCam < ${CLOSE.toFixed(1)} ? 4.0 : dCam < ${NEAR.toFixed(1)} ? 2.0 : 1.0;
@@ -267,7 +284,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v3';
+  mat.customProgramCacheKey = () => 'grass-v4';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];
