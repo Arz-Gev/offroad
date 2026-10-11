@@ -192,8 +192,8 @@ async function main() {
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   // depth of field: off in the gunner's sight (the targets are far away)
-  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2 };
-  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; game.redraw = 3; };
+  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2, miniature: 1.6 };
+  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; pipeline.params.dofMini = settings.get('dof') === 'miniature'; game.redraw = 3; };
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -227,7 +227,7 @@ async function main() {
     },
     // 100% is a gamma of 0.75 on the graded picture: the player found the grade a little light and picked that
     brightness(v) { pipeline.params.gamma = v * 0.75; game.redraw = 3; },
-    dof(v, o) { applyDof(); if (!o.silent) say('dof', { off: 'Depth of field off', soft: 'Depth of field: soft', strong: 'Depth of field: strong' }[v]); },
+    dof(v, o) { applyDof(); if (!o.silent) say('dof', { off: 'Depth of field off', soft: 'Depth of field: soft', strong: 'Depth of field: strong', miniature: 'Depth of field: miniature (focus on the truck)' }[v]); },
     fog(v, o) { env.setFogAmount(v); game.redraw = 3; if (!o.silent) say('fog', { off: 'No fog', light: 'Light fog', normal: 'Fog: normal', thick: 'Thick fog' }[v]); },
     weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
@@ -490,6 +490,7 @@ async function main() {
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
+      pipeline.params.dofFocus = camera.position.distanceTo(rPos);   // the miniature depth of field focuses on the truck
       mp.updateTags(camera);
       env.update(dt, rPos, camera);
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));

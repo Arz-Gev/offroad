@@ -67,7 +67,7 @@ const CHOICES = {
   timeFlow: ['off', 'slow', 'normal', 'fast'],
   weather: ['fair', 'changing', 'rain'],
   fog: ['off', 'light', 'normal', 'thick'],
-  dof: ['off', 'soft', 'strong'],
+  dof: ['off', 'soft', 'strong', 'miniature'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
