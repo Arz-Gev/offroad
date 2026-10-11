@@ -537,7 +537,12 @@ async function main() {
     ls.head = 1; ls.aux = model.lights.aux.length > 0;
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
+    // what only shows at some hours or in some weather (rain, fireflies, ...) compiles now too, not when it first
+    // appears (compile skips hidden objects); their update() sets the visibility again on the next tick
+    const shown = [];
+    for (const g of [weather.group, life.group]) g.traverse(o => { shown.push([o, o.visible]); o.visible = true; });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
+    for (const [o, v] of shown) o.visible = v;
     // the eye-adaptation pass only runs at dusk and night: compile it now
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
