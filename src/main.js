@@ -192,8 +192,11 @@ async function main() {
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   // depth of field: off in the gunner's sight (the targets are far away)
+  // miniature strength levels: [largest blur, how fast it grows away from the truck]
+  const MINI_LEVELS = { 1: [2, 4], 2: [3, 6], 3: [4.5, 9], 4: [6, 14] };
   const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2, miniature: 2.0 };
-  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; pipeline.params.dofMini = settings.get('dof') === 'miniature'; game.redraw = 3; };
+  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; pipeline.params.dofMini = settings.get('dof') === 'miniature';
+    if (pipeline.params.dofMini) { const L = MINI_LEVELS[settings.get('miniBlur')] ?? MINI_LEVELS[2]; pipeline.params.dof = rig.mode === 'gunner' ? 0 : L[0]; pipeline.params.dofMiniSlope = L[1]; } game.redraw = 3; };
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -227,6 +230,7 @@ async function main() {
     },
     // 100% is a gamma of 0.75 on the graded picture: the player found the grade a little light and picked that
     brightness(v) { pipeline.params.gamma = v * 0.75; game.redraw = 3; },
+    miniBlur(v, o) { applyDof(); if (!o.silent) say('miniBlur', 'Miniature blur: ' + ['', 'light', 'medium', 'strong', 'extreme'][v]); },
     dof(v, o) { applyDof(); if (!o.silent) say('dof', { off: 'Depth of field off', soft: 'Depth of field: soft', strong: 'Depth of field: strong', miniature: 'Depth of field: miniature (focus on the truck)' }[v]); },
     fog(v, o) { env.setFogAmount(v); game.redraw = 3; if (!o.silent) say('fog', { off: 'No fog', light: 'Light fog', normal: 'Fog: normal', thick: 'Thick fog' }[v]); },
     weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
