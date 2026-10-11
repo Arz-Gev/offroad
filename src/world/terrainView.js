@@ -584,13 +584,16 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain
   float north = clamp(-dot(hn.xz, SUN_SIDE), 0.0, 1.0) * steep;
   vec4 mn = textureGrad(tNoise, p.xz / 5.3 + p.y * 0.07, gDx / 5.3, gDy / 5.3);
-  float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav) * 0.25 + sa.g * 0.3 + uWet * 0.2
-    + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
+  // (sunny tops get lichen, not moss)
+  float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.35 + (1.0 - cav) * 0.25 + sa.g * 0.3 + uWet * 0.2
+    + smoothstep(0.75, 1.0, kind) * 0.25 - clamp(dot(n0.xz, SUN_SIDE) * 2.0, 0.0, 1.0) * 0.25 - 0.62;
   moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (ma.a - 0.5) * 0.3);
-  vec3 mossCol = mix(vec3(0.045, 0.09, 0.018), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);
+  // cushions: darker in the gaps between them, olive to deep green, a little brighter when wet
+  float cush = textureGrad(tNoise, p.xz / 0.9 + p.y * 0.37, gDx / 0.9, gDy / 0.9).a;
+  vec3 mossCol = mix(vec3(0.03, 0.06, 0.014), vec3(0.085, 0.11, 0.028), mn.g) * (0.55 + 0.75 * cush) * (1.0 + 0.3 * uWet);
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
-  nW = normalize(mix(nW, n0, moss * 0.5));
+  nW = normalize(mix(nW, n0, moss * 0.25));
 }`)
       .replace('#include <map_fragment>', `
 {
