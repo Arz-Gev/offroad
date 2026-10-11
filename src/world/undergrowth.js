@@ -92,7 +92,8 @@ float inMap = step(max(abs(pxz.x), abs(pxz.y)), uMap.x - 2.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vec3 uPos = vec3(0.0, -1e4, 0.0);
 if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
-  float sc = mix(uShape.x, uShape.y, hB.y) * (0.15 + 0.85 * shrink);
+  // (shrinking to nothing at the radius: they used to stop at 15 % and vanish)
+  float sc = mix(uShape.x, uShape.y, hB.y) * (0.15 + 0.85 * shrink) * smoothstep(0.0, 0.2, shrink);
   float yaw = hA.x * 6.2831853 + hB.y * 3.1;
   float c = cos(yaw), s = sin(yaw);
   mat2 R = mat2(c, -s, s, c);

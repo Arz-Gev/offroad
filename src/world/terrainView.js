@@ -253,7 +253,9 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
       const slope = Math.hypot(h(x + 1, z) - h(x - 1, z), h(x, z + 1) - h(x, z - 1)) / 2;
       const wx = -HALF + x, wz = -HALF + z;
       const c = fbm(clr, wx * 0.035, wz * 0.035, 3) + 0.5 * fbm(clr, wx * 0.11 + 7, wz * 0.11, 2);
-      let d = Math.max(0, Math.min(1, 1 - other * 2.5));
+      // ragged edges where the grass meets bare ground (tufts out into it, bites into the grass), not a clean line
+      const rag = fbm(clr, wx * 0.45 + 11, wz * 0.45, 2);
+      let d = Math.max(0, Math.min(1, 1 - (other + rag * 0.45) * 2.5));
       // a strip of grass between the wheel ruts, broken where the trail is busier
       const td = terrain.trailDist[ix * NN + iz];
       if (td < 0.5) d = Math.max(d, (1 - td / 0.5) * 0.75 * Math.max(0, Math.min(1, (fbm(clr, wx * 0.07 + 3, wz * 0.07, 2) + 0.2) / 0.3)));
