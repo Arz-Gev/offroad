@@ -7,6 +7,7 @@ import { NO_FLIP_NORMAL } from './trees.js';
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
 // wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
 // of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive but do not cast shadows (cheap).
+// Tufts and ferns also grow on rock (uRock), more where the land data says it stays damp.
 
 const HALF = MAP_SIZE / 2;
 const TILES = 6;
@@ -23,7 +24,8 @@ export const FIELDS = {
 
 const PARS = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tNoise;
+uniform sampler2D tSplat, tData, tNoise, tNrm, tLand;
+uniform float uRock;    // grows on rock too (in cracks and on ledges, more where it is damp): density there
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing, cells per tile
 uniform vec4 uRad;      // shrink start, end
@@ -46,9 +48,9 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
   const U = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'undergrowth';
-  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, uMap: U.uMap, uWind: windUniform };
+  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, tNrm: U.tNrm, tLand: U.tLand, uMap: U.uMap, uWind: windUniform };
 
-  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0]) => {
+  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0) => {
     const k = Math.ceil(radius * 2 / spacing / TILES);
     const uniforms = {
       ...shared,
@@ -57,6 +59,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uShape: { value: new THREE.Vector4(...shape) },
       uKind: { value: new THREE.Vector4(...kind) },
       uField: { value: new THREE.Vector4(...field) },
+      uRock: { value: rock },
     };
     const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
     mat.onBeforeCompile = (sh) => {
@@ -87,7 +90,17 @@ if (uField.x > 0.0) {
   float patchK = smoothstep(uField.z, uField.z + 0.1, fn.r * 0.7 + fn.g * 0.3);
   dens += uField.x * smoothstep(0.15, 0.5, gd.a) * (1.0 - forest) * patchK;
 }
-dens *= bare * uShape.z;
+dens *= bare;
+// on rock (the splat's or steep ground): tufts in the cracks and on the ledges, ferns where it stays damp
+if (uRock > 0.0) {
+  vec4 nr = textureLod(tNrm, ((pxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0);
+  vec2 nxz = nr.rg * 2.0 - 1.0;
+  float ny = sqrt(max(0.0, 1.0 - dot(nxz, nxz)));
+  float rocky = max(sp.b, smoothstep(0.22, 0.34, 1.0 - ny)) * smoothstep(0.35, 0.6, ny);
+  float damp = textureLod(tLand, (pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).r;
+  dens += uRock * rocky * smoothstep(0.25, 0.75, damp + (nz.g - 0.5) * 0.7);
+}
+dens *= uShape.z;
 float inMap = step(max(abs(pxz.x), abs(pxz.y)), uMap.x - 2.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vec3 uPos = vec3(0.0, -1e4, 0.0);
@@ -144,10 +157,10 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
   const kinds = [
-    makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0]),
+    makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0], undefined, 0.15),
     makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
-    makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
+    makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1], undefined, 0.55),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
     makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
     makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
