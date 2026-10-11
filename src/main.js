@@ -221,7 +221,8 @@ async function main() {
       if (o.startup) env.flush();
       if (!o.silent) say('time', TIME_NAMES[quickTime(v)] || env.hourText);
     },
-    brightness(v) { pipeline.params.gamma = v; game.redraw = 3; },
+    // 100% is a gamma of 0.75 on the graded picture: the player found the grade a little light and picked that
+    brightness(v) { pipeline.params.gamma = v * 0.75; game.redraw = 3; },
     fog(v, o) { env.setFogAmount(v); game.redraw = 3; if (!o.silent) say('fog', { off: 'No fog', light: 'Light fog', normal: 'Fog: normal', thick: 'Thick fog' }[v]); },
     weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
