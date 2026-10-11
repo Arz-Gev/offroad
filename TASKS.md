@@ -8,7 +8,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | Task | Notes |
 |---|---|
 | ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
-| ⏳ The dream look (PR #42): the player's verdict | Old flat clouds or the new volumetric ones (side by side in the PR); anything that is too much or not enough (glow, mist, rain, the birds' level). |
+| ⏳ The dream look (PR #42): the player's verdict | Anything that is too much or not enough: the new clouds and oaks, depth of field (Soft by default), brightness, vignette, fog, mist, rain, the birds' level. Optional extras not done: fallen logs, stumps, mushrooms; leaves drifting across the tracks; headlight beams in the fog at night. |
 
 ## To do
 

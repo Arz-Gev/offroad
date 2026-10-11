@@ -1,6 +1,7 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
-// Rough frame times on an M1 Pro (visible Chrome window 1728x908 @2, meadow / forest / trail drive): low 4 / 6 / 5 ms,
-// medium 6.5 / 9 / 7, high 11 / 15 / 12, ultra 13 / 17 / 14.
+// Rough frame times on an M1 Pro (visible Chrome window 1728x908 @2, meadow / forest / trail drive): low 5 / 7 / 5.5 ms,
+// medium 8 / 11 / 9, high 13 / 17.5 / 14, ultra 17 / 22.5 / 19. On High the clouds, volumetric fog, mist and depth of
+// field cost ~0.4-0.7 ms each, the ground shading ~1.5 ms.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
 // distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow. With the haze and
