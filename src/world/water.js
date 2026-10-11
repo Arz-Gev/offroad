@@ -11,6 +11,7 @@ import { NOISE_GLSL } from './textures.js';
 // - Sun glitter: two fine ripple layers jitter the normal; facets that mirror the sun sparkle.
 // - Ripples: baked tileable normal map, two layers; the stream's scroll down the flow, faster where steep. Foam along
 //   the shore and in fast shallow water.
+// - Rain: rings open round the drops (uRain, set by weather.js).
 
 const RIPPLE_FRAG = /* glsl */`
 ${NOISE_GLSL}
@@ -52,13 +53,27 @@ const WATER_FRAG_PARS = /* glsl */`
 uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
-uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter;
+uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter, uRain;
 uniform vec4 uEdge;   // elliptic fade-out of a disc (centre xz, 1/rx, 1/rz); zero radii: no fade
 uniform vec3 uScatter;
 varying vec3 vFlow;
 varying vec2 vDir;
 varying vec3 vWPos;
 float wDepth, wFoam;
+// rain: a ring opening round each drop (cells of ~0.4 m, a drop each at its own phase); the slope of the rings
+vec2 rainRings(vec2 xz) {
+  vec2 rp = xz * 2.4, ri = floor(rp), sl = vec2(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 cell = ri + vec2(float(i), float(j));
+    vec3 h = fract(sin(vec3(dot(cell, vec2(127.1, 311.7)), dot(cell, vec2(269.5, 183.3)), dot(cell, vec2(419.2, 371.9)))) * 43758.5453);
+    float t = fract(uTime * (0.9 + 0.4 * h.z) + h.z * 7.0);
+    vec2 d = rp - (cell + 0.15 + 0.7 * h.xy);
+    float r = length(d), x = r - t * 1.4;
+    float wave = sin(x * 26.0) * exp(-x * x * 40.0) * (1.0 - t) * (1.0 - t);
+    sl += d / max(r, 1e-3) * wave;
+  }
+  return sl;
+}
 float wHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
 float wGround(vec2 xz) {
   vec2 f = (xz + uMap.x) / uMap.y;
@@ -72,13 +87,13 @@ export function buildWater(terrain, terrainView, renderer) {
   const group = new THREE.Group();
   group.name = 'water';
   const ripple = bakeRipples(renderer);
-  const time = { value: 0 };
+  const time = { value: 0 }, rain = { value: 0 };
   const U = terrainView.uniforms;
 
   const makeMaterial = (kind, opts) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: opts.rough ?? 0.06, metalness: 0, transparent: true, premultipliedAlpha: true });
     const uniforms = {
-      tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time,
+      tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time, uRain: rain,
       uEdge: { value: new THREE.Vector4(0, 0, 0, 0) },
       uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
       uGlitter: { value: opts.glitter ?? 1 },
@@ -106,6 +121,7 @@ vec2 sl = ((r1.xy * 2.0 - 1.0) * 0.8 + (r2.xy * 2.0 - 1.0) * 0.6) * uRipple * (1
 sl *= 1.0 - 0.6 * smoothstep(40.0, 260.0, dist);
 vec2 across = vec2(vDir.y, -vDir.x);
 vec2 slW = across * sl.x + vDir * sl.y;
+if (uRain > 0.01 && dist < 70.0) slW += rainRings(vWPos.xz) * 0.35 * uRain * (1.0 - smoothstep(25.0, 70.0, dist));
 vec3 nW = normalize(vec3(-slW.x, 1.0, -slW.y));
 vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;
@@ -239,5 +255,6 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
     materials: { lake: lakeMat, stream: streamMat, mud: mudMat },
     configure(q) { enabled = true; group.visible = enabled; },
     update(dt) { time.value += dt; },
+    setRain(v) { rain.value = v; },   // weather.js: rings from the drops
   };
 }

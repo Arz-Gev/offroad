@@ -372,11 +372,16 @@ vec3 triRock(vec3 p, vec3 n, out vec4 nrmOut) {
   gWet = clamp(max(gd.b * 0.9, uWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
   c *= 1.0 - gWet * 0.35;
   gRough = mix(nn.b, 0.55, gWet);
+  // rain (uWet): puddles in the flat dirt and mud, dark and mirror smooth
+  float pud = uWet * smoothstep(0.45, 0.85, wDirt + wMud) * smoothstep(0.1, 0.03, slope) * (1.0 - wRock)
+            * smoothstep(0.62, 0.7, texture2D(tNoise, p.xz / 4.5 + 0.71).b + (0.5 - mac2) * 0.2) * (1.0 - smoothstep(80.0, 220.0, dist));
+  c *= 1.0 - 0.3 * pud;
+  gRough = mix(gRough, 0.03, pud);
   // ambient occlusion: hollows, canopy, texture cavities
   gAO = gd.r * mix(1.0, nn.a, 0.8) * clamp(1.15 - curv * 0.3, 0.6, 1.0);
   // normal: detail (tangent space x/z) on top of the heightfield normal
-  vec2 dn = (nn.xy * 2.0 - 1.0) * (1.0 - smoothstep(30.0, 140.0, dist));
-  gN = normalize(nG + vec3(dn.x, 0.0, dn.y) * 0.9);
+  vec2 dn = (nn.xy * 2.0 - 1.0) * (1.0 - smoothstep(30.0, 140.0, dist)) * (1.0 - pud);
+  gN = normalize(mix(nG + vec3(dn.x, 0.0, dn.y) * 0.9, vec3(0.0, 1.0, 0.0), pud * 0.8));
   diffuseColor.rgb *= c;
 }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = gRough;')

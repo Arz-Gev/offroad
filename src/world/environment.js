@@ -183,6 +183,8 @@ export class Environment {
     this.anim = null;
     this.dirty = true;
     this.appliedHour = this.hour;
+    this.weather = null;               // world/weather.js sets itself here: the storm s, the rainbow bow
+    this.appliedWeather = { s: -1, bow: -1 };
     this.cur = Object.fromEntries(VECS.map(k => [k, [0, 0, 0]]));
     this.flowLook = Object.fromEntries(VECS.map(k => [k, [0, 0, 0]]));   // scratch for flow()
     this.darkness = 0;                 // 0 (day) .. 1 (night), continuous: for everything that fades with the light
@@ -229,12 +231,32 @@ export class Environment {
     const [se, sa] = arcPos(SUN_ARC, hour);
     c.sunElev = se + c.sunDE; c.sunAzim = sa + c.sunDA;
     [c.moonElev, c.moonAzim] = arcPos(MOON_ARC, hour);
+    this.weatherLook(c);
     return c;
+  }
+
+  // the storm (weather.js, 0 fair .. 1 rain under a full deck) on top of the hour's look: cloud cover, a dimmer
+  // sun, thicker haze, a greyer, softer picture the eye opens up to
+  weatherLook(c) {
+    const s = this.weather?.s ?? 0;
+    c.storm = s;
+    c.sunDim = 0.8 * s * s * (3 - 2 * s);   // under a full deck the sun is all but gone (the clouds' shadow adds patches)
+    if (s <= 0) return;
+    const k = s * s * (3 - 2 * s);
+    c.cover = c.cover + (0.97 - c.cover) * k;
+    c.cloudAlpha = c.cloudAlpha + (1 - c.cloudAlpha) * k;
+    c.fogD *= 1 + 2.2 * k; c.haze *= 1 + 7 * k;   // haze: the rain curtains hide the far hills (the fog thins with height)
+    c.exposure *= 1 + 0.3 * k; c.minEx *= 1 + 0.3 * k; c.maxEx *= 1 + 0.3 * k;
+    c.sat += (0.96 - c.sat) * k; c.vibrance *= 1 - 0.5 * k;
+    c.mist += 0.15 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
+    c.fill += 0.1 * k; c.env *= 1 + 0.25 * k;
+    for (let j = 0; j < 3; j++) c.highCol[j] += (1 - c.highCol[j]) * k;
   }
 
   apply() {
     const c = this.evalLook(this.hour);
     this.appliedHour = this.hour;
+    this.appliedWeather.s = c.storm; this.appliedWeather.bow = this.weather?.bow ?? 0;
     this.darkness = 1 - sstep(c.sunElev, -10, 4.5);     // 0 from the dusk key frame's sun height up, 1 below -10°
     const night = this.night ? this.darkness > NIGHT_OFF : this.darkness > NIGHT_ON;
     const flipped = night !== this.night;
@@ -272,6 +294,11 @@ export class Environment {
     // sun became a flat orange wall in the fog
     for (let i = 0; i < 3; i++) toward[i] = Math.min(toward[i], side[i] * 2.2 + 1e-4);
     if (Lf.lengthSq() < 1e-18) Lf.copy(this.sunDir); else Lf.normalize();
+    // under a storm the horizon goes grey and a little darker
+    if (c.storm > 0) for (const v of [side, away, toward, zen]) {
+      const l = 0.3 * v[0] + 0.55 * v[1] + 0.15 * v[2];
+      for (let i = 0; i < 3; i++) v[i] += (l * [0.36, 0.39, 0.43][i] - v[i]) * 0.85 * c.storm;
+    }
     // fog is slightly darker than the sky right at the horizon (it is lit, but also shadowed by terrain)
     const k = 0.92;
     setVec4(ATMO.atmoSun, Lf.x, Lf.y, Lf.z, c.fogFall);
@@ -289,6 +316,10 @@ export class Environment {
     const lit = Ts.map((v, i) => Math.pow(v, 0.6) * c.sunE * cloudSun + Math.pow(Tm[i], 0.6) * c.moonE * moonTint[i] * moonUp);
     su.uCloudLit.value.set(lit[0], lit[1], lit[2]).multiplyScalar(0.55);
     su.uCloudAmb.value.set(zen[0] * 3.2 + side[0] * 0.8, zen[1] * 3.2 + side[1] * 0.8, zen[2] * 3.2 + side[2] * 0.8);
+    su.uOvercast.value = c.storm;
+    su.uOvercastCol.value.set(zen[0] * 0.8 + side[0] * 0.9, zen[1] * 0.8 + side[1] * 0.9, zen[2] * 0.8 + side[2] * 0.9);
+    const cwu = this.clouds.mat.uniforms;
+    cwu.uOvercast.value = c.storm; cwu.uOvercastCol.value.copy(su.uOvercastCol.value);
     su.uGround.value.set(side[0] * 0.25 + 0.002, side[1] * 0.25 + 0.002, side[2] * 0.25 + 0.0015);
     su.uSunSize.value = 0.0125 * (1 + (1 - sstep(c.sunElev, 0, 15)) * 0.4);
 
@@ -296,7 +327,9 @@ export class Environment {
     // shadows on the ground (through every lit material's sun shadow)
     const cu = this.clouds.mat.uniforms;
     CLOUD.map.z = c.cover;
-    CLOUD.map.w = this.clouds.enabled ? 0.68 * sstep(c.sunElev, -4, 6) : 0;
+    CLOUD.map.w = this.clouds.enabled ? (0.68 + 0.24 * c.storm) * sstep(c.sunElev, -4, 6) : 0;
+    cu.uDensity.value = 1 + 0.6 * c.storm;
+    cu.uHaze.value = 0.00004 * (1 + 6 * c.storm);   // under a storm the deck fades into the rain haze towards the horizon
     cu.uLightCol.value.copy(su.uCloudLit.value);
     cu.uAmbTop.value.copy(su.uCloudAmb.value);
     cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.42);
@@ -315,6 +348,10 @@ export class Environment {
       P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr; P.mist = c.mist;
       P.saturation = c.sat; P.contrast = c.contrast; P.vignette = c.vignette;
       P.tint.setRGB(...c.tint); P.lift.setRGB(...c.lift);
+      // the rainbow: opposite the sun, while a shower clears (weather.bow), the sun low enough to lift it
+      const bow = (this.weather?.bow ?? 0) * sunUp * (1 - sstep(c.sunElev, 30, 44));
+      P.bow.set(-this.sunDir.x, -this.sunDir.y, -this.sunDir.z, bow);
+      P.bowCol.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(0.12 * bow);
       P.shadowCol.setRGB(...c.shadowCol); P.highCol.setRGB(...c.highCol); P.vigCol.setRGB(...c.vigCol); P.vibrance = c.vibrance;
       this.pipeline.resetExposure = true;    // the picture follows the hour exactly, no adaptation lag
     }
@@ -338,7 +375,7 @@ export class Environment {
     const moonTint = MOON_TINT;
     const sunRGB = Ts.map(v => v * c.sunE);
     const moonRGB = Tm.map((v, i) => v * c.moonE * moonTint[i]);
-    const rgb = sunRGB.map((v, i) => v * sunUp + moonRGB[i] * moonUp);
+    const rgb = sunRGB.map((v, i) => (v * sunUp + moonRGB[i] * moonUp) * (1 - c.sunDim));
     const I = Math.max(rgb[0], rgb[1], rgb[2], 1e-6);
     this.sun.color.setRGB(rgb[0] / I, rgb[1] / I, rgb[2] / I);
     this.sun.intensity = I;

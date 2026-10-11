@@ -121,7 +121,8 @@ export class Dust {
       // past ~3 m/s of wheelspin, more adds little (a stuck car spins at 10-15 m/s)
       const slipK = slip < 3 ? slip : 3 + (slip - 3) * 0.25;
       const room = Math.max(0, 1 - this.puffs / PUFF_CAP);
-      const intensity = s.mud ? slipK * 1.2 + roll * 0.15 : s.dust * (roll * 0.3 + slipK * 1.3) * room;
+      // wet ground (rain, weather.js sets `wet`) raises no dust
+      const intensity = s.mud ? slipK * 1.2 + roll * 0.15 : s.dust * (roll * 0.3 + slipK * 1.3) * room * (1 - 0.9 * (this.wet || 0));
       let n = intensity * dt * 9;
       let m = s.mud ? slipK * 0.6 * room * dt * 9 : 0;
       while (m > 0) {

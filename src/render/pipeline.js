@@ -204,8 +204,11 @@ varying vec2 vUv;
 void main() { gl_FragColor = texture2D(tClouds, vUv); }`;
 
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist;
-uniform vec3 uShaftCol;
+uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth;
+uniform vec3 uShaftCol, uBowCol;
+uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
+uniform mat4 uProjInv;
+uniform mat3 uCamRot;
 uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
@@ -251,12 +254,44 @@ vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+// CIE 1931 colour matching, the multi-lobe fit of Wyman, Sloan & Shirley (2013); l in nm
+vec3 cie(float l) {
+  float t1 = (l - 442.0) * (l < 442.0 ? 0.0624 : 0.0374), t2 = (l - 599.8) * (l < 599.8 ? 0.0264 : 0.0323), t3 = (l - 501.1) * (l < 501.1 ? 0.0490 : 0.0382);
+  float u1 = (l - 568.8) * (l < 568.8 ? 0.0213 : 0.0247), u2 = (l - 530.9) * (l < 530.9 ? 0.0613 : 0.0322);
+  float v1 = (l - 437.0) * (l < 437.0 ? 0.0845 : 0.0278), v2 = (l - 459.0) * (l < 459.0 ? 0.0385 : 0.0725);
+  return vec3(0.362 * exp(-0.5 * t1 * t1) + 1.056 * exp(-0.5 * t2 * t2) - 0.065 * exp(-0.5 * t3 * t3),
+              0.821 * exp(-0.5 * u1 * u1) + 0.286 * exp(-0.5 * u2 * u2),
+              1.217 * exp(-0.5 * v1 * v1) + 0.681 * exp(-0.5 * v2 * v2));
+}
+// the rainbow at th degrees from the antisolar point: each wavelength at its own angle (primary 40.6 violet ..
+// 42.3 red; the secondary reversed, wider, fainter), smeared by the sun's disc; brighter sky inside the primary
+vec3 rainbow(float th) {
+  if (th > 57.0) return vec3(0.0);
+  const mat3 XYZ2RGB = mat3(3.2406, -0.9689, 0.0557, -1.5372, 1.8758, -0.2040, -0.4986, 0.0415, 1.0570);
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 12; i++) {
+    float f = (float(i) + 0.5) / 12.0, l = 400.0 + 300.0 * f;
+    float a1 = (th - (40.6 + 1.75 * f)) / 0.6, a2 = (th - (53.8 - 3.2 * f)) / 0.8;
+    sum += XYZ2RGB * cie(l) * (exp(-a1 * a1) + 0.42 * exp(-a2 * a2));
+  }
+  sum = max(sum / 12.0, 0.0);
+  return sum + vec3(0.06) * smoothstep(41.0, 36.0, th);
+}
 void main() {
   float ex = texture2D(tExposure, vec2(0.5)).r;
   vec3 c = texture2D(tScene, vUv).rgb * ex;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
+  if (uBow.w > 0.0) {
+    // on the sky and on anything more than ~150 m away (the rain curtain is out there)
+    float dz = texture2D(tDepth, vUv).r;
+    vec4 vp = uProjInv * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0);
+    vec3 v = vp.xyz / vp.w;
+    float far = dz >= 0.99999 ? 1.0 : smoothstep(120.0, 400.0, length(v));
+    float th = degrees(acos(clamp(dot(normalize(uCamRot * v), uBow.xyz), -1.0, 1.0)));
+    c += rainbow(th) * uBowCol * ex * far;
+  }
   // mist (a diffusion filter): light spills softly from bright areas into the darker ones beside them
   // (sky into the crowns, sunlit grass into the shade); what is dark all around stays dark
   if (uMist > 0.0) c += uMist * max(texture2D(tMist, vUv).rgb * 0.2 - c, 0.0);
@@ -310,6 +345,8 @@ export class RenderPipeline {
       tone: 1,   // tone curve: 0 Khronos neutral, 1 ACES (the look's), 2 AgX punchy
       // light shafts: direction towards the sun, its colour x strength (0: off)
       shaftDir: new THREE.Vector3(0, 1, 0), shaftCol: new THREE.Vector3(),
+      // rainbow: xyz away from the sun, w strength (0: off); its light (the sun's colour x strength)
+      bow: new THREE.Vector4(0, -1, 0, 0), bowCol: new THREE.Vector3(),
     };
     this.time = 0;
     this.resetExposure = true;
@@ -336,6 +373,7 @@ export class RenderPipeline {
     this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 }, uExp: { value: 1 }, uAuto: { value: 0 } });
     this.compMat = mat(COMPOSITE_FRAG, {
       tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null }, tMist: { value: this.mistMips[0].texture }, uMist: { value: 0 },
+      tDepth: { value: this.hdr.depthTexture }, uBow: { value: new THREE.Vector4() }, uBowCol: { value: new THREE.Vector3() }, uProjInv: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
@@ -539,6 +577,8 @@ export class RenderPipeline {
     cu.uAOOn.value = aoOn ? 1 : 0;
     cu.uBloom.value = P.bloomStrength;
     cu.uMist.value = mistOn ? P.mist : 0;
+    cu.uBow.value.copy(P.bow); cu.uBowCol.value.copy(P.bowCol);
+    if (P.bow.w > 0) { cu.uProjInv.value.copy(this.camera.projectionMatrixInverse); cu.uCamRot.value.setFromMatrix4(this.camera.matrixWorld); }
     cu.uVignette.value = P.vignette; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;

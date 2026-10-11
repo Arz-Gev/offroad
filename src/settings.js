@@ -15,6 +15,7 @@ export const DEFAULTS = {
   camera: 'chase',
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
+  weather: 'changing',      // 'fair' | 'changing' (passing showers) | 'rain'
   timeFlow: 'normal',       // the day goes by: 'off' | 'slow' (a day in 48 min) | 'normal' (24 min) | 'fast' (8 min)
   muted: false,
   volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud
@@ -61,6 +62,7 @@ const CHOICES = {
   touchControls: ['auto', 'on', 'off'],
   touchSteer: ['stick', 'tilt'],
   timeFlow: ['off', 'slow', 'normal', 'fast'],
+  weather: ['fair', 'changing', 'rain'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],

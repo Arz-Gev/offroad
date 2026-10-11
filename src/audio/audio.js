@@ -1,4 +1,4 @@
-// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine.
+// WebAudio: V8 worklet + tyre / gravel / wind noise, skid, gear grind, transfer whine, rain.
 // No suspension / impact sound on purpose: see DEVNOTES.md "Impact sounds" before adding one.
 // Started on the first user gesture.
 
@@ -59,6 +59,12 @@ export class GameAudio {
     this.wind = chain('lowpass', 600, 0.5);
     this.mud = chain('bandpass', 260, 1.2);
     this.grind = chain('bandpass', 1400, 4);
+    // rain (weather.js): a soft hiss outside; in the cab, the drumming on the roof
+    const rhp = ctx.createBiquadFilter(); rhp.type = 'highpass'; rhp.frequency.value = 700;
+    const rlp = ctx.createBiquadFilter(); rlp.type = 'lowpass'; rlp.frequency.value = 7000;
+    const rg = ctx.createGain(); rg.gain.value = 0;
+    noise.connect(rhp).connect(rlp).connect(rg).connect(master);
+    this.rainSnd = { hp: rhp, lp: rlp, g: rg };
 
     this.whine = ctx.createOscillator();
     this.whine.type = 'triangle';
@@ -149,6 +155,10 @@ export class GameAudio {
     this.mud.g.gain.setTargetAtTime(m * 0.1 * Math.min(1, mud), t, 0.05);
     this.wind.g.gain.setTargetAtTime(m * amb * Math.min(0.35, speed * speed * 0.00025), t, 0.1);
     this.wind.f.frequency.setTargetAtTime(300 + speed * 30, t, 0.2);
+    const rain = opts.rain || 0, R = this.rainSnd;
+    R.g.gain.setTargetAtTime(m * rain * (inside ? 0.14 : 0.09), t, 0.3);
+    R.hp.frequency.setTargetAtTime(inside ? 220 : 700, t, 0.1);
+    R.lp.frequency.setTargetAtTime(inside ? 2000 : 7000, t, 0.1);
     // transfer gear whine in low range, by prop speed and torque
     const prop = Math.abs(d.wheelMean() * v.P.finalDrive);
     const tq = Math.min(1, d.propTorque.reduce((s, x) => s + Math.abs(x), 0) / 3000);

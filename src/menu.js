@@ -32,6 +32,7 @@ const SECTIONS = [
     row('time', 'Time of day', 'range', { hot: 'time', min: 0, max: 1435, step: 5, scale: 60, fmt: fmtClock, note: 'The picture follows the slider at once. Day 13:00, dusk 19:30, night 23:00.' }),
     row('timeQuick', '', 'seg', { quick: true, options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
     row('timeFlow', 'Time passes', 'seg', { options: [['off', 'Stopped'], ['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']], note: 'How fast the day goes by while you drive: a whole day in 48, 24 or 8 minutes. Stopped keeps the hour you set.' }),
+    row('weather', 'Weather', 'seg', { options: [['fair', 'Fair'], ['changing', 'Changing'], ['rain', 'Rain']], note: 'Changing: fine weather with a summer shower now and then, and a rainbow when it clears.' }),
   ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),

@@ -10,6 +10,7 @@ import { buildTrees } from './world/trees.js';
 import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
 import { buildLife } from './world/life.js';
+import { Weather } from './world/weather.js';
 import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
@@ -93,6 +94,9 @@ async function main() {
   const life = buildLife(terrainView, env, trees);   // pollen, butterflies, fireflies, birds, petals, leaves
   scene.add(life.group);
   scenery.parts.push(life);
+  const weather = new Weather({ env, terrainView, water });   // showers, wet ground, rainbows
+  scene.add(weather.group);
+  scenery.parts.push(weather);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
@@ -129,6 +133,7 @@ async function main() {
   hud.setDevice(input.device);
   const audio = new GameAudio();
   const dust = new Dust(scene);
+  weather.dust = dust;   // wet ground raises no dust
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
@@ -148,7 +153,7 @@ async function main() {
   const { teleports, nearestLocation, placeVehicle, recover: recoverVehicle } = createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced: afterPlace });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { gunnery, scenery, grass, trees, water, undergrowth, life, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -162,7 +167,7 @@ async function main() {
 
   // ---------------------------------------------------------------- graphics quality
   let started = false;
-  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, life, gunnery, game, say, started: () => started });
+  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, life, weather, gunnery, game, say, started: () => started });
   const applyGraphics = gfx.apply;
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
@@ -210,6 +215,7 @@ async function main() {
       if (o.startup) env.flush();
       if (!o.silent) say('time', TIME_NAMES[quickTime(v)] || env.hourText);
     },
+    weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
     quality(v, o) {
@@ -485,7 +491,7 @@ async function main() {
     if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);
     audio.listener = camera.position;
     mark('dust');
-    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit' });
+    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit', rain: weather.rain });
     mark('audio');
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
