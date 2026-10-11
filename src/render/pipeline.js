@@ -217,7 +217,7 @@ uniform vec3 uShaftCol, uBowCol;
 uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
 uniform mat4 uProjInv;
 uniform mat3 uCamRot;
-uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone;
+uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone, uGamma;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
 varying vec2 vUv;
@@ -322,9 +322,11 @@ void main() {
   float sat = max(s.r, max(s.g, s.b)) - min(s.r, min(s.g, s.b));
   L = dot(s, vec3(0.2126, 0.7152, 0.0722));
   s = clamp(mix(vec3(L), s, 1.0 + uVibrance * (1.0 - sat)), 0.0, 1.0);
-  // vignette towards a colour (warm by day), not black
+  // vignette towards a colour (warm by day), not black: the middle clean, the frame closing in towards the corners
   vec2 v = vUv - 0.5;
-  s = mix(s, s * uVigCol, uVignette * dot(v, v) * 1.6);
+  s = mix(s, s * uVigCol, uVignette * smoothstep(0.1, 1.0, dot(v, v) * 2.0) * 1.4);
+  // the player's brightness (gamma): the mid-tones up or down, black and white stay
+  s = pow(s, vec3(1.0 / uGamma));
   // triangular dither: no banding in the night sky and the fog
   vec2 p = gl_FragCoord.xy + fract(uTime) * 61.0;
   s += (hash(p) + hash(p + 17.31) - 1.0) / 255.0;
@@ -352,7 +354,7 @@ export class RenderPipeline {
       bloom: true, bloomStrength: 0.06, bloomThreshold: 1.6, bloomKnee: 0.6, bloomRadius: 1.0,
       mist: 0,   // the diffusion glow (0..1), see COMPOSITE_FRAG
       exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
-      vignette: 0.25, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
+      vignette: 0.25, gamma: 1, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
       shadowCol: new THREE.Color(0, 0, 0), highCol: new THREE.Color(1, 1, 1), vigCol: new THREE.Color(0, 0, 0), vibrance: 0,
       tone: 1,   // tone curve: 0 Khronos neutral, 1 ACES (the look's), 2 AgX punchy
       // light shafts: direction towards the sun, its colour x strength (0: off)
@@ -386,7 +388,7 @@ export class RenderPipeline {
     this.compMat = mat(COMPOSITE_FRAG, {
       tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null }, tMist: { value: this.mistMips[0].texture }, uMist: { value: 0 },
       tDepth: { value: this.hdr.depthTexture }, uBow: { value: new THREE.Vector4() }, uBowCol: { value: new THREE.Vector3() }, uProjInv: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
-      uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
+      uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uGamma: { value: 1 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
     });
@@ -603,7 +605,7 @@ export class RenderPipeline {
     cu.uMist.value = mistOn ? P.mist : 0;
     cu.uBow.value.copy(P.bow); cu.uBowCol.value.copy(P.bowCol);
     if (P.bow.w > 0) { cu.uProjInv.value.copy(this.camera.projectionMatrixInverse); cu.uCamRot.value.setFromMatrix4(this.camera.matrixWorld); }
-    cu.uVignette.value = P.vignette; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
+    cu.uVignette.value = P.vignette; cu.uGamma.value = P.gamma; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;

@@ -34,6 +34,7 @@ const SECTIONS = [
     row('timeFlow', 'Time passes', 'seg', { options: [['off', 'Stopped'], ['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']], note: 'How fast the day goes by while you drive: a whole day in 48, 24 or 8 minutes. Stopped keeps the hour you set.' }),
     row('weather', 'Weather', 'seg', { options: [['fair', 'Fair'], ['changing', 'Changing'], ['rain', 'Rain']], note: 'Changing: fine weather with a summer shower now and then, and a rainbow when it clears.' }),
     row('fog', 'Fog', 'seg', { options: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['thick', 'Thick']], note: 'The haze in the air that catches the sun: light shafts under the trees, mist in the morning. Off is also a little faster. Low and Mobile graphics have none.' }),
+    row('brightness', 'Brightness', 'range', { min: 60, max: 160, step: 5, scale: 100, unit: '%', note: 'Gamma: lifts or deepens the mid-tones, black stays black and white stays white. Raise it on a dim screen or in a bright room. Default 100%.' }),
   ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),

@@ -35,7 +35,7 @@ const DAY = {
   sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
   cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00017, vista: 0.0005, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
   exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0, vfog: 0.0006,
-  sat: 1.12, contrast: 0.04, vignette: 0.28, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
+  sat: 1.12, contrast: 0.04, vignette: 0.45, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.04, 1.0, 0.94], vigCol: [0.55, 0.46, 0.5],
   fill: 0.13, fillCol: [0.55, 0.62, 1.0],
 };
@@ -43,7 +43,7 @@ const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
   cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.0002, vista: 0.0006, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
   exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002, vfog: 0.0028,
-  sat: 1.1, contrast: 0.05, vignette: 0.3, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
+  sat: 1.1, contrast: 0.05, vignette: 0.48, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
   vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.06, 0.97, 0.9], vigCol: [0.5, 0.38, 0.45],
   fill: 0.34, fillCol: [0.5, 0.45, 1.0],
 };
@@ -51,7 +51,7 @@ const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
   cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00015, vista: 0.0005, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
   exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004, vfog: 0.0016,
-  sat: 0.96, contrast: 0.05, vignette: 0.34, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
+  sat: 0.96, contrast: 0.05, vignette: 0.54, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
   vibrance: 0.15, shadowCol: [0.003, 0.005, 0.012], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
   fill: 0.01, fillCol: [0.4, 0.5, 1.0],
 };
@@ -79,7 +79,7 @@ const wrapHour = h => ((h % 24) + 24) % 24;
 const KEYS = [
   { h: 1.5, ...NIGHT, nightBase: [0.0009, 0.0013, 0.0025], cover: 0.3, fogD: 0.0013, vmist: 0.006 },                                   // deep night
   { h: 6, ...NIGHT, moonE: 0.14, nightBase: [0.0008, 0.0012, 0.0024], cover: 0.36, cloudAlpha: 0.82, stars: 0.5,           // pre-dawn
-    fogD: 0.001, haze: 0.00014, exposure: 3.1, key: 0.13, sat: 0.98, vignette: 0.32,
+    fogD: 0.001, haze: 0.00014, exposure: 3.1, key: 0.13, sat: 0.98, vignette: 0.51,
     tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02, vmist: 0.009, vfog: 0.0035 },
   { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
     highCol: [1.05, 0.99, 0.93], fill: 0.3, vmist: 0.008, vfog: 0.0024 },                                                                           //   a little cooler and mistier
@@ -87,11 +87,11 @@ const KEYS = [
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
     haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
-    vignette: 0.3, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005, vfog: 0.0018 },
+    vignette: 0.48, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005, vfog: 0.0018 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
     fogD: 0.0009, haze: 0.00014, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
-    vignette: 0.32, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], vigCol: [0.22, 0.22, 0.38], fill: 0.05, fillCol: [0.45, 0.45, 1.0] },
+    vignette: 0.51, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], vigCol: [0.22, 0.22, 0.38], fill: 0.05, fillCol: [0.45, 0.45, 1.0] },
   { h: 23, ...NIGHT, pin: [-16, 250] },                                                                                   // night
 ];
 for (const k of KEYS) {
