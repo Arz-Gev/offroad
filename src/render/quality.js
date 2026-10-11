@@ -87,6 +87,16 @@ export const CLOUDS = {
   ultra: { scale: 0.5, steps: 64 },
 };
 
+// Volumetric fog per level (render/volumetricFog.js): resolution, steps along a ray; it follows the clouds' level.
+// off: the analytic fog only.
+export const FOG = {
+  off: null,
+  low: null,
+  medium: { scale: 0.25, steps: 14 },
+  high: { scale: 0.25, steps: 20 },
+  ultra: { scale: 0.33, steps: 28 },
+};
+
 // Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
 // one switches to 'custom', which reads them back.
 export function presetToGfx(q) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { FOG_APPLY_GLSL } from './volumetricFog.js';
 
 // HDR render pipeline: scene (half-float, optional MSAA, depth texture) -> SSAO -> bloom -> eye
 // adaptation (GPU log-average luminance, no read-back) -> composite -> optional FXAA. Every pass is a full-screen triangle; bloom and luminance run at half resolution and below.
@@ -213,6 +214,7 @@ uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn,
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
 varying vec2 vUv;
+${FOG_APPLY_GLSL}
 vec3 neutral(vec3 color) {
   const float StartCompression = 0.8 - 0.04;
   const float Desaturation = 0.15;
@@ -279,8 +281,11 @@ vec3 rainbow(float th) {
 }
 void main() {
   float ex = texture2D(tExposure, vec2(0.5)).r;
-  vec3 c = texture2D(tScene, vUv).rgb * ex;
+  vec3 c = texture2D(tScene, vUv).rgb;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
+  // volumetric fog (volumetricFog.js): the scene seen through it, plus the light it scatters towards us
+  if (uFogOn > 0.5) { vec4 f = fogAt(vUv, tDepth); c = c * f.a + f.rgb; }
+  c *= ex;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
   if (uBow.w > 0.0) {
@@ -387,6 +392,7 @@ export class RenderPipeline {
     this.shafts = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false }));
     this.shaftMaskMat = mat(SHAFT_MASK_FRAG, { tDepth: { value: this.hdr.depthTexture }, tClouds: { value: null }, uCloudsOn: { value: 0 }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
     this.clouds = null;   // Clouds (world/clouds.js), set by the environment
+    this.fog = null;      // VolumetricFog (volumetricFog.js), set by the environment
     this.cloudCompMat = new THREE.ShaderMaterial({
       vertexShader: CLOUD_VERT, fragmentShader: CLOUD_COMP_FRAG, uniforms: { tClouds: { value: null } },
       depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth, transparent: true,
@@ -399,6 +405,7 @@ export class RenderPipeline {
     this.compMat.uniforms.tShafts = { value: this.blackTex };
     this.compMat.uniforms.uShaftCol = { value: new THREE.Vector3() };
     this.compMat.uniforms.uAOOn = { value: 0 };
+    Object.assign(this.compMat.uniforms, { tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uFogOn: { value: 0 } });
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
     this.gpuTimer = null;
@@ -460,6 +467,13 @@ export class RenderPipeline {
       r.autoClear = true;
     }
     this.shaftMaskMat.uniforms.uCloudsOn.value = cloudsOn ? 1 : 0;
+
+    // ---- volumetric fog (low resolution), laid over the scene in the composite
+    const fogOn = !!(this.fog && this.fog.active);
+    if (fogOn) {
+      this.fog.setSize(this.width, this.height);
+      this.fog.render(this.camera, this.hdr.depthTexture);
+    }
     this.shaftMaskMat.uniforms.tClouds.value = cloudsOn ? this.clouds.texture : null;
 
     // ---- SSAO (half resolution), multiplied into the scene colour in the composite
@@ -575,6 +589,8 @@ export class RenderPipeline {
     cu.tExposure.value = exposureTex;
     cu.uBloomOn.value = P.bloom && P.bloomStrength > 0 ? 1 : 0;
     cu.uAOOn.value = aoOn ? 1 : 0;
+    cu.uFogOn.value = fogOn ? 1 : 0;
+    if (fogOn) { cu.tFog.value = this.fog.texture; cu.uFogSize.value.set(this.fog.width, this.fog.height); cu.uNearFar.value.set(this.camera.near, this.camera.far); }
     cu.uBloom.value = P.bloomStrength;
     cu.uMist.value = mistOn ? P.mist : 0;
     cu.uBow.value.copy(P.bow); cu.uBowCol.value.copy(P.bowCol);

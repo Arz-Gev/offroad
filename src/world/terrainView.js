@@ -442,7 +442,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
   // vista snow on high flats
   if (!inMap) {
     float snow = smoothstep(uSnow, uSnow + 60.0, p.y + (mac - 0.5) * 80.0) * smoothstep(0.55, 0.3, slope);
-    c = mix(c, vec3(0.62, 0.64, 0.68), snow);
+    c = mix(c, vec3(0.42, 0.44, 0.48), snow * 0.8);
   }
   // macro tint: dry / lush patches, brightness
   c *= mix(vec3(1.08, 1.02, 0.86), vec3(0.9, 1.0, 1.04), mac) * (0.86 + 0.28 * mac2);

@@ -5,6 +5,7 @@ import { scatter, transmittance } from './atmosphere.js';
 import { ATMO, setVec4 } from '../render/shaderPatches.js';
 import { CascadedSunShadow, installCascadeShadowChunks } from '../render/cascadeShadow.js';
 import { Clouds, CLOUD } from './clouds.js';
+import { VolumetricFog } from '../render/volumetricFog.js';
 
 // Time of day: sun / moon light (cascaded shadows), physically based sky + clouds + stars, height fog and
 // aerial perspective matched to the sky, image-based ambient light from the sky, and the post-processing
@@ -32,24 +33,24 @@ const MOON_TINT = [0.62, 0.74, 1.0];
 // (glow), light shafts (shafts), a faint cool fill from above so shade is blue rather than olive (fill).
 const DAY = {
   sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00012, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
-  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0,
+  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00017, vista: 0.0005, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
+  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0, vfog: 0.0006,
   sat: 1.12, contrast: 0.04, vignette: 0.28, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.04, 1.0, 0.94], vigCol: [0.55, 0.46, 0.5],
   fill: 0.13, fillCol: [0.55, 0.62, 1.0],
 };
 const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.00015, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
-  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002,
+  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.0002, vista: 0.0006, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
+  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002, vfog: 0.0028,
   sat: 1.1, contrast: 0.05, vignette: 0.3, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
   vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.06, 0.97, 0.9], vigCol: [0.5, 0.38, 0.45],
   fill: 0.34, fillCol: [0.5, 0.45, 1.0],
 };
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
-  cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
-  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004,
+  cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00015, vista: 0.0005, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
+  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004, vfog: 0.0016,
   sat: 0.96, contrast: 0.05, vignette: 0.34, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
   vibrance: 0.15, shadowCol: [0.003, 0.005, 0.012], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
   fill: 0.01, fillCol: [0.4, 0.5, 1.0],
@@ -78,18 +79,18 @@ const wrapHour = h => ((h % 24) + 24) % 24;
 const KEYS = [
   { h: 1.5, ...NIGHT, nightBase: [0.0009, 0.0013, 0.0025], cover: 0.3, fogD: 0.0013, vmist: 0.006 },                                   // deep night
   { h: 6, ...NIGHT, moonE: 0.14, nightBase: [0.0008, 0.0012, 0.0024], cover: 0.36, cloudAlpha: 0.82, stars: 0.5,           // pre-dawn
-    fogD: 0.001, haze: 0.00011, exposure: 3.1, key: 0.13, sat: 0.98, vignette: 0.32,
-    tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02, vmist: 0.009 },
+    fogD: 0.001, haze: 0.00014, exposure: 3.1, key: 0.13, sat: 0.98, vignette: 0.32,
+    tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02, vmist: 0.009, vfog: 0.0035 },
   { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
-    highCol: [1.05, 0.99, 0.93], fill: 0.3, vmist: 0.008 },                                                                           //   a little cooler and mistier
-  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00009, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4, vmist: 0.0015 },   // morning
+    highCol: [1.05, 0.99, 0.93], fill: 0.3, vmist: 0.008, vfog: 0.0024 },                                                                           //   a little cooler and mistier
+  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4, vmist: 0.0015, vfog: 0.0014 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
-    haze: 0.00013, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
-    vignette: 0.3, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005 },
+    haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
+    vignette: 0.3, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005, vfog: 0.0018 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
-    fogD: 0.0009, haze: 0.00011, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
+    fogD: 0.0009, haze: 0.00014, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
     vignette: 0.32, tint: [0.88, 0.92, 1.14], lift: [0, 0.0001, 0.0006], vigCol: [0.22, 0.22, 0.38], fill: 0.05, fillCol: [0.45, 0.45, 1.0] },
   { h: 23, ...NIGHT, pin: [-16, 250] },                                                                                   // night
 ];
@@ -100,8 +101,8 @@ for (const k of KEYS) {
 }
 
 // monotone cubic (Fritsch–Carlson) through the keys, periodic in 24 h
-const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
-  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
+const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'vista', 'fogMax', 'env',
+  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
 const NK = KEYS.length;
@@ -148,6 +149,8 @@ export class Environment {
     this.clouds = new Clouds(renderer, this.sky);   // volumetric (the quality level turns them on)
     this.clouds.enabled = false;
     if (pipeline) pipeline.clouds = this.clouds;
+    this.fog = new VolumetricFog(renderer, this.clouds.noise.texture);   // the quality level turns it on
+    if (pipeline) pipeline.fog = this.fog;
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
     this.envJob = null;                // the probe refresh in progress (see updateProbe)
@@ -171,6 +174,7 @@ export class Environment {
     this.sun.shadow.camera.far = 170;   // shadow range (m)
     this.sun.shadow.camera.near = 20;   // caster ceiling above the view slice
     scene.add(this.sun);
+    this.fog.sun = this.sun;
     // a cool fill from above (the painter's trick: shade goes lavender-blue, never olive) and a faint ground
     // bounce for surfaces facing down (the sky probe covers the rest); colours carry the strengths, intensity 1
     this.hemi = new THREE.HemisphereLight(0x000000, 0x000000, 1);
@@ -219,6 +223,12 @@ export class Environment {
     if (on !== this.clouds.enabled) { this.clouds.enabled = on; this.dirty = true; }
   }
 
+  // q: FOG[level] (render/quality.js) or null: the analytic fog only
+  setFogQuality(q) {
+    this.fog.enabled = !!q;
+    if (q) { this.fog.scale = q.scale; this.fog.steps = q.steps; this.fog.reset = true; }
+  }
+
   // apply a pending hour change right away (otherwise it happens in the next update())
   flush() { this.dirty = false; this.apply(); }
 
@@ -245,10 +255,10 @@ export class Environment {
     const k = s * s * (3 - 2 * s);
     c.cover = c.cover + (0.97 - c.cover) * k;
     c.cloudAlpha = c.cloudAlpha + (1 - c.cloudAlpha) * k;
-    c.fogD *= 1 + 2.2 * k; c.haze *= 1 + 7 * k;   // haze: the rain curtains hide the far hills (the fog thins with height)
+    c.fogD *= 1 + 2.2 * k; c.haze *= 1 + 7 * k; c.vista *= 1 + 4 * k;   // the rain curtains hide the far hills
     c.exposure *= 1 + 0.3 * k; c.minEx *= 1 + 0.3 * k; c.maxEx *= 1 + 0.3 * k;
     c.sat += (0.96 - c.sat) * k; c.vibrance *= 1 - 0.5 * k;
-    c.mist += 0.15 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
+    c.mist += 0.15 * k; c.vfog *= 1 + 1.5 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
     c.fill += 0.1 * k; c.env *= 1 + 0.25 * k;
     for (let j = 0; j < 3; j++) c.highCol[j] += (1 - c.highCol[j]) * k;
   }
@@ -310,6 +320,12 @@ export class Environment {
     setVec4(ATMO.atmoGlow, sunRGB[0] * gk, sunRGB[1] * gk, sunRGB[2] * gk, 0.75);
     // valley mist: a shallow layer lying in the low ground (floor 6 m under the lake, falling off over ~9 m)
     setVec4(ATMO.atmoMist, Math.max(0, c.vmist), 0.11, -6, 0);
+    ATMO.atmoVista.x = c.vista;
+    // volumetric fog: the haze in the low ground, lit through the shadows; in shade it takes the horizon's colour
+    const F = this.fog.params;
+    F.density = c.vfog; F.falloff = 0.022; F.floor = 0;
+    const sl = 0.2126 * side[0] + 0.7152 * side[1] + 0.0722 * side[2];
+    F.amb.set(side[0] + (sl - side[0]) * 0.4, side[1] + (sl - side[1]) * 0.4, side[2] + (sl - side[2]) * 0.4).multiplyScalar(0.75);
     this.scene.fog.density = c.fogD;
     this.scene.fog.color.setRGB(side[0], side[1], side[2]);
 
@@ -395,6 +411,10 @@ export class Environment {
     const Lc = this.sunDir.y > -0.05 ? this.sunDir : this.moonDir;
     CLOUD.sun.x = Lc.x; CLOUD.sun.y = Lc.y; CLOUD.sun.z = Lc.z;
     this.clouds.mat.uniforms.uLight.value.copy(Lc);
+    // the fog's light: scattered many times over it whitens (in the sun's colour it was an orange wall at dawn)
+    const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    this.fog.params.lightDir.copy(Lc);
+    this.fog.params.lightCol.set(rgb[0] + (lum - rgb[0]) * 0.45, rgb[1] + (lum - rgb[1]) * 0.45, rgb[2] + (lum - rgb[2]) * 0.45);
     if (this.pipeline) {
       const P = this.pipeline.params;
       P.shaftDir.copy(this.sunDir);
@@ -423,6 +443,7 @@ export class Environment {
     if (this.dirty) this.flush();
     if (camera) this.sky.update(dt, camera);
     this.clouds.update(dt, 5.5, 3.2);   // drift with the wind (m/s)
+    this.fog.update(dt, 1.2, 0.7);
     this.updateProbe(dt);
   }
 

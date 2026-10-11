@@ -24,6 +24,9 @@ export const ATMO = {
   atmoGlow: { x: 0, y: 0, z: 0, w: 0.7 },
   // valley mist (dawn, dusk, night): x density at the floor (1/m), y falloff (1/m), z floor height (m)
   atmoMist: { x: 0, y: 0.11, z: -6, w: 0 },
+  // the land beyond the map fades away: x haze density (1/m) along the part of a view ray outside the map square,
+  // y the map's half size (m)
+  atmoVista: { x: 0, y: 512, z: 0, w: 0 },
 };
 
 // uniforms to add to custom ShaderMaterials that use fog
@@ -63,6 +66,7 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 		uniform vec4 atmoToward;
 		uniform vec4 atmoGlow;
 		uniform vec4 atmoMist;
+		uniform vec4 atmoVista;
 		float atmoMistShare = 0.0;   // the valley mist's part of the last atmoFogFactor (whitens atmoFogColor)
 		// fog opacity and colour for a camera-relative world offset d
 		float atmoFogFactor( vec3 d ) {
@@ -80,6 +84,13 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 				float odm = dist * min( atmoMist.x * exp( - b2 * max( cameraPosition.y - atmoMist.z, 0.0 ) ) * hf2, atmoMist.x );
 				od += odm;
 				atmoMistShare = odm / max( od, 1e-6 );
+			}
+			// beyond the map's edge: haze along the stretch of the ray outside the square, whatever its height (so
+			// far peaks fade too), growing from nothing at the edge
+			if ( atmoVista.x > 0.0 ) {
+				vec2 ad = abs( d.xz ) + 1e-4;
+				vec2 te = ( atmoVista.y - cameraPosition.xz * sign( d.xz ) ) / ad;
+				od += atmoVista.x * dist * ( 1.0 - clamp( min( te.x, te.y ), 0.0, 1.0 ) );
 			}
 			return min( 1.0 - exp( - od ), atmoToward.w );
 		}
