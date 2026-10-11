@@ -501,8 +501,8 @@ vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree,
 // light and dark tones of each kind (linear)
 // (weights of the four kinds: hat functions, so the blends are branch-free matrix products)
 vec4 kindW(float k) { return max(1.0 - abs(vec4(clamp(k, 0.0, 1.0) * 3.0) - vec4(0.0, 1.0, 2.0, 3.0)), 0.0); }
-const mat4x3 ROCK_L = mat4x3(0.36, 0.34, 0.29, 0.34, 0.31, 0.28, 0.42, 0.26, 0.14, 0.25, 0.24, 0.2);
-const mat4x3 ROCK_D = mat4x3(0.17, 0.16, 0.14, 0.16, 0.145, 0.13, 0.22, 0.11, 0.055, 0.1, 0.1, 0.085);
+const mat4x3 ROCK_L = mat4x3(0.36, 0.34, 0.29, 0.34, 0.31, 0.28, 0.42, 0.26, 0.14, 0.28, 0.27, 0.23);
+const mat4x3 ROCK_D = mat4x3(0.17, 0.16, 0.14, 0.16, 0.145, 0.13, 0.22, 0.11, 0.055, 0.13, 0.125, 0.105);
 vec3 rockTone(float k, float t) { vec4 w = kindW(k); return mix(ROCK_D * w, ROCK_L * w, t); }
 // bedding by kind: band height (m), relief of the ledges, tone contrast between beds, joint spacing (m)
 const mat4 BEDS = mat4(2.2, 0.55, 0.45, 2.6, 4.5, 0.25, 0.25, 3.5, 0.9, 0.9, 0.75, 1.8, 0.55, 0.5, 0.35, 0.9);
@@ -580,7 +580,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   col = mix(col, lc, lich * lichK * (1.0 - sa.g) * (1.0 - smoothstep(0.75, 0.95, nW.y) * 0.5));
   h = clamp(sa.a * 0.7 + ma.a * 0.3 + ledge * 0.3, 0.0, 1.0);
   cav = sm.a * (1.0 - 0.5 * under);
-  rough = sm.b;
+  rough = mix(sm.b, 0.92, 0.5);
   // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain
   float north = clamp(-dot(hn.xz, SUN_SIDE), 0.0, 1.0) * steep;
   vec4 mn = textureGrad(tNoise, p.xz / 5.3 + p.y * 0.07, gDx / 5.3, gDy / 5.3);

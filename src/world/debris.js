@@ -26,7 +26,7 @@ const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a
 const pack = (r, g, b) => Math.round(Math.min(1, r) * 255) + Math.round(Math.min(1, g) * 255) * 256 + Math.round(Math.min(1, b) * 255) * 65536;
 
 // rock colours by kind (as terrainView.js rockTone: limestone, granite, sandstone, slate), linear: light and dark
-const ROCK = [[[0.36, 0.34, 0.29], [0.17, 0.16, 0.14]], [[0.34, 0.31, 0.28], [0.16, 0.145, 0.13]], [[0.42, 0.26, 0.14], [0.22, 0.11, 0.055]], [[0.25, 0.24, 0.2], [0.1, 0.1, 0.085]]];
+const ROCK = [[[0.36, 0.34, 0.29], [0.17, 0.16, 0.14]], [[0.34, 0.31, 0.28], [0.16, 0.145, 0.13]], [[0.42, 0.26, 0.14], [0.22, 0.11, 0.055]], [[0.28, 0.27, 0.23], [0.13, 0.125, 0.105]]];
 function rockColour(kind, t) {
   const k = Math.max(0, Math.min(0.999, kind)) * 3, i = Math.floor(k), f = k - i, j = Math.min(3, i + 1);
   const c = [0, 1, 2].map(e => {
