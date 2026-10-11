@@ -254,9 +254,20 @@ diffuseColor.rgb = vGCol;
 float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
 diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif`)
-      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;');
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;')
+      // backlit, the blades glow: sunlight through the leaf, yellower, strongest towards the tips (the direct diffuse
+      // already carries the shadow, so blades in shade stay dark)
+      .replace('#include <opaque_fragment>', `
+#if NUM_SUN_LIGHTS > 0
+{
+  float gBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  float gTip = clamp((vGAO - 0.6) / 0.4, 0.0, 1.0);
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.15, 1.2, 0.55) * (pow(gBack, 1.5) * 3.2) * (0.25 + 0.75 * gTip);
+}
+#endif
+#include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v2';
+  mat.customProgramCacheKey = () => 'grass-v3';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

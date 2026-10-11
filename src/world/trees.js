@@ -76,10 +76,17 @@ if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) disca
 #endif` : '';
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
+#if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
+}
+#endif
 #include <opaque_fragment>`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '');
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + '-v2';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -499,6 +506,13 @@ vec3 nonPerturbedNormal = normal;`)
         .replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
 #if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
+}
+#endif
+#if NUM_SUN_LIGHTS > 0
 if (vImpSoft > 0.5) {
   float ndl = dot(normal, sunLights[0].direction);
   float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
@@ -507,7 +521,7 @@ if (vImpSoft > 0.5) {
 #endif
 #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c');
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v2';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

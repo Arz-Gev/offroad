@@ -104,9 +104,16 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
         .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL).replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
+#if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.8);
+}
+#endif
 #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v1';
+    mat.customProgramCacheKey = () => 'undergrowth-v2';
     const tiles = [];
     for (let tx = 0; tx < TILES; tx++) for (let tz = 0; tz < TILES; tz++) {
       const g = new THREE.InstancedBufferGeometry();
