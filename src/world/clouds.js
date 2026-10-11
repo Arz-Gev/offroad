@@ -162,8 +162,8 @@ void main() {
     if (t1 > t0) {
       float n = uSteps;
       float dt = (t1 - t0) / n;
-      // interleaved gradient noise, moving every frame: the temporal blend turns it into smooth gradients
-      float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy + uFrame * vec2(5.588238, 5.588238), vec2(0.06711056, 0.00583715))));
+      // white noise, new every frame: the temporal blend averages it away (a gradient-noise pattern showed as a grid)
+      float jit = cHash(gl_FragCoord.xy * 0.731 + vec2(uFrame * 17.31, uFrame * 9.17));
       float t = t0 + dt * jit;
       float mu = dot(dir, uLight);
       float phase = hg(mu, 0.72) * 0.65 + hg(mu, -0.2) * 0.35;
@@ -258,8 +258,8 @@ export class Clouds {
     u.uCam.value.copy(camera.position);
     u.uWind3.value.set(this.wind.x * 1.35, this.wind.y * 1.35);   // the shape drifts a little faster than the coverage: the clouds churn
     u.uTexel.value.set(1 / this.width, 1 / this.height);
-    u.uFrame.value = this.frame++ % 64;
-    u.uBlend.value = this.reset ? 1 : 0.15;
+    u.uFrame.value = this.frame++ % 1024;
+    u.uBlend.value = this.reset ? 1 : 0.1;
     u.uSteps.value = this.steps;
     u.tDepth.value = depthTexture;
     u.tPrev.value = this.rts[this.idx].texture;

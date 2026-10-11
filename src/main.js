@@ -90,7 +90,7 @@ async function main() {
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
-  const life = buildLife(terrainView, env);   // pollen, butterflies, fireflies
+  const life = buildLife(terrainView, env, trees);   // pollen, butterflies, fireflies, birds, petals, leaves
   scene.add(life.group);
   scenery.parts.push(life);
   trees.updatePhysics(SPAWN.x, SPAWN.z);

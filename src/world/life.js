@@ -6,6 +6,9 @@ import * as THREE from 'three';
 //   seeds    a few dandelion tufts, bigger and slower, by day
 //   flies    fireflies over grass and forest edges at dusk and night, each blinking on its own rhythm
 //   wings    butterflies over the meadows by day: two wings flapping, a wandering path, a colour each
+//   birds    small flocks wheeling over the land by day, flapping in bursts between glides
+//   petals   drifting down from the nearest trees in blossom
+//   leaves   fluttering down in the forest
 // Nothing casts or receives shadows; the ground height comes from the physics height texture (as the grass).
 
 const GROUND_GLSL = /* glsl */`
@@ -173,13 +176,123 @@ void main() {
   gl_FragColor = vec4(col * light, 1.0);
 }`;
 
+// a bird: body, tail and two wings in its own frame (x across, z forward); aBird.w = 1 on the wings (they flap)
+const BIRD_VERT = /* glsl */`
+${COMMON_UNIFORMS}
+attribute vec4 aSeed;
+attribute vec4 aBird;
+uniform float uBox;
+varying float vLit;
+void main() {
+  float fl = floor(aSeed.w * 5.0);                                      // which flock
+  vec3 fs = fract(vec3(fl * 0.371 + 0.13, fl * 0.719 + 0.57, fl * 0.241 + 0.91));
+  vec2 fxz = mod(fs.xz * uBox + vec2(uWind.x, uWind.y) * uTime * 1.5 - uCam.xz + 0.5 * uBox, uBox) - 0.5 * uBox + uCam.xz;
+  float R = 16.0 + fs.z * 34.0;
+  float w = (0.16 + fs.x * 0.14) * (fs.y < 0.5 ? 1.0 : -1.0);          // turning one way or the other
+  float a = uTime * w + aSeed.x * 1.6 + fl;                               // the birds spread along an arc
+  vec3 off = vec3(sin(uTime * 0.37 + aSeed.y * 20.0), 0.5 * sin(uTime * 0.29 + aSeed.z * 20.0), cos(uTime * 0.41 + aSeed.y * 13.0)) * (2.5 + aSeed.z * 4.0);
+  vec3 c = vec3(fxz.x + cos(a) * R, uCam.y + 26.0 + fs.y * 40.0 + sin(a * 2.0 + fl) * 4.0, fxz.y + sin(a) * R) + off;
+  vec2 vel = vec2(-sin(a), cos(a)) * sign(w);
+  float yaw = atan(vel.x, vel.y);
+  // flapping in bursts, gliding in between (wings held a little up)
+  float glide = smoothstep(0.1, 0.6, sin(uTime * 0.6 + aSeed.x * 12.0));
+  float flap = mix(sin(uTime * (9.0 + aSeed.y * 4.0) + aSeed.z * 30.0) * 0.85, 0.12, glide);
+  vec3 b = aBird.xyz;
+  float ang = flap * aBird.w;
+  vec3 lp = vec3(b.x * cos(ang), abs(b.x) * sin(ang) + b.y, b.z) * 0.42 * (0.85 + aSeed.z * 0.4);
+  float cy = cos(yaw), sy = sin(yaw);
+  vec3 wp = c + vec3(lp.x * cy + lp.z * sy, lp.y, -lp.x * sy + lp.z * cy);
+  float fade = smoothstep(0.5 * uBox, 0.4 * uBox, length(c.xz - uCam.xz)) * uDay;
+  vLit = 0.5 + 0.5 * clamp(b.y * 3.0 + 0.5, 0.0, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+  if (fade < 0.01) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+}`;
+const BIRD_FRAG = /* glsl */`
+${COMMON_UNIFORMS}
+varying float vLit;
+void main() { gl_FragColor = vec4((vec3(0.035, 0.032, 0.04) + uSunCol * 0.012 + uFill * 0.15) * vLit, 1.0); }`;
+
+// petals and leaves: small quads tumbling down; aCorner = quad corner (-1..1)
+const FALL_COMMON = /* glsl */`
+attribute vec4 aSeed;
+attribute vec2 aCorner;
+varying vec2 vUv;
+varying vec3 vCol;
+varying float vA;
+vec3 tumble(vec3 c, float size, float t, float ph) {
+  float a = t * (2.1 + ph) + ph * 6.0, b = t * (1.3 + ph * 0.7);
+  vec3 ax = normalize(vec3(cos(a), sin(b) * 0.6, sin(a)));
+  vec3 ay = normalize(cross(ax, vec3(sin(b), cos(b), 0.3)));
+  vUv = aCorner * 0.5 + 0.5;
+  return c + (ax * aCorner.x + ay * aCorner.y) * size;
+}`;
+const PETAL_VERT = /* glsl */`
+${COMMON_UNIFORMS}
+${GROUND_GLSL}
+${FALL_COMMON}
+uniform vec4 uTrees[8];   // nearby trees in blossom: x, crown height, z, crown radius (0: none)
+void main() {
+  int k = int(aSeed.w * 7.99);
+  vec4 T = uTrees[k];
+  float period = 9.0 + aSeed.x * 7.0;                       // s from leaving the crown to fading on the ground
+  float t = fract(uTime / period + aSeed.y) * period;
+  vec3 h = fract(aSeed.xyz * vec3(7.31, 3.17, 5.71)) - 0.5;
+  vec3 p = vec3(T.x, T.y, T.z) + h * vec3(2.0, 0.8, 2.0) * T.w;
+  p += vec3(uWind.x, 0.0, uWind.y) * t * 0.5 + vec3(sin(t * 1.3 + aSeed.z * 9.0), 0.0, cos(t * 1.1 + aSeed.x * 9.0)) * 0.6;
+  p.y -= t * 0.75;
+  float gy = lGround(p.xz) + 0.03;
+  float landed = step(p.y, gy);
+  p.y = max(p.y, gy);
+  float ph = fract(aSeed.z * 13.7);
+  vec3 wp = tumble(p, 0.045, landed > 0.5 ? 0.0 : t, ph);
+  float pink = fract(aSeed.x * 17.3);
+  vCol = pink < 0.55 ? vec3(0.98, 0.72, 0.8) : pink < 0.85 ? vec3(1.0, 0.92, 0.94) : vec3(0.96, 0.58, 0.7);
+  vA = step(0.001, T.w) * smoothstep(0.0, 0.6, t) * (1.0 - smoothstep(period * 0.85, period, t)) * uDay;
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+  if (vA < 0.01) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+}`;
+const LEAF_VERT = /* glsl */`
+${COMMON_UNIFORMS}
+${GROUND_GLSL}
+${FALL_COMMON}
+uniform float uBox;
+void main() {
+  float period = 8.0 + aSeed.x * 6.0;
+  float t = fract(uTime / period + aSeed.y) * period;
+  vec3 p = lWrap(aSeed.xyz, uBox, vec3(0.0));
+  vec4 gd = lData(p.xz);
+  float forest = smoothstep(0.35, 0.7, gd.g);
+  p.y = lGround(p.xz) + 9.0 + aSeed.z * 6.0 - t * 1.4;
+  p.xz += vec2(sin(t * 0.9 + aSeed.w * 9.0), cos(t * 0.8 + aSeed.x * 9.0)) * 0.8 + vec2(uWind.x, uWind.y) * t * 0.3;
+  float gy = lGround(p.xz) + 0.03;
+  p.y = max(p.y, gy);
+  vec3 wp = tumble(p, 0.05, t, fract(aSeed.w * 11.3));
+  float c = fract(aSeed.w * 23.1);
+  vCol = c < 0.4 ? vec3(0.85, 0.62, 0.15) : c < 0.7 ? vec3(0.78, 0.38, 0.1) : vec3(0.5, 0.62, 0.15);
+  float fade = smoothstep(0.5 * uBox, 0.38 * uBox, length(p.xz - uCam.xz));
+  vA = forest * fade * smoothstep(0.0, 0.8, t) * (1.0 - smoothstep(period * 0.8, period, t)) * (0.3 + 0.7 * uDay);
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+  if (vA < 0.01) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+}`;
+const FALL_FRAG = /* glsl */`
+${COMMON_UNIFORMS}
+varying vec2 vUv;
+varying vec3 vCol;
+varying float vA;
+void main() {
+  vec2 q = vUv * 2.0 - 1.0;
+  if (dot(q * vec2(1.0, 1.6), q * vec2(1.0, 1.6)) > 1.0) discard;
+  vec3 light = uSunCol * 0.2 + uFill * 0.9 + vec3(0.05);
+  gl_FragColor = vec4(vCol * light, 1.0);
+}`;
+
 function seeds(n, rnd = Math.random) {
   const a = new Float32Array(n * 4);
   for (let i = 0; i < a.length; i++) a[i] = rnd();
   return a;
 }
 
-export function buildLife(terrainView, env) {
+export function buildLife(terrainView, env, trees) {
   const TU = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'life';
@@ -230,10 +343,60 @@ export function buildLife(terrainView, env) {
   wings.frustumCulled = false;
   group.add(wings);
 
+  // birds: body, tail and two wings (x across, z forward, w = 1 where it flaps)
+  const birdGeo = new THREE.InstancedBufferGeometry();
+  {
+    const v = [
+      0, 0, 0.55, 0, -0.07, 0, -0.3, 0, 0.07, 0, -0.3, 0,          // body
+      0, 0, -0.25, 0, -0.18, 0, -0.62, 0, 0.18, 0, -0.62, 0,       // tail
+    ];
+    for (const sd of [-1, 1]) v.push(sd * 0.05, 0, 0.18, 1, sd * 1.0, 0.02, -0.05, 1, sd * 0.05, 0, -0.22, 1,   // wing
+      sd * 1.0, 0.02, -0.05, 1, sd * 0.62, 0.01, -0.28, 1, sd * 0.05, 0, -0.22, 1);
+    birdGeo.setAttribute('aBird', new THREE.Float32BufferAttribute(v, 4));
+    birdGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(v.length / 4 * 3), 3));
+    const N = 60;
+    birdGeo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds(N), 4));
+    birdGeo.instanceCount = N;
+    birdGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+  }
+  const birds = new THREE.Mesh(birdGeo, new THREE.ShaderMaterial({ vertexShader: BIRD_VERT, fragmentShader: BIRD_FRAG, uniforms: { ...shared, uBox: { value: 420 } }, side: THREE.DoubleSide }));
+  birds.frustumCulled = false;
+  group.add(birds);
+
+  // petals and leaves: one quad each
+  const quads = (n, vert, extra) => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute('aCorner', new THREE.Float32BufferAttribute([-1, -1, 1, -1, 1, 1, -1, 1], 2));
+    g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds(n), 4));
+    g.instanceCount = n;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: FALL_FRAG, uniforms: { ...shared, ...extra }, side: THREE.DoubleSide }));
+    m.frustumCulled = false;
+    group.add(m);
+    return m;
+  };
+  const treeSlots = Array.from({ length: 8 }, () => new THREE.Vector4());
+  const petals = quads(900, PETAL_VERT, { uTrees: { value: treeSlots } });
+  const leaves = quads(500, LEAF_VERT, { uBox: { value: 34 } });
+  // the trees in blossom (trees.js variants of kind 'blossom'), nearest first every half second
+  const blossoms = trees ? trees.trees.filter(t => trees.variants[t.v].kind === 'blossom') : [];
+  let slotT = 0;
+  const pickTrees = (cam) => {
+    const near = blossoms.map(t => [t, (t.x - cam.x) ** 2 + (t.z - cam.z) ** 2]).filter(e => e[1] < 90 * 90).sort((a, b) => a[1] - b[1]).slice(0, 8);
+    for (let i = 0; i < 8; i++) {
+      const e = near[i];
+      if (!e) { treeSlots[i].set(0, -1e4, 0, 0); continue; }
+      const t = e[0], v = trees.variants[t.v];
+      treeSlots[i].set(t.x, t.y + v.geo.height * 0.62 * t.s, t.z, v.geo.crownR * 0.8 * t.s);
+    }
+  };
+
   let enabled = true, time = 0;
   const col = new THREE.Color();
   return {
-    group, pollen, flies, wings, uniforms: shared,
+    group, pollen, flies, wings, birds, petals, leaves, uniforms: shared,
     configure(q) {
       enabled = q.life !== false;
       group.visible = enabled;
@@ -256,6 +419,9 @@ export function buildLife(terrainView, env) {
       u.uNight.value = THREE.MathUtils.smoothstep(d, 0.3, 0.7);
       pollen.visible = u.uDay.value > 0.001;
       wings.visible = u.uDay.value > 0.001;
+      birds.visible = u.uDay.value > 0.001;
+      if ((slotT -= dt) <= 0) { slotT = 0.5; pickTrees(camera.position); }
+      petals.visible = u.uDay.value > 0.001 && treeSlots[0].w > 0;
       flies.visible = u.uNight.value > 0.001;
     },
   };

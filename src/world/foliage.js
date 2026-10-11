@@ -176,7 +176,7 @@ export function makeFoliageAtlas() {
       const spike = R(60, 105);
       for (let f = 0; f < 11; f++) {
         const t = f / 10, px = x1 - Math.sin(lean) * spike * t + R(-3, 3), py = y1 + Math.cos(lean) * spike * t;
-        g.fillStyle = hsl(R(258, 282), R(45, 62), R(48, 66) - t * 8);
+        g.fillStyle = hsl(R(268, 292), R(38, 52), R(52, 70) - t * 8);
         g.beginPath(); g.ellipse(px, py, R(6, 9) * (1 - t * 0.3), R(7, 10), lean, 0, Math.PI * 2); g.fill();
       }
     }
