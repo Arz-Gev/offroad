@@ -216,10 +216,12 @@ void main() {
 const DOF_COC_GLSL = /* glsl */`
 uniform vec4 uDof;   // x: largest blur radius (full-res px), y: where the blur starts (m), z: how slowly it grows (m), w: on
 uniform vec2 uDofMini;   // miniature (tilt-shift look): x focus distance (m), y on; blur both nearer and farther
+// signed: negative in front of the focus (miniature only), positive behind it
 float dofCoc(float d) {
   if (d >= 0.99999) return uDof.x;
   float z = fogLinZ(d);
-  if (uDofMini.y > 0.5) return uDof.x * min(abs(z - uDofMini.x) / z * 3.0, 1.0);
+  // a sharp band 3 m either side of the focus: the whole truck stays in focus, nose to tail
+  if (uDofMini.y > 0.5) return sign(z - uDofMini.x) * uDof.x * min(max(abs(z - uDofMini.x) - 3.0, 0.0) / z * 4.0, 1.0);
   return uDof.x * clamp((z - uDof.y) / (z + uDof.z), 0.0, 1.0);
 }`;
 // Half resolution: the scene as the composite will see it before exposure (AO, volumetric fog), its blur radius in
@@ -238,9 +240,9 @@ void main() {
   for (int i = 0; i < 4; i++) {
     ivec2 q = min(base + ivec2(i & 1, i >> 1), lim);
     vec4 sc = texelFetch(tScene, q, 0);
-    float coc = dofCoc(texelFetch(tDepth, q, 0).r) * smoothstep(0.9, 1.0, sc.a), w = coc + 0.05;
+    float coc = dofCoc(texelFetch(tDepth, q, 0).r) * smoothstep(0.9, 1.0, sc.a), w = abs(coc) + 0.05;
     sum += sc.rgb * w; ws += w;
-    if (coc > cmax) { cmax = coc; best = q; }
+    if (abs(coc) > abs(cmax)) { cmax = coc; best = q; }
   }
   vec3 c = sum / ws;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
@@ -249,27 +251,34 @@ void main() {
   gl_FragColor = vec4(c, cmax * 0.5);
 }`;
 // Scatter as gather on a Vogel spiral: a texel counts where its own blur reaches this one, so the blurred land
-// never takes colour from the sharp things in front of it, and a blurred crown still spreads over the sky.
+// never takes colour from the sharp things in front of it, and a blurred crown still spreads over the sky. A texel
+// behind this one reaches no further than this one's own blur; one in front (miniature's near field) spreads its
+// full blur over sharp things behind it, so the search covers the largest blur there (uRmax) and alpha says how far
+// the near blur covers this texel.
 const DOF_GATHER_FRAG = /* glsl */`
 uniform sampler2D tSrc;
 uniform vec2 uTexel;
-uniform float uMaxTaps;
+uniform float uMaxTaps, uRmax;
 varying vec2 vUv;
 void main() {
   vec4 c0 = texture2D(tSrc, vUv);
-  float R = c0.a;
-  if (R < 0.5) { gl_FragColor = c0; return; }
+  float c = c0.a, ac = abs(c), R = max(ac, uRmax);
+  if (R < 0.5) { gl_FragColor = vec4(c0.rgb, ac); return; }
   float n = clamp(floor(R * R * 2.0), 8.0, uMaxTaps);
-  vec3 sum = c0.rgb; float ws = 1.0;
+  vec3 sum = c0.rgb; float ws = 1.0, nw = 0.0, nr = 0.0;
   for (int i = 0; i < 96; i++) {
     float fi = float(i);
     if (fi >= n) break;
     float r = R * sqrt((fi + 0.5) / n), a = fi * 2.39996323;
     vec4 s = texture2D(tSrc, vUv + vec2(cos(a), sin(a)) * r * uTexel);
-    float w = clamp(s.a - r + 1.0, 0.0, 1.0);
+    float as = abs(s.a);
+    bool front = s.a < c - 0.5;
+    float w = clamp((front ? as : min(as, ac)) - r + 1.0, 0.0, 1.0);
     sum += s.rgb * w; ws += w;
+    if (front) { nw += w; nr += w * as; }
   }
-  gl_FragColor = vec4(sum / ws, R);
+  float nearCover = nw > 0.0 ? nr / nw * clamp(nw / ws * 2.0, 0.0, 1.0) : 0.0;
+  gl_FragColor = vec4(sum / ws, max(ac, nearCover));
 }`;
 
 const COMPOSITE_FRAG = /* glsl */`
@@ -287,15 +296,15 @@ ${FOG_APPLY_GLSL}
 ${DOF_COC_GLSL}
 // the half-res blur brought back to full res, each texel weighted by how close its blur is to this pixel's: at a
 // sharp edge the blurred side never takes the sharp side's colour
-vec3 dofAt(float coc) {
+vec4 dofAt(float coc) {
   vec2 q = vUv / uDofTexel - 0.5, f = fract(q), b = (floor(q) + 0.5) * uDofTexel;
   float h = coc * 0.5;
-  vec3 s = vec3(0.0); float ws = 0.0;
+  vec4 s = vec4(0.0); float ws = 0.0;
   for (int i = 0; i < 4; i++) {
     vec2 o = vec2(float(i & 1), float(i >> 1));
     vec4 d = texture2D(tDof, b + o * uDofTexel);
     float w = (o.x > 0.0 ? f.x : 1.0 - f.x) * (o.y > 0.0 ? f.y : 1.0 - f.y) / (0.2 + abs(d.a - h)) + 1e-5;
-    s += d.rgb * w; ws += w;
+    s += d * w; ws += w;
   }
   return s / ws;
 }
@@ -371,8 +380,12 @@ void main() {
   // volumetric fog (volumetricFog.js): the scene seen through it, plus the light it scatters towards us
   if (uFogOn > 0.5) { vec4 f = fogAt(vUv, tDepth); c = c * f.a + f.rgb; }
   if (uDof.w > 0.5) {
-    float coc = dofCoc(texture2D(tDepth, vUv).r), t = smoothstep(0.6, 2.4, coc) * smoothstep(0.9, 1.0, sc.a);
-    if (t > 0.0) c = mix(c, dofAt(coc), t);
+    float coc = abs(dofCoc(texture2D(tDepth, vUv).r)), keep = smoothstep(0.9, 1.0, sc.a), t = smoothstep(0.6, 2.4, coc) * keep;
+    if (uDofMini.y > 0.5) {
+      // the near field's blur spreads over the sharp truck and ground behind it
+      vec4 b = dofAt(coc);
+      c = mix(c, b.rgb, max(t, smoothstep(0.3, 1.2, b.a) * keep));
+    } else if (t > 0.0) c = mix(c, dofAt(coc).rgb, t);
   }
   c *= ex;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
@@ -404,6 +417,8 @@ void main() {
   float sat = max(s.r, max(s.g, s.b)) - min(s.r, min(s.g, s.b));
   L = dot(s, vec3(0.2126, 0.7152, 0.0722));
   s = clamp(mix(vec3(L), s, 1.0 + uVibrance * (1.0 - sat)), 0.0, 1.0);
+  // miniature: the toy look's richer colour
+  if (uDofMini.y > 0.5) s = clamp(mix(vec3(L), s, 1.18), 0.0, 1.0);
   // vignette towards a colour (warm by day), not black: the middle clean, the frame closing in towards the corners
   vec2 v = vUv - 0.5;
   s = mix(s, s * uVigCol, uVignette * smoothstep(0.1, 1.0, dot(v, v) * 2.0) * 1.4);
@@ -509,7 +524,7 @@ export class RenderPipeline {
       tScene: { value: this.hdr.texture }, tDepth: { value: this.hdr.depthTexture }, tAO: { value: this.ao[1].texture }, uAOOn: { value: 0 },
       tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: this.compMat.uniforms.uNearFar, uFogOn: { value: 0 }, uDof: dofU, uDofMini: dofMiniU,
     });
-    this.dofGatherMat = mat(DOF_GATHER_FRAG, { tSrc: { value: this.dofRT[0].texture }, uTexel: { value: new THREE.Vector2() }, uMaxTaps: { value: 48 } });
+    this.dofGatherMat = mat(DOF_GATHER_FRAG, { tSrc: { value: this.dofRT[0].texture }, uTexel: { value: new THREE.Vector2() }, uMaxTaps: { value: 48 }, uRmax: { value: 0 } });
     Object.assign(this.compMat.uniforms, { tDof: { value: this.dofRT[1].texture }, uDofTexel: { value: new THREE.Vector2() }, uDof: dofU, uDofMini: dofMiniU });
     this.gpuTimer = null;
   }
@@ -705,6 +720,7 @@ export class RenderPipeline {
       const gu = this.dofGatherMat.uniforms;
       gu.uTexel.value.set(1 / this.dofRT[0].width, 1 / this.dofRT[0].height);
       gu.uMaxTaps.value = this.dofTaps;
+      gu.uRmax.value = P.dofMini ? cu.uDof.value.x * 0.5 : 0;
       this.pass(this.dofGatherMat, this.dofRT[1]);
       cu.uDofTexel.value.copy(gu.uTexel.value);
     }

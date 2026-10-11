@@ -192,7 +192,7 @@ async function main() {
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   // depth of field: off in the gunner's sight (the targets are far away)
-  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2, miniature: 1.6 };
+  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2, miniature: 2.0 };
   const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; pipeline.params.dofMini = settings.get('dof') === 'miniature'; game.redraw = 3; };
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
