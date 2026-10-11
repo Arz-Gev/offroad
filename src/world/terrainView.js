@@ -581,6 +581,16 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   h = clamp(sa.a * 0.7 + ma.a * 0.3 + ledge * 0.3, 0.0, 1.0);
   cav = sm.a * (1.0 - 0.5 * under);
   rough = mix(sm.b, 0.92, 0.5);
+  // close up, the rock-face photo's grain and cracks (~0.2-0.5 ms where there is rock near; the 30 m cliff photo under
+  // it cost three times that for colour blotches the land already gives)
+  float det = uDetail > 0.5 ? 1.0 - smoothstep(20.0, 50.0, dist) : 0.0;
+  if (det > 0.0) {
+    vec4 da, dm; vec3 dn;
+    triAt(${LAYER.rock}.0, uTile[${LAYER.rock}], p, nW, w, nk, da, dm, dn);
+    col *= mix(1.0, clamp(lum(da.rgb) / lum(uAvg[${LAYER.rock}]), 0.4, 1.8), det * 0.7);
+    nW = normalize(mix(nW, dn, det * 0.6));
+    h = mix(h, h * 0.5 + da.a * 0.5, det); cav = mix(cav, cav * dm.a, det);
+  }
   // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain
   float north = clamp(-dot(hn.xz, SUN_SIDE), 0.0, 1.0) * steep;
   vec4 mn = textureGrad(tNoise, p.xz / 5.3 + p.y * 0.07, gDx / 5.3, gDy / 5.3);
