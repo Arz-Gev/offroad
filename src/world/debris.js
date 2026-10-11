@@ -7,18 +7,18 @@ import { mulberry32 } from './noise.js';
 // under broadleaves, cones and twigs under conifers, petals under blossom). They give the ground depth in motion:
 // they stand up, shade themselves, cast small shadows and slide past with parallax, which no texture does.
 // Placed from the terrain's data (trail distance, surface splat, ground and land data, terrainView.js) per 16 m
-// chunk the first time the camera comes near, a few chunks a frame, and kept in a cache. Drawn as three instanced
-// meshes (round things, flat things, sticks) whose buffers are refilled when the camera moves to the next chunk;
+// chunk the first time the camera comes near, a few chunks a frame, and kept in a cache. Drawn as four instanced
+// meshes (stones, pebbles, flat things, sticks) whose buffers are refilled when the camera moves to the next chunk;
 // each piece shrinks away towards the edge of its radius, so nothing pops.
 
 const HALF = MAP_SIZE / 2, NN = N + 1;
 const CHUNK = 16;
 const PER_FRAME = 3;   // chunks generated per frame at most
 // per mesh: the radius drawn (m) and the most instances
-const KINDS = { blob: { r: 40, max: 24000 }, flat: { r: 30, max: 40000 }, stick: { r: 34, max: 6000 } };
-const SMALL = 0.55;    // pebbles (under SMALL_SIZE) are drawn to this share of the radius only
-const SMALL_SIZE = 0.07;
-const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz radius share sink
+// blob: stones (an icosphere of 80 faces), pebble: pebbles and cones (20 faces), flat: leaves and petals, stick: twigs
+const KINDS = { blob: { r: 40, max: 12000 }, pebble: { r: 22, max: 24000 }, flat: { r: 30, max: 40000 }, stick: { r: 34, max: 6000 } };
+const SMALL_SIZE = 0.07;   // stones smaller than this are pebbles
+const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz seed sink
 
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const pack = (r, g, b) => Math.round(Math.min(1, r) * 255) + Math.round(Math.min(1, g) * 255) * 256 + Math.round(Math.min(1, b) * 255) * 65536;
@@ -33,15 +33,16 @@ function rockColour(kind, t) {
   });
   return c;
 }
+const SOIL = [0.24, 0.16, 0.1];
 const LEAVES = [[0.2, 0.1, 0.035], [0.32, 0.2, 0.08], [0.42, 0.3, 0.07], [0.3, 0.12, 0.03], [0.11, 0.16, 0.035], [0.24, 0.16, 0.07]];
 
 // ---------------------------------------------------------------- geometry
-function stoneGeometry() {
+function stoneGeometry(detail) {
   // a broken stone: an icosphere pushed out of round and cut by a few planes (flat faces that catch the light),
   // flatter on the bottom; flat shaded
-  const g = mergeByPosition(new THREE.IcosahedronGeometry(1, 0));
+  const g = mergeByPosition(new THREE.IcosahedronGeometry(1, detail));
   const p = g.getAttribute('position'), rnd = mulberry32(77), v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).multiplyScalar(0.8 + rnd() * 0.35); p.setXYZ(i, v.x, v.y, v.z); }
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).multiplyScalar(0.85 + rnd() * 0.25); p.setXYZ(i, v.x, v.y, v.z); }
   for (let c = 0; c < 4; c++) {
     const n = new THREE.Vector3(rnd() * 2 - 1, rnd() * 1.4 - 0.2, rnd() * 2 - 1).normalize(), d = 0.6 + rnd() * 0.25;
     for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const e = v.dot(n) - d; if (e > 0) { v.addScaledVector(n, -e); p.setXYZ(i, v.x, v.y, v.z); } }
@@ -110,8 +111,7 @@ vec3 dUp = normalize(vec3(aC.x, 1.0, aC.y));
 vec3 dT = normalize(vec3(cos(aA.w), 0.0, sin(aA.w)));
 dT = normalize(dT - dUp * dot(dT, dUp));
 vec3 dB = cross(dT, dUp);
-float dR = uRad * aC.z;
-float dFade = 1.0 - smoothstep(dR * 0.72, dR, distance(aA.xyz, uCam));
+float dFade = 1.0 - smoothstep(uRad * 0.72, uRad, distance(aA.xyz, uCam));
 vec3 dS = aB.xyz * dFade;
 `;
 
@@ -128,7 +128,8 @@ vec3 objectNormal = normalize(dT * (normal.x / max(aB.x, 1e-4)) + dUp * (normal.
 vec3 transformed = aA.xyz + dT * (position.x * dS.x) + dUp * (position.y * dS.y - aC.w * aB.y) + dB * (position.z * dS.z);
 vDPos = transformed;
 vDCol = dUnpack(aB.w);
-vDAO = ${kind === 'flat' ? '1.0' : 'mix(0.45, 1.0, smoothstep(-0.3, 0.6, position.y))'};`);
+// (stones sit down among the ground's own relief: less of the sky reaches them, like the ground around)
+vDAO = ${kind === 'flat' || kind === 'stick' ? '0.8' : 'mix(0.3, 0.7, smoothstep(-0.3, 0.6, position.y))'};`);
     if (depth) return;
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -142,7 +143,7 @@ varying float vDAO;`)
   vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
   diffuseColor.rgb *= vDCol * (0.78 + 0.44 * nz.a) * (1.0 - 0.35 * uWet);
 }`)
-      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(${kind === 'blob' ? '0.75' : '0.9'}, 0.3, uWet);`)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.9, 0.3, uWet);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vDAO; reflectedLight.indirectSpecular *= vDAO;');
     if (kind === 'flat') {
       // thin things on the ground: lit like the ground they lie on (both faces up), a touch of light through them
@@ -162,7 +163,7 @@ export function buildDebris(terrain, terrainView) {
   const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet };
   const group = new THREE.Group();
   group.name = 'debris';
-  const geos = { blob: stoneGeometry(), flat: leafGeometry(), stick: stickGeometry() };
+  const geos = { blob: stoneGeometry(1), pebble: stoneGeometry(0), flat: leafGeometry(), stick: stickGeometry() };
   const meshes = {};
   for (const k of Object.keys(KINDS)) {
     const base = geos[k];
@@ -181,7 +182,7 @@ export function buildDebris(terrain, terrainView) {
     const m = new THREE.Mesh(g, makeMaterial(k, uniforms));
     m.frustumCulled = false;
     m.receiveShadow = true;
-    m.castShadow = k !== 'flat';
+    m.castShadow = k === 'blob' || k === 'stick';
     if (m.castShadow) m.customDepthMaterial = makeMaterial(k, uniforms, true);
     m.matrixAutoUpdate = false;
     group.add(m);
@@ -197,10 +198,10 @@ export function buildDebris(terrain, terrainView) {
     const out = { blob: [], pebble: [], flat: [], stick: [] };
     const rnd = mulberry32((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
     const x0 = -HALF + cx * CHUNK, z0 = -HALF + cz * CHUNK;
-    const put = (list, x, z, sx, sy, sz, col, sink, share = 1, yaw = rnd() * Math.PI * 2) => {
+    const put = (list, x, z, sx, sy, sz, col, sink, yaw = rnd() * Math.PI * 2) => {
       const y = terrain.surfaceHeight(x, z);
       terrain.normalAt(x, z, nrm);
-      list.push(x, y, z, yaw, sx, sy, sz, col, nrm.x / nrm.y, nrm.z / nrm.y, share, sink);
+      list.push(x, y, z, yaw, sx, sy, sz, col, nrm.x / nrm.y, nrm.z / nrm.y, rnd(), sink);
     };
     for (let a = 0; a < CHUNK; a++) for (let b = 0; b < CHUNK; b++) {
       const x = x0 + a + 0.5, z = z0 + b + 0.5;
@@ -222,9 +223,10 @@ export function buildDebris(terrain, terrainView) {
       let n = Math.floor(dStone + rnd());
       for (let k = 0; k < n; k++) {
         const big = rnd() < 0.015 + scree * 0.12 + rock * 0.05, s = big ? 0.1 + rnd() * 0.16 * (1 + scree) : 0.025 + rnd() * 0.07 + rnd() * rnd() * 0.05;
-        const c = rockColour(kind, 0.1 + rnd() * 0.6).map(e => e * 0.75);
-        const small = s < SMALL_SIZE;
-        put(small ? out.pebble : out.blob, x + rnd() - 0.5, z + rnd() - 0.5, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), 0.15 + rnd() * 0.2, small ? SMALL : 1);
+        // the rock's colour, dusted with the soil around it (warmer on the tracks), each stone a little different
+        const t = 0.1 + rnd() * 0.6, dust = (trail > 0.3 || verge > 0.3 ? 0.45 : 0.2) + rnd() * 0.3;
+        const c = rockColour(kind, t).map((e, k) => (e * (1 - dust) + SOIL[k] * dust) * (0.7 + rnd() * 0.35));
+        put(s < SMALL_SIZE ? out.pebble : out.blob, x + rnd() - 0.5, z + rnd() - 0.5, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), 0.15 + rnd() * 0.2);
       }
       if (forest > 0.05 && wet < 0.5) {
         if (litter < 0.25) {
@@ -232,7 +234,7 @@ export function buildDebris(terrain, terrainView) {
           n = Math.floor(forest * 0.9 + rnd());
           for (let k = 0; k < n; k++) {
             const s = 0.028 + rnd() * 0.018, t = 0.7 + rnd() * 0.5;
-            put(out.pebble, x + rnd() - 0.5, z + rnd() - 0.5, s * 1.7, s, s, pack(0.2 * t, 0.11 * t, 0.05 * t), 0.1, SMALL);
+            put(out.pebble, x + rnd() - 0.5, z + rnd() - 0.5, s * 1.7, s, s, pack(0.2 * t, 0.11 * t, 0.05 * t), 0.1);
           }
           n = Math.floor(forest * 0.45 + rnd());
           for (let k = 0; k < n; k++) {
@@ -272,15 +274,10 @@ export function buildDebris(terrain, terrainView) {
     for (const k of Object.keys(KINDS)) {
       const M = meshes[k], R = KINDS[k].r * radiusScale, rc = Math.ceil(R / CHUNK) + 1;
       let n = 0;
-      const rs = Math.ceil(R * SMALL / CHUNK) + 1;
       for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) {
-        const c = cache.get((cxC + a) * NC + czC + b);
-        if (!c) continue;
-        // the pebbles only from the nearer chunks
-        for (const src of k === 'blob' && Math.max(Math.abs(a), Math.abs(b)) <= rs ? [c.blob, c.pebble] : [c[k]]) {
-          if (!src.length || n + src.length > M.data.length) continue;
-          M.data.set(src, n); n += src.length;
-        }
+        const c = cache.get((cxC + a) * NC + czC + b), src = c?.[k];
+        if (!src?.length || n + src.length > M.data.length) continue;
+        M.data.set(src, n); n += src.length;
       }
       M.count = n / STRIDE;
       M.mesh.geometry.instanceCount = M.count;
@@ -291,7 +288,7 @@ export function buildDebris(terrain, terrainView) {
 
   return {
     group,
-    get count() { return meshes.blob.count + meshes.flat.count + meshes.stick.count; },
+    get count() { return Object.values(meshes).reduce((n, M) => n + M.count, 0); },
     configure(q) {
       enabled = q.vegetation !== false && (q.bushes ?? 1) > 0 && q.veg !== 'off';
       group.visible = enabled;

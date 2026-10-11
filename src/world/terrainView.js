@@ -379,7 +379,7 @@ uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
 varying vec3 vWPos;
 varying float vMorph;
-float gRough; float gAO; float gCav; vec3 gN; float gWet;
+float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0;
 vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control flow)
 vec3 gDpx, gDpy;
 float gVar;      // anti-tiling: a low-frequency noise that picks each region's tile offset
@@ -411,6 +411,42 @@ void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
       alb = mix(alb, a2, b); nrm = mix(nrm, n2, b);
     }
   }
+}
+// parallax occlusion near the camera: the dominant layer's height (its alpha, top 1) as relief below the surface,
+// depth m deep, marched along the view ray V. Returns the xz where the ray meets it; hitD its depth (0 top .. 1)
+vec2 pomAt(float l, vec2 xz, vec3 V, float depth, out float hitD) {
+  float t = uTile[int(l)];
+  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);   // the region's tile offset (layerAt)
+  vec2 dxz = V.xz / max(-V.y, 0.25) * depth / 6.0;
+  vec2 cur = xz; float d = 0.0;
+  float h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+  hitD = 0.0;
+  if (h <= 0.0) return xz;
+  float ph = h, pd = 0.0;
+  for (int s = 0; s < 6; s++) {
+    ph = h; pd = d;
+    cur += dxz; d += 1.0 / 6.0;
+    h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+    if (d >= h) break;
+  }
+  // between the last two samples, where the ray crossed the relief
+  float f = (ph - pd) / max((ph - pd) - (h - d), 1e-4);
+  hitD = mix(pd, d, f);
+  return cur - dxz * (1.0 - f);
+}
+// the relief's own shadow at the hit: does it rise above the ray towards the sun (Lw, world)?
+float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, float depth) {
+  if (Lw.y < 0.05 || hitD <= 0.0) return 1.0;
+  float t = uTile[int(l)];
+  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);
+  vec2 dir = Lw.xz / max(Lw.y, 0.12) * depth;
+  float sh = 0.0;
+  for (int s = 1; s <= 3; s++) {
+    float f = float(s) / 3.0 * hitD;
+    float dS = 1.0 - textureGrad(tAlb, vec3((xz + dir * f) * t + oa, l), gDx * t, gDy * t).a;
+    sh = max(sh, (hitD - f - dS) * 6.0);
+  }
+  return 1.0 - clamp(sh, 0.0, 1.0) * 0.85;
 }
 // tangent-space detail normal (xy in [-1, 1]) on a base normal, planar xz projection (whiteout blend)
 vec3 onPlanar(vec2 tn, vec3 n0) {
@@ -631,10 +667,20 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   if (dist < 600.0) {
     bool two = dist < 160.0;
     vec4 a1, n1, a2, n2;
-    layerAt(l1, p.xz, two, a1, n1);
+    // near the camera the ground has depth: parallax occlusion on the dominant layer, with its own sun shadow
+    vec2 pxz = p.xz;
+    float pomK = (uDetail > 1.5 ? 1.0 - smoothstep(5.0, 10.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    if (pomK > 0.0) {
+      float pomD;
+      pxz = mix(p.xz, pomAt(l1, p.xz, normalize(p - cameraPosition), 0.05, pomD), pomK);
+      #if NUM_SUN_LIGHTS > 0
+      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), 0.05), pomK);
+      #endif
+    }
+    layerAt(l1, pxz, two, a1, n1);
     a1.rgb *= TINT(l1);
     if (w2 > 0.02) {
-      layerAt(l2, p.xz, two, a2, n2);
+      layerAt(l2, pxz, two, a2, n2);
       a2.rgb *= TINT(l2);
       float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2, hm = max(h1, h2) - 0.35;
       float b1 = max(h1 - hm, 0.0) * w1, b2 = max(h2 - hm, 0.0) * w2;
@@ -718,13 +764,20 @@ vec3 normal = normalize((viewMatrix * vec4(gN, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;`)
       .replace('#include <normal_fragment_maps>', '')
       .replace('#include <aomap_fragment>', `
+#if NUM_SUN_LIGHTS > 0
+// light bounced off the sunlit ground onto slopes and rock faces (the sky probe has no ground below it): warm, by how
+// far the surface turns from the sky; without it a face in shade was lit by the blue sky alone
+reflectedLight.indirectDiffuse += diffuseColor.rgb * sunLights[0].color * vec3(1.0, 0.85, 0.65)
+  * (max((vec4(sunLights[0].direction, 0.0) * viewMatrix).y, 0.0) * 0.25 * (1.0 - gN.y) * 0.5 * RECIPROCAL_PI);
+#endif
 reflectedLight.indirectDiffuse *= gAO;
 reflectedLight.indirectSpecular *= gAO;
-#if NUM_DIR_LIGHTS > 0
+#if NUM_SUN_LIGHTS > 0
 {
-  // microshadows: the texture's crevices stay dark when the sun skims across them (Uncharted 4's approximation)
-  float nl = dot(normal, directionalLights[0].direction);
-  float ms = clamp(abs(nl) + 2.0 * gCav * gCav - 1.0, 0.0, 1.0);
+  // microshadows: the texture's crevices stay dark when the sun skims across them (Uncharted 4's approximation),
+  // and the parallax relief's own shadow
+  float nl = dot(normal, sunLights[0].direction);
+  float ms = clamp(abs(nl) + 2.0 * gCav * gCav - 1.0, 0.0, 1.0) * gPomSh;
   reflectedLight.directDiffuse *= ms; reflectedLight.directSpecular *= ms;
 }
 #endif`);
