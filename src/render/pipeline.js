@@ -219,7 +219,8 @@ uniform vec2 uDofMini;   // miniature (tilt-shift look): x focus distance (m), y
 float dofCoc(float d) {
   if (d >= 0.99999) return uDof.x;
   float z = fogLinZ(d);
-  if (uDofMini.y > 0.5) return uDof.x * min(abs(z - uDofMini.x) / z * 3.0, 1.0);
+  // a sharp band 3 m either side of the focus: the whole truck stays in focus, nose to tail
+  if (uDofMini.y > 0.5) return uDof.x * min(max(abs(z - uDofMini.x) - 3.0, 0.0) / z * 3.0, 1.0);
   return uDof.x * clamp((z - uDof.y) / (z + uDof.z), 0.0, 1.0);
 }`;
 // Half resolution: the scene as the composite will see it before exposure (AO, volumetric fog), its blur radius in
