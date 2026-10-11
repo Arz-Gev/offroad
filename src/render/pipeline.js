@@ -242,7 +242,8 @@ void main() {
   }
   vec3 c = sum / ws;
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
-  if (uFogOn > 0.5) { vec4 f = fogAt((vec2(best) + 0.5) / vec2(lim + 1), tDepth); c = c * f.a + f.rgb; }
+  // the fog's own bilinear filter is enough here: at a silhouette the error is blurred away
+  if (uFogOn > 0.5) { vec4 f = texture2D(tFog, (vec2(best) + 0.5) / vec2(lim + 1)); c = c * f.a + f.rgb; }
   gl_FragColor = vec4(c, cmax * 0.5);
 }`;
 // Scatter as gather on a Vogel spiral: a texel counts where its own blur reaches this one, so the blurred land
