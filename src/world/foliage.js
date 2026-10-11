@@ -9,7 +9,7 @@ import { mulberry32 } from './noise.js';
 // like a volume), uv (atlas), aWind (0 at the root .. 1 at the tips: how far the vertex sways).
 
 export const ATLAS = { cols: 4, rows: 3, cell: 512 };
-export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, blossom: 8, oak: 9 };
+export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, blossom: 8, oak: 9, lavender: 10, poppy: 11 };
 
 const cellUV = (i) => {
   const c = i % ATLAS.cols, r = Math.floor(i / ATLAS.cols);
@@ -165,6 +165,41 @@ export function makeFoliageAtlas() {
       leaf(x, y, ang, l, w, col);
       leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
     }
+  });
+
+  // 10: lavender (side view): a clump of grey-green stems, each topped with a spike of purple florets
+  cell(CELLS.lavender, () => {
+    for (let k = 0; k < 46; k++) {
+      const x0 = S / 2 + R(-70, 70), lean = R(-0.35, 0.35), h = R(300, 470);
+      const x1 = x0 + Math.sin(lean) * h, y1 = S - Math.cos(lean) * h;
+      line(x0, S, x1, y1, R(3, 4.5), hsl(R(85, 105), R(18, 28), R(42, 54)));
+      const spike = R(60, 105);
+      for (let f = 0; f < 11; f++) {
+        const t = f / 10, px = x1 - Math.sin(lean) * spike * t + R(-3, 3), py = y1 + Math.cos(lean) * spike * t;
+        g.fillStyle = hsl(R(258, 282), R(45, 62), R(48, 66) - t * 8);
+        g.beginPath(); g.ellipse(px, py, R(6, 9) * (1 - t * 0.3), R(7, 10), lean, 0, Math.PI * 2); g.fill();
+      }
+    }
+    for (let k = 0; k < 18; k++) line(S / 2 + R(-80, 80), S, S / 2 + R(-110, 110), S - R(60, 140), R(5, 8), hsl(R(90, 110), R(20, 30), R(38, 50)));
+  });
+
+  // 11: poppies (side view): thin hairy stems, red cups with a dark heart, a few nodding buds
+  cell(CELLS.poppy, () => {
+    for (let k = 0; k < 14; k++) {
+      const x0 = R(60, S - 60), h = R(220, 450), top = S - h, x1 = x0 + R(-40, 40);
+      g.strokeStyle = hsl(R(90, 105), R(35, 45), R(32, 40)); g.lineWidth = 3; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x0, S); g.quadraticCurveTo(x0 + R(-20, 20), S - h * 0.5, x1, top); g.stroke();
+      if (k % 4 === 3) { g.fillStyle = hsl(95, 40, 34); g.beginPath(); g.ellipse(x1, top + 8, 9, 14, 0.4, 0, Math.PI * 2); g.fill(); continue; }
+      const r = R(26, 38), hue = R(0, 9);
+      for (let p = 0; p < 4; p++) {
+        const a = p / 4 * Math.PI * 2 + R(-0.2, 0.2);
+        g.fillStyle = hsl(hue, R(78, 90), R(44, 54));
+        g.beginPath(); g.ellipse(x1 + Math.cos(a) * r * 0.45, top + Math.sin(a) * r * 0.3 - 4, r * 0.62, r * 0.5, a, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = hsl(hue, 85, 62); g.beginPath(); g.ellipse(x1, top - 8, r * 0.5, r * 0.32, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = hsl(260, 25, 12); g.beginPath(); g.arc(x1, top - 2, r * 0.18, 0, Math.PI * 2); g.fill();
+    }
+    for (let k = 0; k < 20; k++) leaf(S / 2 + R(-140, 140), S - R(10, 120), -Math.PI / 2 + R(-0.9, 0.9), R(40, 70), R(10, 16), hsl(R(90, 110), R(35, 50), R(30, 40)));
   });
 
   // read back (straight alpha), bleed colour into transparent texels so mipmaps don't get dark fringes
@@ -467,8 +502,8 @@ export function buildPlant(kind, seed) {
       const p = d.clone().multiplyScalar(0.35).add(new THREE.Vector3(0, R(0.1, 0.4), 0));
       cards.push(card(CELLS.bush, R(0.9, 1.3), R(0.9, 1.3), cardMatrix(p.addScaledVector(d, -0.5), d, R(0, Math.PI)), 0.1, 0.7, centre, 0.45));
     }
-  } else if (kind === 'flowers' || kind === 'tuft') {
-    const cellIdx = kind === 'flowers' ? CELLS.flowers : CELLS.grassTuft;
+  } else if (kind === 'flowers' || kind === 'tuft' || kind === 'lavender' || kind === 'poppy') {
+    const cellIdx = { flowers: CELLS.flowers, tuft: CELLS.grassTuft, lavender: CELLS.lavender, poppy: CELLS.poppy }[kind];
     for (let k = 0; k < 3; k++) {
       const m = cardMatrix(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), k / 3 * Math.PI + R(0, 0.5));
       cards.push(card(cellIdx, R(0.7, 1.0), R(0.5, 0.75), m, 0.0, 0.8, null));

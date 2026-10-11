@@ -19,6 +19,7 @@ uniform vec4 uGrid;     // base cell x, base cell z, spacing, cells per tile
 uniform vec4 uRad;      // shrink start, end
 uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
+uniform vec4 uField;    // fields: weight, patch size (m), threshold, seed: the plant grows in big drifts over meadows
 uniform vec4 uWind;     // dir x, dir z, strength, time
 attribute float aWind;
 vec2 uHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
@@ -37,7 +38,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
   group.name = 'undergrowth';
   const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, uMap: U.uMap, uWind: windUniform };
 
-  const makeKind = (name, geoBase, spacing, radius, shape, kind) => {
+  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0]) => {
     const k = Math.ceil(radius * 2 / spacing / TILES);
     const uniforms = {
       ...shared,
@@ -45,6 +46,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uRad: { value: new THREE.Vector4(radius * 0.7, radius, 0, 0) },
       uShape: { value: new THREE.Vector4(...shape) },
       uKind: { value: new THREE.Vector4(...kind) },
+      uField: { value: new THREE.Vector4(...field) },
     };
     const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
     mat.onBeforeCompile = (sh) => {
@@ -70,6 +72,11 @@ float dens = uKind.x * forest * smoothstep(0.3, 0.55, nz.r + 0.15)
            + uKind.y * meadow * smoothstep(0.5, 0.7, nz.b)
            + uKind.z * (forest * 0.6 + meadow * 0.25) * smoothstep(0.35, 0.6, nz.g)
            + uKind.w * meadow * smoothstep(0.45, 0.6, nz.a);
+if (uField.x > 0.0) {
+  vec4 fn = textureLod(tNoise, pxz / uField.y + uField.w, 0.0);
+  float patchK = smoothstep(uField.z, uField.z + 0.1, fn.r * 0.7 + fn.g * 0.3);
+  dens += uField.x * smoothstep(0.15, 0.5, gd.a) * (1.0 - forest) * patchK;
+}
 dens *= bare * uShape.z;
 float inMap = step(max(abs(pxz.x), abs(pxz.y)), uMap.x - 2.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
@@ -123,6 +130,9 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
     makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
+    // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
+    makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], [0.95, 260, 0.6, 0.17]),
+    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], [0.9, 190, 0.62, 0.61]),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();
