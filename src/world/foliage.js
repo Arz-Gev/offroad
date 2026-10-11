@@ -161,7 +161,7 @@ export function makeFoliageAtlas() {
     for (let k = 0; k < 300; k++) {
       const r = Math.sqrt(rnd()) * S * 0.45, a = R(0, Math.PI * 2);
       const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, l = R(34, 54), w = R(20, 30), ang = R(0, Math.PI * 2);
-      const col = hsl(R(78, 112), R(38, 56), R(28, 46));
+      const col = rnd() < 0.18 ? hsl(R(72, 92), R(42, 55), R(40, 50)) : hsl(R(88, 118), R(34, 52), R(20, 36));
       leaf(x, y, ang, l, w, col);
       leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
     }
@@ -463,7 +463,78 @@ function buildBroadleaf(seed, H, cellIdx, crownR, branches, cardSize) {
   return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR, trunkR: rr[0], crownBase: trunkTop * 0.85 };
 }
 export const buildBlossom = (seed, H = 8) => buildBroadleaf(seed, H, CELLS.blossom, 3.6, 26, 1.7);
-export const buildOak = (seed, H = 12) => buildBroadleaf(seed, H, CELLS.oak, 5.2, 30, 2.5);
+// an oak: a short trunk forking into limbs, and a broad dome of leaf clumps. Each clump is a ball of cards whose
+// normals point out of the clump, so the crown shades as a cluster of lit domes with darker hollows between
+// (one ball of cards read flat, lit evenly; from afar the impostor bakes the same clumps). A vertex colour holds
+// the crown's own shade: dark deep inside and under each clump, full on the sunny outer domes.
+export function buildOak(seed, H = 12) {
+  const rnd = mulberry32(seed);
+  const R = (a, b) => a + (b - a) * rnd();
+  const trunkTop = H * R(0.28, 0.32);
+  const lean = new THREE.Vector2(R(-0.25, 0.25), R(-0.25, 0.25));
+  const pts = [], rr = [];
+  for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(new THREE.Vector3(lean.x * t, trunkTop * t, lean.y * t)); rr.push(0.1 + H * 0.03 * Math.pow(1 - t * 0.6, 1.2)); }
+  const trunk = tube(pts, rr, 8, 1.0, t => t * t * 0.3);
+  const top = pts[pts.length - 1];
+  const cy = trunkTop + (H - trunkTop) * 0.47, ry = (H - trunkTop) * 0.5, rx = H * 0.46;
+  const centre = new THREE.Vector3(lean.x, cy, lean.y);
+  // clumps on a dome: a ring low and wide, a ring higher, a crown on top; a few inside to close the gaps
+  const clumps = [];
+  const ring = (n, el, rad, size) => {
+    const a0 = R(0, Math.PI * 2);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i / n * Math.PI * 2 + R(-0.25, 0.25), e = el + R(-0.12, 0.12);
+      const c = new THREE.Vector3(Math.cos(a) * Math.cos(e) * rx * rad, Math.sin(e) * ry * rad, Math.sin(a) * Math.cos(e) * rx * rad).add(centre);
+      clumps.push({ c, r: size * R(0.85, 1.15) });
+    }
+  };
+  ring(7, -0.15, 0.78, H * 0.17);
+  ring(6, 0.45, 0.72, H * 0.16);
+  ring(3, 1.0, 0.62, H * 0.15);
+  ring(4, 0.1, 0.35, H * 0.15);
+  const cards = [], sticks = [], shade = [];
+  // limbs: the trunk forks into three or four, each clump hangs off the nearest limb
+  const limbs = [];
+  for (let i = 0; i < 4; i++) {
+    const a = i / 4 * Math.PI * 2 + R(-0.4, 0.4);
+    const end = new THREE.Vector3(Math.cos(a) * rx * 0.45, cy + R(-0.5, 1.2), Math.sin(a) * rx * 0.45).add(new THREE.Vector3(lean.x, 0, lean.y));
+    const mid = top.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 0.4, 0));
+    sticks.push(tube([top.clone().add(new THREE.Vector3(0, -0.3, 0)), mid, end], [rr[rr.length - 1] * 0.8, rr[rr.length - 1] * 0.5, 0.06], 5, 1.0, u => u * 0.4));
+    limbs.push(end);
+  }
+  const _n = new THREE.Vector3(), _q = new THREE.Vector3();
+  for (const { c, r } of clumps) {
+    let best = limbs[0];
+    for (const l of limbs) if (l.distanceToSquared(c) < best.distanceToSquared(c)) best = l;
+    sticks.push(tube([best, best.clone().lerp(c, 0.6).add(new THREE.Vector3(0, 0.2, 0)), c], [0.07, 0.045, 0.02], 4, 1.0, u => 0.4 + u * 0.3));
+    // how exposed the clump is: outer and upper clumps take the sky, inner and low ones sit in the crown's shade
+    _q.copy(c).sub(centre); _q.x /= rx; _q.y /= ry; _q.z /= rx;
+    const out = Math.min(1, _q.length()), up = _q.y;
+    const clumpLight = 0.5 + 0.35 * out + 0.15 * Math.max(-1, Math.min(1, up));
+    const n = 11;
+    for (let k = 0; k < n; k++) {
+      // spread over the ball, upper half fuller (leaves face the light)
+      const z = R(-0.75, 1), a = R(0, Math.PI * 2), sr = Math.sqrt(1 - z * z);
+      _n.set(Math.cos(a) * sr, z, Math.sin(a) * sr);
+      const p = c.clone().addScaledVector(_n, r * R(0.35, 0.8));
+      const nn = _n.clone().add(new THREE.Vector3(R(-0.3, 0.3), R(-0.1, 0.3), R(-0.3, 0.3))).normalize();
+      const tg = new THREE.Vector3(R(-1, 1), R(-1, 1), R(-1, 1)).cross(nn).normalize();
+      const sz = r * R(1.0, 1.3);
+      const m = cardMatrix(p.clone().addScaledVector(tg, -sz * 0.5), tg, rollFacing(tg, nn));
+      const g = card(CELLS.oak, sz, sz, m, 0.5 + 0.2 * out, 0.9, c, 0.3);
+      // per vertex: the clump's underside darker than its dome
+      const P = g.attributes.position, col = new Float32Array(P.count * 3);
+      for (let i = 0; i < P.count; i++) {
+        const d = (P.getY(i) - c.y) / r;
+        const v = clumpLight * (0.62 + 0.38 * Math.min(1, Math.max(0, d * 0.7 + 0.55)));
+        col[i * 3] = v * 0.97; col[i * 3 + 1] = v; col[i * 3 + 2] = v * 0.94;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      cards.push(g);
+    }
+  }
+  return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR: rx, trunkR: rr[0], crownBase: trunkTop * 0.9 };
+}
 
 export function buildDead(seed, H = 11) {
   const rnd = mulberry32(seed);

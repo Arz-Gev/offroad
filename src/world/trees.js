@@ -123,16 +123,22 @@ function shadowCrown(geo, scale = 1.35) {
 
 // ---------------------------------------------------------------- impostor baking
 const BAKE_VERT = /* glsl */`
-varying vec2 vUv; varying vec3 vN;
-void main() { vUv = uv; vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+varying vec2 vUv; varying vec3 vN; varying vec3 vCol;
+void main() {
+  vUv = uv; vN = normal; vCol = vec3(1.0);
+#ifdef USE_COLOR
+  vCol = color;
+#endif
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
 const BAKE_FRAG = /* glsl */`
 uniform sampler2D tMap; uniform float uMode, uAlphaTest; uniform vec3 uTint;
-varying vec2 vUv; varying vec3 vN;
+varying vec2 vUv; varying vec3 vN; varying vec3 vCol;
 void main() {
   vec4 c = texture2D(tMap, vUv);
   if (c.a < uAlphaTest) discard;
   vec3 n = normalize(vN);
-  gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
+  gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint * vCol, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
 }`;
 
 // the impostor's width over its height: half for the slim conifers, wider for a round crown
@@ -165,7 +171,7 @@ function bakeImpostors(renderer, variants) {
       const v = variants[r];
       const mats = [
         new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.barkTex }, uMode: { value: mode }, uAlphaTest: { value: 0 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
-        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.atlas }, uMode: { value: mode }, uAlphaTest: { value: 0.45 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
+        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.atlas }, uMode: { value: mode }, uAlphaTest: { value: 0.45 }, uTint: { value: new THREE.Color(1, 1, 1) } }, vertexColors: !!v.geo.crown.attributes.color }),
       ];
       const t = new THREE.Mesh(v.geo.trunk, mats[0]), c = new THREE.Mesh(v.geo.crown, mats[1]);
       scene.add(t, c);
@@ -391,7 +397,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const near = variants.map((v, i) => {
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
-    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff });
+    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
     patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
@@ -422,7 +428,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
-  const softs = variants.map(v => v.kind === 'blossom' || v.kind === 'oak' ? 1 : 0);
+  const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current
   const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos };
   const IMP_VERT = /* glsl */`
