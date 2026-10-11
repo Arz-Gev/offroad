@@ -8,6 +8,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | Task | Notes |
 |---|---|
 | ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
+| ⏳ The dream look (PR #42): the player's verdict | Old flat clouds or the new volumetric ones (side by side in the PR); anything that is too much or not enough (glow, mist, rain, the birds' level). |
 
 ## To do
 
@@ -19,7 +20,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
-| 📋 The dream look, next steps | Medium each | First pass done (light and colour, sky, pollen / butterflies / fireflies, shafts, glittering water, blossom trees and oaks). Ideas: cloud shadows drifting over the land, birds, petals falling from the blossom trees, morning mist in the valleys, lavender and poppy fields, falling leaves in the forest, a rainbow after rain, the land reflected in the lake, birdsong. The player tunes the strength of the grade by eye. |
+| 📋 Endless world | Large | Everything is built for the fixed 1 km map: the terrain collider is one heightfield, the ground data (surfaces, grass density, forest floor) are map-sized textures that grass, bushes, flowers, life and water read, and trees and props are placed at load. Endless needs a height and surface function defined everywhere (the vista's low-frequency field is a start), the collider and the ground-data textures streamed in chunks round the truck (textures re-centred as it drives), trees and props made per chunk, and places like the lake and the quarry placed by rules. |
 
 ## Known gaps (not asked for yet)
 
