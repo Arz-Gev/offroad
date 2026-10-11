@@ -317,10 +317,14 @@ export class Environment {
     // sun became a flat orange wall in the fog
     for (let i = 0; i < 3; i++) toward[i] = Math.min(toward[i], side[i] * 2.2 + 1e-4);
     if (Lf.lengthSq() < 1e-18) Lf.copy(this.sunDir); else Lf.normalize();
-    // under a storm the horizon goes grey and a little darker
-    if (c.storm > 0) for (const v of [side, away, toward, zen]) {
-      const l = 0.3 * v[0] + 0.55 * v[1] + 0.15 * v[2];
-      for (let i = 0; i < 3; i++) v[i] += (l * [0.36, 0.39, 0.43][i] - v[i]) * 0.85 * c.storm;
+    // under a storm the horizon goes grey and a little darker, and the same all round: the deck spreads the light, so
+    // the haze has no bright side towards the hidden sun (the far hills there stood out pale against the overcast sky)
+    if (c.storm > 0) {
+      for (const v of [side, away, toward, zen]) {
+        const l = 0.3 * v[0] + 0.55 * v[1] + 0.15 * v[2];
+        for (let i = 0; i < 3; i++) v[i] += (l * [0.36, 0.39, 0.43][i] - v[i]) * 0.85 * c.storm;
+      }
+      for (const v of [away, toward]) for (let i = 0; i < 3; i++) v[i] += (side[i] - v[i]) * 0.9 * c.storm;
     }
     // fog is slightly darker than the sky right at the horizon (it is lit, but also shadowed by terrain)
     const k = 0.92;
@@ -350,7 +354,8 @@ export class Environment {
     su.uOvercast.value = c.storm;
     su.uOvercastCol.value.set(zen[0] * 0.8 + side[0] * 0.9, zen[1] * 0.8 + side[1] * 0.9, zen[2] * 0.8 + side[2] * 0.9);
     const cwu = this.clouds.mat.uniforms;
-    cwu.uOvercast.value = c.storm; cwu.uOvercastCol.value.copy(su.uOvercastCol.value);
+    su.uHazeCol.value.set(side[0] * k, side[1] * k, side[2] * k);
+    cwu.uOvercast.value = c.storm; cwu.uOvercastCol.value.copy(su.uOvercastCol.value); cwu.uHazeCol.value.copy(su.uHazeCol.value);
     su.uGround.value.set(side[0] * 0.25 + 0.002, side[1] * 0.25 + 0.002, side[2] * 0.25 + 0.0015);
     su.uSunSize.value = 0.0125 * (1 + (1 - sstep(c.sunElev, 0, 15)) * 0.4);
 

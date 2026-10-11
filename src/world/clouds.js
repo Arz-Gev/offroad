@@ -153,7 +153,7 @@ ${CLOUD_GLSL}
 uniform sampler3D tShape;
 uniform sampler2D tLUT, tPrev, tDepth;
 uniform mat4 uInvViewProj, uPrevViewProj;
-uniform vec3 uCam, uLight, uLightCol, uAmbTop, uAmbBot, uOvercastCol;
+uniform vec3 uCam, uLight, uLightCol, uAmbTop, uAmbBot, uOvercastCol, uHazeCol;
 uniform float uOvercast;
 uniform vec2 uWind3, uTexel;
 uniform float uFrame, uDensity, uBlend, uHaze, uSteps, uSunGain, uPixAngle;
@@ -255,7 +255,8 @@ void main() {
       // far clouds melt into the sky
       float dist = tw > 0.0 ? dsum / tw : t0;
       float fog = 1.0 - exp(-dist * uHaze);
-      col = mix(col, mix(lut(dir), uOvercastCol, uOvercast) * (1.0 - T), fog);
+      vec3 hz = mix(uHazeCol, uOvercastCol * (0.6 + 0.4 * max(dir.y, 0.0)), smoothstep(0.0, 0.3, dir.y));   // as the sky (sky.js)
+      col = mix(col, mix(lut(dir), hz, uOvercast) * (1.0 - T), fog);
       res = vec4(col, T);
     }
   }
@@ -291,7 +292,7 @@ export class Clouds {
         tShape: { value: this.noise.texture }, tLUT: { value: sky.lut.texture }, tPrev: { value: null }, tDepth: { value: null },
         uInvViewProj: { value: new THREE.Matrix4() }, uPrevViewProj: { value: new THREE.Matrix4() },
         uCam: { value: new THREE.Vector3() }, uLight: { value: new THREE.Vector3(0, 1, 0) }, uLightCol: { value: new THREE.Vector3(1, 1, 1) },
-        uAmbTop: { value: new THREE.Vector3(0.3, 0.35, 0.45) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.2, 0.25) }, uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3() },
+        uAmbTop: { value: new THREE.Vector3(0.3, 0.35, 0.45) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.2, 0.25) }, uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3() }, uHazeCol: { value: new THREE.Vector3() },
         uWind3: { value: new THREE.Vector2() }, uTexel: { value: new THREE.Vector2() },
         uFrame: { value: 0 }, uDensity: { value: 1 }, uBlend: { value: 1 }, uHaze: { value: 0.00004 }, uSteps: { value: 48 }, uSunGain: { value: 10 }, uPixAngle: { value: 0.003 },
       },

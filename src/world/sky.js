@@ -43,7 +43,7 @@ void main() {
 const DOME_FRAG = /* glsl */`
 uniform sampler2D tLUT, tNoise;
 uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround;
-uniform vec3 uCloudLit, uCloudAmb, uOvercastCol;
+uniform vec3 uCloudLit, uCloudAmb, uOvercastCol, uHazeCol;
 uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase, uOvercast;
 uniform vec2 uWind;
 uniform vec3 uCamPos;
@@ -90,8 +90,9 @@ void main() {
 
   // below the horizon (seen only from high ground, mostly hidden by terrain): dark ground haze
   col = mix(col, uGround + col * 0.6, smoothstep(0.0, -0.08, up));
-  // overcast (weather.js): the sky goes a soft grey, brightest overhead (it also greys the light probe)
-  if (uOvercast > 0.0) col = mix(col, uOvercastCol * (0.6 + 0.4 * max(up, 0.0)), uOvercast * smoothstep(-0.12, 0.08, up));
+  // overcast (weather.js): the sky goes a soft grey, brightest overhead (it also greys the light probe); low down it
+  // takes the haze's colour, the one the far hills fade to, so the ridges sink into it instead of standing out
+  if (uOvercast > 0.0) col = mix(col, mix(uHazeCol, uOvercastCol * (0.6 + 0.4 * max(up, 0.0)), smoothstep(0.0, 0.3, up)), uOvercast * smoothstep(-0.12, 0.0, up));
 
   // night sky: stars + Milky Way band, faded near the horizon by the atmosphere
   if (uStars > 0.001 && up > -0.02) {
@@ -203,7 +204,7 @@ export class Sky {
       uSunDir: this.lutMat.uniforms.uSunDir, uMoonDir: this.lutMat.uniforms.uMoonDir,
       uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) },
       uCloudLit: { value: new THREE.Vector3(1, 1, 1) }, uCloudAmb: { value: new THREE.Vector3(0.3, 0.33, 0.4) },
-      uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) },
+      uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) }, uHazeCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) },
       uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
       uWind: { value: new THREE.Vector2(0.0011, 0.0004) }, uCamPos: { value: new THREE.Vector3() },
     };
