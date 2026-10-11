@@ -299,7 +299,7 @@ export class Environment {
     CLOUD.map.w = this.clouds.enabled ? 0.68 * sstep(c.sunElev, -4, 6) : 0;
     cu.uLightCol.value.copy(su.uCloudLit.value);
     cu.uAmbTop.value.copy(su.uCloudAmb.value);
-    cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.32);
+    cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.42);
 
     const bounce = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04;
     this.hemi.groundColor.setRGB(0.36 * bounce, 0.30 * bounce, 0.22 * bounce);

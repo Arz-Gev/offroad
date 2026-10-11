@@ -136,12 +136,12 @@ float density(vec3 p, float detail) {
   vec3 q = vec3(p.x + uWind3.x, p.y, p.z + uWind3.y);
   float shape = texture(tShape, q / 2000.0).r;
   float d = clamp(remap(shape * hg, 1.0 - cov * 0.92, 1.0, 0.0, 1.0), 0.0, 1.0);
-  if (d <= 0.0 || detail < 0.5) return d;
+  if (d <= 0.0 || detail <= 0.0) return d;
   vec4 dn = texture(tShape, q / 270.0);
   float fine = dn.g * 0.625 + dn.b * 0.25 + dn.a * 0.125;
   // the edges (low density, the top of the cloud) are eroded the most: wisps and cauliflower billows
   fine = mix(fine, 1.0 - fine, clamp(h * 4.0, 0.0, 1.0));
-  return clamp(remap(d, fine * 0.55, 1.0, 0.0, 1.0), 0.0, 1.0);
+  return clamp(remap(d, fine * 0.55 * detail, 1.0, 0.0, 1.0), 0.0, 1.0);
 }
 float hg(float mu, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * mu, 1.5)); }
 void main() {
@@ -158,31 +158,40 @@ void main() {
   if (sky > 0.0 && dir.y > -0.03) {
     float t0 = (BASE - uCam.y) / max(dir.y, 1e-4), t1 = (TOP - uCam.y) / max(dir.y, 1e-4);
     if (dir.y < 1e-4) { t0 = 0.0; t1 = 0.0; }
-    t1 = min(t1, 42000.0);
+    // a grazing ray crosses tens of km of the slab: march its first 14 km (the haze hides the rest) with more steps
+    t1 = min(t1, min(t0 + 14000.0, 42000.0));
     if (t1 > t0) {
-      float n = uSteps;
+      float n = uSteps * mix(1.0, 1.5, smoothstep(3000.0, 12000.0, t1 - t0));
       float dt = (t1 - t0) / n;
-      // white noise, new every frame: the temporal blend averages it away (a gradient-noise pattern showed as a grid)
-      float jit = cHash(gl_FragCoord.xy * 0.731 + vec2(uFrame * 17.31, uFrame * 9.17));
+      // white noise in space, a golden-ratio walk in time: each pixel visits evenly spread offsets, which the
+      // temporal blend averages far better than fresh noise (a gradient-noise pattern showed as a grid)
+      float jit = fract(cHash(gl_FragCoord.xy * 0.731) + uFrame * 0.6180340);
       float t = t0 + dt * jit;
+      // the fine erosion fades out with distance: sampled steps far apart it aliased into vertical streaks
+      float detail = 1.0 - smoothstep(9000.0, 20000.0, t0);
       float mu = dot(dir, uLight);
-      float phase = hg(mu, 0.72) * 0.65 + hg(mu, -0.2) * 0.35;
+      // multiple scattering, approximated by octaves (Hillaire / Wrenninge): each scatters less, reaches deeper and
+      // is less forward-peaked; deep cloud is lit softly instead of going grey
+      float ph0 = hg(mu, 0.72) * 0.65 + hg(mu, -0.2) * 0.35;
+      float ph1 = hg(mu, 0.36) * 0.65 + hg(mu, -0.1) * 0.35;
+      float ph2 = 1.0 / (4.0 * 3.14159265);
       vec3 col = vec3(0.0); float T = 1.0, dsum = 0.0, tw = 0.0;
-      for (int i = 0; i < 96; i++) {
+      for (int i = 0; i < 144; i++) {
         if (float(i) >= n || T < 0.02) break;
         vec3 p = uCam + dir * t;
-        float d = density(p, 1.0) * uDensity;
+        float d = density(p, detail) * uDensity;
         if (d > 0.002) {
           // light: optical depth towards the sun in a few growing steps
           float od = 0.0, ls = 70.0;
           vec3 lp = p + uLight * ls * (jit - 0.5);   // jittered too: fixed steps banded the self-shadow
-          for (int j = 0; j < 5; j++) { lp += uLight * ls; od += density(lp, j < 2 ? 1.0 : 0.0) * uDensity * ls; ls *= 1.7; }
+          for (int j = 0; j < 5; j++) { lp += uLight * ls; od += density(lp, j < 2 ? detail : 0.0) * uDensity * ls; ls *= 1.7; }
           float sigma = 0.026;
-          float Tl = exp(-od * sigma);
+          float tau = od * sigma;
+          float sun = exp(-tau) * ph0 + 0.5 * exp(-tau * 0.4) * ph1 + 0.25 * exp(-tau * 0.16) * ph2;
           // "powder": light that has gone only a little way in is not yet scattered back: crisp, darker creases
-          float powder = 1.0 - exp(-od * sigma * 2.0);
+          float powder = 1.0 - exp(-tau * 2.0);
           float h = (p.y - BASE) / (TOP - BASE);
-          vec3 S = uLightCol * Tl * phase * mix(1.0, powder, 0.5) * 15.0 + mix(uAmbBot, uAmbTop, h) * (0.4 + 0.6 * h);
+          vec3 S = uLightCol * sun * mix(1.0, powder, 0.5) * 15.0 + mix(uAmbBot, uAmbTop, h) * (0.4 + 0.6 * h);
           float ext = exp(-d * sigma * dt);
           col += T * S * (1.0 - ext);
           T *= ext;
@@ -259,7 +268,7 @@ export class Clouds {
     u.uWind3.value.set(this.wind.x * 1.35, this.wind.y * 1.35);   // the shape drifts a little faster than the coverage: the clouds churn
     u.uTexel.value.set(1 / this.width, 1 / this.height);
     u.uFrame.value = this.frame++ % 1024;
-    u.uBlend.value = this.reset ? 1 : 0.1;
+    u.uBlend.value = this.reset ? 1 : 0.08;
     u.uSteps.value = this.steps;
     u.tDepth.value = depthTexture;
     u.tPrev.value = this.rts[this.idx].texture;
