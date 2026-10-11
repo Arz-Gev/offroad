@@ -552,11 +552,21 @@ async function main() {
     for (const g of [weather.group, life.group]) g.traverse(o => { shown.push([o, o.visible]); o.visible = true; });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
     for (const [o, v] of shown) o.visible = v;
-    // the eye-adaptation pass only runs at dusk and night: compile it now
+    // a real draw of everything with the lamps on, at the high beam's reach, frustum culling off: the GPU builds
+    // its pipeline state for a material the first time it draws it into a target, so a lamp switched on where the
+    // first view had not looked (another wood, the quarry) stalled 130-220 ms (M1 Pro). The beam cookies upload
+    // now too. The eye-adaptation pass only runs at dusk and night: it compiles in the same frame
+    ls.head = 2;
+    tick(1 / 60, false);
+    view.update(rPos, rQ, 0, { night: true, shadows: true });
+    for (const c of Object.values(model.lights.cookies)) renderer.initTexture(c);
+    const culled = [];
+    scene.traverse(o => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
     pipeline.render(1 / 60);
     pp.autoExposure = ae; pp.auto = au;
+    for (const o of culled) o.frustumCulled = true;
     pipeline.resetExposure = true;
     ls.head = head; ls.aux = aux;
     tick(1 / 60, false);
