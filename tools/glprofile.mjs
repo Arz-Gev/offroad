@@ -20,7 +20,7 @@ const evaluate = async (expr) => { const r = await send('Runtime.evaluate', { ex
 await send('Runtime.enable'); await send('Page.enable');
 if (args.size === 'window') await send('Emulation.clearDeviceMetricsOverride');   // a visible window keeps its own size
 else { const [w, rest] = (args.size || '1920x1080@2').split('x'), [h, d] = rest.split('@'); await send('Emulation.setDeviceMetricsOverride', { width: +w, height: +h, deviceScaleFactor: +d, mobile: false }); }
-await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify({ autoPause: false, quality: preset, time: hour, hints: false, muted: true }))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
+await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify({ autoPause: false, quality: preset, time: hour, hints: false, timeFlow: 'off', muted: true }))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url });
 await evaluate(`new Promise((res) => { (function poll() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); setTimeout(poll, 200); })(); })`);
 await new Promise(r => setTimeout(r, 6000));

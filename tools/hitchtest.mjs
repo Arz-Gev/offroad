@@ -16,7 +16,7 @@ const ev = async (e) => { const r = await send('Runtime.evaluate', { expression:
 await send('Runtime.enable'); await send('Page.enable');
 if (process.env.SIZE === 'window') await send('Emulation.clearDeviceMetricsOverride');   // a visible window keeps its own size
 else await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false });
-const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true };
+const settings = { autoPause: false, quality: preset, time: 13, hints: false, timeFlow: 'off', muted: true };
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 't=' + Date.now() + (process.env.PARAMS ? '&' + process.env.PARAMS : '') });
 await ev(`new Promise(res => { (function p() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); setTimeout(p, 200); })(); })`);

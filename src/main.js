@@ -402,6 +402,19 @@ async function main() {
 
   // ---------------------------------------------------------------- frame
   let acc = 0;
+  // the day goes by (setting timeFlow): the hour moves in steps of ~15 game seconds, too small to see
+  const DAY_MINUTES = { slow: 48, normal: 24, fast: 8 };
+  let flowAcc = 0;
+  function flowTime(dt) {
+    const minutes = DAY_MINUTES[settings.get('timeFlow')];
+    if (!minutes || env.anim) { flowAcc = 0; return; }
+    flowAcc += dt * 24 / (minutes * 60);
+    if (flowAcc < 0.004) return;
+    const h = (settings.get('time') + flowAcc) % 24;
+    flowAcc = 0;
+    settings.set('time', Math.round(h * 1e4) / 1e4, { silent: true });
+  }
+
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -421,6 +434,7 @@ async function main() {
     }
 
     if (!paused) {
+      flowTime(dt);
       acc += dt;
       let steps = 0;
       while (acc >= H && steps < MAX_STEPS) {
