@@ -22,33 +22,36 @@ import { Clouds, CLOUD } from './clouds.js';
 export const QUICK_HOURS = { day: 13, dusk: 19.5, night: 23 };
 export const QUICK_ORDER = ['day', 'dusk', 'night'];
 const ANIM_TIME = 2.5;
+const FLOW_STEP = 0.004;          // hours (~15 game seconds) between full look updates while time passes
+const MOON_TINT = [0.62, 0.74, 1.0];
 
-// The look: a summer remembered, vivid and alive, with its full range: deep shade (no lifted floor, no milky
-// haze), a warm strong sun, saturated colour through an ACES curve, a little warmth in the highlights
-// (highCol), dull colours lifted a bit (vibrance), a darker vignette, a soft glow round the sun in the haze
+// The look: a summer remembered, vivid and alive, with its full range: deep shade (only a hint of lavender in
+// the darkest, shadowCol), a warm strong sun, saturated colour through an ACES curve, softened by a diffusion
+// glow (mist: light spills from bright areas into the dark ones beside them), a little warmth in the highlights
+// (highCol), dull colours lifted a bit (vibrance), a soft warm vignette, a soft glow round the sun in the haze
 // (glow), light shafts (shafts), a faint cool fill from above so shade is blue rather than olive (fill).
 const DAY = {
   sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00045, fogFall: 0.012, haze: 0.00008, fogMax: 1, env: 1.15, glow: 0.5, shafts: 0.05,
-  exposure: 1.4, auto: 0, key: 0.3, minEx: 1.4, maxEx: 1.4, bloom: 0.06, bloomThr: 1.7,
-  sat: 1.14, contrast: 0.05, vignette: 0.3, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
-  vibrance: 0.12, shadowCol: [0, 0, 0], highCol: [1.03, 1.0, 0.95], vigCol: [0.32, 0.28, 0.34],
-  fill: 0.08, fillCol: [0.55, 0.62, 1.0],
+  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00012, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
+  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35,
+  sat: 1.12, contrast: 0.04, vignette: 0.28, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
+  vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.04, 1.0, 0.94], vigCol: [0.55, 0.46, 0.5],
+  fill: 0.13, fillCol: [0.55, 0.62, 1.0],
 };
 const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
-  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0006, fogFall: 0.016, haze: 0.00011, fogMax: 0.92, env: 0.85, glow: 1.2, shafts: 0.16,
-  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.09, bloomThr: 1.3,
-  sat: 1.1, contrast: 0.06, vignette: 0.32, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
-  vibrance: 0.12, shadowCol: [0, 0, 0], highCol: [1.06, 0.97, 0.9], vigCol: [0.3, 0.24, 0.34],
-  fill: 0.32, fillCol: [0.5, 0.45, 1.0],
+  cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.00015, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
+  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45,
+  sat: 1.1, contrast: 0.05, vignette: 0.3, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
+  vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.06, 0.97, 0.9], vigCol: [0.5, 0.38, 0.45],
+  fill: 0.34, fillCol: [0.5, 0.45, 1.0],
 };
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
   cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00012, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
-  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2,
+  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25,
   sat: 0.96, contrast: 0.05, vignette: 0.34, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
-  vibrance: 0.15, shadowCol: [0, 0, 0], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
+  vibrance: 0.15, shadowCol: [0.003, 0.005, 0.012], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
   fill: 0.01, fillCol: [0.4, 0.5, 1.0],
 };
 
@@ -79,11 +82,11 @@ const KEYS = [
     tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02 },
   { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
     highCol: [1.05, 0.99, 0.93], fill: 0.3 },                                                                           //   a little cooler and mistier
-  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00009, exposure: 1.45, tint: [1.0, 0.995, 0.985], glow: 0.7, fill: 0.09, shafts: 0.1 },   // morning
+  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00009, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
-    haze: 0.0001, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.8, bloom: 0.08, bloomThr: 1.4, sat: 1.12, glow: 1.0, shafts: 0.13,
-    vignette: 0.32, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.34, 0.26, 0.28], fill: 0.2, fillCol: [0.55, 0.5, 1.0], env: 0.95 },
+    haze: 0.00013, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
+    vignette: 0.3, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
     fogD: 0.0009, haze: 0.00011, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
@@ -98,7 +101,7 @@ for (const k of KEYS) {
 
 // monotone cubic (Fritsch–Carlson) through the keys, periodic in 24 h
 const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'fogMax', 'env',
-  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
+  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
 const NK = KEYS.length;
@@ -179,7 +182,9 @@ export class Environment {
     this.targetHour = this.hour;
     this.anim = null;
     this.dirty = true;
-    this.cur = { nightBase: [0, 0, 0], tint: [1, 1, 1], lift: [0, 0, 0], shadowCol: [0, 0, 0], highCol: [1, 1, 1], vigCol: [0, 0, 0], fillCol: [0, 0, 0] };
+    this.appliedHour = this.hour;
+    this.cur = Object.fromEntries(VECS.map(k => [k, [0, 0, 0]]));
+    this.flowLook = Object.fromEntries(VECS.map(k => [k, [0, 0, 0]]));   // scratch for flow()
     this.darkness = 0;                 // 0 (day) .. 1 (night), continuous: for everything that fades with the light
     this.night = false;                // darkness with hysteresis: only for on / off decisions (lamps, auto headlights)
     this.onNightChange = null;         // (night) => void, when `night` flips
@@ -229,33 +234,12 @@ export class Environment {
 
   apply() {
     const c = this.evalLook(this.hour);
+    this.appliedHour = this.hour;
     this.darkness = 1 - sstep(c.sunElev, -10, 4.5);     // 0 from the dusk key frame's sun height up, 1 below -10°
     const night = this.night ? this.darkness > NIGHT_OFF : this.darkness > NIGHT_ON;
     const flipped = night !== this.night;
     this.night = night;
-    dirFrom(c.sunElev, c.sunAzim, this.sunDir);
-    dirFrom(c.moonElev, c.moonAzim, this.moonDir);
-    const sd = this.sunDir.toArray(), md = this.moonDir.toArray();
-
-    // Direct light: sun and moon add up, each fading with its own height, so the dusk / dawn hand-over is
-    // continuous (one light; the shadow direction follows the brighter one).
-    const sunUp = sstep(c.sunElev, -2, 1.5);
-    const moonUp = sstep(c.moonElev, -1, 3);
-    const Ts = transmittance(lowDir(sd)), Tm = transmittance(lowDir(md));
-    const moonTint = [0.62, 0.74, 1.0];
-    const sunRGB = Ts.map(v => v * c.sunE);
-    const moonRGB = Tm.map((v, i) => v * c.moonE * moonTint[i]);
-    const rgb = sunRGB.map((v, i) => v * sunUp + moonRGB[i] * moonUp);
-    const I = Math.max(rgb[0], rgb[1], rgb[2], 1e-6);
-    this.sun.color.setRGB(rgb[0] / I, rgb[1] / I, rgb[2] / I);
-    this.sun.intensity = I;
-    this.lightDir.set(0, 0, 0)
-      .addScaledVector(this.sunDir, Math.max(...sunRGB) * sunUp)
-      .addScaledVector(this.moonDir, Math.max(...moonRGB) * moonUp);
-    if (this.lightDir.lengthSq() < 1e-12) this.lightDir.copy(this.sunDir); else this.lightDir.normalize();
-    // keep the shadow camera above the horizon (long dusk shadows stay bounded)
-    if (this.lightDir.y < 0.1) { this.lightDir.y = 0.1; this.lightDir.normalize(); }
-    this.sun.position.copy(this.lightDir);
+    const { sd, md, sunUp, moonUp, Ts, Tm, sunRGB, moonTint } = this.applyLight(c);
 
     const sky = this.sky, S = c.skyScale;
     const sunE = new THREE.Vector3(c.sunE * S, c.sunE * S, c.sunE * S);
@@ -263,7 +247,6 @@ export class Environment {
     const nb = new THREE.Vector3(...c.nightBase);
     sky.updateLUT(this.sunDir, sunE, this.moonDir, moonE, nb);
     const su = sky.uniforms;
-    su.uSunDisc.value.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(5000 * sunUp);
     su.uMoonDisc.value.set(0.9, 0.93, 1.0).multiplyScalar(c.moonE * 1.2 * sstep(c.moonElev, -1, 2));
     su.uStars.value = c.stars;
     su.uCover.value = c.cover;
@@ -311,11 +294,9 @@ export class Environment {
 
     // volumetric clouds: coverage from the key, lit by the sun (or the moon), sky light from above; their
     // shadows on the ground (through every lit material's sun shadow)
-    const cu = this.clouds.mat.uniforms, Lc = this.sunDir.y > -0.05 ? this.sunDir : this.moonDir;
+    const cu = this.clouds.mat.uniforms;
     CLOUD.map.z = c.cover;
     CLOUD.map.w = this.clouds.enabled ? 0.68 * sstep(c.sunElev, -4, 6) : 0;
-    CLOUD.sun.x = Lc.x; CLOUD.sun.y = Lc.y; CLOUD.sun.z = Lc.z;
-    cu.uLight.value.copy(Lc);
     cu.uLightCol.value.copy(su.uCloudLit.value);
     cu.uAmbTop.value.copy(su.uCloudAmb.value);
     cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.32);
@@ -331,16 +312,64 @@ export class Environment {
       P.auto = c.auto;
       P.autoExposure = c.auto > 0.001;       // the eye-adaptation pass only runs while it matters
       P.key = c.key; P.minExposure = c.minEx; P.maxExposure = c.maxEx;
-      P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr;
+      P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr; P.mist = c.mist;
       P.saturation = c.sat; P.contrast = c.contrast; P.vignette = c.vignette;
       P.tint.setRGB(...c.tint); P.lift.setRGB(...c.lift);
-      P.shaftDir.copy(this.sunDir);
-      P.shaftCol.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(c.shafts * sunUp);
       P.shadowCol.setRGB(...c.shadowCol); P.highCol.setRGB(...c.highCol); P.vigCol.setRGB(...c.vigCol); P.vibrance = c.vibrance;
       this.pipeline.resetExposure = true;    // the picture follows the hour exactly, no adaptation lag
     }
     this.envDirty = true;
     if (flipped && this.onNightChange) this.onNightChange(night);
+  }
+
+  // The direct light at the look `c`: sun and moon directions, colour and strength, the shadow direction, the sun
+  // disc, light shafts and the clouds' light. Cheap, so while time passes it runs every frame (the shadows move
+  // smoothly) and the rest of the look (sky table, fog, grade, light probe) follows in small steps.
+  applyLight(c) {
+    dirFrom(c.sunElev, c.sunAzim, this.sunDir);
+    dirFrom(c.moonElev, c.moonAzim, this.moonDir);
+    const sd = this.sunDir.toArray(), md = this.moonDir.toArray();
+
+    // Direct light: sun and moon add up, each fading with its own height, so the dusk / dawn hand-over is
+    // continuous (one light; the shadow direction follows the brighter one).
+    const sunUp = sstep(c.sunElev, -2, 1.5);
+    const moonUp = sstep(c.moonElev, -1, 3);
+    const Ts = transmittance(lowDir(sd)), Tm = transmittance(lowDir(md));
+    const moonTint = MOON_TINT;
+    const sunRGB = Ts.map(v => v * c.sunE);
+    const moonRGB = Tm.map((v, i) => v * c.moonE * moonTint[i]);
+    const rgb = sunRGB.map((v, i) => v * sunUp + moonRGB[i] * moonUp);
+    const I = Math.max(rgb[0], rgb[1], rgb[2], 1e-6);
+    this.sun.color.setRGB(rgb[0] / I, rgb[1] / I, rgb[2] / I);
+    this.sun.intensity = I;
+    this.lightDir.set(0, 0, 0)
+      .addScaledVector(this.sunDir, Math.max(...sunRGB) * sunUp)
+      .addScaledVector(this.moonDir, Math.max(...moonRGB) * moonUp);
+    if (this.lightDir.lengthSq() < 1e-12) this.lightDir.copy(this.sunDir); else this.lightDir.normalize();
+    // keep the shadow camera above the horizon (long dusk shadows stay bounded)
+    if (this.lightDir.y < 0.1) { this.lightDir.y = 0.1; this.lightDir.normalize(); }
+    this.sun.position.copy(this.lightDir);
+
+    const su = this.sky.uniforms;
+    su.uSunDir.value.copy(this.sunDir); su.uMoonDir.value.copy(this.moonDir);
+    su.uSunDisc.value.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(5000 * sunUp);
+    const Lc = this.sunDir.y > -0.05 ? this.sunDir : this.moonDir;
+    CLOUD.sun.x = Lc.x; CLOUD.sun.y = Lc.y; CLOUD.sun.z = Lc.z;
+    this.clouds.mat.uniforms.uLight.value.copy(Lc);
+    if (this.pipeline) {
+      const P = this.pipeline.params;
+      P.shaftDir.copy(this.sunDir);
+      P.shaftCol.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(c.shafts * sunUp);
+    }
+    return { sd, md, sunUp, moonUp, Ts, Tm, sunRGB, moonTint };
+  }
+
+  // time passing (setting timeFlow): the light every frame, the whole look every FLOW_STEP hours
+  flow(dh) {
+    if (this.anim || !(dh > 0)) return;
+    this.hour = this.targetHour = wrapHour(this.hour + dh);
+    if (this.dirty || wrapHour(this.hour - this.appliedHour) >= FLOW_STEP) this.dirty = true;
+    else this.applyLight(this.evalLook(this.hour, this.flowLook));
   }
 
   update(dt, focus, camera) {

@@ -204,9 +204,9 @@ varying vec2 vUv;
 void main() { gl_FragColor = texture2D(tClouds, vUv); }`;
 
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts;
+uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist;
 uniform vec3 uShaftCol;
-uniform float uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone;
+uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
 uniform vec2 uRes;
 varying vec2 vUv;
@@ -257,6 +257,9 @@ void main() {
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
+  // mist (a diffusion filter): light spills softly from bright areas into the darker ones beside them
+  // (sky into the crowns, sunlit grass into the shade); what is dark all around stays dark
+  if (uMist > 0.0) c += uMist * max(texture2D(tMist, vUv).rgb * 0.2 - c, 0.0);
   c = max(c * uTint + uLift, 0.0);
   c = uTone < 0.5 ? neutral(c) : uTone < 1.5 ? acesFit(c) : agxPunchy(c);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -300,6 +303,7 @@ export class RenderPipeline {
     this.bloomLevels = 6;
     this.params = {
       bloom: true, bloomStrength: 0.06, bloomThreshold: 1.6, bloomKnee: 0.6, bloomRadius: 1.0,
+      mist: 0,   // the diffusion glow (0..1), see COMPOSITE_FRAG
       exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
       vignette: 0.25, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
       shadowCol: new THREE.Color(0, 0, 0), highCol: new THREE.Color(1, 1, 1), vigCol: new THREE.Color(0, 0, 0), vibrance: 0,
@@ -318,6 +322,9 @@ export class RenderPipeline {
     this.ldr = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     this.mips = [];
     for (let i = 0; i < this.bloomLevels; i++) this.mips.push(new THREE.WebGLRenderTarget(1, 1, hf));
+    // the mist's blur: five levels from quarter resolution down, summed on the way up like the bloom
+    this.mistMips = [];
+    for (let i = 0; i < 5; i++) this.mistMips.push(new THREE.WebGLRenderTarget(1, 1, hf));
     this.lum = new THREE.WebGLRenderTarget(128, 128, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
     this.adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false }));
     this.adaptIdx = 0;
@@ -328,7 +335,7 @@ export class RenderPipeline {
     this.lumMat = mat(LUM_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 }, uExp: { value: 1 }, uAuto: { value: 0 } });
     this.compMat = mat(COMPOSITE_FRAG, {
-      tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null },
+      tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null }, tMist: { value: this.mistMips[0].texture }, uMist: { value: 0 },
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
@@ -381,6 +388,8 @@ export class RenderPipeline {
     this.ldr.setSize(w, h);
     let mw = w, mh = h;
     for (const m of this.mips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
+    mw = w >> 1; mh = h >> 1;
+    for (const m of this.mistMips) { mw = Math.max(1, mw >> 1); mh = Math.max(1, mh >> 1); m.setSize(mw, mh); }
     for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     for (const t of this.shafts) t.setSize(Math.ceil(w / 4), Math.ceil(h / 4));
     this.clouds?.setSize(w, h);
@@ -499,6 +508,29 @@ export class RenderPipeline {
       }
       r.autoClear = true;
     }
+    // ---- mist: the same chain without a threshold (capped near white, so the sun spreads no more than a cloud)
+    const mistOn = P.bloom && P.mist > 0;
+    if (mistOn) {
+      const dm = this.downMat.uniforms;
+      dm.tExposure.value = exposureTex;
+      dm.uThreshold.value = 0; dm.uKnee.value = 1e-3; dm.uMaxBright.value = 3;
+      let src = this.hdr.texture, sw = this.width >> 1, sh = this.height >> 1;   // first taps 2 px apart: quarter res in one pass
+      for (let i = 0; i < this.mistMips.length; i++) {
+        dm.tSrc.value = src; dm.uTexel.value.set(1 / sw, 1 / sh); dm.uFirst.value = i === 0 ? 1 : 0;
+        this.pass(this.downMat, this.mistMips[i]);
+        src = this.mistMips[i].texture; sw = this.mistMips[i].width; sh = this.mistMips[i].height;
+      }
+      dm.uMaxBright.value = 60;
+      const um = this.upMat.uniforms;
+      um.uRadius.value = 1;
+      r.autoClear = false;
+      for (let i = this.mistMips.length - 1; i > 0; i--) {
+        const s = this.mistMips[i];
+        um.tSrc.value = s.texture; um.uTexel.value.set(1 / s.width, 1 / s.height);
+        this.pass(this.upMat, this.mistMips[i - 1]);
+      }
+      r.autoClear = true;
+    }
 
     // ---- composite (+ FXAA)
     const cu = this.compMat.uniforms;
@@ -506,6 +538,7 @@ export class RenderPipeline {
     cu.uBloomOn.value = P.bloom && P.bloomStrength > 0 ? 1 : 0;
     cu.uAOOn.value = aoOn ? 1 : 0;
     cu.uBloom.value = P.bloomStrength;
+    cu.uMist.value = mistOn ? P.mist : 0;
     cu.uVignette.value = P.vignette; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;

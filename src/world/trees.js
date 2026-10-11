@@ -6,6 +6,7 @@ import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildP
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
+import { CLOUD } from './clouds.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
 // and small groups of trees in blossom; each with a trunk collider.
@@ -411,17 +412,23 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uFade: fade, uViewPos: viewPos };
+  const softs = variants.map(v => v.kind === 'blossom' || v.kind === 'oak' ? 1 : 0);
+  // uImpSun: towards the sun (or moon), clouds.js keeps it current
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
 uniform float uImpRows;
 uniform float uImpH[${variants.length}];
 uniform float uImpW[${variants.length}];
+uniform float uImpSoft[${variants.length}];
+uniform vec4 uImpSun;
 uniform vec2 uFade;
 uniform vec3 uViewPos;
 varying vec2 vImpUv;
 varying float vImpYaw;
 varying float vTreeDist;
+varying vec3 vImpRound;   // a round crown's normal (world), for the soft meadow trees
+varying float vImpSoft;
 `;
   const patchImp = (m, depth) => {
     m.onBeforeCompile = (sh) => {
@@ -440,6 +447,13 @@ float H = uImpH[int(aVar)] * isc;
 vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
 vTreeDist = distance(ip, uViewPos);
+vImpSoft = uImpSoft[int(aVar)];
+{
+  // the crown as a ball (centre at 0.62 of the height): left / right, up / down and towards the viewer
+  vec2 q = vec2(position.x * 2.0, (position.y - 0.62) / 0.38);
+  vec3 fwd = normalize(vec3(toCam.x, 0.0, toCam.z));
+  vImpRound = right * q.x + vec3(0.0, 0.8 * q.y, 0.0) + fwd * sqrt(max(0.0, 1.0 - 0.5 * dot(q, q)));
+}
 vec2 cuv = vec2(position.x + 0.5, position.y);
 vImpUv = vec2((view + cuv.x) / ${VIEWS}.0, (uImpRows - 1.0 - aVar + cuv.y) / uImpRows);
 #ifdef USE_MAP
@@ -454,7 +468,13 @@ gl_Position = projectionMatrix * mvPosition;`)
 #if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
 vec4 worldPosition = vec4(ip + transformed, 1.0);
 #endif`)
-        .replace('#include <defaultnormal_vertex>', 'vec3 transformedNormal = normalMatrix * objectNormal;');
+        .replace('#include <defaultnormal_vertex>', 'vec3 transformedNormal = normalMatrix * objectNormal;')
+        // the card is flat, so its own sun-facing twin (the shadow pass) shades its far half: look the shadow up
+        // a crown's radius towards the light, outside the tree; shade from the trees around still lands
+        .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
+#if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
+vSunShadowWorldPosition.xyz += uImpSun.xyz * (0.5 * H * uImpW[int(aVar)]);
+#endif`);
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D tImpN;
@@ -462,6 +482,8 @@ uniform vec2 uFade;
 varying vec2 vImpUv;
 varying float vImpYaw;
 varying float vTreeDist;
+varying vec3 vImpRound;
+varying float vImpSoft;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) >= smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
@@ -470,8 +492,20 @@ float faceDirection = 1.0;
 vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
 float cy = cos(vImpYaw), sy = sin(vImpYaw);
 vec3 nW = normalize(vec3(cy * nObj.x + sy * nObj.z, nObj.y, -sy * nObj.x + cy * nObj.z));
+nW = normalize(mix(nW, normalize(vImpRound), 0.55 * vImpSoft));
 vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
-vec3 nonPerturbedNormal = normal;`);
+vec3 nonPerturbedNormal = normal;`)
+        // light through the leaves, as on the near crowns (patchTreeMaterial): soft crowns wrap the sun round
+        .replace('#include <opaque_fragment>', `
+outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
+#if NUM_SUN_LIGHTS > 0
+if (vImpSoft > 0.5) {
+  float ndl = dot(normal, sunLights[0].direction);
+  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
+  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
+}
+#endif
+#include <opaque_fragment>`);
     };
     m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c');
   };

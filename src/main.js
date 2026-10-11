@@ -205,6 +205,7 @@ async function main() {
     },
     // the hour follows at once; the N key asks for the 2.5 s sweep
     time(v, o) {
+      if (o.flow) return;   // env.flow() already shows it
       env.setHour(v, { instant: !o.animate });
       if (o.startup) env.flush();
       if (!o.silent) say('time', TIME_NAMES[quickTime(v)] || env.hourText);
@@ -402,17 +403,16 @@ async function main() {
 
   // ---------------------------------------------------------------- frame
   let acc = 0;
-  // the day goes by (setting timeFlow): the hour moves in steps of ~15 game seconds, too small to see
+  // the day goes by (setting timeFlow): the sun moves every frame (env.flow), the saved hour follows every 2 s
   const DAY_MINUTES = { slow: 48, normal: 24, fast: 8 };
-  let flowAcc = 0;
+  let flowSave = 0;
   function flowTime(dt) {
     const minutes = DAY_MINUTES[settings.get('timeFlow')];
-    if (!minutes || env.anim) { flowAcc = 0; return; }
-    flowAcc += dt * 24 / (minutes * 60);
-    if (flowAcc < 0.004) return;
-    const h = (settings.get('time') + flowAcc) % 24;
-    flowAcc = 0;
-    settings.set('time', Math.round(h * 1e4) / 1e4, { silent: true });
+    if (!minutes || env.anim) return;
+    env.flow(dt * 24 / (minutes * 60));
+    if ((flowSave += dt) < 2) return;
+    flowSave = 0;
+    settings.set('time', Math.round(env.hour * 1e4) / 1e4, { silent: true, flow: true });
   }
 
   function tick(dt, render = true) {
