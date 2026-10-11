@@ -5,7 +5,7 @@ import { mulberry32 } from './noise.js';
 
 // Sky: a 256x128 sky-view LUT rendered with single scattering whenever the light changes (time-of-day
 // blends), then a dome that reads it and adds the sun disc, the moon, stars, the Milky Way and a moving
-// cloud layer. The same dome (without the sun disc) renders into the PMREM environment map.
+// layer of puffy clouds (each lit as a dome, silver edges towards the sun). The same dome (without the sun disc) renders into the PMREM environment map.
 
 const LUT_W = 256, LUT_H = 128;
 
@@ -43,8 +43,8 @@ void main() {
 const DOME_FRAG = /* glsl */`
 uniform sampler2D tLUT, tNoise;
 uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround;
-uniform vec3 uCloudLit, uCloudAmb;
-uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase;
+uniform vec3 uCloudLit, uCloudAmb, uOvercastCol, uHazeCol;
+uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase, uOvercast;
 uniform vec2 uWind;
 uniform vec3 uCamPos;
 varying vec3 vDir;
@@ -58,13 +58,14 @@ vec3 lut(vec3 d) {
 float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 vec3 hash33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
 
+// cumulus: big shapes, billowed edges (|2n-1| folds the detail noise into round puffs), fairly crisp rims
 float cloudDensity(vec2 p) {
   vec4 n = texture2D(tNoise, p);
   vec4 n2 = texture2D(tNoise, p * 3.1 + vec2(0.37, 0.71) + uWind * uTime * 0.6);
-  float f = n.r * 0.55 + n.g * 0.25 + n2.b * 0.14 + n2.a * 0.06;
-  return smoothstep(1.0 - uCover, 1.0 - uCover + 0.32, f);
+  float billow = abs(n2.b * 2.0 - 1.0);
+  float f = n.r * 0.62 + n.g * 0.24 + billow * 0.09 + n2.a * 0.05;
+  return smoothstep(1.0 - uCover, 1.0 - uCover + 0.24, f);
 }
-
 float stars(vec3 d) {
   float s = 0.0;
   for (int k = 0; k < 2; k++) {
@@ -89,6 +90,9 @@ void main() {
 
   // below the horizon (seen only from high ground, mostly hidden by terrain): dark ground haze
   col = mix(col, uGround + col * 0.6, smoothstep(0.0, -0.08, up));
+  // overcast (weather.js): the sky goes a soft grey, brightest overhead (it also greys the light probe); low down it
+  // takes the haze's colour, the one the far hills fade to, so the ridges sink into it instead of standing out
+  if (uOvercast > 0.0) col = mix(col, mix(uHazeCol, uOvercastCol * (0.6 + 0.4 * max(up, 0.0)), smoothstep(0.0, 0.3, up)), uOvercast * smoothstep(-0.12, 0.0, up));
 
   // night sky: stars + Milky Way band, faded near the horizon by the atmosphere
   if (uStars > 0.001 && up > -0.02) {
@@ -121,20 +125,27 @@ void main() {
   col += uMoonDisc * 0.0009 * exp(-max(rm - 1.0, 0.0) * 0.12);
   #endif
 
+  vec3 L = uSunDir.y > -0.05 ? uSunDir : uMoonDir;
+  float mu = dot(d, L);
   // clouds: a layer at ~1.8 km, lit from the sun/moon direction, fading into the haze at the horizon
   if (up > 0.0 && uCloudAlpha > 0.001) {
     float h = 1800.0;
-    vec2 p = (d.xz * (h / max(up, 0.02)) + uCamPos.xz) / 9000.0 + uWind * uTime;
+    vec2 p = (d.xz * (h / max(up, 0.02)) + uCamPos.xz) / 13000.0 + uWind * uTime;
     float den = cloudDensity(p);
     if (den > 0.001) {
-      vec3 L = uSunDir.y > -0.05 ? uSunDir : uMoonDir;
-      vec2 lo = normalize(L.xz + 1e-4) * 0.018;
+      vec2 lo = normalize(L.xz + 1e-4) * 0.014;
       float shade = cloudDensity(p + lo) * 0.7 + cloudDensity(p + lo * 2.2) * 0.3;
-      float light = exp(-shade * 2.4) * (1.0 - den * 0.35);
-      float mu = dot(d, L);
+      // each cloud a puffy dome: the density as a height field, its normal lit by the sun (side light on puffs)
+      const float e = 0.004;
+      float gx = cloudDensity(p + vec2(e, 0.0)) - den, gz = cloudDensity(p + vec2(0.0, e)) - den;
+      vec3 Nc = normalize(vec3(-gx, e * 5.0, -gz));
+      float dome = clamp(dot(Nc, L) * 0.6 + 0.5, 0.0, 1.0);
+      float light = exp(-shade * 2.0) * (1.0 - den * 0.3) * (0.45 + 0.75 * dome);
       float g = 0.55;
       float phase = 0.35 + (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5) * 0.12;
-      vec3 cc = uCloudAmb * (0.75 + 0.25 * up) + uCloudLit * light * phase;
+      // silver lining: thin edges glow towards the sun
+      float rim = pow(1.0 - den, 2.0) * pow(max(mu, 0.0), 8.0) * 2.0;
+      vec3 cc = uCloudAmb * vec3(0.94, 0.92, 1.06) * (0.75 + 0.25 * up) + uCloudLit * (light * phase + rim);
       float fade = smoothstep(0.0, 0.18, up);
       float a = den * fade * uCloudAlpha;
       // far clouds take on the sky colour behind them
@@ -193,6 +204,7 @@ export class Sky {
       uSunDir: this.lutMat.uniforms.uSunDir, uMoonDir: this.lutMat.uniforms.uMoonDir,
       uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) },
       uCloudLit: { value: new THREE.Vector3(1, 1, 1) }, uCloudAmb: { value: new THREE.Vector3(0.3, 0.33, 0.4) },
+      uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) }, uHazeCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) },
       uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
       uWind: { value: new THREE.Vector2(0.0011, 0.0004) }, uCamPos: { value: new THREE.Vector3() },
     };

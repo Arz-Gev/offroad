@@ -15,6 +15,11 @@ export const DEFAULTS = {
   camera: 'chase',
   fov: 62,                  // vertical field of view in degrees (hood and wheel cameras use 2 less)
   time: 13,                 // time of day in hours, 0..24 (13 = day, 19.5 = dusk, 23 = night)
+  weather: 'changing',      // 'fair' | 'changing' (passing showers) | 'rain'
+  fog: 'normal',            // the volumetric fog's amount: 'off' | 'light' | 'normal' | 'thick' (environment.js FOG_AMOUNT)
+  dof: 'soft',              // depth of field, the far land softening: 'off' | 'soft' | 'strong' (main.js DOF_AMOUNT)
+  brightness: 1,            // the picture's gamma (main.js: 1 = gamma 0.75 on the grade), 0.6..2
+  timeFlow: 'normal',       // the day goes by: 'off' | 'slow' (a day in 48 min) | 'normal' (24 min) | 'fast' (8 min)
   muted: false,
   volume: 0.3,              // 0..1 (1 = the original mix level); 30% on a first start so it isn't loud
   speedUnit: 'kmh',         // 'kmh' | 'mph'
@@ -37,7 +42,7 @@ export const DEFAULTS = {
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
   gBloom: true,
   gViewDist: 1,             // terrain LOD distance scale
-  gTerrain: 2,              // terrain shading detail 0..2
+  gTerrain: 2,              // terrain shading detail 0..3
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
@@ -59,15 +64,19 @@ const CHOICES = {
   cluster: ['auto', 'full', 'compact'],
   touchControls: ['auto', 'on', 'off'],
   touchSteer: ['stick', 'tilt'],
+  timeFlow: ['off', 'slow', 'normal', 'fast'],
+  weather: ['fair', 'changing', 'rain'],
+  fog: ['off', 'light', 'normal', 'thick'],
+  dof: ['off', 'soft', 'strong', 'miniature'],
   quality: ['auto', 'mobile', 'low', 'medium', 'high', 'ultra', 'custom'],
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
   gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
-  gTerrain: [0, 1, 2],
+  gTerrain: [0, 1, 2, 3],
 };
 const RANGES = {
-  time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1],
+  time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1], brightness: [0.6, 2],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
 };
 

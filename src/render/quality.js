@@ -1,9 +1,14 @@
 // Graphics presets. `dpr` caps the device pixel ratio before the player's resolution scale.
-// Rough frame times on an M1 Pro (visible Chrome window 1728x996 @2, meadow / forest / trail drive): low 3 / 5 / 4 ms,
-// medium 5 / 8 / 6, high 9 / 14 / 10, ultra 11 / 15 / 11.
+// Rough frame times on an M1 Pro (visible Chrome window 1728x908 @2, meadow / forest / trail drive): low 5 / 7 / 5.5 ms,
+// medium 8 / 11 / 9, high 13 / 17.5 / 14, ultra 17 / 22.5 / 19. On High the clouds, volumetric fog, mist and depth of
+// field cost ~0.4-0.7 ms each, the ground shading ~1.5 ms.
 
 // The grass of the Grass and bushes levels: density (blades per m²), height and width (cm) as curves over the
-// distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow.
+// distance in m (grass.js evalCurve), each level tuned by eye by the player on a flat test meadow. With the haze and
+// the ground's own colour following the land, grass, bushes, near trees and terrain detail end sooner than they
+// used to below Ultra (High: grass 196 -> 115 m, bushes 3.2 -> 2.2, near trees 50 -> 40 m, terrain 1.0 -> 0.85):
+// side by side no view changed, and it saved ~1-1.5 ms. Ultra keeps the full distances and the heavier ground
+// (terrainDetail 3, debris 'ultra'): quality first.
 const GRASS_ULTRA = {
   end: 300, smooth: false,
   density: [[0, 0.3], [0.5, 15], [1.6, 43], [3.6, 46], [11, 15], [28, 8.9], [57, 12], [108, 13], [172, 5.4], [299, 1.3]],
@@ -17,13 +22,13 @@ const GRASS_LOW = {
   width: [[0, 13], [25, 26], [55, 43], [90, 59], [128, 71], [173, 120], [207, 140], [247, 143], [288, 127]],
 };
 const GRASS_MEDIUM = {
-  end: 148, smooth: true,
+  end: 120, smooth: true,
   density: [[0, 0.6], [0.5, 7.1], [1.6, 21], [3.6, 21], [11, 7.1], [28, 4.2], [53, 2.5], [112, 1.8], [172, 1.2], [299, 0.6]],
   height: [[0, 100], [5, 109], [44, 119], [120, 142]],
   width: [[0, 8.2], [37, 21], [77, 40], [156, 131], [189, 76], [289, 55]],
 };
 const GRASS_HIGH = {
-  end: 196, smooth: false,
+  end: 115, smooth: false,
   density: [[0, 0.82], [0.5, 9.6], [1.6, 28], [3.6, 29], [11, 9.6], [28, 5.7], [57, 7.7], [108, 5.6], [172, 1.7], [299, 0.82]],
   height: [[0, 144], [3.4, 125], [8.3, 141], [28, 136], [297, 126]],
   width: [[0, 8.2], [13, 14], [60, 25], [130, 63], [189, 97], [300, 200]],
@@ -37,31 +42,31 @@ export const QUALITY = {
   mobile: {
     label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off',
+    terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off', clouds: 'off',
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
     label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low',
+    terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low', clouds: 'low',
     grassCurve: grass(GRASS_LOW), bushes: 0.31, bushHeight: 2.6, bushDist: 3.5,
   },
   medium: {
     label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
     treeNear: 40, impostorShadows: false,
-    terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium',
-    grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.3,
+    terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium', clouds: 'medium',
+    grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.0,
   },
   high: {
     label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
-    impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.0, bloom: true, veg: 'high',
-    grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 3.2,
+    treeNear: 40, impostorShadows: true,
+    terrainDetail: 2, lodScale: 0.85, bloom: true, veg: 'high', clouds: 'high',
+    grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 2.2,
   },
   ultra: {
     label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
     impostorShadows: true,
-    terrainDetail: 2, lodScale: 1.3, bloom: true, veg: 'ultra',
+    terrainDetail: 3, lodScale: 1.3, bloom: true, veg: 'ultra', clouds: 'ultra',
     grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
   },
 };
@@ -77,6 +82,29 @@ export const SHADOWS = {
   ultra: { map: 3072, far: 260, cascades: 2, splits: [52], soft: 0.06, car: 2048 },
 };
 
+// Volumetric clouds per level (world/clouds.js): resolution of the cloud texture, steps along a ray. off: the
+// flat cloud layer of the sky dome instead.
+export const CLOUDS = {
+  off: null,
+  low: { scale: 0.25, steps: 28 },
+  medium: { scale: 0.25, steps: 36 },
+  high: { scale: 0.33, steps: 48 },
+  ultra: { scale: 0.5, steps: 64 },
+};
+
+// Volumetric fog per level (render/volumetricFog.js): resolution, steps along a ray; it follows the clouds' level.
+// off: the analytic fog only.
+export const FOG = {
+  off: null,
+  low: null,
+  medium: { scale: 0.25, steps: 14 },
+  high: { scale: 0.25, steps: 20 },
+  ultra: { scale: 0.33, steps: 28 },
+};
+
+// Depth of field per level (render/pipeline.js): most taps of the half-res gather; it follows the clouds' level.
+export const DOF = { off: 0, low: 0, medium: 24, high: 48, ultra: 80 };
+
 // Every Graphics option is its own setting (prefix g). A preset writes its values into them; changing
 // one switches to 'custom', which reads them back.
 export function presetToGfx(q) {
@@ -91,6 +119,7 @@ export function gfxToQuality(g) {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
     impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
+    clouds: g.gShadows in CLOUDS ? g.gShadows : 'medium',   // the clouds follow the shadow level
     veg: g.gVeg, ...vegOf(g.gVeg),
   };
 }

@@ -31,6 +31,11 @@ const SECTIONS = [
     row('fov', 'Field of view', 'range', { min: 45, max: 110, step: 1, scale: 1, unit: '°', note: 'Vertical angle of the camera. Wider shows more around the truck and feels faster; narrower is closer and flatter. Default 62°.' }),
     row('time', 'Time of day', 'range', { hot: 'time', min: 0, max: 1435, step: 5, scale: 60, fmt: fmtClock, note: 'The picture follows the slider at once. Day 13:00, dusk 19:30, night 23:00.' }),
     row('timeQuick', '', 'seg', { quick: true, options: [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] }),
+    row('timeFlow', 'Time passes', 'seg', { options: [['off', 'Stopped'], ['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']], note: 'How fast the day goes by while you drive: a whole day in 48, 24 or 8 minutes. Stopped keeps the hour you set.' }),
+    row('weather', 'Weather', 'seg', { options: [['fair', 'Fair'], ['changing', 'Changing'], ['rain', 'Rain']], note: 'Changing: fine weather with a summer shower now and then, and a rainbow when it clears.' }),
+    row('fog', 'Fog', 'seg', { options: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['thick', 'Thick']], note: 'The haze in the air that catches the sun: light shafts under the trees, mist in the morning. Off is also a little faster. Low and Mobile graphics have none.' }),
+    row('dof', 'Depth of field', 'seg', { options: [['off', 'Off'], ['soft', 'Soft'], ['strong', 'Strong'], ['miniature', 'Miniature']], note: 'The far land goes soft, like a camera focused near you: the truck and the track ahead stay sharp. Miniature focuses on the truck and blurs everything nearer and farther: with a narrow field of view from high above the world looks like a toy model. Low and Mobile graphics have none.' }),
+    row('brightness', 'Brightness', 'range', { min: 60, max: 200, step: 5, scale: 100, unit: '%', note: 'Gamma: lifts or deepens the mid-tones, black stays black and white stays white. Raise it on a dim screen or in a bright room. Default 100%.' }),
   ] },
   { title: 'Sound', rows: [
     row('sound', 'Sound', 'switch', { hot: 'mute' }),
@@ -89,7 +94,7 @@ const GFX_SECTIONS = [
   ] },
   { title: 'World detail', rows: [
     row('gViewDist', 'Terrain detail distance', 'range', { min: 60, max: 150, step: 5, scale: 100, unit: '%' }),
-    row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] }),
+    row('gTerrain', 'Ground shading', 'seg', { options: [[0, 'Low'], [1, 'Medium'], [2, 'High'], [3, 'Ultra']] }),
     row('gTreeShadows', 'Distant tree shadows', 'switch'),
     row('gVeg', 'Grass and bushes', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High'], ['ultra', 'Ultra']] }),
   ] },

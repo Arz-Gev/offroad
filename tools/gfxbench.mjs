@@ -65,7 +65,7 @@ const evaluate = async (expr, timeout = 120000) => {
 };
 await send('Runtime.enable'); await send('Page.enable');
 if (!winSize) await send('Emulation.setDeviceMetricsOverride', { width: +sw, height: +sh, deviceScaleFactor: +sdpr, mobile: false });
-const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true };
+const settings = { autoPause: false, quality: preset, time: 13, hints: false, timeFlow: 'off', muted: true };
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 const t0 = Date.now();
 await send('Page.navigate', { url });

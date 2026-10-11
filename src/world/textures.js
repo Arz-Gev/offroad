@@ -2,16 +2,48 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { mulberry32 } from './noise.js';
 
-// Procedural textures (no external assets).
+// Ground textures, and small procedural textures (tyres, bark).
 // Ground layers are baked on the GPU at startup into two texture arrays:
 //   albedo (rgb) + height (a)   and   normal (xy in rg) + roughness (b) + cavity AO (a).
-// Layers: 0 grass, 1 dirt track, 2 rock, 3 mud, 4 sand / gravel, 5 forest floor.
-// Every recipe is built from periodic noise, so the tiles wrap seamlessly.
+// Layers: 0 grass, 1 dirt track, 2 rock (the boulders and walls, materials.js), 3 mud, 4 gravel (shores, quarry,
+// scree), 5 forest floor (needles), 6 loose soil (slopes, verges), and two procedural rock structures (data, not
+// colour; terrainView.js colours them by the rock's kind): 7 blocks (a rock face: rows of blocks, one row per bed, each
+// block tilted its own way with bevelled edges, joints between them, water streaks) and 8 slabs (rock seen from
+// above: slabs between joints). Their rgb: tone, joint, streak; a: height. 9 cliff: an aerial rock photo tiled at
+// 30 m, the large shapes and colour blotches of the rock on Ultra ground shading.
+// They are photo-scanned CC0 textures from Poly Haven (public/ground/, packed by tools/ground-textures.py: albedo +
+// height in one AVIF, the normal map in another). The grass photo is recoloured to the meadow's green, keeping its
+// structure. Procedural recipes (periodic noise, so the tiles wrap) stand in if the photos fail to load.
 
-export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5 };
-export const LAYER_COUNT = 6;
-// world size (m) covered by one tile of each layer
-export const LAYER_TILE = [2.6, 3.2, 5.0, 3.4, 2.2, 2.8];
+export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8, cliff: 9 };
+export const LAYER_COUNT = 10;
+// world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js)
+export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30];
+// photo layers: file name, roughness, normal strength, albedo gain and saturation
+const PHOTO = {
+  0: { name: 'grass', rough: 0.92, nrm: 1.1, gain: 1.0, sat: 1.0, tint: [0.13, 0.2, 0.05], recolor: 0.85 },
+  1: { name: 'dirt', rough: 0.82, nrm: 1.3, gain: 1.0, sat: 1.0 },
+  2: { name: 'rock', rough: 0.8, nrm: 1.4, gain: 1.0, sat: 1.0 },
+  3: { name: 'mud', rough: 0.72, nrm: 1.2, gain: 1.0, sat: 1.0 },
+  4: { name: 'sand', rough: 0.86, nrm: 1.2, gain: 1.0, sat: 1.0 },
+  5: { name: 'forest', rough: 0.92, nrm: 1.2, gain: 1.0, sat: 1.0 },
+  6: { name: 'soil', rough: 0.88, nrm: 1.3, gain: 1.0, sat: 1.0 },
+  9: { name: 'cliff', rough: 0.84, nrm: 1.5, gain: 1.0, sat: 1.0 },
+};
+// procedural recipe for each layer (the photo layers' stand-ins; the rock structures always)
+const RECIPE = [0, 1, 2, 3, 4, 5, 1, 6, 7, 2];
+
+// fetch and decode the photo layers (unpremultiplied: the alpha is height, not coverage); null if any fails
+export function loadGroundPhotos(base) {
+  const get = async (f) => {
+    const r = await fetch(`${base}ground/${f}`);
+    if (!r.ok) throw new Error(`${f}: ${r.status}`);
+    return createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  };
+  return Promise.all(Object.entries(PHOTO).map(async ([l, p]) => [l, { a: await get(p.name + '-a.avif'), n: await get(p.name + '-n.avif') }]))
+    .then(Object.fromEntries)
+    .catch(e => { console.warn('ground photos unavailable, using the procedural layers', e); return null; });
+}
 
 export const NOISE_GLSL = /* glsl */`
 // ---- periodic noise toolkit (period in cells, integer)
@@ -88,12 +120,61 @@ float blades(vec2 uv, float per, float seed) {
 }
 `;
 
+// the rock structures (layers 8, 9) as functions of the tile uv: height (unclamped: the normal pass evaluates it at
+// float precision, 8 bits are too coarse for the blocks' gentle lean) and data (tone, joint, streak)
+export const STRUCT_GLSL = /* glsl */`
+// rock face: 8 beds (rows), 4-8 blocks each, joints wavy and staggered from row to row. Height unit 0.4 m, tile 12 m
+float blocksAt(vec2 uv, out vec3 data) {
+  float ry = uv.y * 8.0, row = floor(ry), fy = fract(ry);
+  float h1 = hash12(vec2(row, 3.7)), nb = floor(4.0 + h1 * 5.0);
+  float ux = uv.x * nb + h1 * 7.0 + (pnoise(uv * 16.0, 16.0) - 0.5) * 0.3;
+  float bi = mod(floor(ux), nb), fx = fract(ux);
+  vec2 bh = hash22(vec2(bi, row) + 0.37);
+  // edge distances in metres (2 m joint spacing on average, 1.5 m beds)
+  float ex = min(fx, 1.0 - fx) * 12.0 / nb, ey = min(fy, 1.0 - fy) * 1.5;
+  float e = min(ex, ey);
+  float bevel = sqrt(smoothstep(0.0, 0.2 + 0.25 * bh.x, ex)) * sqrt(smoothstep(0.0, 0.14 + 0.14 * bh.y, ey));
+  // each block leans its own way: a ramp of height across it
+  float lean = (fx - 0.5) * (bh.x - 0.5) * 3.0 + (fy - 0.5) * (bh.y - 0.5) * 2.0;
+  float sn = pfbm(uv, 24.0, 4);
+  // water streaks: long and thin, down the face (periodic: 40 across, 2 down)
+  vec2 sp = vec2(uv.x * 40.0, uv.y * 2.0), si = floor(sp), sf = fract(sp), su = sf * sf * (3.0 - 2.0 * sf);
+  vec2 P = vec2(40.0, 2.0);
+  float streak = mix(mix(hash12(mod(si, P)), hash12(mod(si + vec2(1, 0), P)), su.x), mix(hash12(mod(si + vec2(0, 1), P)), hash12(mod(si + vec2(1, 1), P)), su.x), su.y);
+  data = vec3(bh.y * 0.8 + sn * 0.2, 1.0 - smoothstep(0.0, 0.05, e), smoothstep(0.62, 0.9, streak) * (0.6 + 0.4 * fy));
+  return 0.3 + 0.5 * bevel + lean * bevel + (sn - 0.5) * 0.25 * bevel;
+}
+// rock from above: slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped
+// slabs), each slab tilted, fine cracks. Height unit 0.3 m
+float slabsAt(vec2 uv, out vec3 data) {
+  vec2 p = uv * 4.0 + (vec2(pnoise(uv * 8.0, 8.0), pnoise(uv * 8.0 + 0.5, 8.0)) - 0.5) * 0.5;
+  vec2 i = floor(p), f = fract(p);
+  float d1 = 8.0, d2 = 8.0; vec2 c1 = vec2(0.0), c2 = vec2(0.0), id = vec2(0.0), id2 = vec2(0.0);
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(x, y), o = hash22(mod(i + g, 4.0)) * 0.9 + 0.05, r = g + o - f;
+    float d = dot(r, r);
+    if (d < d1) { d2 = d1; c2 = c1; id2 = id; d1 = d; c1 = r; id = mod(i + g, 4.0); } else if (d < d2) { d2 = d; c2 = r; id2 = mod(i + g, 4.0); }
+  }
+  float e = dot(0.5 * (c1 + c2), normalize(c2 - c1)) * 3.0;
+  // a joint is open or closed by the pair of slabs it parts (the same either side of it)
+  float open = step(0.32, hash12(id + id2 * 7.13 + 1.7)), eo = mix(9.0, e, open);
+  vec2 ch = hash22(id + 11.3);
+  float crack = smoothstep(0.02, 0.0, pvoronoi(uv + 0.37, 12.0).y) * smoothstep(0.45, 0.6, pfbm(uv + 0.2, 8.0, 3));
+  float sn = pfbm(uv, 32.0, 4);
+  float bevel = sqrt(smoothstep(0.0, 0.25 + 0.2 * ch.y, eo));
+  float jw = 0.02 + 0.06 * pnoise(uv * 24.0, 24.0);
+  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), 0.0);
+  return 0.3 + 0.45 * bevel + dot(-c1, ch - 0.5) * 2.0 * bevel + (sn - 0.5) * 0.2 - crack * 0.2;
+}
+`;
+
 const BAKE_VERT = /* glsl */`
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 const ALBEDO_FRAG = /* glsl */`
 ${NOISE_GLSL}
+${STRUCT_GLSL}
 uniform int uLayer;
 varying vec2 vUv;
 vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
@@ -105,10 +186,10 @@ void main() {
     float m = pfbm(uv, 4.0, 4), m2 = pfbm(uv + 0.31, 12.0, 3);
     float b1 = blades(uv, 48.0, 1.0), b2 = blades(uv, 64.0, 5.0), b3 = blades(uv, 90.0, 9.0);
     float bl = max(b1, max(b2 * 0.9, b3 * 0.8));
-    vec3 dark = srgb(vec3(0.16, 0.22, 0.08)), mid = srgb(vec3(0.30, 0.38, 0.13)), dry = srgb(vec3(0.50, 0.47, 0.25));
+    vec3 dark = srgb(vec3(0.25, 0.34, 0.13)), mid = srgb(vec3(0.41, 0.51, 0.20)), dry = srgb(vec3(0.60, 0.57, 0.31));
     vec3 g = mix(dark, mid, smoothstep(0.3, 0.7, m));
     g = mix(g, dry, smoothstep(0.55, 0.8, m2) * 0.55);
-    vec3 soil = srgb(vec3(0.22, 0.17, 0.11));
+    vec3 soil = srgb(vec3(0.36, 0.29, 0.19));
     float gap = smoothstep(0.42, 0.3, m * 0.6 + m2 * 0.4) * (1.0 - bl);
     col = mix(g * (0.7 + 0.45 * bl), soil, gap * 0.55);
     col *= 0.9 + 0.2 * hash12(floor(uv * 256.0));
@@ -116,7 +197,7 @@ void main() {
   } else if (uLayer == 1) {
     // dirt track: compacted soil, fine gravel, a few larger stones, fine cracks
     float m = pfbm(uv, 3.0, 5), m2 = pfbm(uv + 0.5, 16.0, 3), m3 = pfbm(uv + 0.21, 40.0, 2);
-    vec3 soil = mix(srgb(vec3(0.38, 0.30, 0.21)), srgb(vec3(0.52, 0.43, 0.31)), m);
+    vec3 soil = mix(srgb(vec3(0.50, 0.40, 0.28)), srgb(vec3(0.64, 0.53, 0.38)), m);
     soil *= 0.88 + 0.24 * m2 + 0.1 * (m3 - 0.5);
     vec3 vf = pvoronoi(uv + 0.37, 150.0);
     float fine = smoothstep(0.34, 0.12, vf.x) * step(0.55, vf.z);
@@ -160,16 +241,20 @@ void main() {
     col = mix(col, mix(srgb(vec3(0.32, 0.29, 0.26)), srgb(vec3(0.52, 0.47, 0.41)), a.y), smoothstep(0.0, 0.15, a.x));
     col = mix(col, mix(srgb(vec3(0.38, 0.36, 0.34)), srgb(vec3(0.58, 0.55, 0.51)), c.y), smoothstep(0.0, 0.1, c.x));
     h = 0.25 + 0.1 * m + 0.35 * b.x + 0.45 * a.x + 0.6 * c.x;
+  } else if (uLayer == 6) {
+    vec3 d; h = blocksAt(uv, d); col = d;
+  } else if (uLayer == 7) {
+    vec3 d; h = slabsAt(uv, d); col = d;
   } else {
     // forest floor: humus, needles, twigs, moss
     float m = pfbm(uv, 3.0, 5), m2 = pfbm(uv + 0.6, 12.0, 3);
-    vec3 hum = mix(srgb(vec3(0.15, 0.10, 0.06)), srgb(vec3(0.27, 0.19, 0.11)), m);
+    vec3 hum = mix(srgb(vec3(0.27, 0.20, 0.12)), srgb(vec3(0.41, 0.31, 0.18)), m);
     float n1 = blades(uv, 70.0, 3.0), n2 = blades(uv, 110.0, 11.0), tw = blades(uv, 14.0, 17.0);
-    vec3 needle = mix(srgb(vec3(0.42, 0.26, 0.12)), srgb(vec3(0.58, 0.40, 0.20)), hash12(floor(uv * 300.0)));
+    vec3 needle = mix(srgb(vec3(0.56, 0.39, 0.20)), srgb(vec3(0.70, 0.52, 0.29)), hash12(floor(uv * 300.0)));
     col = mix(hum, needle, max(n1, n2 * 0.8) * 0.85);
-    col = mix(col, srgb(vec3(0.30, 0.22, 0.14)), tw * 0.7);
+    col = mix(col, srgb(vec3(0.42, 0.32, 0.20)), tw * 0.7);
     float moss = smoothstep(0.58, 0.72, m2);
-    col = mix(col, srgb(vec3(0.20, 0.28, 0.09)), moss * 0.75);
+    col = mix(col, srgb(vec3(0.33, 0.45, 0.15)), moss * 0.75);
     h = 0.3 + 0.2 * m + 0.25 * max(n1, n2) + 0.4 * tw + 0.15 * moss;
   }
   gl_FragColor = vec4(col, clamp(h, 0.0, 1.0));
@@ -177,12 +262,19 @@ void main() {
 
 const NORMAL_FRAG = /* glsl */`
 precision highp sampler2DArray;
+${NOISE_GLSL}
+${STRUCT_GLSL}
 uniform sampler2DArray tSrc;
-uniform int uLayer;
+uniform int uLayer, uSlice;
 uniform float uStrength, uRough, uWetRough;
 uniform vec2 uTexel;
 varying vec2 vUv;
-float H(vec2 o) { return texture(tSrc, vec3(fract(vUv + o * uTexel), float(uLayer))).a; }
+float H(vec2 o) {
+  vec3 d;
+  if (uLayer == 6) return blocksAt(fract(vUv + o * uTexel), d);
+  if (uLayer == 7) return slabsAt(fract(vUv + o * uTexel), d);
+  return texture(tSrc, vec3(fract(vUv + o * uTexel), float(uSlice))).a;
+}
 void main() {
   float hl = H(vec2(-1, 0)), hr = H(vec2(1, 0)), hd = H(vec2(0, -1)), hu = H(vec2(0, 1));
   float hc = H(vec2(0));
@@ -197,10 +289,49 @@ void main() {
   gl_FragColor = vec4(n.xy * 0.5 + 0.5, rough, ao);
 }`;
 
-const STRENGTH = [2.2, 3.5, 5.0, 2.5, 4.0, 3.0];
-const ROUGH = [0.92, 0.9, 0.82, 0.78, 0.88, 0.95];
+// photo layers: the images are the right way up (v up), the OpenGL normal map's green is +v
+const PHOTO_ALBEDO_FRAG = /* glsl */`
+uniform sampler2D tA;
+uniform float uGain, uSat, uRecolor;
+uniform vec3 uTint;
+varying vec2 vUv;
+float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+void main() {
+  vec4 a = texture2D(tA, vec2(vUv.x, 1.0 - vUv.y));   // sRGB texture: linear rgb; a = height
+  vec3 avg = textureLod(tA, vec2(0.5), 12.0).rgb;
+  // recolour: the tint, with the photo's light and dark (and a little of its own colour variation)
+  vec3 c = mix(a.rgb, uTint * lum(a.rgb) / max(lum(avg), 1e-3) * mix(vec3(1.0), a.rgb / max(avg, vec3(1e-3)), 0.25), uRecolor);
+  c *= uGain;
+  c = mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, uSat);
+  gl_FragColor = vec4(c, a.a);
+}`;
+const PHOTO_NORMAL_FRAG = /* glsl */`
+uniform sampler2D tA, tN;
+uniform float uStrength, uRough;
+uniform vec2 uTexel;
+varying vec2 vUv;
+float H(vec2 o) { return texture2D(tA, vec2(vUv.x, 1.0 - vUv.y) + o * uTexel).a; }
+void main() {
+  vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
+  vec3 n = texture2D(tN, uv).xyz * 2.0 - 1.0;
+  n = normalize(vec3(n.xy * uStrength, max(n.z, 0.05)));
+  // cavity: lower than the neighbourhood -> occluded (two radii)
+  float hc = H(vec2(0.0)), avg = 0.0, avg2 = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.785398;
+    avg += H(vec2(cos(a), sin(a)) * 3.0); avg2 += H(vec2(cos(a + 0.39), sin(a + 0.39)) * 12.0);
+  }
+  float ao = clamp(1.0 - max(avg / 8.0 - hc, 0.0) * 2.4 - max(avg2 / 8.0 - hc, 0.0) * 1.2, 0.3, 1.0);
+  // stones on top a little smoother than the dust between them
+  float rough = clamp(uRough + (0.5 - hc) * 0.12, 0.3, 1.0);
+  gl_FragColor = vec4(n.xy * 0.5 + 0.5, rough, ao);
+}`;
 
-export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8) {
+// (the rock structures: texels per metre x the height unit / 2, per 512 texels)
+const STRENGTH = [2.2, 3.5, 5.0, 2.5, 4.0, 3.0, 8.5, 6.4];
+const ROUGH = [0.92, 0.9, 0.82, 0.78, 0.88, 0.95, 0.8, 0.8];
+
+export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8, photos = null) {
   const opts = { depthBuffer: false, type: THREE.UnsignedByteType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping };
   const albedo = new THREE.WebGLArrayRenderTarget(size, size, LAYER_COUNT, opts);
   const normal = new THREE.WebGLArrayRenderTarget(size, size, LAYER_COUNT, opts);
@@ -214,26 +345,70 @@ export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8) {
   const aMat = new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: ALBEDO_FRAG, uniforms: { uLayer: { value: 0 } }, depthTest: false, depthWrite: false });
   const nMat = new THREE.ShaderMaterial({
     vertexShader: BAKE_VERT, fragmentShader: NORMAL_FRAG, depthTest: false, depthWrite: false,
-    uniforms: { tSrc: { value: albedo.texture }, uLayer: { value: 0 }, uStrength: { value: 3 }, uRough: { value: 0.9 }, uWetRough: { value: 0.25 }, uTexel: { value: new THREE.Vector2(1 / size, 1 / size) } },
+    uniforms: { tSrc: { value: albedo.texture }, uLayer: { value: 0 }, uSlice: { value: 0 }, uStrength: { value: 3 }, uRough: { value: 0.9 }, uWetRough: { value: 0.25 }, uTexel: { value: new THREE.Vector2(1 / size, 1 / size) } },
+  });
+  const paMat = new THREE.ShaderMaterial({
+    vertexShader: BAKE_VERT, fragmentShader: PHOTO_ALBEDO_FRAG, depthTest: false, depthWrite: false,
+    uniforms: { tA: { value: null }, uGain: { value: 1 }, uSat: { value: 1 }, uRecolor: { value: 0 }, uTint: { value: new THREE.Vector3() } },
+  });
+  const pnMat = new THREE.ShaderMaterial({
+    vertexShader: BAKE_VERT, fragmentShader: PHOTO_NORMAL_FRAG, depthTest: false, depthWrite: false,
+    uniforms: { tA: { value: null }, tN: { value: null }, uStrength: { value: 1 }, uRough: { value: 0.85 }, uTexel: { value: new THREE.Vector2() } },
   });
   const quad = new FullScreenQuad(aMat);
   const prev = renderer.getRenderTarget();
+  const tex = [];
+  const bitmapTex = (img, srgb) => {
+    const t = new THREE.Texture(img);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.flipY = false; t.generateMipmaps = srgb; t.minFilter = srgb ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;   // the albedo's last mip: its average
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.needsUpdate = true; tex.push(t);
+    return t;
+  };
   for (let l = 0; l < LAYER_COUNT; l++) {
-    aMat.uniforms.uLayer.value = l;
-    renderer.setRenderTarget(albedo, l);
-    quad.render(renderer);
+    const ph = photos?.[l], p = PHOTO[l];
+    if (ph) {
+      const ta = bitmapTex(ph.a, true), tn = bitmapTex(ph.n, false);
+      Object.assign(paMat.uniforms, { tA: { value: ta }, uGain: { value: p.gain }, uSat: { value: p.sat }, uRecolor: { value: p.recolor ?? 0 } });
+      paMat.uniforms.uTint.value.fromArray(p.tint ?? [1, 1, 1]);
+      quad.material = paMat;
+      renderer.setRenderTarget(albedo, l); quad.render(renderer);
+      Object.assign(pnMat.uniforms, { tA: { value: ta }, tN: { value: tn }, uStrength: { value: p.nrm }, uRough: { value: p.rough } });
+      pnMat.uniforms.uTexel.value.set(1 / ph.a.width, 1 / ph.a.height);
+      quad.material = pnMat;
+      renderer.setRenderTarget(normal, l); quad.render(renderer);
+    } else {
+      aMat.uniforms.uLayer.value = RECIPE[l];
+      quad.material = aMat;
+      renderer.setRenderTarget(albedo, l); quad.render(renderer);
+      nMat.uniforms.uLayer.value = RECIPE[l];
+      nMat.uniforms.uSlice.value = l;
+      nMat.uniforms.uStrength.value = STRENGTH[RECIPE[l]] * size / 512;
+      nMat.uniforms.uRough.value = ROUGH[RECIPE[l]];
+      quad.material = nMat;
+      renderer.setRenderTarget(normal, l); quad.render(renderer);
+    }
   }
-  quad.material = nMat;
-  for (let l = 0; l < LAYER_COUNT; l++) {
-    nMat.uniforms.uLayer.value = l;
-    nMat.uniforms.uStrength.value = STRENGTH[l] * size / 512;
-    nMat.uniforms.uRough.value = ROUGH[l];
-    renderer.setRenderTarget(normal, l);
-    quad.render(renderer);
-  }
+  // each layer's average colour (its last mip), read back once: the terrain's far colours and tints use them as
+  // constants instead of a fetch per pixel
+  const avgRT = new THREE.WebGLRenderTarget(16, 1, { depthBuffer: false });
+  const avgMat = new THREE.ShaderMaterial({
+    vertexShader: BAKE_VERT, depthTest: false, depthWrite: false, uniforms: { tSrc: { value: albedo.texture } },
+    fragmentShader: `precision highp sampler2DArray; uniform sampler2DArray tSrc; varying vec2 vUv;
+      void main() { gl_FragColor = vec4(sqrt(textureLod(tSrc, vec3(0.5, 0.5, floor(vUv.x * 16.0)), 12.0).rgb), 1.0); }`,
+  });
+  quad.material = avgMat;
+  renderer.setRenderTarget(avgRT); quad.render(renderer);
+  const px = new Uint8Array(16 * 4);
+  renderer.readRenderTargetPixels(avgRT, 0, 0, 16, 1, px);
+  const avg = Array.from({ length: LAYER_COUNT }, (_, l) => new THREE.Vector3(...[0, 1, 2].map(k => (px[l * 4 + k] / 255) ** 2)));
+  avgRT.dispose(); avgMat.dispose();
   renderer.setRenderTarget(prev);
-  aMat.dispose(); nMat.dispose(); quad.dispose();
-  return { albedo: albedo.texture, normal: normal.texture, targets: [albedo, normal] };
+  aMat.dispose(); nMat.dispose(); paMat.dispose(); pnMat.dispose(); quad.dispose();
+  for (const t of tex) t.dispose();
+  if (photos) for (const ph of Object.values(photos)) { ph.a.close(); ph.n.close(); }
+  return { albedo: albedo.texture, normal: normal.texture, avg, targets: [albedo, normal] };
 }
 
 // ---------------------------------------------------------------- small CPU textures

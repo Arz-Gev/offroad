@@ -2,10 +2,14 @@
 // (the sky-view LUT in sky.js). Units: metres; radiance is relative to the light's illuminance
 // at the top of the atmosphere, so `illum * scatter(...)` is in the same units as the lights.
 
+// Ozone absorbs orange and green, so twilight skies go deep blue overhead and pink at the horizon instead of
+// a yellow murk. Approximated as following the Rayleigh density (betaO x kO on the Rayleigh optical depth);
+// the real layer sits at ~25 km. Clear air (betaM): heavy haze washed a low sun's light into mustard.
 export const ATM = {
   Re: 6360e3, Ra: 6420e3, Hr: 8000, Hm: 1200,
   betaR: [5.8e-6, 13.5e-6, 33.1e-6],
-  betaM: 21e-6, mieExt: 1.11, g: 0.76,
+  betaO: [0.65e-6, 1.881e-6, 0.085e-6], kO: 1.4,
+  betaM: 12e-6, mieExt: 1.11, g: 0.76,
   eyeH: 400,
 };
 
@@ -39,7 +43,7 @@ function lightDepth(px, py, pz, dx, dy, dz, steps = 8) {
 export function transmittance(l) {
   const od = lightDepth(0, ATM.Re + ATM.eyeH, 0, l[0], Math.max(l[1], -0.2), l[2], 32);
   if (!od) return [0, 0, 0];
-  return ATM.betaR.map(b => Math.exp(-(b * od[0] + ATM.betaM * ATM.mieExt * od[1])));
+  return ATM.betaR.map((b, c) => Math.exp(-((b + ATM.betaO[c] * ATM.kO) * od[0] + ATM.betaM * ATM.mieExt * od[1])));
 }
 
 // in-scattered radiance along view direction v, light from direction l (both unit [x, y, z])
@@ -69,7 +73,7 @@ export function scatter(v, l, steps = 24, noMie = false) {
     const ld = lightDepth(x, y, z, l[0], l[1], l[2]);
     if (!ld) continue;
     for (let c = 0; c < 3; c++) {
-      const tau = ATM.betaR[c] * (odR + ld[0]) + ATM.betaM * ATM.mieExt * (odM + ld[1]);
+      const tau = (ATM.betaR[c] + ATM.betaO[c] * ATM.kO) * (odR + ld[0]) + ATM.betaM * ATM.mieExt * (odM + ld[1]);
       const a = Math.exp(-tau);
       sR[c] += a * hr; sM[c] += a * hm;
     }
@@ -84,6 +88,7 @@ const float A_Ra = ${ATM.Ra.toFixed(1)};
 const float A_Hr = ${ATM.Hr.toFixed(1)};
 const float A_Hm = ${ATM.Hm.toFixed(1)};
 const vec3 A_betaR = vec3(${ATM.betaR.map(b => b.toExponential(3)).join(', ')});
+const vec3 A_betaO = vec3(${ATM.betaO.map(b => (b * ATM.kO).toExponential(3)).join(', ')});
 const float A_betaM = ${ATM.betaM.toExponential(3)};
 const float A_mieExt = ${ATM.mieExt.toFixed(3)};
 const float A_g = ${ATM.g.toFixed(3)};
@@ -134,7 +139,7 @@ vec3 aScatter(vec3 v, vec3 l, float mieScale) {
     od += vec2(hr, hm);
     vec2 ld;
     if (!aLightDepth(p, l, ld)) continue;
-    vec3 tau = A_betaR * (od.x + ld.x) + A_betaM * A_mieExt * (od.y + ld.y);
+    vec3 tau = (A_betaR + A_betaO) * (od.x + ld.x) + A_betaM * A_mieExt * (od.y + ld.y);
     vec3 a = exp(-tau);
     sR += a * hr; sM += a * hm;
   }

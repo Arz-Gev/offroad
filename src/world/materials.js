@@ -55,8 +55,8 @@ export function makeRockMaterial(layers, opts = {}) {
   float up = smoothstep(0.55, 0.9, n.y) * uMoss;
   float moss = up * smoothstep(0.35, 0.65, a2.a + (n.y - 0.75));
   rMoss = moss;
-  vec4 mc = texture(tAlb, vec3(p.xz * uMossTile, ${LAYER.forest}.0));
-  c = mix(c, mc.rgb * vec3(0.8, 1.05, 0.7), moss * 0.85);
+  vec4 mc = texture(tAlb, vec3(p.xz * uMossTile, ${LAYER.grass}.0));
+  c = mix(c, mc.rgb * vec3(0.85, 0.95, 0.7), moss * 0.85);
   // detail normal: tangent-space xy of each projection added in its plane (UDN-style blend)
   vec2 tx = (texture(tLNrm, vec3(p.zy * uRockTile, ${LAYER.rock}.0)).xy * 2.0 - 1.0);
   vec2 ty = (texture(tLNrm, vec3(p.xz * uRockTile, ${LAYER.rock}.0)).xy * 2.0 - 1.0);
@@ -69,6 +69,6 @@ export function makeRockMaterial(layers, opts = {}) {
       .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(rN, 0.0)).xyz);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= rAO; reflectedLight.indirectSpecular *= rAO;');
   };
-  mat.customProgramCacheKey = () => 'rock-tri-v1' + (opts.vertexColors ? '-vc' : '');
+  mat.customProgramCacheKey = () => 'rock-tri-v2' + (opts.vertexColors ? '-vc' : '');
   return mat;
 }

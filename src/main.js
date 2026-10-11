@@ -5,10 +5,14 @@ import { RenderPipeline } from './render/pipeline.js';
 
 import { Terrain, SPAWN } from './world/terrain.js';
 import { buildTerrainView } from './world/terrainView.js';
+import { loadGroundPhotos } from './world/textures.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
 import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
+import { buildDebris } from './world/debris.js';
+import { buildLife } from './world/life.js';
+import { Weather } from './world/weather.js';
 import { makeRockMaterial } from './world/materials.js';
 import { buildProps } from './world/props.js';
 import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
@@ -45,6 +49,7 @@ const MAX_STEPS = 16;
 
 async function main() {
   setLoading('Starting physics…', 0.08); await frame();
+  const groundPhotos = loadGroundPhotos(import.meta.env.BASE_URL);   // downloads while the world is generated
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
@@ -68,7 +73,7 @@ async function main() {
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
   const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
-  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise });
+  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise, photos: await groundPhotos });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
   const grass = buildGrass(terrainView);
@@ -89,6 +94,15 @@ async function main() {
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
+  const debris = buildDebris(terrain, terrainView);   // stones, leaves, cones, twigs and petals on the ground
+  scene.add(debris.group);
+  scenery.parts.push(debris);
+  const life = buildLife(terrainView, env, trees);   // pollen, butterflies, fireflies, birds, petals, leaves
+  scene.add(life.group);
+  scenery.parts.push(life);
+  const weather = new Weather({ env, terrainView, water });   // showers, wet ground, rainbows
+  scene.add(weather.group);
+  scenery.parts.push(weather);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
@@ -125,6 +139,7 @@ async function main() {
   hud.setDevice(input.device);
   const audio = new GameAudio();
   const dust = new Dust(scene);
+  weather.dust = dust;   // wet ground raises no dust
   dust.waterAt = (x, z) => terrain.waterLevelAt(x, z);
   const gunnery = vehicle.turret ? new Gunnery({ RAPIER, world, scene, vehicle, model, terrain, surfaceAt, audio }) : null;
   const camModes = camModesFor(model);
@@ -144,7 +159,7 @@ async function main() {
   const { teleports, nearestLocation, placeVehicle, recover: recoverVehicle } = createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced: afterPlace });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { gunnery, scenery, grass, trees, water, undergrowth, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -158,7 +173,7 @@ async function main() {
 
   // ---------------------------------------------------------------- graphics quality
   let started = false;
-  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, gunnery, game, say, started: () => started });
+  const gfx = createGraphics({ renderer, pipeline, env, scenery, settings, dust, life, weather, gunnery, game, say, started: () => started });
   const applyGraphics = gfx.apply;
   game.gfx = gfx;
   game.applyGraphics = applyGraphics;
@@ -176,6 +191,9 @@ async function main() {
   env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
+  // depth of field: off in the gunner's sight (the targets are far away)
+  const DOF_AMOUNT = { off: 0, soft: 0.6, strong: 1.2, miniature: 1.6 };
+  const applyDof = () => { pipeline.params.dof = rig.mode === 'gunner' ? 0 : DOF_AMOUNT[settings.get('dof')] ?? 1; pipeline.params.dofMini = settings.get('dof') === 'miniature'; game.redraw = 3; };
   const APPLY = {
     car(v, o) { if (!o.silent) location.reload(); },
     gearbox(v, o) { if (d.gearboxSetting !== v) { d.setGearbox(v); if (o.silent) d.message = null; } },
@@ -196,15 +214,22 @@ async function main() {
     camera(v, o) {
       if (!camModes.includes(v)) v = 'chase';   // gunner's sight on a car without a turret
       rig.setMode(v);
+      applyDof();
       if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
       if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
     },
     // the hour follows at once; the N key asks for the 2.5 s sweep
     time(v, o) {
+      if (o.flow) return;   // env.flow() already shows it
       env.setHour(v, { instant: !o.animate });
       if (o.startup) env.flush();
       if (!o.silent) say('time', TIME_NAMES[quickTime(v)] || env.hourText);
     },
+    // 100% is a gamma of 0.75 on the graded picture: the player found the grade a little light and picked that
+    brightness(v) { pipeline.params.gamma = v * 0.75; game.redraw = 3; },
+    dof(v, o) { applyDof(); if (!o.silent) say('dof', { off: 'Depth of field off', soft: 'Depth of field: soft', strong: 'Depth of field: strong', miniature: 'Depth of field: miniature (focus on the truck)' }[v]); },
+    fog(v, o) { env.setFogAmount(v); game.redraw = 3; if (!o.silent) say('fog', { off: 'No fog', light: 'Light fog', normal: 'Fog: normal', thick: 'Thick fog' }[v]); },
+    weather(v, o) { weather.setMode(v); if (!o.silent) say('weather', { fair: 'Fair weather', changing: 'Changing weather: a summer shower now and then', rain: 'Rain' }[v]); },
     muted(v, o) { audio.setMuted(v); refreshSound(); if (!o.silent) say('sound', v ? `Sound off · ${k('mute')} turns it on` : 'Sound on'); },
     volume(v) { audio.setVolume(v); },
     quality(v, o) {
@@ -398,6 +423,18 @@ async function main() {
 
   // ---------------------------------------------------------------- frame
   let acc = 0;
+  // the day goes by (setting timeFlow): the sun moves every frame (env.flow), the saved hour follows every 2 s
+  const DAY_MINUTES = { slow: 48, normal: 24, fast: 8 };
+  let flowSave = 0;
+  function flowTime(dt) {
+    const minutes = DAY_MINUTES[settings.get('timeFlow')];
+    if (!minutes || env.anim) return;
+    env.flow(dt * 24 / (minutes * 60));
+    if ((flowSave += dt) < 2) return;
+    flowSave = 0;
+    settings.set('time', Math.round(env.hour * 1e4) / 1e4, { silent: true, flow: true });
+  }
+
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -417,6 +454,7 @@ async function main() {
     }
 
     if (!paused) {
+      flowTime(dt);
       acc += dt;
       let steps = 0;
       while (acc >= H && steps < MAX_STEPS) {
@@ -452,6 +490,7 @@ async function main() {
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
+      pipeline.params.dofFocus = camera.position.distanceTo(rPos);   // the miniature depth of field focuses on the truck
       mp.updateTags(camera);
       env.update(dt, rPos, camera);
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
@@ -467,7 +506,7 @@ async function main() {
     if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);
     audio.listener = camera.position;
     mark('dust');
-    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit' });
+    audio.update(dt, vehicle, { cockpit: rig.mode === 'cockpit', rain: weather.rain, amb: { dark: env.darkness, hour: env.hour, rain: weather.rain } });
     mark('audio');
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
@@ -513,12 +552,27 @@ async function main() {
     ls.head = 1; ls.aux = model.lights.aux.length > 0;
     tick(1 / 60, false);
     view.update(rPos, rQ, 0, { night: true, shadows: true });
+    // what only shows at some hours or in some weather (rain, fireflies, ...) compiles now too, not when it first
+    // appears (compile skips hidden objects); their update() sets the visibility again on the next tick
+    const shown = [];
+    for (const g of [weather.group, life.group]) g.traverse(o => { shown.push([o, o.visible]); o.visible = true; });
     await Promise.race([compileScene(), new Promise(r => setTimeout(r, 6000))]);
-    // the eye-adaptation pass only runs at dusk and night: compile it now
+    for (const [o, v] of shown) o.visible = v;
+    // a real draw of everything with the lamps on, at the high beam's reach, frustum culling off: the GPU builds
+    // its pipeline state for a material the first time it draws it into a target, so a lamp switched on where the
+    // first view had not looked (another wood, the quarry) stalled 130-220 ms (M1 Pro). The beam cookies upload
+    // now too. The eye-adaptation pass only runs at dusk and night: it compiles in the same frame
+    ls.head = 2;
+    tick(1 / 60, false);
+    view.update(rPos, rQ, 0, { night: true, shadows: true });
+    for (const c of Object.values(model.lights.cookies)) renderer.initTexture(c);
+    const culled = [];
+    scene.traverse(o => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });
     const pp = pipeline.params, ae = pp.autoExposure, au = pp.auto;
     pp.autoExposure = true; pp.auto = 0.5;
     pipeline.render(1 / 60);
     pp.autoExposure = ae; pp.auto = au;
+    for (const o of culled) o.frustumCulled = true;
     pipeline.resetExposure = true;
     ls.head = head; ls.aux = aux;
     tick(1 / 60, false);

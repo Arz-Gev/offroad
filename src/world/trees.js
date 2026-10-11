@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { MAP_SIZE, PAD, SPAWN, POI, SURF } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
-import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant } from './foliage.js';
+import { makeFoliageAtlas, buildSpruce, buildPine, buildBirch, buildDead, buildPlant, buildBlossom, buildOak } from './foliage.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
+import { CLOUD } from './clouds.js';
 
-// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), each with a trunk collider.
+// Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
+// and small groups of trees in blossom; each with a trunk collider.
 // - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
 //   foliage cards, swaying in the wind (also in the shadow pass, where a crown casts from a lighter twin).
 // - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
@@ -61,13 +63,30 @@ if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) disca
       // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
       // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
-      // a touch of light through the leaves when backlit
+      // a touch of light through the leaves when backlit; a soft crown (opts.soft: the meadow trees) also wraps
+      // the sunlight round to its shade side and glows through its petals, so it is never bright on one side
+      // and dull on the other
+      const soft = opts.soft ? `
+#if NUM_SUN_LIGHTS > 0
+{
+  float ndl = dot(normal, sunLights[0].direction);
+  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
+  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
+}
+#endif` : '';
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
+outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
+#if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
+}
+#endif
 #include <opaque_fragment>`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind;
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + '-v2';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -104,17 +123,31 @@ function shadowCrown(geo, scale = 1.35) {
 
 // ---------------------------------------------------------------- impostor baking
 const BAKE_VERT = /* glsl */`
-varying vec2 vUv; varying vec3 vN;
-void main() { vUv = uv; vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+varying vec2 vUv; varying vec3 vN; varying vec3 vCol;
+void main() {
+  vUv = uv; vN = normal; vCol = vec3(1.0);
+#ifdef USE_COLOR
+  vCol = color;
+#endif
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
 const BAKE_FRAG = /* glsl */`
 uniform sampler2D tMap; uniform float uMode, uAlphaTest; uniform vec3 uTint;
-varying vec2 vUv; varying vec3 vN;
+varying vec2 vUv; varying vec3 vN; varying vec3 vCol;
 void main() {
   vec4 c = texture2D(tMap, vUv);
   if (c.a < uAlphaTest) discard;
   vec3 n = normalize(vN);
-  gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
+  gl_FragColor = uMode < 0.5 ? vec4(c.rgb * uTint * vCol, 1.0) : vec4(n * 0.5 + 0.5, 1.0);
 }`;
+
+// the impostor's width over its height: half for the slim conifers, wider for a round crown
+function impostorWidth(v) {
+  const p = v.geo.crown.getAttribute('position');
+  let r = 0;
+  for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i)));
+  return Math.max(0.5, (2 * r * 1.04) / (v.geo.height * 1.04));
+}
 
 function bakeImpostors(renderer, variants) {
   const rows = variants.length;
@@ -138,11 +171,11 @@ function bakeImpostors(renderer, variants) {
       const v = variants[r];
       const mats = [
         new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.barkTex }, uMode: { value: mode }, uAlphaTest: { value: 0 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
-        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.atlas }, uMode: { value: mode }, uAlphaTest: { value: 0.45 }, uTint: { value: new THREE.Color(1, 1, 1) } } }),
+        new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: BAKE_FRAG, side: THREE.DoubleSide, uniforms: { tMap: { value: v.atlas }, uMode: { value: mode }, uAlphaTest: { value: 0.45 }, uTint: { value: new THREE.Color(1, 1, 1) } }, vertexColors: !!v.geo.crown.attributes.color }),
       ];
       const t = new THREE.Mesh(v.geo.trunk, mats[0]), c = new THREE.Mesh(v.geo.crown, mats[1]);
       scene.add(t, c);
-      const H = v.geo.height * 1.04, hw = H / 4;
+      const H = v.geo.height * 1.04, hw = H * v.impW / 2;
       cam.left = -hw; cam.right = hw; cam.top = H; cam.bottom = 0; cam.updateProjectionMatrix();
       for (let k = 0; k < VIEWS; k++) {
         const a = k / VIEWS * Math.PI * 2;
@@ -178,8 +211,11 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     { kind: 'pine', geo: buildPine(47, 15), barkTex: barkC },
     { kind: 'birch', geo: buildBirch(53, 13), barkTex: barkB },
     { kind: 'dead', geo: buildDead(61, 11), barkTex: barkC },
+    { kind: 'blossom', geo: buildBlossom(71, 8), barkTex: barkC },
+    { kind: 'blossom', geo: buildBlossom(83, 6.8), barkTex: barkC },
+    { kind: 'oak', geo: buildOak(91, 12.5), barkTex: barkC },
   ];
-  for (const v of variants) v.atlas = atlas;
+  for (const v of variants) { v.atlas = atlas; v.impW = impostorWidth(v); }
 
   // ---- placement
   const rnd = mulberry32(777);
@@ -187,15 +223,18 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const trees = [];
   const lake = terrain.lake, q = POI.quarry;
   const G = 3.4;
-  for (let gx = -HALF + 6; gx < HALF - 6; gx += G) for (let gz = -HALF + 6; gz < HALF - 6; gz += G) {
-    const x = gx + (rnd() - 0.5) * G * 0.9, z = gz + (rnd() - 0.5) * G * 0.9;
-    const r = Math.hypot(x, z);
+  const forestDens = (x, z) => {
     let dens = fbm(nForest, x * 0.0065, z * 0.0065, 4) * 1.6 + 0.05;
     // zones: dense conifer forest to the north, groves round the lake, sparse meadows south
     dens += smoothstep(-160, -260, z) * smoothstep(320, 200, Math.abs(x + 40)) * 0.75;
     dens -= smoothstep(220, 320, z) * smoothstep(-250, -120, x) * 0.3;
     dens += smoothstep(420, 470, Math.max(Math.abs(x), Math.abs(z))) * 0.4;
-    if (r < 170) dens = dens * 0.7 - 0.08;
+    if (Math.hypot(x, z) < 170) dens = dens * 0.7 - 0.08;
+    return dens;
+  };
+  for (let gx = -HALF + 6; gx < HALF - 6; gx += G) for (let gz = -HALF + 6; gz < HALF - 6; gz += G) {
+    const x = gx + (rnd() - 0.5) * G * 0.9, z = gz + (rnd() - 0.5) * G * 0.9;
+    const dens = forestDens(x, z);
     const p = smoothstep(0.28, 0.8, dens) * 0.72 + 0.008;
     if (rnd() > p) continue;
     if (terrain.isTrail(x, z, 7.5)) continue;
@@ -223,13 +262,52 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
     trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi });
   }
 
+  // lone trees out in the open meadows: big oaks on their own, trees in blossom alone or in little groups
+  // (away from the forest, trails, water and each other)
+  {
+    const OCC = 6, ON = Math.ceil(MAP_SIZE / OCC), occ = new Uint8Array(ON * ON);
+    const cellOf = (x, z) => Math.min(ON - 1, Math.max(0, Math.floor((x + HALF) / OCC))) * ON + Math.min(ON - 1, Math.max(0, Math.floor((z + HALF) / OCC)));
+    for (const t of trees) occ[cellOf(t.x, t.z)] = 1;
+    const free = (x, z, r) => {
+      for (let dx = -r; dx <= r; dx += OCC) for (let dz = -r; dz <= r; dz += OCC) if (occ[cellOf(x + dx, z + dz)]) return false;
+      return true;
+    };
+    const ok = (x, z, clear) => {
+      if (Math.abs(x) > HALF - 30 || Math.abs(z) > HALF - 30) return false;
+      if (forestDens(x, z) > 0.22 || terrain.isTrail(x, z, clear + 2)) return false;
+      if (x > PAD.x0 - 14 && x < PAD.x1 + 14 && z > PAD.z0 - 14 && z < PAD.z1 + 14) return false;
+      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 28) return false;
+      if (Math.hypot((x - lake.x) / (lake.rx + 10), (z - lake.z) / (lake.rz + 10)) < 1.05) return false;
+      if (Math.hypot((x - q.x) / (q.rx + 6), (z - q.z) / (q.rz + 6)) < 1) return false;
+      if (Math.hypot(x - POI.hut.x, z - POI.hut.z) < 18) return false;
+      if (terrain.waterLevelAt(x, z) > -1e8 || terrain.surfaceId(x, z) !== SURF.grass) return false;
+      return terrain.normalAt(x, z).y > 0.88 && free(x, z, clear);
+    };
+    let placed = 0;
+    for (let tries = 0; tries < 9000 && placed < 150; tries++) {
+      const x = (rnd() - 0.5) * (MAP_SIZE - 60), z = (rnd() - 0.5) * (MAP_SIZE - 60);
+      const oak = rnd() < 0.35;
+      if (!ok(x, z, oak ? 12 : 8)) continue;
+      const n = oak ? 1 : rnd() < 0.4 ? 1 : 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) {
+        const a = rnd() * Math.PI * 2, d = k === 0 ? 0 : 5 + rnd() * 4;
+        const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+        if (k > 0 && !ok(px, pz, 4)) continue;
+        const vi = oak ? 8 : rnd() < 0.5 ? 6 : 7;
+        trees.push({ x: px, y: terrain.surfaceHeight(px, pz), z: pz, s: oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw: rnd() * Math.PI * 2, v: vi });
+        occ[cellOf(px, pz)] = 1;
+        placed++;
+      }
+    }
+  }
+
   // ---- fallen logs on the forest floor (instanced, three lengths), with streamed colliders
   const logStream = new ColliderStream(RAPIER, world, colliderSurface);
   const LOG_LEN = [4.2, 6.5, 9.0];
   const logs = [];
   for (let tries = 0; tries < 20000 && logs.length < 260; tries++) {
     const t = trees[Math.floor(rnd() * trees.length)];
-    if (!t || t.v === 4) continue;   // not under birches (they stand in the open)
+    if (!t || t.v === 4 || t.v >= 6) continue;   // not under birches or the meadow trees (they stand in the open)
     const a = rnd() * Math.PI * 2, d = 2.5 + rnd() * 4;
     const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
     const L = LOG_LEN[Math.floor(rnd() * 3)], yaw = rnd() * Math.PI * 2;
@@ -288,9 +366,11 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   let physChunk = -1;
 
   // ---- ground data: forest floor under the crowns, less grass, a little darker
-  const gd = terrainView.groundData, DN = terrainView.groundN;
+  const gd = terrainView.groundData, ld = terrainView.landData, DN = terrainView.groundN;
   for (const t of trees) {
     const v = variants[t.v];
+    // what falls from it: needles, leaves or petals (the land data's litter, terrainView.js)
+    const litter = v.kind === 'blossom' ? 255 : v.kind === 'spruce' || v.kind === 'pine' ? 0 : 128;
     const R = v.geo.crownR * t.s * (v.kind === 'birch' ? 0.8 : 1.0) + 1.0;
     const cx = Math.round(t.x + HALF), cz = Math.round(t.z + HALF);
     const ri = Math.ceil(R);
@@ -301,7 +381,8 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
       if (d > 1) continue;
       const o = (z * DN + x) * 4;
       const w = 1 - d * d;
-      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : 1.0;
+      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : v.kind === 'blossom' || v.kind === 'oak' ? 0.5 : 1.0;
+      if (255 * w * canopy >= gd[o + 1]) ld[o + 2] = litter;
       gd[o + 1] = Math.min(255, Math.max(gd[o + 1], 255 * w * canopy));
       gd[o + 3] = Math.max(0, gd[o + 3] - 255 * w * canopy * 0.55);
       gd[o] = Math.max(100, gd[o] - 50 * w * canopy - (d < 0.25 ? 30 : 0));
@@ -314,10 +395,10 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const viewPos = { value: new THREE.Vector3() };
   const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos };
   const near = variants.map((v, i) => {
-    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : 0xb8a898 });
+    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
-    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff });
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true });
+    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
+    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
     const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
@@ -346,17 +427,24 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
-  const heights = variants.map(v => v.geo.height * 1.04);
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uFade: fade, uViewPos: viewPos };
+  const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
+  const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
+  // uImpSun: towards the sun (or moon), clouds.js keeps it current
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
 uniform float uImpRows;
 uniform float uImpH[${variants.length}];
+uniform float uImpW[${variants.length}];
+uniform float uImpSoft[${variants.length}];
+uniform vec4 uImpSun;
 uniform vec2 uFade;
 uniform vec3 uViewPos;
 varying vec2 vImpUv;
 varying float vImpYaw;
 varying float vTreeDist;
+varying vec3 vImpRound;   // a round crown's normal (world), for the soft meadow trees
+varying float vImpSoft;
 `;
   const patchImp = (m, depth) => {
     m.onBeforeCompile = (sh) => {
@@ -375,13 +463,20 @@ float H = uImpH[int(aVar)] * isc;
 vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
 vTreeDist = distance(ip, uViewPos);
+vImpSoft = uImpSoft[int(aVar)];
+{
+  // the crown as a ball (centre at 0.62 of the height): left / right, up / down and towards the viewer
+  vec2 q = vec2(position.x * 2.0, (position.y - 0.62) / 0.38);
+  vec3 fwd = normalize(vec3(toCam.x, 0.0, toCam.z));
+  vImpRound = right * q.x + vec3(0.0, 0.8 * q.y, 0.0) + fwd * sqrt(max(0.0, 1.0 - 0.5 * dot(q, q)));
+}
 vec2 cuv = vec2(position.x + 0.5, position.y);
 vImpUv = vec2((view + cuv.x) / ${VIEWS}.0, (uImpRows - 1.0 - aVar + cuv.y) / uImpRows);
 #ifdef USE_MAP
 vMapUv = vImpUv;
 #endif`)
         .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(vec3(toCam.x, 0.0, toCam.z));')
-        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * 0.5 + vec3(0.0, position.y * H, 0.0);`)
+        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * uImpW[int(aVar)] + vec3(0.0, position.y * H, 0.0);`)
         .replace('#include <project_vertex>', `
 vec4 mvPosition = viewMatrix * vec4(ip + transformed, 1.0);
 gl_Position = projectionMatrix * mvPosition;`)
@@ -389,7 +484,13 @@ gl_Position = projectionMatrix * mvPosition;`)
 #if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
 vec4 worldPosition = vec4(ip + transformed, 1.0);
 #endif`)
-        .replace('#include <defaultnormal_vertex>', 'vec3 transformedNormal = normalMatrix * objectNormal;');
+        .replace('#include <defaultnormal_vertex>', 'vec3 transformedNormal = normalMatrix * objectNormal;')
+        // the card is flat, so its own sun-facing twin (the shadow pass) shades its far half: look the shadow up
+        // a crown's radius towards the light, outside the tree; shade from the trees around still lands
+        .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
+#if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
+vSunShadowWorldPosition.xyz += uImpSun.xyz * (0.5 * H * uImpW[int(aVar)]);
+#endif`);
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D tImpN;
@@ -397,6 +498,8 @@ uniform vec2 uFade;
 varying vec2 vImpUv;
 varying float vImpYaw;
 varying float vTreeDist;
+varying vec3 vImpRound;
+varying float vImpSoft;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) >= smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
@@ -405,10 +508,29 @@ float faceDirection = 1.0;
 vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
 float cy = cos(vImpYaw), sy = sin(vImpYaw);
 vec3 nW = normalize(vec3(cy * nObj.x + sy * nObj.z, nObj.y, -sy * nObj.x + cy * nObj.z));
+nW = normalize(mix(nW, normalize(vImpRound), 0.55 * vImpSoft));
 vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
-vec3 nonPerturbedNormal = normal;`);
+vec3 nonPerturbedNormal = normal;`)
+        // light through the leaves, as on the near crowns (patchTreeMaterial): soft crowns wrap the sun round
+        .replace('#include <opaque_fragment>', `
+outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
+#if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
+}
+#endif
+#if NUM_SUN_LIGHTS > 0
+if (vImpSoft > 0.5) {
+  float ndl = dot(normal, sunLights[0].direction);
+  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
+  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
+}
+#endif
+#include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c');
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v2';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

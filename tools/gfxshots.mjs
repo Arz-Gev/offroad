@@ -21,6 +21,10 @@ const VIEWS = {
   hut: { tp: 'Ruined hut', hour: 18.25 },
   lookout: { tp: 'Lookout', hour: 13 },
   forestNight: { tp: 'Pine forest', hour: 23, lights: 1 },
+  lake: { tp: 'Lake shore', hour: 10 },
+  hill: { tp: 'The big hill', hour: 15.5 },
+  morning: { tp: 'Spawn', hour: 7.5 },
+  dusk: { tp: 'Ruined hut', hour: 19.6 },
 };
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -72,7 +76,7 @@ const [sw, rest] = (args.size || '1920x1080@2').split('x');
 const [sh, sdpr] = rest.split('@');
 const names = !args.views || args.views === 'all' ? Object.keys(VIEWS) : args.views.split(',');
 await send('Emulation.setDeviceMetricsOverride', { width: +sw, height: +sh, deviceScaleFactor: +sdpr, mobile: false });
-const settings = { autoPause: false, quality: preset, time: 13, hints: false, muted: true, ...(args.car ? { car: args.car } : {}) };
+const settings = { autoPause: false, quality: preset, time: 13, hints: false, timeFlow: 'off', muted: true, ...(args.car ? { car: args.car } : {}) };
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('offroad.settings.v1', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('offroad.introSeen.v1', '1'); } catch {}` });
 await send('Page.navigate', { url: (process.env.URL || 'http://localhost:5181/') + '?t=' + Date.now() + (process.env.PARAMS ? '&' + process.env.PARAMS : '') });
 await evaluate(`new Promise((res, rej) => { (function poll() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); if (l && l.classList.contains('error')) return rej(new Error(l.textContent)); setTimeout(poll, 200); })(); })`);

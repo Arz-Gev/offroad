@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { installCascadeShadowChunks } from './cascadeShadow.js';
+import { cloudUniforms } from '../world/clouds.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
 // 1. Atmosphere: three's fog chunks become exponential height fog plus aerial perspective, coloured by
@@ -21,6 +22,11 @@ export const ATMO = {
   atmoToward: { x: 0.6, y: 0.6, z: 0.6, w: 1 },
   // rgb: Mie glow colour around the sun, w: anisotropy g
   atmoGlow: { x: 0, y: 0, z: 0, w: 0.7 },
+  // valley mist (dawn, dusk, night): x density at the floor (1/m), y falloff (1/m), z floor height (m)
+  atmoMist: { x: 0, y: 0.11, z: -6, w: 0 },
+  // the land beyond the map fades away: x haze density (1/m) along the part of a view ray outside the map square,
+  // y the map's half size (m)
+  atmoVista: { x: 0, y: 512, z: 0, w: 0 },
 };
 
 // uniforms to add to custom ShaderMaterials that use fog
@@ -59,6 +65,9 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 		uniform vec4 atmoSide;
 		uniform vec4 atmoToward;
 		uniform vec4 atmoGlow;
+		uniform vec4 atmoMist;
+		uniform vec4 atmoVista;
+		float atmoMistShare = 0.0;   // the valley mist's part of the last atmoFogFactor (whitens atmoFogColor)
 		// fog opacity and colour for a camera-relative world offset d
 		float atmoFogFactor( vec3 d ) {
 			float dist = length( d );
@@ -67,6 +76,22 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 			float dy = clamp( d.y * b, - 40.0, 40.0 );
 			float hf = abs( dy ) > 1e-3 ? ( 1.0 - exp( - dy ) ) / dy : 1.0 - 0.5 * dy;
 			float od = dist * ( min( dens0 * hf, 0.2 ) + atmoSide.w );
+			// valley mist: a second, shallow layer lying in the low ground (its density is capped at the floor's)
+			if ( atmoMist.x > 0.0 ) {
+				float b2 = atmoMist.y;
+				float dy2 = clamp( d.y * b2, - 40.0, 40.0 );
+				float hf2 = abs( dy2 ) > 1e-3 ? ( 1.0 - exp( - dy2 ) ) / dy2 : 1.0 - 0.5 * dy2;
+				float odm = dist * min( atmoMist.x * exp( - b2 * max( cameraPosition.y - atmoMist.z, 0.0 ) ) * hf2, atmoMist.x );
+				od += odm;
+				atmoMistShare = odm / max( od, 1e-6 );
+			}
+			// beyond the map's edge: haze along the stretch of the ray outside the square, whatever its height (so
+			// far peaks fade too), growing from nothing at the edge
+			if ( atmoVista.x > 0.0 ) {
+				vec2 ad = abs( d.xz ) + 1e-4;
+				vec2 te = ( atmoVista.y - cameraPosition.xz * sign( d.xz ) ) / ad;
+				od += atmoVista.x * dist * ( 1.0 - clamp( min( te.x, te.y ), 0.0, 1.0 ) );
+			}
 			return min( 1.0 - exp( - od ), atmoToward.w );
 		}
 		vec3 atmoFogColor( vec3 v ) {
@@ -77,7 +102,10 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 			float g = atmoGlow.w;
 			float mu = dot( v, atmoSun.xyz );
 			float hg = ( 1.0 - g * g ) / pow( max( 1.0 + g * g - 2.0 * g * mu, 1e-4 ), 1.5 );
-			return col + atmoGlow.rgb * hg * 0.0795775;
+			col += atmoGlow.rgb * hg * 0.0795775;
+			// mist is pale: the horizon's colour, mostly washed to white, glowing a little more towards the sun
+			float l = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );
+			return mix( col, vec3( l ) * vec3( 1.04, 1.0, 0.96 ) * ( 1.0 + 0.25 * max( a, 0.0 ) ), atmoMistShare * 0.7 );
 		}
 	#else
 		uniform float fogNear;
@@ -116,7 +144,9 @@ export function installShaderPatches() {
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;
     if (u && 'fogDensity' in u) Object.assign(u, atmosphereUniforms());
+    if (u && 'directionalLights' in u) Object.assign(u, cloudUniforms());   // cloud shadows (getSunShadow)
   }
+  THREE.UniformsLib.lights = { ...THREE.UniformsLib.lights, ...cloudUniforms() };
   THREE.UniformsLib.fog = { ...THREE.UniformsLib.fog, ...atmosphereUniforms() };
 
   // lights: skip lamps that contribute nothing to this pixel

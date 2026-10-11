@@ -3,12 +3,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { mulberry32 } from './noise.js';
 
 // Foliage: a card atlas drawn with Canvas2D at startup (needle sprays, pine tufts, birch leaves, fern
-// fronds, shrub leaves, bare twigs), and procedural tree / plant geometry that uses it.
+// fronds, shrub leaves, bare twigs, blossom, broad oak leaves), and procedural tree / plant geometry that
+// uses it.
 // Geometry attributes: position, normal (card normals bent outwards from the crown, so the crown shades
 // like a volume), uv (atlas), aWind (0 at the root .. 1 at the tips: how far the vertex sways).
 
-export const ATLAS = { cols: 4, rows: 2, cell: 512 };
-export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7 };
+export const ATLAS = { cols: 4, rows: 3, cell: 512 };
+export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, blossom: 8, oak: 9, lavender: 10, poppy: 11 };
 
 const cellUV = (i) => {
   const c = i % ATLAS.cols, r = Math.floor(i / ATLAS.cols);
@@ -37,7 +38,7 @@ export function makeFoliageAtlas() {
         const t = k / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
         for (const sd of [-1, 1]) {
           const a = ang + sd * R(0.75, 1.15), l = R(11, 17) * (1 - t * 0.35);
-          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 140), R(28, 42), R(14, 27)));
+          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 145), R(30, 46), R(22, 37)));
         }
       }
       if (depth > 0) for (let k = 1; k < 6; k++) {
@@ -57,7 +58,7 @@ export function makeFoliageAtlas() {
       for (let k = 0; k < 55; k++) {
         const a = a0 + R(-1.7, 1.7), l = R(26, 62), u = R(0.4, 1);
         const px = S / 2 + (cx - S / 2) * u, py = S - 4 + (cy - S + 4) * u;
-        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(92, 118), R(28, 40), R(18, 30)));
+        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(90, 120), R(30, 44), R(26, 40)));
       }
     }
   });
@@ -76,7 +77,7 @@ export function makeFoliageAtlas() {
       line(x0, y0, x1, y1, 3, hsl(20, 25, 22));
       for (let k = 0; k < 26; k++) {
         const u = R(0.15, 1), px = x0 + (x1 - x0) * u, py = y0 + (y1 - y0) * u;
-        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(78, 98), R(35, 55), R(26, 42)));
+        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(72, 100), R(38, 58), R(34, 52)));
       }
     }
   });
@@ -89,7 +90,7 @@ export function makeFoliageAtlas() {
     for (let k = 3; k < 34; k++) {
       const t = k / 34, y = -len * t, pl = 150 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - t * 0.3) + 8;
       for (const sd of [-1, 1]) {
-        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(95, 115), R(40, 55), R(22, 32));
+        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(92, 118), R(40, 56), R(29, 41));
         g.beginPath(); g.moveTo(0, -3); for (let s = 0; s <= 8; s++) { const u = s / 8; g.lineTo(u * pl, -3 - Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) + (s % 2) * 3); }
         for (let s = 8; s >= 0; s--) { const u = s / 8; g.lineTo(u * pl, 3 + Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) - (s % 2) * 3); }
         g.closePath(); g.fill(); g.restore();
@@ -102,7 +103,7 @@ export function makeFoliageAtlas() {
   cell(CELLS.bush, () => {
     for (let k = 0; k < 260; k++) {
       const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(85, 120), R(30, 50), R(16, 30)));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(80, 125), R(32, 52), R(24, 40)));
     }
   });
 
@@ -120,7 +121,7 @@ export function makeFoliageAtlas() {
   cell(CELLS.grassTuft, () => {
     for (let k = 0; k < 60; k++) {
       const x = S / 2 + R(-90, 90), a = -Math.PI / 2 + R(-0.5, 0.5), l = R(200, 470);
-      g.strokeStyle = hsl(R(70, 95), R(35, 50), R(22, 38)); g.lineWidth = R(4, 8); g.lineCap = 'round';
+      g.strokeStyle = hsl(R(70, 98), R(35, 50), R(28, 44)); g.lineWidth = R(4, 8); g.lineCap = 'round';
       g.beginPath(); g.moveTo(x, S); g.quadraticCurveTo(x + Math.cos(a) * l * 0.5, S + Math.sin(a) * l * 0.6, x + Math.cos(a) * l + R(-40, 40), S + Math.sin(a) * l); g.stroke();
     }
   });
@@ -130,11 +131,75 @@ export function makeFoliageAtlas() {
     for (let k = 0; k < 26; k++) {
       const x = R(40, S - 40), h = R(200, 440), top = S - h;
       line(x, S, x + R(-30, 30), top, 3, hsl(95, 40, 28));
-      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55)][k % 4];
+      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55), hsl(4, 82, 52), hsl(218, 72, 62), hsl(330, 70, 76)][k % 7];
       g.fillStyle = col;
       for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * 10, top + Math.sin(a) * 10, 9, 6, a, 0, Math.PI * 2); g.fill(); }
       g.fillStyle = hsl(45, 80, 45); g.beginPath(); g.arc(x, top, 6, 0, Math.PI * 2); g.fill();
     }
+  });
+
+  // 8: blossom: clusters of five-petal flowers (pink, white, a little peach) over a few fresh leaves
+  cell(CELLS.blossom, () => {
+    for (let k = 0; k < 70; k++) {
+      const r = Math.sqrt(rnd()) * S * 0.42, a = R(0, Math.PI * 2);
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(85, 110), R(40, 58), R(36, 48)));
+    }
+    const pal = [[340, 70, 86], [345, 65, 80], [0, 0, 97], [330, 55, 90], [20, 75, 86], [350, 80, 76]];
+    for (let k = 0; k < 230; k++) {
+      const r = Math.pow(rnd(), 0.6) * S * 0.44, a = R(0, Math.PI * 2);
+      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, pr = R(8, 15);
+      const [h, sat, l] = pal[Math.floor(rnd() * pal.length)];
+      const rot = R(0, Math.PI * 2);
+      g.fillStyle = hsl(h, sat, l * R(0.94, 1.03));
+      for (let p = 0; p < 5; p++) { const pa = rot + p / 5 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(pa) * pr * 0.75, y + Math.sin(pa) * pr * 0.75, pr * 0.62, pr * 0.48, pa, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = hsl(48, 85, 62); g.beginPath(); g.arc(x, y, pr * 0.28, 0, Math.PI * 2); g.fill();
+    }
+  });
+
+  // 9: oak: dense lobed broad leaves, fresh greens with lighter sunlit ones
+  cell(CELLS.oak, () => {
+    for (let k = 0; k < 300; k++) {
+      const r = Math.sqrt(rnd()) * S * 0.45, a = R(0, Math.PI * 2);
+      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, l = R(34, 54), w = R(20, 30), ang = R(0, Math.PI * 2);
+      const col = rnd() < 0.18 ? hsl(R(72, 92), R(42, 55), R(40, 50)) : hsl(R(88, 118), R(34, 52), R(20, 36));
+      leaf(x, y, ang, l, w, col);
+      leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
+    }
+  });
+
+  // 10: lavender (side view): a clump of grey-green stems, each topped with a spike of purple florets
+  cell(CELLS.lavender, () => {
+    for (let k = 0; k < 46; k++) {
+      const x0 = S / 2 + R(-70, 70), lean = R(-0.35, 0.35), h = R(300, 470);
+      const x1 = x0 + Math.sin(lean) * h, y1 = S - Math.cos(lean) * h;
+      line(x0, S, x1, y1, R(3, 4.5), hsl(R(85, 105), R(18, 28), R(42, 54)));
+      const spike = R(60, 105);
+      for (let f = 0; f < 11; f++) {
+        const t = f / 10, px = x1 - Math.sin(lean) * spike * t + R(-3, 3), py = y1 + Math.cos(lean) * spike * t;
+        g.fillStyle = hsl(R(268, 292), R(38, 52), R(52, 70) - t * 8);
+        g.beginPath(); g.ellipse(px, py, R(6, 9) * (1 - t * 0.3), R(7, 10), lean, 0, Math.PI * 2); g.fill();
+      }
+    }
+    for (let k = 0; k < 18; k++) line(S / 2 + R(-80, 80), S, S / 2 + R(-110, 110), S - R(60, 140), R(5, 8), hsl(R(90, 110), R(20, 30), R(38, 50)));
+  });
+
+  // 11: poppies (side view): thin hairy stems, red cups with a dark heart, a few nodding buds
+  cell(CELLS.poppy, () => {
+    for (let k = 0; k < 14; k++) {
+      const x0 = R(60, S - 60), h = R(220, 450), top = S - h, x1 = x0 + R(-40, 40);
+      g.strokeStyle = hsl(R(90, 105), R(35, 45), R(32, 40)); g.lineWidth = 3; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x0, S); g.quadraticCurveTo(x0 + R(-20, 20), S - h * 0.5, x1, top); g.stroke();
+      if (k % 4 === 3) { g.fillStyle = hsl(95, 40, 34); g.beginPath(); g.ellipse(x1, top + 8, 9, 14, 0.4, 0, Math.PI * 2); g.fill(); continue; }
+      const r = R(26, 38), hue = R(0, 9);
+      for (let p = 0; p < 4; p++) {
+        const a = p / 4 * Math.PI * 2 + R(-0.2, 0.2);
+        g.fillStyle = hsl(hue, R(78, 90), R(44, 54));
+        g.beginPath(); g.ellipse(x1 + Math.cos(a) * r * 0.45, top + Math.sin(a) * r * 0.3 - 4, r * 0.62, r * 0.5, a, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = hsl(hue, 85, 62); g.beginPath(); g.ellipse(x1, top - 8, r * 0.5, r * 0.32, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = hsl(260, 25, 12); g.beginPath(); g.arc(x1, top - 2, r * 0.18, 0, Math.PI * 2); g.fill();
+    }
+    for (let k = 0; k < 20; k++) leaf(S / 2 + R(-140, 140), S - R(10, 120), -Math.PI / 2 + R(-0.9, 0.9), R(40, 70), R(10, 16), hsl(R(90, 110), R(35, 50), R(30, 40)));
   });
 
   // read back (straight alpha), bleed colour into transparent texels so mipmaps don't get dark fringes
@@ -352,6 +417,125 @@ export function buildBirch(seed, H = 13) {
   return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR: 3.2, trunkR: rr[0], crownBase };
 }
 
+// the roll for cardMatrix that turns a card lying along `dir` to face `normal`
+function rollFacing(dir, normal) {
+  const y = dir.clone().normalize();
+  const x = new THREE.Vector3(0, 1, 0).cross(y);
+  if (x.lengthSq() < 1e-4) x.set(1, 0, 0);
+  x.normalize();
+  const z = x.clone().cross(y).normalize();
+  const w = normal.clone().cross(y).normalize();   // the card's width axis: across both
+  return Math.atan2(w.dot(z), w.dot(x));
+}
+
+// a broadleaf tree with a round, spreading crown: short trunk, branches fanning out and up, many cards
+// (blossom: a smaller tree in flower; oak: a big round crown of leaves)
+function buildBroadleaf(seed, H, cellIdx, crownR, branches, cardSize) {
+  const rnd = mulberry32(seed);
+  const R = (a, b) => a + (b - a) * rnd();
+  const pts = [], rr = [];
+  const lean = new THREE.Vector2(R(-0.4, 0.4), R(-0.4, 0.4));
+  const trunkTop = H * R(0.32, 0.4);
+  for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push(new THREE.Vector3(lean.x * t, trunkTop * 1.25 * t, lean.y * t)); rr.push(0.06 + H * 0.022 * Math.pow(1 - t * 0.85, 1.2)); }
+  const trunk = tube(pts, rr, 7, 1.0, t => t * t * 0.4);
+  const cards = [], sticks = [];
+  const centre = new THREE.Vector3(lean.x, trunkTop + (H - trunkTop) * 0.5, lean.y);
+  for (let k = 0; k < branches; k++) {
+    const t = k / branches;
+    const h = trunkTop * (0.8 + 0.45 * t);
+    const a = k * 2.39996 + R(-0.3, 0.3);
+    const up = R(0.3, 0.85) * (0.6 + t * 0.7);
+    const dir = new THREE.Vector3(Math.cos(a), up, Math.sin(a)).normalize();
+    const len = crownR * R(0.75, 1.05) * (1.0 - t * 0.35);
+    const base = new THREE.Vector3(lean.x * h / trunkTop * 0.8, h, lean.y * h / trunkTop * 0.8);
+    const tip = base.clone().addScaledVector(dir, len);
+    sticks.push(tube([base, base.clone().addScaledVector(dir, len * 0.55), tip], [0.03 + H * 0.007 * (1 - t * 0.5), 0.03, 0.012], 4, 1.0, u => 0.35 + u * 0.4));
+    for (let c = 0; c < 4; c++) {
+      const p = base.clone().addScaledVector(dir, len * (0.4 + c * 0.2));
+      // the card faces out of the crown (normal ~ radial), lying across it: no edge-on spikes on the outline
+      const n = p.clone().sub(centre).normalize().add(new THREE.Vector3(R(-0.35, 0.35), R(-0.2, 0.35), R(-0.35, 0.35))).normalize();
+      const tg = new THREE.Vector3(R(-1, 1), R(-1, 1), R(-1, 1)).cross(n).normalize();
+      const sz = cardSize * R(0.85, 1.15);
+      const m = cardMatrix(p.clone().addScaledVector(tg, -sz * 0.5), tg, rollFacing(tg, n));
+      cards.push(card(cellIdx, sz, sz, m, 0.55 + t * 0.2, 0.95, centre, 0.35));
+    }
+  }
+  return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR, trunkR: rr[0], crownBase: trunkTop * 0.85 };
+}
+export const buildBlossom = (seed, H = 8) => buildBroadleaf(seed, H, CELLS.blossom, 3.6, 26, 1.7);
+// an oak: a short trunk forking into limbs, and a broad dome of leaf clumps. Each clump is a ball of cards whose
+// normals point out of the clump, so the crown shades as a cluster of lit domes with darker hollows between
+// (one ball of cards read flat, lit evenly; from afar the impostor bakes the same clumps). A vertex colour holds
+// the crown's own shade: dark deep inside and under each clump, full on the sunny outer domes.
+export function buildOak(seed, H = 12) {
+  const rnd = mulberry32(seed);
+  const R = (a, b) => a + (b - a) * rnd();
+  const trunkTop = H * R(0.28, 0.32);
+  const lean = new THREE.Vector2(R(-0.25, 0.25), R(-0.25, 0.25));
+  const pts = [], rr = [];
+  for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(new THREE.Vector3(lean.x * t, trunkTop * t, lean.y * t)); rr.push(0.1 + H * 0.03 * Math.pow(1 - t * 0.6, 1.2)); }
+  const trunk = tube(pts, rr, 8, 1.0, t => t * t * 0.3);
+  const top = pts[pts.length - 1];
+  const cy = trunkTop + (H - trunkTop) * 0.47, ry = (H - trunkTop) * 0.5, rx = H * 0.46;
+  const centre = new THREE.Vector3(lean.x, cy, lean.y);
+  // clumps on a dome: a ring low and wide, a ring higher, a crown on top; a few inside to close the gaps
+  const clumps = [];
+  const ring = (n, el, rad, size) => {
+    const a0 = R(0, Math.PI * 2);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i / n * Math.PI * 2 + R(-0.25, 0.25), e = el + R(-0.12, 0.12);
+      const c = new THREE.Vector3(Math.cos(a) * Math.cos(e) * rx * rad, Math.sin(e) * ry * rad, Math.sin(a) * Math.cos(e) * rx * rad).add(centre);
+      clumps.push({ c, r: size * R(0.85, 1.15) });
+    }
+  };
+  ring(7, -0.15, 0.78, H * 0.17);
+  ring(6, 0.45, 0.72, H * 0.16);
+  ring(3, 1.0, 0.62, H * 0.15);
+  ring(4, 0.1, 0.35, H * 0.15);
+  const cards = [], sticks = [], shade = [];
+  // limbs: the trunk forks into three or four, each clump hangs off the nearest limb
+  const limbs = [];
+  for (let i = 0; i < 4; i++) {
+    const a = i / 4 * Math.PI * 2 + R(-0.4, 0.4);
+    const end = new THREE.Vector3(Math.cos(a) * rx * 0.45, cy + R(-0.5, 1.2), Math.sin(a) * rx * 0.45).add(new THREE.Vector3(lean.x, 0, lean.y));
+    const mid = top.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 0.4, 0));
+    sticks.push(tube([top.clone().add(new THREE.Vector3(0, -0.3, 0)), mid, end], [rr[rr.length - 1] * 0.8, rr[rr.length - 1] * 0.5, 0.06], 5, 1.0, u => u * 0.4));
+    limbs.push(end);
+  }
+  const _n = new THREE.Vector3(), _q = new THREE.Vector3();
+  for (const { c, r } of clumps) {
+    let best = limbs[0];
+    for (const l of limbs) if (l.distanceToSquared(c) < best.distanceToSquared(c)) best = l;
+    sticks.push(tube([best, best.clone().lerp(c, 0.6).add(new THREE.Vector3(0, 0.2, 0)), c], [0.07, 0.045, 0.02], 4, 1.0, u => 0.4 + u * 0.3));
+    // how exposed the clump is: outer and upper clumps take the sky, inner and low ones sit in the crown's shade
+    _q.copy(c).sub(centre); _q.x /= rx; _q.y /= ry; _q.z /= rx;
+    const out = Math.min(1, _q.length()), up = _q.y;
+    const clumpLight = 0.5 + 0.35 * out + 0.15 * Math.max(-1, Math.min(1, up));
+    const n = 11;
+    for (let k = 0; k < n; k++) {
+      // spread over the ball, upper half fuller (leaves face the light)
+      const z = R(-0.75, 1), a = R(0, Math.PI * 2), sr = Math.sqrt(1 - z * z);
+      _n.set(Math.cos(a) * sr, z, Math.sin(a) * sr);
+      const p = c.clone().addScaledVector(_n, r * R(0.35, 0.8));
+      const nn = _n.clone().add(new THREE.Vector3(R(-0.3, 0.3), R(-0.1, 0.3), R(-0.3, 0.3))).normalize();
+      const tg = new THREE.Vector3(R(-1, 1), R(-1, 1), R(-1, 1)).cross(nn).normalize();
+      const sz = r * R(1.0, 1.3);
+      const m = cardMatrix(p.clone().addScaledVector(tg, -sz * 0.5), tg, rollFacing(tg, nn));
+      const g = card(CELLS.oak, sz, sz, m, 0.5 + 0.2 * out, 0.9, c, 0.3);
+      // per vertex: the clump's underside darker than its dome
+      const P = g.attributes.position, col = new Float32Array(P.count * 3);
+      for (let i = 0; i < P.count; i++) {
+        const d = (P.getY(i) - c.y) / r;
+        const v = clumpLight * (0.62 + 0.38 * Math.min(1, Math.max(0, d * 0.7 + 0.55)));
+        col[i * 3] = v * 0.97; col[i * 3 + 1] = v; col[i * 3 + 2] = v * 0.94;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      cards.push(g);
+    }
+  }
+  return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR: rx, trunkR: rr[0], crownBase: trunkTop * 0.9 };
+}
+
 export function buildDead(seed, H = 11) {
   const rnd = mulberry32(seed);
   const R = (a, b) => a + (b - a) * rnd();
@@ -389,8 +573,8 @@ export function buildPlant(kind, seed) {
       const p = d.clone().multiplyScalar(0.35).add(new THREE.Vector3(0, R(0.1, 0.4), 0));
       cards.push(card(CELLS.bush, R(0.9, 1.3), R(0.9, 1.3), cardMatrix(p.addScaledVector(d, -0.5), d, R(0, Math.PI)), 0.1, 0.7, centre, 0.45));
     }
-  } else if (kind === 'flowers' || kind === 'tuft') {
-    const cellIdx = kind === 'flowers' ? CELLS.flowers : CELLS.grassTuft;
+  } else if (kind === 'flowers' || kind === 'tuft' || kind === 'lavender' || kind === 'poppy') {
+    const cellIdx = { flowers: CELLS.flowers, tuft: CELLS.grassTuft, lavender: CELLS.lavender, poppy: CELLS.poppy }[kind];
     for (let k = 0; k < 3; k++) {
       const m = cardMatrix(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), k / 3 * Math.PI + R(0, 0.5));
       cards.push(card(cellIdx, R(0.7, 1.0), R(0.5, 0.75), m, 0.0, 0.8, null));

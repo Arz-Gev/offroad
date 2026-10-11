@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
+import { FIELDS } from './undergrowth.js';
 
 // GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
 // blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
@@ -79,10 +80,12 @@ function bladeGeometry(segments) {
 
 const COMMON_GLSL = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tNoise, tTrack;
+uniform sampler2D tSplat, tData, tLand, tNoise, tTrack;
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing (m), unused
 uniform vec4 uLod;      // log2(cells per tile side), unused, grass distance (m), flower chance
+uniform vec2 uFieldFar;  // undergrowth.js FIELDS
+uniform vec4 uFieldLav, uFieldPop;
 uniform vec2 uRad;      // fade out start, end (m)
 uniform vec4 uCurve[65];  // per sampled distance (CURVE_N + 1): share of the grid drawn, height (m), width (m)
 uniform vec4 uWind;     // dir x, dir z, strength, time
@@ -92,6 +95,7 @@ attribute vec3 aBlade;
 varying vec3 vGCol;
 varying vec3 vGFace;
 varying float vGAO;
+varying vec3 vGPos;
 vec2 gHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float gHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
 float groundAt(vec2 xz) {
@@ -115,7 +119,7 @@ void gShape(float sd, float tb, vec3 base, vec3 side, vec2 bend, float ht, float
 export function buildGrass(terrainView, opts = {}) {
   const U = terrainView.uniforms;
   const shared = {
-    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, tTrack: U.uTrack,
+    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tLand: U.tLand, tNoise: U.tNoise, tTrack: U.uTrack, uDew: U.uDew,
     uMap: U.uMap,
     uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
@@ -128,6 +132,7 @@ export function buildGrass(terrainView, opts = {}) {
     ...shared,
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
     uLod: { value: new THREE.Vector4(8, 1, 100, 0.035) },
+    uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy,
     uRad: { value: new THREE.Vector2(72, 100) },
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
   };
@@ -165,11 +170,12 @@ float keep = cv.x;
 float rank = (float(gi) + 0.5) / (gk * gk);
 float fade = (1.0 - smoothstep(uRad.x, uRad.y, dCam)) * clamp((keep * 1.35 - rank) / (keep * 0.35), 0.0, 1.0);
 // density (precomputed: grass surfaces, slope, clearings, canopy) -- most culled blades stop here
-float dens = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).a;
+vec4 gdv = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);
+float dens = gdv.a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
-vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0);
+vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0); vGPos = vec3(0.0);
 if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vec2 hC = gHash22(cellIdx + 41.3);
   vec4 nz = textureLod(tNoise, bxz / 61.0, 0.0);
@@ -178,12 +184,27 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   #else
   float gy = groundAt(bxz);
   #endif
-  // tyre tracks flatten the grass
+  // tyre tracks flatten the grass; on the trails (the strip between the ruts, the verges) it is short
   float track = textureLod(tTrack, (bxz - uTrackP.xy) / uTrackP.z + 0.5, 0.0).r;
-  float tall = 0.45 + 0.95 * nz.g * nz.g;
+  float trailK = textureLod(tSplat, ((bxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0).r;
+  // the land's lushness (terrainView.js): taller, deeper green down the drainage lines and in hollows, short and
+  // golden on dry ridges and sunny slopes
+  float lsh = textureLod(tLand, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).r;
+  float tall = (0.45 + 0.95 * nz.g * nz.g) * (0.7 + 0.6 * lsh);
   float flower = step(hC.x, uLod.w * smoothstep(12.0, 30.0, dCam)) * step(0.5, nz.b + 0.2);
+  // far away, the flower fields (undergrowth.js FIELDS: too small to draw as plants there) ride on the grass tips
+  vec3 fieldHead = vec3(-1.0);
+  float ff = smoothstep(uFieldFar.x, uFieldFar.y, dCam);
+  if (ff > 0.0) {
+    float fk = smoothstep(0.15, 0.5, dens) * (1.0 - smoothstep(0.25, 0.75, gdv.g)) * ff;
+    vec4 fl = textureLod(tNoise, bxz / uFieldLav.y + uFieldLav.w, 0.0), fp = textureLod(tNoise, bxz / uFieldPop.y + uFieldPop.w, 0.0);
+    float lav = uFieldLav.x * smoothstep(uFieldLav.z, uFieldLav.z + 0.1, fl.r * 0.7 + fl.g * 0.3) * fk;
+    float pop = uFieldPop.x * smoothstep(uFieldPop.z, uFieldPop.z + 0.1, fp.r * 0.7 + fp.g * 0.3) * fk;
+    if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.34, 0.2, 0.72); }
+    else if (hC.x < (lav + pop) * 0.85) { flower = 1.0; fieldHead = vec3(0.8, 0.07, 0.03); }
+  }
   float hD = cv.y, wD = cv.z;   // the height and width curves at this distance
-  float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (flower > 0.5 ? 0.8 : 1.0);
+  float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (1.0 - 0.6 * trailK) * (flower > 0.5 ? 0.8 : 1.0);
   float wd = wD * (0.7 + 0.6 * hC.y) * fade;
   float ang = hA.x * 6.2831853;
   vec2 facing = vec2(cos(ang), sin(ang));
@@ -211,12 +232,14 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   // came out black)
   vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
   // colour: patch tint, per-blade variation, darker roots, lighter dry tips (gShape); flowers get a coloured head
-  vec3 lush = vec3(0.115, 0.175, 0.04), dry = vec3(0.30, 0.27, 0.10), deep = vec3(0.07, 0.125, 0.03);
-  vec3 col = mix(lush, deep, nz.a * 0.8);
-  col = mix(col, dry, smoothstep(0.55, 0.85, nz.b) * 0.65 + hB.x * 0.12);
+  vec3 lush = vec3(0.085, 0.16, 0.05), dry = vec3(0.25, 0.25, 0.10), deep = vec3(0.045, 0.105, 0.04);
+  vec3 col = mix(lush, deep, clamp(nz.a * 0.45 + (lsh - 0.45) * 1.5, 0.0, 1.0));
+  col = mix(col, dry, clamp(smoothstep(0.55, 0.85, nz.b) * 0.35 + smoothstep(0.5, 0.12, lsh) * 0.75, 0.0, 1.0) + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
   float fc = fract(hC.y * 7.0);
-  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.45 ? vec3(0.8, 0.8, 0.75) : fc < 0.75 ? vec3(0.85, 0.62, 0.05) : vec3(0.42, 0.2, 0.6);
+  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.32 ? vec3(0.8, 0.8, 0.75) : fc < 0.55 ? vec3(0.85, 0.62, 0.05) : fc < 0.72 ? vec3(0.42, 0.2, 0.6)
+    : fc < 0.86 ? vec3(0.85, 0.42, 0.58) : vec3(0.3, 0.42, 0.9);
+  if (fieldHead.r >= 0.0) head = fieldHead;
   // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
   // below and above it (the tip: side 0)
   float segs = dCam < ${CLOSE.toFixed(1)} ? 4.0 : dCam < ${NEAR.toFixed(1)} ? 2.0 : 1.0;
@@ -229,11 +252,11 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
     gPos = mix(gPos, p1, f); objectNormal = mix(objectNormal, n1, f); vGCol = mix(vGCol, c1, f); vGAO = mix(vGAO, a1, f);
   }
 }`)
-      .replace('#include <begin_vertex>', 'vec3 transformed = gPos;')
+      .replace('#include <begin_vertex>', 'vec3 transformed = gPos;\nvGPos = gPos;')
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
       .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying vec3 vGPos;\nuniform float uDew;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
 // thin, translucent blades: whichever face we see is lit like the face towards the sun (lit by its own
@@ -251,11 +274,36 @@ diffuseColor.rgb = vGCol;
 // the hot spot: with the sun at the viewer's back every blade shows its sunlit side and hides its shadow,
 // so a meadow is at its brightest; against the sun the specular sheen lights it instead
 float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
-diffuseColor.rgb *= 1.0 + 0.35 * smoothstep(-0.1, 0.75, gOpp);
+diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif`)
-      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;');
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;')
+      // backlit, the blades glow: sunlight through the leaf, yellower, strongest towards the tips (the direct diffuse
+      // already carries the shadow, so blades in shade stay dark)
+      .replace('#include <opaque_fragment>', `
+#if NUM_SUN_LIGHTS > 0
+{
+  float gBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  float gTip = clamp((vGAO - 0.6) / 0.4, 0.0, 1.0);
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.15, 1.2, 0.55) * (pow(gBack, 1.5) * 3.2) * (0.25 + 0.75 * gTip);
+  // dew in the morning (and drops after rain): tiny mirrors scattered over the blades, each turned its own way, so
+  // the sunlit ones glint as the view moves
+  float gDist = length(vViewPosition);
+  if (uDew > 0.01 && gDist < 16.0) {
+    vec3 q = floor(vGPos * 45.0);
+    float hh = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    if (hh > 0.75) {
+      vec3 rn = normalize(mat3(viewMatrix) * (vec3(fract(hh * 113.7), fract(hh * 71.3) * 0.5 + 0.6, fract(hh * 31.1)) * 2.0 - vec3(1.0, 0.6, 1.0)));
+      float gl = pow(max(dot(rn, normalize(sunLights[0].direction + normalize(vViewPosition))), 0.0), 80.0);
+      float sun = dot(reflectedLight.directDiffuse, vec3(0.333)) / max(dot(diffuseColor.rgb, vec3(0.333)), 1e-3);
+      float drop = smoothstep(0.4, 0.2, length(fract(vGPos * 45.0) - 0.5));
+      outgoingLight += vec3(1.0, 0.97, 0.9) * sun * gl * drop * uDew * 40.0 * (1.0 - smoothstep(10.0, 16.0, gDist)) * (0.3 + 0.7 * gTip);
+    }
+  }
+}
+#endif
+#include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v2';
+  mat.customProgramCacheKey = () => 'grass-v7';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

@@ -7,18 +7,31 @@ import { NO_FLIP_NORMAL } from './trees.js';
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
 // wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
 // of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive but do not cast shadows (cheap).
+// Tufts and ferns also grow on rock (uRock), more where the land data says it stays damp.
 
 const HALF = MAP_SIZE / 2;
 const TILES = 6;
 
+// The flower fields as plants reach FIELD_RADIUS at most (further out a lavender plant is a few pixels, and at the
+// presets' bush distance, ~150 m, the two fields alone drew 240k plants); beyond, their colour rides on the grass
+// tips (grass.js reads FIELDS: the same drift noise, faded in where the plants shrink away).
+const FIELD_RADIUS = 80;
+export const FIELDS = {
+  far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
+  lavender: { value: new THREE.Vector4(0.95, 260, 0.6, 0.17) },   // weight, patch size (m), threshold, seed
+  poppy: { value: new THREE.Vector4(0.9, 190, 0.62, 0.61) },
+};
+
 const PARS = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tNoise;
+uniform sampler2D tSplat, tData, tNoise, tNrm, tLand;
+uniform float uRock;    // grows on rock too (in cracks and on ledges, more where it is damp): density there
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing, cells per tile
 uniform vec4 uRad;      // shrink start, end
 uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
+uniform vec4 uField;    // fields: weight, patch size (m), threshold, seed: the plant grows in big drifts over meadows
 uniform vec4 uWind;     // dir x, dir z, strength, time
 attribute float aWind;
 vec2 uHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
@@ -35,9 +48,9 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
   const U = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'undergrowth';
-  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, uMap: U.uMap, uWind: windUniform };
+  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, tNrm: U.tNrm, tLand: U.tLand, uMap: U.uMap, uWind: windUniform };
 
-  const makeKind = (name, geoBase, spacing, radius, shape, kind) => {
+  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0) => {
     const k = Math.ceil(radius * 2 / spacing / TILES);
     const uniforms = {
       ...shared,
@@ -45,6 +58,8 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uRad: { value: new THREE.Vector4(radius * 0.7, radius, 0, 0) },
       uShape: { value: new THREE.Vector4(...shape) },
       uKind: { value: new THREE.Vector4(...kind) },
+      uField: { value: new THREE.Vector4(...field) },
+      uRock: { value: rock },
     };
     const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
     mat.onBeforeCompile = (sh) => {
@@ -70,12 +85,28 @@ float dens = uKind.x * forest * smoothstep(0.3, 0.55, nz.r + 0.15)
            + uKind.y * meadow * smoothstep(0.5, 0.7, nz.b)
            + uKind.z * (forest * 0.6 + meadow * 0.25) * smoothstep(0.35, 0.6, nz.g)
            + uKind.w * meadow * smoothstep(0.45, 0.6, nz.a);
-dens *= bare * uShape.z;
+if (uField.x > 0.0) {
+  vec4 fn = textureLod(tNoise, pxz / uField.y + uField.w, 0.0);
+  float patchK = smoothstep(uField.z, uField.z + 0.1, fn.r * 0.7 + fn.g * 0.3);
+  dens += uField.x * smoothstep(0.15, 0.5, gd.a) * (1.0 - forest) * patchK;
+}
+dens *= bare;
+// on rock (the splat's or steep ground): tufts in the cracks and on the ledges, ferns where it stays damp
+if (uRock > 0.0) {
+  vec4 nr = textureLod(tNrm, ((pxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0);
+  vec2 nxz = nr.rg * 2.0 - 1.0;
+  float ny = sqrt(max(0.0, 1.0 - dot(nxz, nxz)));
+  float rocky = max(sp.b, smoothstep(0.22, 0.34, 1.0 - ny)) * smoothstep(0.35, 0.6, ny);
+  float damp = textureLod(tLand, (pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).r;
+  dens += uRock * rocky * smoothstep(0.25, 0.75, damp + (nz.g - 0.5) * 0.7);
+}
+dens *= uShape.z;
 float inMap = step(max(abs(pxz.x), abs(pxz.y)), uMap.x - 2.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vec3 uPos = vec3(0.0, -1e4, 0.0);
 if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
-  float sc = mix(uShape.x, uShape.y, hB.y) * (0.15 + 0.85 * shrink);
+  // (shrinking to nothing at the radius: they used to stop at 15 % and vanish)
+  float sc = mix(uShape.x, uShape.y, hB.y) * (0.15 + 0.85 * shrink) * smoothstep(0.0, 0.2, shrink);
   float yaw = hA.x * 6.2831853 + hB.y * 3.1;
   float c = cos(yaw), s = sin(yaw);
   mat2 R = mat2(c, -s, s, c);
@@ -97,9 +128,16 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
         .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL).replace('#include <opaque_fragment>', `
 outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
+#if NUM_SUN_LIGHTS > 0
+{
+  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
+  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
+  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.8);
+}
+#endif
 #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v1';
+    mat.customProgramCacheKey = () => 'undergrowth-v2';
     const tiles = [];
     for (let tx = 0; tx < TILES; tx++) for (let tz = 0; tz < TILES; tz++) {
       const g = new THREE.InstancedBufferGeometry();
@@ -119,10 +157,13 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
   const kinds = [
-    makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0]),
+    makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0], undefined, 0.15),
     makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
-    makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
+    makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1], undefined, 0.55),
+    // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
+    makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
+    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();
@@ -136,7 +177,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       group.visible = enabled;
       if (!enabled) return;
       for (const K of kinds) {
-        const r = K.baseRadius * dist;
+        const r = Math.min(K.baseRadius * dist, K.uniforms.uField.value.x > 0 ? FIELD_RADIUS : Infinity);
         K.radius = r;
         K.spacing = K.baseSpacing / Math.sqrt(dens);
         K.k = Math.ceil(r * 2 / K.spacing / TILES);
