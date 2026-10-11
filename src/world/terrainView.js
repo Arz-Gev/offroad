@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL } from './terrain.js';
+import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL, HILL, POI, STREAM } from './terrain.js';
 import { bakeGroundLayers, LAYER, LAYER_COUNT, LAYER_TILE } from './textures.js';
 import { makeSimplex2D, fbm } from './noise.js';
 
@@ -10,9 +10,10 @@ import { makeSimplex2D, fbm } from './noise.js';
 // - The vertex shader reads heights from the physics heightfield (R32F texture); level 0 uses Rapier's cell split, so
 //   wheels sit exactly on what you see. Odd vertices morph to the next level near each range limit (no cracks / pops).
 // - Per-pixel normals come from a GPU-baked normal texture, so far patches keep full-resolution shading.
-// - Material: eight ground layers (texture arrays, textures.js) blended by surface map, slope, canopy, trail distance
-//   and height, with offset anti-tiling, triplanar rock (a 30 m cliff texture under a close rock-face one) and
-//   distance LOD.
+// - Material: seven ground layers (texture arrays, textures.js) blended by surface map, slope, canopy, trail distance
+//   and height, with offset anti-tiling and distance LOD, coloured by the land data (bakeLand: lush or dry ground,
+//   scree, litter, rock kind); rock of four kinds in beds, triplanar over the baked block and slab structures.
+// - Two draws: patches with rock in reach use the full material, the rest a build without the rock code.
 
 const P = 32;                         // quads per patch side
 const LEVELS = 10;                    // 16 m ... 8192 m patches
@@ -22,7 +23,7 @@ const FAR_HALF = FAR_SIZE / 2, FN = FAR_SIZE / FAR_CELL + 1;
 const NORMAL_FRAG = /* glsl */`
 precision highp float;
 uniform highp sampler2D tH, tTrail;
-uniform float uN, uCell, uSwap, uHasTrail;
+uniform float uN, uCell, uHasTrail;
 varying vec2 vUv;
 float h(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uN) - 1)); return texelFetch(tH, ivec2(g.y, g.x), 0).r; }
 void main() {
@@ -30,11 +31,22 @@ void main() {
   float dx = h(g + ivec2(1, 0)) - h(g - ivec2(1, 0));
   float dz = h(g + ivec2(0, 1)) - h(g - ivec2(0, 1));
   vec3 n = normalize(vec3(-dx, 2.0 * uCell, -dz));
-  // curvature (positive in hollows): used for ambient occlusion of gullies
-  float c = h(g + ivec2(2, 0)) + h(g - ivec2(2, 0)) + h(g + ivec2(0, 2)) + h(g - ivec2(0, 2)) - 4.0 * h(g);
+  // sky visibility: how much of the sky the terrain around hides (the horizon in 8 directions, out to ~35 m), so
+  // gullies, the feet of slopes and cliffs and the floors of pits sit in their own soft shade
+  float h0 = h(g), vis = 0.0;
+  for (int d = 0; d < 8; d++) {
+    float a = float(d) * 0.785398 + 0.39;
+    vec2 dir = vec2(cos(a), sin(a));
+    float mx = 0.0, r = 1.0;
+    for (int s = 0; s < 10; s++) {
+      mx = max(mx, (h(g + ivec2(round(dir * r))) - h0) / (r * uCell));
+      r *= 1.6;
+    }
+    vis += 1.0 - mx * inversesqrt(1.0 + mx * mx);
+  }
   // a: distance to the nearest trail centreline / 6 m
   float trail = uHasTrail > 0.5 ? texelFetch(tTrail, ivec2(g.y, g.x), 0).r : 1.0;
-  gl_FragColor = vec4(n.x * 0.5 + 0.5, n.z * 0.5 + 0.5, clamp(c / (uCell * 4.0) + 0.5, 0.0, 1.0), trail);
+  gl_FragColor = vec4(n.x * 0.5 + 0.5, n.z * 0.5 + 0.5, vis / 8.0, trail);
 }`;
 
 function bakeNormalTexture(renderer, heightTex, n, cell, trailTex = null) {
@@ -43,7 +55,7 @@ function bakeNormalTexture(renderer, heightTex, n, cell, trailTex = null) {
   const mat = new THREE.ShaderMaterial({
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: NORMAL_FRAG, depthTest: false, depthWrite: false,
-    uniforms: { tH: { value: heightTex }, tTrail: { value: trailTex }, uHasTrail: { value: trailTex ? 1 : 0 }, uN: { value: n }, uCell: { value: cell }, uSwap: { value: 1 } },
+    uniforms: { tH: { value: heightTex }, tTrail: { value: trailTex }, uHasTrail: { value: trailTex ? 1 : 0 }, uN: { value: n }, uCell: { value: cell } },
   });
   const q = new FullScreenQuad(mat), prev = renderer.getRenderTarget();
   renderer.setRenderTarget(rt); q.render(renderer); renderer.setRenderTarget(prev);
@@ -104,6 +116,93 @@ function blurU8(data, n, ch, r) {
   return data;
 }
 
+// Land data at 1 m, from the shape of the ground (texel x, z at z * DN + x):
+//   r lushness: 0 dry, golden (ridges, sunny slopes, high ground) .. 1 deep green (drainage lines, hollows, by water)
+//   g scree: debris rolled down from the rock faces, fanning out below them and coming to rest where the slope eases
+//   b litter under the trees (written by trees.js): 0 needles, 0.5 leaves, 1 petals
+//   a rock kind: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate
+function bakeLand(terrain, hgt, DN, wet) {
+  const NN = N + 1, M = (DN - 1) / 2 + 1, sst = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // ---- flow on a 2 m grid: multiple flow directions (each cell sheds to all its lower neighbours by slope), cells
+  // taken highest first; the debris rides the same flow
+  const h2 = new Float32Array(M * M), sl2 = new Float32Array(M * M), rock2 = new Float32Array(M * M);
+  for (let z = 0; z < M; z++) for (let x = 0; x < M; x++) h2[z * M + x] = hgt[2 * z * DN + 2 * x];
+  for (let z = 0; z < M; z++) for (let x = 0; x < M; x++) {
+    const H = (a, b) => h2[Math.max(0, Math.min(M - 1, b)) * M + Math.max(0, Math.min(M - 1, a))];
+    const s = Math.hypot(H(x + 1, z) - H(x - 1, z), H(x, z + 1) - H(x, z - 1)) / 4;
+    sl2[z * M + x] = s;
+    const surf = terrain.surface[Math.min(N, 4 * x) * NN + Math.min(N, 4 * z)];
+    rock2[z * M + x] = Math.max(surf === SURF.rock ? 1 : 0, sst(0.8, 1.15, s));
+  }
+  const order = new Uint32Array(M * M);
+  for (let i = 0; i < order.length; i++) order[i] = i;
+  order.sort((a, b) => h2[b] - h2[a]);
+  const acc = new Float32Array(M * M).fill(1), scree = new Float32Array(M * M);
+  const NX = [1, -1, 0, 0, 1, 1, -1, -1], NZ = [0, 0, 1, -1, 1, -1, 1, -1], ND = [2, 2, 2, 2, 2.83, 2.83, 2.83, 2.83];
+  const wk = new Float32Array(8);
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k], x = i % M, z = (i - x) / M, h = h2[i];
+    let sum = 0;
+    for (let n = 0; n < 8; n++) {
+      const xx = x + NX[n], zz = z + NZ[n];
+      wk[n] = 0;
+      if (xx < 0 || zz < 0 || xx >= M || zz >= M) continue;
+      const dh = h - h2[zz * M + xx];
+      if (dh > 0) { wk[n] = Math.pow(dh / ND[n], 1.1); sum += wk[n]; }
+    }
+    const sc = scree[i] = Math.max(scree[i], rock2[i]);
+    if (sum === 0) continue;
+    const a = acc[i] / sum;
+    for (let n = 0; n < 8; n++) if (wk[n] > 0) {
+      const j = (z + NZ[n]) * M + x + NX[n];
+      acc[j] += a * wk[n];
+      scree[j] = Math.max(scree[j], sc * (0.7 + 0.26 * sst(0.12, 0.6, sl2[j])));
+    }
+  }
+  const at2 = (arr, fx, fz) => {
+    const x0 = Math.min(M - 2, Math.floor(fx)), z0 = Math.min(M - 2, Math.floor(fz)), tx = fx - x0, tz = fz - z0, o = z0 * M + x0;
+    return (arr[o] * (1 - tx) + arr[o + 1] * tx) * (1 - tz) + (arr[o + M] * (1 - tx) + arr[o + M + 1] * tx) * tz;
+  };
+  for (let i = 0; i < acc.length; i++) { acc[i] = Math.log2(acc[i]); scree[i] *= 1 - rock2[i] * 0.7; }
+  boxBlur(acc, M, 1, 1);
+  boxBlur(scree, M, 1, 1);
+  // ---- hollows and ridges (height against its surroundings at two scales), water nearby
+  const b1 = boxBlur(Float32Array.from(hgt), DN, 1, 5), b2 = boxBlur(Float32Array.from(hgt), DN, 1, 22);
+  const near = boxBlur(Float32Array.from(wet), DN, 1, 9);
+  // ---- rock kinds by region: limestone or granite by large patches, limestone on the big hill, granite on the
+  // lookout, sandstone in the quarry, slate in the pine forest and up the stream's gorge
+  const kn = makeSimplex2D(9137);
+  const regions = [
+    { x: HILL.x, z: HILL.z, r0: HILL.r * 0.9, r1: HILL.r * 1.5, k: 0 },
+    { x: POI.peak.x, z: POI.peak.z, r0: POI.peak.r * 0.8, r1: POI.peak.r * 1.25, k: 1 / 3 },
+    { x: POI.quarry.x, z: POI.quarry.z, r0: 70, r1: 110, k: 2 / 3 },
+    { x: POI.forest.x, z: POI.forest.z, r0: 90, r1: 160, k: 1 },
+  ];
+  for (let k = 0; k < STREAM.length - 4; k++) regions.push({ x: STREAM[k][0], z: STREAM[k][1], r0: 50, r1: 90, k: 1 });
+  const out = new Uint8Array(DN * DN * 4);
+  for (let z = 0; z < DN; z++) for (let x = 0; x < DN; x++) {
+    const i = z * DN + x, wx = -HALF + x, wz = -HALF + z, h = hgt[i];
+    const H = (a, b) => hgt[Math.max(0, Math.min(DN - 1, b)) * DN + Math.max(0, Math.min(DN - 1, a))];
+    const gx = (H(x + 1, z) - H(x - 1, z)) / 2, gz = (H(x, z + 1) - H(x, z - 1)) / 2, slope = Math.hypot(gx, gz);
+    // the side facing the midday sun (south: azimuth 155.7 deg from +z towards +x) dries out
+    const sunny = Math.max(-1, Math.min(1, (-gx * 0.41 + gz * 0.91) * 2.2));
+    const drain = sst(5.5, 11, at2(acc, x / 2, z / 2));
+    const hollow = Math.max(-1, Math.min(1, (b1[i] - h) * 0.7 + (b2[i] - h) * 0.12));
+    const n = fbm(kn, wx * 0.006, wz * 0.006, 3);
+    const lush = 0.5 + 0.34 * drain + 0.3 * hollow - 0.2 * sunny + 0.45 * near[i] - 0.2 * sst(0.35, 0.9, slope)
+      - 0.2 * sst(30, 90, h) + 0.22 * n;
+    out[i * 4] = Math.round(255 * Math.max(0, Math.min(1, lush)));
+    out[i * 4 + 1] = Math.round(255 * Math.max(0, Math.min(1, at2(scree, x / 2, z / 2) * 1.15)));
+    let kw = 1, ks = fbm(kn, wx * 0.0021 + 31, wz * 0.0021, 2) > 0.05 ? 1 / 3 : 0;
+    for (const r of regions) {
+      const d = Math.hypot(wx - r.x, wz - r.z);
+      if (d < r.r1) { const w = sst(r.r1, r.r0, d) * 4; kw += w; ks += w * r.k; }
+    }
+    out[i * 4 + 3] = Math.round(255 * ks / kw);
+  }
+  return out;
+}
+
 export function buildTerrainView(terrain, renderer, opts = {}) {
   const layers = bakeGroundLayers(renderer, opts.layerSize || 1024, opts.anisotropy || 8, opts.photos);
 
@@ -121,7 +220,9 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   trailTex.needsUpdate = true;
   const nTex = bakeNormalTexture(renderer, hTex, NN, CELL, trailTex);
   trailTex.dispose();
-  const fnTex = bakeNormalTexture(renderer, fTex, FN, FAR_CELL);
+  // the vista's normals are taken from its heights in the fragment shader (four filtered fetches: the same as a
+  // baked normal map, without its texture unit)
+  if (floatLinear) { fTex.magFilter = THREE.LinearFilter; fTex.minFilter = THREE.LinearFilter; }
 
   // ---- splat (dirt, mud, rock, sand), blurred; texel (ix, iz) natural orientation
   const splatData = new Uint8Array(NN * NN * 4);
@@ -136,18 +237,15 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   splat.magFilter = THREE.LinearFilter; splat.minFilter = THREE.LinearMipmapLinearFilter; splat.generateMipmaps = true;
   splat.needsUpdate = true;
 
-  // ---- ground data at 1 m: r = ambient occlusion (hollows, under canopy), g = forest floor, b = wetness, a = grass density
+  // ---- ground data at 1 m: r = ambient occlusion under the canopy (trees.js; the terrain's own is the normal map's
+  // sky visibility), g = forest floor, b = wetness, a = grass density
   const DN = MAP_SIZE + 1;
   const groundData = new Uint8Array(DN * DN * 4);
+  let landData;
   {
     const hgt = new Float32Array(DN * DN);
     for (let x = 0; x < DN; x++) for (let z = 0; z < DN; z++) hgt[z * DN + x] = terrain.heights[Math.min(N, x * 2) * NN + Math.min(N, z * 2)];
-    const b1 = boxBlur(Float32Array.from(hgt), DN, 1, 6), b2 = boxBlur(Float32Array.from(hgt), DN, 1, 24);
-    for (let i = 0; i < DN * DN; i++) {
-      const cav = Math.max(0, b1[i] - hgt[i]) * 0.25 + Math.max(0, b2[i] - hgt[i]) * 0.05;
-      groundData[i * 4] = Math.round(255 * Math.max(0.45, 1 - cav));
-      groundData[i * 4 + 1] = 0; groundData[i * 4 + 2] = 0;
-    }
+    for (let i = 0; i < DN * DN; i++) groundData[i * 4] = 255;
     // grass density: grass surfaces only (from the blurred splat), thinning on slopes, natural clearings
     const clr = makeSimplex2D(4711);
     for (let x = 0; x < DN; x++) for (let z = 0; z < DN; z++) {
@@ -183,10 +281,16 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
         }
       }
     }
+    const wet = new Float32Array(DN * DN);
+    for (let i = 0; i < DN * DN; i++) wet[i] = groundData[i * 4 + 2] / 255;
+    landData = bakeLand(terrain, hgt, DN, wet);
   }
   const dataTex = new THREE.DataTexture(groundData, DN, DN, THREE.RGBAFormat);
   dataTex.magFilter = THREE.LinearFilter; dataTex.minFilter = THREE.LinearMipmapLinearFilter; dataTex.generateMipmaps = true;
   dataTex.needsUpdate = true;
+  const landTex = new THREE.DataTexture(landData, DN, DN, THREE.RGBAFormat);
+  landTex.magFilter = THREE.LinearFilter; landTex.minFilter = THREE.LinearMipmapLinearFilter; landTex.generateMipmaps = true;
+  landTex.needsUpdate = true;
 
   // ---- patch geometry: (P+1)^2 grid of integer coordinates, Rapier's diagonal (x1,z0)-(x0,z1)
   const V = P + 1;
@@ -197,21 +301,26 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     const v00 = a * V + b, v10 = (a + 1) * V + b, v01 = a * V + b + 1, v11 = (a + 1) * V + b + 1;
     idx.push(v00, v01, v10, v10, v01, v11);
   }
-  const geo = new THREE.InstancedBufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setIndex(idx);
+  // two lists of patches: those with rock in reach draw with the full material, the rest with a lighter build of it
+  // without the rock (its code alone, even where no pixel runs it, slowed every terrain pixel by ~40 %)
   const MAX_INST = 2048;
-  const instData = new Float32Array(MAX_INST * 4), sentData = new Float32Array(MAX_INST * 4);   // sent: last uploaded
-  const instAttr = new THREE.InstancedBufferAttribute(instData, 4).setUsage(THREE.DynamicDrawUsage);
-  geo.setAttribute('aPatch', instAttr);
-  geo.instanceCount = 0;
-  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+  const posAttr = new THREE.BufferAttribute(pos, 3), lists = [];
+  for (let l = 0; l < 2; l++) {
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', posAttr);
+    geo.setIndex(idx);
+    const data = new Float32Array(MAX_INST * 4), sent = new Float32Array(MAX_INST * 4);   // sent: last uploaded
+    const attr = new THREE.InstancedBufferAttribute(data, 4).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aPatch', attr);
+    geo.instanceCount = 0;
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    lists.push({ geo, data, sent, attr, count: 0 });
+  }
 
   // ---- material
-  const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
   const morph = Array.from({ length: LEVELS }, () => new THREE.Vector2());
   const uniforms = {
-    tHeight: { value: hTex }, tFarHeight: { value: fTex }, tNrm: { value: nTex }, tFarNrm: { value: fnTex },
+    tHeight: { value: hTex }, tFarHeight: { value: fTex }, tNrm: { value: nTex }, tLand: { value: landTex },
     tSplat: { value: splat }, tData: { value: dataTex }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
@@ -220,8 +329,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     uWet: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uSnow: { value: 330 },
   };
-  material.userData.uniforms = uniforms;
-  material.onBeforeCompile = (sh) => {
+  const onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
@@ -262,7 +370,8 @@ vMorph = morphK;`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 precision highp sampler2DArray;
-uniform sampler2D tNrm, tFarNrm, tSplat, tData, tNoise, uTrack;
+uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
+uniform highp sampler2D tFarHeight;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
@@ -275,6 +384,15 @@ vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control
 vec3 gDpx, gDpy;
 float gVar;      // anti-tiling: a low-frequency noise that picks each region's tile offset
 float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
+const vec2 SUN_SIDE = vec2(0.41, -0.91);   // the midday sun's side (south), xz
+// the vista's normal from its heights (filtered: the same as a baked normal map's)
+vec3 farNormal(vec2 xz) {
+  vec2 uv = ((xz + uFar.x) / uFar.y + 0.5).yx / uFar.z, e = vec2(1.0 / uFar.z, 0.0);
+  float hx = textureLod(tFarHeight, uv - e.yx, 0.0).r - textureLod(tFarHeight, uv + e.yx, 0.0).r;
+  float hz = textureLod(tFarHeight, uv - e, 0.0).r - textureLod(tFarHeight, uv + e, 0.0).r;
+  return normalize(vec3(hx, 2.0 * uFar.y, hz));
+}
 // one layer, planar (xz). Each region of the ground reads the tile at its own offset; where the noise steps to the
 // next offset the two are blended, favouring the higher texel (after Inigo Quilez, "texture repetition")
 void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
@@ -327,25 +445,104 @@ void triAt(float l, float t, vec3 p, vec3 n0, vec3 w, float nk, out vec4 alb, ou
   }
   alb /= ws; mat /= ws; nW = normalize(acc);
 }
-// rock: the cliff texture (30 m) gives the large shapes, ledges and cracks and the moss in the hollows; the
-// warm rock-face texture its colour and, close up, the detail
-void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, out float h, out float cav, out float rough) {
-  vec3 w = pow(abs(n0), vec3(8.0)); w /= w.x + w.y + w.z;
-  vec4 ma, mm;
-  triAt(${LAYER.cliff}.0, uTile[${LAYER.cliff}], p, n0, w, nk, ma, mm, nW);
-  vec3 cAvg = textureLod(tAlb, vec3(0.5, 0.5, ${LAYER.cliff}.0), 12.0).rgb, rAvg = textureLod(tAlb, vec3(0.5, 0.5, ${LAYER.rock}.0), 12.0).rgb;
-  float moss = smoothstep(0.0, 0.05, ma.g - ma.r * 0.95 - ma.b * 0.1) * smoothstep(0.2, 0.7, n0.y + 0.5);
-  col = rAvg * pow(clamp(lum(ma.rgb) / lum(cAvg), 0.2, 3.0), 0.75);
-  col = mix(col, ma.rgb * vec3(1.0, 1.08, 0.9), moss);
-  h = ma.a; cav = mm.a; rough = mix(mm.b, 0.95, moss);
-  float det = uDetail > 0.5 ? 1.0 - smoothstep(25.0, 60.0, dist) : 0.0;
-  if (det > 0.0) {
-    vec4 da, dm; vec3 dn;
-    triAt(${LAYER.rock}.0, uTile[${LAYER.rock}], p, nW, w, nk, da, dm, dn);
-    col = mix(col, col * mix(clamp(da.rgb / max(rAvg, vec3(0.02)), 0.0, 2.5), vec3(1.0), moss * 0.7), det);
-    nW = normalize(mix(nW, dn, det * (1.0 - moss * 0.5)));
-    h = mix(h, h * 0.5 + da.a * 0.5, det); cav = mix(cav, cav * dm.a, det); rough = mix(rough, dm.b, det * (1.0 - moss));
+// ---- rock. Kinds (k: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate) differ in colour, bedding and weathering.
+// light and dark tones of each kind (linear)
+vec3 rockTone(float k, float t) {
+  k = clamp(k, 0.0, 1.0) * 3.0;
+  vec3 l = k < 1.0 ? mix(vec3(0.36, 0.34, 0.29), vec3(0.34, 0.31, 0.28), k) : k < 2.0 ? mix(vec3(0.34, 0.31, 0.28), vec3(0.42, 0.26, 0.14), k - 1.0) : mix(vec3(0.42, 0.26, 0.14), vec3(0.25, 0.24, 0.2), k - 2.0);
+  vec3 d = k < 1.0 ? mix(vec3(0.17, 0.16, 0.14), vec3(0.16, 0.145, 0.13), k) : k < 2.0 ? mix(vec3(0.16, 0.145, 0.13), vec3(0.22, 0.11, 0.055), k - 1.0) : mix(vec3(0.22, 0.11, 0.055), vec3(0.1, 0.1, 0.085), k - 2.0);
+  return mix(d, l, t);
+}
+// bedding by kind: band height (m), relief of the ledges, tone contrast between beds, joint spacing (m)
+vec4 bedOf(float k) {
+  k = clamp(k, 0.0, 1.0) * 3.0;
+  vec4 a = vec4(2.2, 0.55, 0.45, 2.6), b = vec4(4.5, 0.25, 0.25, 3.5), c = vec4(0.9, 0.9, 0.75, 1.8), d = vec4(0.55, 0.5, 0.35, 0.9);
+  return k < 1.0 ? mix(a, b, k) : k < 2.0 ? mix(b, c, k - 1.0) : mix(c, d, k - 2.0);
+}
+// the rock's structure (textures.js layers 8, 9), triplanar: on the faces the rows of blocks follow the beds (v: the
+// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile), from above the slabs
+// (12 m tile). alb: tone, joint, streak, height; mat: normal xy, roughness, cavity; nW: the normal on n0
+void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, out vec4 alb, out vec4 mat, out vec3 nW) {
+  vec3 sg = vec3(n0.x < 0.0 ? -1.0 : 1.0, n0.y < 0.0 ? -1.0 : 1.0, n0.z < 0.0 ? -1.0 : 1.0);
+  alb = vec4(0.0); mat = vec4(0.0); vec3 acc = vec3(0.0); float ws = 0.0;
+  float su = 1.0 / (jw * 6.0);
+  if (w.x > 0.03) {
+    vec2 uv = vec2(p.z * sg.x * su, sY * 0.125), dx = vec2(gDpx.z * sg.x * su, sYd.x * 0.125), dy = vec2(gDpy.z * sg.x * su, sYd.y * 0.125);
+    vec4 a = textureGrad(tAlb, vec3(uv, ${LAYER.blocks}.0), dx, dy), m = textureGrad(tLNrm, vec3(uv, ${LAYER.blocks}.0), dx, dy);
+    vec2 tn = (m.xy * 2.0 - 1.0) * nk; tn.x *= sg.x;
+    float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
+    acc += vec3(tz * n0.x, tn.y + n0.y, tn.x + n0.z) * w.x; alb += a * w.x; mat += m * w.x; ws += w.x;
   }
+  if (w.y > 0.03) {
+    vec2 uv = vec2(p.x * sg.y, p.z) / 12.0, dx = vec2(gDpx.x * sg.y, gDpx.z) / 12.0, dy = vec2(gDpy.x * sg.y, gDpy.z) / 12.0;
+    vec4 a = textureGrad(tAlb, vec3(uv, ${LAYER.slabs}.0), dx, dy), m = textureGrad(tLNrm, vec3(uv, ${LAYER.slabs}.0), dx, dy);
+    vec2 tn = (m.xy * 2.0 - 1.0) * nk; tn.x *= sg.y;
+    float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
+    acc += vec3(tn.x + n0.x, tz * n0.y, tn.y + n0.z) * w.y; alb += a * w.y; mat += m * w.y; ws += w.y;
+  }
+  if (w.z > 0.03) {
+    vec2 uv = vec2(-p.x * sg.z * su, sY * 0.125), dx = vec2(-gDpx.x * sg.z * su, sYd.x * 0.125), dy = vec2(-gDpy.x * sg.z * su, sYd.y * 0.125);
+    vec4 a = textureGrad(tAlb, vec3(uv, ${LAYER.blocks}.0), dx, dy), m = textureGrad(tLNrm, vec3(uv, ${LAYER.blocks}.0), dx, dy);
+    vec2 tn = (m.xy * 2.0 - 1.0) * nk; tn.x *= -sg.z;
+    float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
+    acc += vec3(tn.x + n0.x, tn.y + n0.y, tz * n0.z) * w.z; alb += a * w.z; mat += m * w.z; ws += w.z;
+  }
+  alb /= ws; mat /= ws; nW = normalize(acc);
+}
+// rock at p on the heightfield normal n0: colour, normal, height (for blending), cavity, roughness, moss.
+// sY: the bedding coordinate (height / bed height, warped), sYd its screen derivatives, sF its filter width (all taken
+// in uniform flow)
+void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float sY, vec2 sYd, float sF, float sY2,
+            out vec3 col, out vec3 nW, out float h, out float cav, out float rough, out float moss) {
+  vec4 bed = bedOf(kind);
+  vec3 w = pow(abs(n0), vec3(8.0)); w /= w.x + w.y + w.z;
+  // weathering: large blotches of lighter and darker rock
+  vec4 ma = textureGrad(tNoise, (p.xz + p.y * 0.7) / 19.0, gDx / 19.0, gDy / 19.0);
+  float photo = 0.65 + 0.7 * ma.g;
+  // the structure: blocks and joints on the faces, slabs from above
+  vec4 sa, sm;
+  structAt(p, n0, w, sY, sYd, bed.w, nk, sa, sm, nW);
+  float steep = smoothstep(0.92, 0.6, n0.y);
+  vec3 hn = normalize(vec3(n0.x, 0.0, n0.z) + vec3(1e-4, 0.0, 0.0));
+  // beds: each one with its own tone and hardness; the harder ones stand out, so where the next bed juts out further
+  // the face turns down under it (in shade), where it steps back the bed's top is a ledge (lit, mossy)
+  float far = smoothstep(0.3, 0.7, sF);
+  float bi = floor(sY), bf = fract(sY);
+  float hb = hash11(bi), hN = hash11(bi + 1.0);
+  float tone = mix(0.5, hb, bed.z * (1.0 - far)) * 0.6 + hash11(floor(sY2) * 3.1 + 7.0) * 0.4;
+  float tb = smoothstep(0.8, 1.0, bf), bell = 4.0 * tb * (1.0 - tb);
+  float dr = (hN - hb) * bed.y;
+  float ledge = max(-dr, 0.0) * bell * 2.5 * steep, under = max(dr, 0.0) * bell * 2.5 * steep;
+  nW = normalize(nW + vec3(0.0, 1.0, 0.0) * ((hb - 0.5) * 0.5 * bed.y + ledge * 1.6 - under * 1.6) * steep * (1.0 - far) * nk);
+  float sand = smoothstep(0.45, 0.67, kind) * smoothstep(0.9, 0.7, kind);
+  col = rockTone(kind, clamp(tone + (sa.r - 0.5) * 0.35, 0.0, 1.0)) * mix(1.0, photo, 0.5 - 0.25 * sand);
+  // sandstone beds run from cream to ochre to rust
+  col = mix(col, vec3(0.4, 0.33, 0.22) * (0.85 + 0.3 * hash11(bi * 2.3)), sand * step(0.68, hash11(bi + 17.0)) * (1.0 - far) * 0.8);
+  col *= (1.0 - 0.6 * sa.g) * (1.0 - 0.35 * under);
+  // streaks: dark (limestone, granite, slate) or rusty (sandstone), from the lip of each ledge down the bed below
+  vec3 stain = mix(vec3(0.42, 0.42, 0.44), vec3(0.8, 0.5, 0.3), sand);
+  col = mix(col, col * stain, sa.b * steep * 0.85);
+  // lichen: colonies of spots, pale grey-green on limestone and granite, with orange and yellow on the sunny side
+  vec4 lh = textureGrad(tNoise, p.xz / 2.3 + p.y * 0.31, gDx / 2.3, gDy / 2.3);
+  float lich = smoothstep(0.5, 0.62, lh.r * 0.55 + lh.a * 0.45) * mix(1.0, 0.5, far);
+  float sunSide = clamp(dot(hn.xz, SUN_SIDE), 0.0, 1.0);
+  vec3 lc = mix(vec3(0.4, 0.42, 0.36), vec3(0.3, 0.31, 0.16), smoothstep(0.45, 0.6, lh.g));
+  lc = mix(lc, vec3(0.45, 0.22, 0.06), smoothstep(0.62, 0.7, lh.b) * (0.3 + 0.7 * sunSide) * step(0.2, kind));
+  float lichK = kind < 0.333 ? mix(0.55, 0.85, kind * 3.0) : mix(0.85, 0.15, clamp((kind - 0.333) * 3.0, 0.0, 1.0));
+  col = mix(col, lc, lich * lichK * (1.0 - sa.g) * (1.0 - smoothstep(0.75, 0.95, nW.y) * 0.5));
+  h = clamp(sa.a * 0.7 + ma.a * 0.3 + ledge * 0.3, 0.0, 1.0);
+  cav = sm.a * (1.0 - 0.5 * under);
+  rough = sm.b;
+  // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain
+  float north = clamp(-dot(hn.xz, SUN_SIDE), 0.0, 1.0) * steep;
+  vec4 mn = textureGrad(tNoise, p.xz / 5.3 + p.y * 0.07, gDx / 5.3, gDy / 5.3);
+  float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav) * 0.25 + sa.g * 0.3 + uWet * 0.2
+    + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
+  moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (ma.a - 0.5) * 0.3);
+  vec3 mossCol = mix(vec3(0.045, 0.09, 0.018), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);
+  col = mix(col, mossCol, moss);
+  rough = mix(rough, 0.97, moss);
+  nW = normalize(mix(nW, n0, moss * 0.5));
 }`)
       .replace('#include <map_fragment>', `
 {
@@ -354,47 +551,75 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
   gDx = gDpx.xz; gDy = gDpy.xz;
   float dist = length(p - cameraPosition);
   bool inMap = max(abs(p.x), abs(p.z)) < uMap.x;
-  // heightfield normal + curvature + trail distance, surface splat, ground data (sampled unconditionally: mip
-  // selection needs uniform flow)
+  // heightfield normal + sky visibility + trail distance, surface splat, ground and land data (sampled
+  // unconditionally: mip selection needs uniform flow)
   vec2 uvN = ((p.xz + uMap.x) / uMap.y + 0.5) / uMap.z;
-  vec4 ntN = texture2D(tNrm, uvN);
+  vec4 nt = texture2D(tNrm, uvN);
   vec4 sp = texture2D(tSplat, uvN);
-  vec4 gd = texture2D(tData, (p.xz + uMap.x + 0.5) / (uMap.w + 1.0));
+  vec2 uvD = (p.xz + uMap.x + 0.5) / (uMap.w + 1.0);
+  vec4 gd = texture2D(tData, uvD);
+  vec4 ld = texture2D(tLand, uvD);
   vec4 nz0 = texture2D(tNoise, p.xz / 23.0);
+  vec4 nzP = texture2D(tNoise, p.xz / 53.0 + 0.61);
+  vec2 wq = texture2D(tNoise, p.xz / 211.0 + 0.13).rg;
   // macro variation (large scale) to break everything up
   float mac = texture2D(tNoise, p.xz / 420.0).r;
   float mac2 = texture2D(tNoise, p.xz / 97.0 + 0.3).g;
-  vec4 nt = ntN;
-  if (!inMap) {
-    // vista: its own normal map (explicit gradients: this is non-uniform control flow) plus procedural
-    // detail normals (its heightmap is only 16 m)
-    vec2 uvF = ((p.xz + uFar.x) / uFar.y + 0.5) / uFar.z;
-    nt = textureGrad(tFarNrm, uvF, gDx / (uFar.y * uFar.z), gDy / (uFar.y * uFar.z));
-    sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0);
-  }
-  vec3 nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
-  nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
-  float curv = nt.b;
-  float td = inMap ? nt.a * 6.0 : 6.0;
-  if (!inMap) {
+  vec3 nG;
+  if (inMap) {
+    nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
+    nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
+  } else {
+    // vista: normals from its heights plus procedural detail (its heightmap is only 16 m); lushness and rock kind
+    // from noise: higher is drier and stonier
+    nG = farNormal(p.xz);
     vec4 dz1 = textureGrad(tNoise, p.xz / 41.0, gDx / 41.0, gDy / 41.0), dz2 = textureGrad(tNoise, p.xz / 13.0 + 0.5, gDx / 13.0, gDy / 13.0);
     nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
+    sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0); nt.b = 1.0;
+    ld = vec4(clamp(0.45 + (mac2 - 0.5) * 0.8 - smoothstep(120.0, 320.0, p.y) * 0.35 - dot(nG.xz, SUN_SIDE) * 0.4, 0.0, 1.0), 0.0, 0.0,
+              smoothstep(0.4, 0.6, mac) * 0.333 + smoothstep(0.62, 0.72, wq.g) * 0.4);
   }
+  float td = inMap ? nt.a * 6.0 : 6.0;
+  float vis = nt.b;
+  float kind = ld.a, lush = ld.r;
   gVar = nz0.a;
+  // bedding of the rock (in uniform flow: its filter width comes from the screen derivatives): warped, dipping
+  vec4 bed = bedOf(kind);
+  vec2 dip = vec2(0.035, -0.02);
+  float sY = (p.y + (wq.x - 0.5) * 14.0 + dot(p.xz, dip)) / bed.x;
+  vec2 sYd = vec2(dFdx(sY), dFdy(sY));
+  float sF = abs(sYd.x) + abs(sYd.y);
+  float sY2 = sY / 7.0;
   // layer weights
   float slope = 1.0 - nG.y;
   float wRock = max(sp.b, smoothstep(0.24, 0.36, slope + (mac2 - 0.5) * 0.08));
-  float wMud = sp.g, wSand = sp.a, wTrail = sp.r;
+  float wMud = sp.g, wTrail = sp.r;
+  float wScree = ld.g * (1.0 - wTrail) * (1.0 - wMud);
+  float wSand = max(sp.a, wScree), kScree = wScree / max(wSand, 1e-3);
   // trails: compacted dirt in the wheel ruts, loose soil on the verges, grass between the ruts (where it grows:
   // the grass density)
   float rut = exp(-pow((td - 0.8) / 0.3, 2.0)) * wTrail;
   float verge = smoothstep(1.2, 2.3, td + (nz0.r - 0.5) * 0.8) * (1.0 - smoothstep(2.6, 3.2, td));
   float crown = smoothstep(0.5, 0.2, td) * smoothstep(0.05, 0.4, gd.a);
   float wDirt = wTrail * (1.0 - 0.8 * verge) * (1.0 - 0.85 * crown);
-  float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail);
+  float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
   if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
+  // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
+  // lines, in hollows and by water, with patches of clover (blue-green) and of thin, sun-bleached grass
+  vec3 gT = lush < 0.5 ? mix(vec3(0.27, 0.22, 0.075), vec3(0.13, 0.2, 0.05), lush * 2.0) : mix(vec3(0.13, 0.2, 0.05), vec3(0.055, 0.13, 0.035), lush * 2.0 - 1.0);
+  gT = mix(gT, vec3(0.065, 0.15, 0.075), smoothstep(0.62, 0.72, nzP.r) * 0.55);
+  gT = mix(gT, vec3(0.3, 0.26, 0.12), smoothstep(0.64, 0.76, nzP.g) * smoothstep(0.55, 0.25, lush) * 0.7);
+  vec3 tGrass = gT / vec3(0.13, 0.2, 0.05);
+  // soils: warmer or greyer by region, darker where damp
+  vec3 tSoil = mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush);
+  // scree takes the colour of the rock above it
+  vec3 tGravel = mix(vec3(1.0), rockTone(kind, 0.55) / max(textureLod(tAlb, vec3(0.5, 0.5, 4.0), 12.0).rgb, vec3(0.02)), kScree * 0.75);
+  // forest floor: mossy where damp; under broadleaves a warmer litter, under blossom a pink one
+  vec3 tForest = mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6);
+  tForest *= ld.b < 0.25 ? vec3(1.0) : ld.b < 0.75 ? vec3(1.15, 0.98, 0.78) : vec3(1.2, 0.98, 1.0);
+  #define TINT(L) (L < 0.5 ? tGrass : L < 1.5 || L > 5.5 ? tSoil : L < 3.5 ? tSoil * 0.95 : L < 4.5 ? tGravel : tForest)
   // the two strongest layers, height-blended (more would cost registers and samples for little gain)
   float w1 = wGrass, l1 = 0.0, w2 = 0.0, l2 = 0.0;
   #define TOP2(W, L) if (W > w1) { w2 = w1; l2 = l1; w1 = W; l1 = L; } else if (W > w2) { w2 = W; l2 = L; }
@@ -407,8 +632,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
     bool two = dist < 160.0;
     vec4 a1, n1, a2, n2;
     layerAt(l1, p.xz, two, a1, n1);
+    a1.rgb *= TINT(l1);
     if (w2 > 0.02) {
       layerAt(l2, p.xz, two, a2, n2);
+      a2.rgb *= TINT(l2);
       float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2, hm = max(h1, h2) - 0.35;
       float b1 = max(h1 - hm, 0.0) * w1, b2 = max(h2 - hm, 0.0) * w2;
       float k = b2 / max(b1 + b2, 1e-4);
@@ -421,18 +648,27 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
     nW = onPlanar((nn.xy * 2.0 - 1.0) * nk, nG);
   } else {
     // far away: the layers' average colours (their last mip)
-    c = textureLod(tAlb, vec3(0.5, 0.5, 0.0), 12.0).rgb * wGrass + textureLod(tAlb, vec3(0.5, 0.5, 1.0), 12.0).rgb * wDirt
-      + textureLod(tAlb, vec3(0.5, 0.5, 3.0), 12.0).rgb * wMud + textureLod(tAlb, vec3(0.5, 0.5, 4.0), 12.0).rgb * wSand
-      + textureLod(tAlb, vec3(0.5, 0.5, 5.0), 12.0).rgb * wForest + textureLod(tAlb, vec3(0.5, 0.5, 6.0), 12.0).rgb * wSoil;
+    c = textureLod(tAlb, vec3(0.5, 0.5, 0.0), 12.0).rgb * tGrass * wGrass + textureLod(tAlb, vec3(0.5, 0.5, 1.0), 12.0).rgb * tSoil * wDirt
+      + textureLod(tAlb, vec3(0.5, 0.5, 3.0), 12.0).rgb * tSoil * wMud + textureLod(tAlb, vec3(0.5, 0.5, 4.0), 12.0).rgb * tGravel * wSand
+      + textureLod(tAlb, vec3(0.5, 0.5, 5.0), 12.0).rgb * tForest * wForest + textureLod(tAlb, vec3(0.5, 0.5, 6.0), 12.0).rgb * tSoil * wSoil;
     c /= max(1e-3, wGrass + wDirt + wMud + wSand + wForest + wSoil);
     nn = vec4(0.5, 0.5, 0.9, 1.0);
   }
-  // rock: triplanar, blended in by height (it stands proud of the soil around it)
-  float kRock = 0.0;
+  // rock: blended in by height (it stands proud of the soil around it)
+  float kRock = 0.0, rMoss = 0.0;
   if (wRock > 0.01) {
     vec3 rc, rn; float rh, rcav, rrough;
-    if (dist > 600.0) { rc = textureLod(tAlb, vec3(0.5, 0.5, ${LAYER.cliff}.0), 12.0).rgb; rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85; }
-    else rockAt(p, nG, dist, nk, rc, rn, rh, rcav, rrough);
+    #ifndef NO_ROCK
+    if (dist < 600.0) rockAt(p, nG, dist, nk, kind, lush, sY, sYd, sF, sY2, rc, rn, rh, rcav, rrough, rMoss);
+    else
+    #endif
+    {
+      // far: the kind's colour by the coarse beds, a little moss on the gentler, damper parts
+      rc = rockTone(kind, hash11(floor(sY2) * 3.1 + 7.0) * 0.6 + 0.2);
+      rMoss = smoothstep(0.55, 0.9, lush + nG.y * 0.4 - 0.25) * 0.6;
+      rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
+      rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
+    }
     float hR = rh + wRock * 1.3, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - 0.3;
     float bR = max(hR - hm, 0.0) * wRock, bB = max(hB - hm, 0.0) * (1.0 - wRock);
     kRock = bR / max(bR + bB, 1e-4);
@@ -444,18 +680,18 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
     float snow = smoothstep(uSnow, uSnow + 60.0, p.y + (mac - 0.5) * 80.0) * smoothstep(0.55, 0.3, slope);
     c = mix(c, vec3(0.42, 0.44, 0.48), snow * 0.8);
   }
-  // macro tint: dry / lush patches, brightness
-  c *= mix(vec3(1.08, 1.02, 0.86), vec3(0.9, 1.0, 1.04), mac) * (0.86 + 0.28 * mac2);
+  // macro brightness variation
+  c *= 0.9 + 0.2 * mac2;
   // tyre tracks darken (and wet) the ground
   vec2 tuv = (p.xz - uTrackOrigin) / uTrackSize + 0.5;
   float track = inMap ? texture2D(uTrack, tuv).r : 0.0;
   c *= 1.0 - track * 0.3;
   // wetness: shore, mud, rain. Soil drinks it in and goes dark and saturated, rock much less
   gWet = clamp(max(gd.b * 0.9, uWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
-  float soak = gWet * (1.0 - 0.55 * kRock);
+  float soak = gWet * (1.0 - 0.55 * kRock * (1.0 - rMoss));
   c *= 1.0 - 0.42 * soak;
   c = max(mix(vec3(lum(c)), c, 1.0 + 0.3 * soak), 0.0);
-  gRough = mix(nn.b, 0.42 - 0.12 * hgt, gWet * 0.9);
+  gRough = mix(nn.b, mix(0.42 - 0.12 * hgt, 0.3, kRock * (1.0 - rMoss)), gWet * 0.9);
   // rain (uWet): water stands in the ruts, between the stones and in the low flat patches: dark, mirror smooth
   float pud = 0.0;
   if (uWet > 0.0) {
@@ -467,12 +703,14 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, out vec3 col, out vec3 nW, ou
   }
   c *= 1.0 - 0.3 * pud;
   gRough = mix(gRough, 0.03, pud);
-  // ambient occlusion: hollows, canopy, texture cavities (gCav also shadows the direct light: microshadows)
+  // ambient occlusion: the sky the terrain hides, canopy, texture cavities (gCav also shadows the direct light:
+  // microshadows)
   gCav = mix(nn.a, 1.0, pud);
-  gAO = gd.r * mix(1.0, gCav, 0.8) * clamp(1.15 - curv * 0.3, 0.6, 1.0);
+  gAO = gd.r * mix(1.0, gCav, 0.8) * mix(1.0, vis * vis, 0.85);
   gN = normalize(mix(nW, nG, pud * 0.9));
   diffuseColor.rgb *= c;
 }`)
+
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = gRough;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
@@ -491,19 +729,29 @@ reflectedLight.indirectSpecular *= gAO;
 }
 #endif`);
   };
-  material.defines = { ...material.defines, CLOUD_TIGHT: '' };   // at the 16-texture limit with the lamps' cookies (clouds.js)
-  material.customProgramCacheKey = () => 'terrain-cdlod-v3';
-
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.frustumCulled = false;
-  mesh.receiveShadow = true;
-  mesh.castShadow = false;
-  mesh.matrixAutoUpdate = false;
-  mesh.userData.material = material;
+  const makeMaterial = (lite) => {
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
+    m.userData.uniforms = uniforms;
+    m.onBeforeCompile = onBeforeCompile;
+    m.defines = { CLOUD_TIGHT: '', ...(lite ? { NO_ROCK: '' } : {}) };   // CLOUD_TIGHT: at the 16-texture limit with the lamps' cookies (clouds.js)
+    m.customProgramCacheKey = () => 'terrain-cdlod-v4' + (lite ? '-lite' : '');
+    return m;
+  };
+  const material = makeMaterial(false), materialLite = makeMaterial(true);
+  const mesh = new THREE.Group();
+  for (const [l, mat] of [[0, material], [1, materialLite]]) {
+    const m = new THREE.Mesh(lists[l].geo, mat);
+    m.frustumCulled = false;
+    m.receiveShadow = true;
+    m.castShadow = false;
+    m.matrixAutoUpdate = false;
+    mesh.add(m);
+  }
+  mesh.name = 'terrain';
 
   // ---- min/max height pyramid at 16 m cells for culling
   const L0 = FAR_SIZE / 16; // 512 cells
-  const mins = [], maxs = [];
+  const mins = [], maxs = [], rocks = [];
   {
     const mn = new Float32Array(L0 * L0), mx = new Float32Array(L0 * L0);
     for (let cx = 0; cx < L0; cx++) for (let cz = 0; cz < L0; cz++) {
@@ -520,6 +768,26 @@ reflectedLight.indirectSpecular *= gAO;
       mn[cz * L0 + cx] = lo; mx[cz * L0 + cx] = hi;
     }
     mins.push(mn); maxs.push(mx);
+    // rock within the cell (or 2 m around it): steep ground or a rock surface; the vista may have rock anywhere
+    const rk = new Uint8Array(L0 * L0).fill(1), H = terrain.heights;
+    for (let cx = 0; cx < L0; cx++) for (let cz = 0; cz < L0; cz++) {
+      const x0 = -FAR_HALF + cx * 16, z0 = -FAR_HALF + cz * 16;
+      if (!(x0 >= -HALF && x0 + 16 <= HALF && z0 >= -HALF && z0 + 16 <= HALF)) continue;
+      const ix0 = Math.round((x0 + HALF) / CELL), iz0 = Math.round((z0 + HALF) / CELL);
+      let r = 0;
+      for (let a = -4; a <= 36 && !r; a += 2) for (let b = -4; b <= 36; b += 2) {
+        const ix = Math.max(1, Math.min(N - 1, ix0 + a)), iz = Math.max(1, Math.min(N - 1, iz0 + b)), i = ix * NN + iz;
+        const gx = H[i + NN] - H[i - NN], gz = H[i + 1] - H[i - 1];
+        if (terrain.surface[i] === SURF.rock || gx * gx + gz * gz > 0.4 * 4 * CELL * CELL) { r = 1; break; }
+      }
+      rk[cz * L0 + cx] = r;
+    }
+    rocks.push(rk);
+    for (let k = 1, n = L0 / 2; k < LEVELS; k++, n /= 2) {
+      const pr = rocks[k - 1], pn = n * 2, r2 = new Uint8Array(n * n);
+      for (let x = 0; x < n; x++) for (let z = 0; z < n; z++) { const a = (z * 2) * pn + x * 2; r2[z * n + x] = pr[a] | pr[a + 1] | pr[a + pn] | pr[a + pn + 1]; }
+      rocks.push(r2);
+    }
     for (let k = 1, n = L0 / 2; k < LEVELS; k++, n /= 2) {
       const pm = mins[k - 1], pM = maxs[k - 1], pn = n * 2;
       const m2 = new Float32Array(n * n), M2 = new Float32Array(n * n);
@@ -544,7 +812,7 @@ reflectedLight.indirectSpecular *= gAO;
   };
   setRanges();
   const frustum = new THREE.Frustum(), projView = new THREE.Matrix4(), box = new THREE.Box3();
-  let count = 0, camX = 0, camZ = 0;
+  let camX = 0, camZ = 0;
   const select = (k, cx, cz) => {
     // node at level k, cell index (cx, cz) in that level's grid
     const size = 16 * (1 << k);
@@ -555,18 +823,19 @@ reflectedLight.indirectSpecular *= gAO;
     const dx = Math.max(x0 - camX, 0, camX - x0 - size), dz = Math.max(z0 - camZ, 0, camZ - z0 - size);
     const d = Math.hypot(dx, dz);
     if (k === 0 || d > ranges[k - 1]) {
-      if (count >= MAX_INST) return;
-      const o = count * 4;
-      instData[o] = x0; instData[o + 1] = z0; instData[o + 2] = size / P; instData[o + 3] = k;
-      count++;
+      const L = lists[rocks[k][cz * n + cx] && d < 620 ? 0 : 1];
+      if (L.count >= MAX_INST) return;
+      const o = L.count * 4;
+      L.data[o] = x0; L.data[o + 1] = z0; L.data[o + 2] = size / P; L.data[o + 3] = k;
+      L.count++;
       return;
     }
     for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) select(k - 1, cx * 2 + a, cz * 2 + b);
   };
 
   const view = {
-    mesh, material, uniforms, layers, splat, dataTex, groundData, groundN: DN, heightTex: hTex, normalTex: nTex, floatLinear,
-    get patchCount() { return count; },
+    mesh, material, uniforms, layers, splat, dataTex, groundData, landTex, landData, groundN: DN, heightTex: hTex, normalTex: nTex, floatLinear,
+    get patchCount() { return lists[0].count + lists[1].count; },
     configure(q) {
       lodScale = q.lodScale || 1; setRanges();
       uniforms.uDetail.value = q.terrainDetail ?? 2;
@@ -577,20 +846,22 @@ reflectedLight.indirectSpecular *= gAO;
       frustum.setFromProjectionMatrix(projView);
       camX = camera.position.x; camZ = camera.position.z;
       uniforms.uCamXZ.value.set(camX, camZ);
-      const prev = count;
-      count = 0;
+      const prev = lists.map(L => L.count);
+      for (const L of lists) L.count = 0;
       select(LEVELS - 1, 0, 0);
-      geo.instanceCount = count;
-      // upload only when the patches changed (most frames with the camera still)
-      let same = count === prev;
-      for (let i = 0, n = count * 4; same && i < n; i++) same = instData[i] === sentData[i];
-      if (same) return;
-      sentData.set(instData.subarray(0, count * 4));
-      instAttr.clearUpdateRanges();
-      instAttr.addUpdateRange(0, count * 4);
-      instAttr.needsUpdate = true;
+      lists.forEach((L, l) => {
+        L.geo.instanceCount = L.count;
+        // upload only when the patches changed (most frames with the camera still)
+        let same = L.count === prev[l];
+        for (let i = 0, n = L.count * 4; same && i < n; i++) same = L.data[i] === L.sent[i];
+        if (same) return;
+        L.sent.set(L.data.subarray(0, L.count * 4));
+        L.attr.clearUpdateRanges();
+        L.attr.addUpdateRange(0, L.count * 4);
+        L.attr.needsUpdate = true;
+      });
     },
-    groundDataChanged() { dataTex.needsUpdate = true; },
+    groundDataChanged() { dataTex.needsUpdate = true; landTex.needsUpdate = true; },
   };
   return view;
 }

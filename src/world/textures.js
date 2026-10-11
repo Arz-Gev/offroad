@@ -5,16 +5,19 @@ import { mulberry32 } from './noise.js';
 // Ground textures, and small procedural textures (tyres, bark).
 // Ground layers are baked on the GPU at startup into two texture arrays:
 //   albedo (rgb) + height (a)   and   normal (xy in rg) + roughness (b) + cavity AO (a).
-// Layers: 0 grass, 1 dirt track, 2 rock, 3 mud, 4 gravel (shores, quarry), 5 forest floor (needles), 6 loose soil
-// (slopes, verges), 7 cliff (an aerial rock texture for whole rock faces, tiled at 30 m).
+// Layers: 0 grass, 1 dirt track, 2 rock (the boulders and walls, materials.js), 3 mud, 4 gravel (shores, quarry,
+// scree), 5 forest floor (needles), 6 loose soil (slopes, verges), and two procedural rock structures (data, not
+// colour; terrainView.js colours them by the rock's kind): 7 blocks (a rock face: rows of blocks, one row per bed, each
+// block tilted its own way with bevelled edges, joints between them, water streaks) and 8 slabs (rock seen from
+// above: slabs between joints). Their rgb: tone, joint, streak; a: height.
 // They are photo-scanned CC0 textures from Poly Haven (public/ground/, packed by tools/ground-textures.py: albedo +
 // height in one AVIF, the normal map in another). The grass photo is recoloured to the meadow's green, keeping its
 // structure. Procedural recipes (periodic noise, so the tiles wrap) stand in if the photos fail to load.
 
-export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, cliff: 7 };
-export const LAYER_COUNT = 8;
-// world size (m) covered by one tile of each layer
-export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 30];
+export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8 };
+export const LAYER_COUNT = 9;
+// world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js)
+export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12];
 // photo layers: file name, roughness, normal strength, albedo gain and saturation
 const PHOTO = {
   0: { name: 'grass', rough: 0.92, nrm: 1.1, gain: 1.0, sat: 1.0, tint: [0.13, 0.2, 0.05], recolor: 0.85 },
@@ -24,10 +27,9 @@ const PHOTO = {
   4: { name: 'sand', rough: 0.86, nrm: 1.2, gain: 1.0, sat: 1.0 },
   5: { name: 'forest', rough: 0.92, nrm: 1.2, gain: 1.0, sat: 1.0 },
   6: { name: 'soil', rough: 0.88, nrm: 1.3, gain: 1.0, sat: 1.0 },
-  7: { name: 'cliff', rough: 0.84, nrm: 1.5, gain: 1.0, sat: 1.0 },
 };
-// procedural recipe standing in for each layer
-const RECIPE = [0, 1, 2, 3, 4, 5, 1, 2];
+// procedural recipe for each layer (the photo layers' stand-ins; the rock structures always)
+const RECIPE = [0, 1, 2, 3, 4, 5, 1, 6, 7];
 
 // fetch and decode the photo layers (unpremultiplied: the alpha is height, not coverage); null if any fails
 export function loadGroundPhotos(base) {
@@ -116,12 +118,61 @@ float blades(vec2 uv, float per, float seed) {
 }
 `;
 
+// the rock structures (layers 8, 9) as functions of the tile uv: height (unclamped: the normal pass evaluates it at
+// float precision, 8 bits are too coarse for the blocks' gentle lean) and data (tone, joint, streak)
+export const STRUCT_GLSL = /* glsl */`
+// rock face: 8 beds (rows), 4-8 blocks each, joints wavy and staggered from row to row. Height unit 0.4 m, tile 12 m
+float blocksAt(vec2 uv, out vec3 data) {
+  float ry = uv.y * 8.0, row = floor(ry), fy = fract(ry);
+  float h1 = hash12(vec2(row, 3.7)), nb = floor(4.0 + h1 * 5.0);
+  float ux = uv.x * nb + h1 * 7.0 + (pnoise(uv * 16.0, 16.0) - 0.5) * 0.3;
+  float bi = mod(floor(ux), nb), fx = fract(ux);
+  vec2 bh = hash22(vec2(bi, row) + 0.37);
+  // edge distances in metres (2 m joint spacing on average, 1.5 m beds)
+  float ex = min(fx, 1.0 - fx) * 12.0 / nb, ey = min(fy, 1.0 - fy) * 1.5;
+  float e = min(ex, ey);
+  float bevel = sqrt(smoothstep(0.0, 0.2 + 0.25 * bh.x, ex)) * sqrt(smoothstep(0.0, 0.14 + 0.14 * bh.y, ey));
+  // each block leans its own way: a ramp of height across it
+  float lean = (fx - 0.5) * (bh.x - 0.5) * 3.0 + (fy - 0.5) * (bh.y - 0.5) * 2.0;
+  float sn = pfbm(uv, 24.0, 4);
+  // water streaks: long and thin, down the face (periodic: 40 across, 2 down)
+  vec2 sp = vec2(uv.x * 40.0, uv.y * 2.0), si = floor(sp), sf = fract(sp), su = sf * sf * (3.0 - 2.0 * sf);
+  vec2 P = vec2(40.0, 2.0);
+  float streak = mix(mix(hash12(mod(si, P)), hash12(mod(si + vec2(1, 0), P)), su.x), mix(hash12(mod(si + vec2(0, 1), P)), hash12(mod(si + vec2(1, 1), P)), su.x), su.y);
+  data = vec3(bh.y * 0.8 + sn * 0.2, 1.0 - smoothstep(0.0, 0.05, e), smoothstep(0.62, 0.9, streak) * (0.6 + 0.4 * fy));
+  return 0.3 + 0.5 * bevel + lean * bevel + (sn - 0.5) * 0.25 * bevel;
+}
+// rock from above: slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped
+// slabs), each slab tilted, fine cracks. Height unit 0.3 m
+float slabsAt(vec2 uv, out vec3 data) {
+  vec2 p = uv * 4.0 + (vec2(pnoise(uv * 8.0, 8.0), pnoise(uv * 8.0 + 0.5, 8.0)) - 0.5) * 0.5;
+  vec2 i = floor(p), f = fract(p);
+  float d1 = 8.0, d2 = 8.0; vec2 c1 = vec2(0.0), c2 = vec2(0.0), id = vec2(0.0), id2 = vec2(0.0);
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(x, y), o = hash22(mod(i + g, 4.0)) * 0.9 + 0.05, r = g + o - f;
+    float d = dot(r, r);
+    if (d < d1) { d2 = d1; c2 = c1; id2 = id; d1 = d; c1 = r; id = mod(i + g, 4.0); } else if (d < d2) { d2 = d; c2 = r; id2 = mod(i + g, 4.0); }
+  }
+  float e = dot(0.5 * (c1 + c2), normalize(c2 - c1)) * 3.0;
+  // a joint is open or closed by the pair of slabs it parts (the same either side of it)
+  float open = step(0.32, hash12(id + id2 * 7.13 + 1.7)), eo = mix(9.0, e, open);
+  vec2 ch = hash22(id + 11.3);
+  float crack = smoothstep(0.02, 0.0, pvoronoi(uv + 0.37, 12.0).y) * smoothstep(0.45, 0.6, pfbm(uv + 0.2, 8.0, 3));
+  float sn = pfbm(uv, 32.0, 4);
+  float bevel = sqrt(smoothstep(0.0, 0.25 + 0.2 * ch.y, eo));
+  float jw = 0.02 + 0.06 * pnoise(uv * 24.0, 24.0);
+  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), 0.0);
+  return 0.3 + 0.45 * bevel + dot(-c1, ch - 0.5) * 2.0 * bevel + (sn - 0.5) * 0.2 - crack * 0.2;
+}
+`;
+
 const BAKE_VERT = /* glsl */`
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 const ALBEDO_FRAG = /* glsl */`
 ${NOISE_GLSL}
+${STRUCT_GLSL}
 uniform int uLayer;
 varying vec2 vUv;
 vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
@@ -188,6 +239,10 @@ void main() {
     col = mix(col, mix(srgb(vec3(0.32, 0.29, 0.26)), srgb(vec3(0.52, 0.47, 0.41)), a.y), smoothstep(0.0, 0.15, a.x));
     col = mix(col, mix(srgb(vec3(0.38, 0.36, 0.34)), srgb(vec3(0.58, 0.55, 0.51)), c.y), smoothstep(0.0, 0.1, c.x));
     h = 0.25 + 0.1 * m + 0.35 * b.x + 0.45 * a.x + 0.6 * c.x;
+  } else if (uLayer == 6) {
+    vec3 d; h = blocksAt(uv, d); col = d;
+  } else if (uLayer == 7) {
+    vec3 d; h = slabsAt(uv, d); col = d;
   } else {
     // forest floor: humus, needles, twigs, moss
     float m = pfbm(uv, 3.0, 5), m2 = pfbm(uv + 0.6, 12.0, 3);
@@ -205,12 +260,19 @@ void main() {
 
 const NORMAL_FRAG = /* glsl */`
 precision highp sampler2DArray;
+${NOISE_GLSL}
+${STRUCT_GLSL}
 uniform sampler2DArray tSrc;
-uniform int uLayer;
+uniform int uLayer, uSlice;
 uniform float uStrength, uRough, uWetRough;
 uniform vec2 uTexel;
 varying vec2 vUv;
-float H(vec2 o) { return texture(tSrc, vec3(fract(vUv + o * uTexel), float(uLayer))).a; }
+float H(vec2 o) {
+  vec3 d;
+  if (uLayer == 6) return blocksAt(fract(vUv + o * uTexel), d);
+  if (uLayer == 7) return slabsAt(fract(vUv + o * uTexel), d);
+  return texture(tSrc, vec3(fract(vUv + o * uTexel), float(uSlice))).a;
+}
 void main() {
   float hl = H(vec2(-1, 0)), hr = H(vec2(1, 0)), hd = H(vec2(0, -1)), hu = H(vec2(0, 1));
   float hc = H(vec2(0));
@@ -263,8 +325,9 @@ void main() {
   gl_FragColor = vec4(n.xy * 0.5 + 0.5, rough, ao);
 }`;
 
-const STRENGTH = [2.2, 3.5, 5.0, 2.5, 4.0, 3.0];
-const ROUGH = [0.92, 0.9, 0.82, 0.78, 0.88, 0.95];
+// (the rock structures: texels per metre x the height unit / 2, per 512 texels)
+const STRENGTH = [2.2, 3.5, 5.0, 2.5, 4.0, 3.0, 8.5, 6.4];
+const ROUGH = [0.92, 0.9, 0.82, 0.78, 0.88, 0.95, 0.8, 0.8];
 
 export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8, photos = null) {
   const opts = { depthBuffer: false, type: THREE.UnsignedByteType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping };
@@ -280,7 +343,7 @@ export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8, photos =
   const aMat = new THREE.ShaderMaterial({ vertexShader: BAKE_VERT, fragmentShader: ALBEDO_FRAG, uniforms: { uLayer: { value: 0 } }, depthTest: false, depthWrite: false });
   const nMat = new THREE.ShaderMaterial({
     vertexShader: BAKE_VERT, fragmentShader: NORMAL_FRAG, depthTest: false, depthWrite: false,
-    uniforms: { tSrc: { value: albedo.texture }, uLayer: { value: 0 }, uStrength: { value: 3 }, uRough: { value: 0.9 }, uWetRough: { value: 0.25 }, uTexel: { value: new THREE.Vector2(1 / size, 1 / size) } },
+    uniforms: { tSrc: { value: albedo.texture }, uLayer: { value: 0 }, uSlice: { value: 0 }, uStrength: { value: 3 }, uRough: { value: 0.9 }, uWetRough: { value: 0.25 }, uTexel: { value: new THREE.Vector2(1 / size, 1 / size) } },
   });
   const paMat = new THREE.ShaderMaterial({
     vertexShader: BAKE_VERT, fragmentShader: PHOTO_ALBEDO_FRAG, depthTest: false, depthWrite: false,
@@ -318,6 +381,7 @@ export function bakeGroundLayers(renderer, size = 1024, anisotropy = 8, photos =
       quad.material = aMat;
       renderer.setRenderTarget(albedo, l); quad.render(renderer);
       nMat.uniforms.uLayer.value = RECIPE[l];
+      nMat.uniforms.uSlice.value = l;
       nMat.uniforms.uStrength.value = STRENGTH[RECIPE[l]] * size / 512;
       nMat.uniforms.uRough.value = ROUGH[RECIPE[l]];
       quad.material = nMat;

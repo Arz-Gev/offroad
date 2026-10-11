@@ -80,7 +80,7 @@ function bladeGeometry(segments) {
 
 const COMMON_GLSL = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tNoise, tTrack;
+uniform sampler2D tSplat, tData, tLand, tNoise, tTrack;
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing (m), unused
 uniform vec4 uLod;      // log2(cells per tile side), unused, grass distance (m), flower chance
@@ -118,7 +118,7 @@ void gShape(float sd, float tb, vec3 base, vec3 side, vec2 bend, float ht, float
 export function buildGrass(terrainView, opts = {}) {
   const U = terrainView.uniforms;
   const shared = {
-    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, tTrack: U.uTrack,
+    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tLand: U.tLand, tNoise: U.tNoise, tTrack: U.uTrack,
     uMap: U.uMap,
     uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
@@ -186,7 +186,10 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   // tyre tracks flatten the grass; on the trails (the strip between the ruts, the verges) it is short
   float track = textureLod(tTrack, (bxz - uTrackP.xy) / uTrackP.z + 0.5, 0.0).r;
   float trailK = textureLod(tSplat, ((bxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0).r;
-  float tall = 0.45 + 0.95 * nz.g * nz.g;
+  // the land's lushness (terrainView.js): taller, deeper green down the drainage lines and in hollows, short and
+  // golden on dry ridges and sunny slopes
+  float lsh = textureLod(tLand, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).r;
+  float tall = (0.45 + 0.95 * nz.g * nz.g) * (0.7 + 0.6 * lsh);
   float flower = step(hC.x, uLod.w * smoothstep(12.0, 30.0, dCam)) * step(0.5, nz.b + 0.2);
   // far away, the flower fields (undergrowth.js FIELDS: too small to draw as plants there) ride on the grass tips
   vec3 fieldHead = vec3(-1.0);
@@ -229,8 +232,8 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vGFace = mat3(viewMatrix) * (vec3(facing.x, 0.0, facing.y) * 0.45);
   // colour: patch tint, per-blade variation, darker roots, lighter dry tips (gShape); flowers get a coloured head
   vec3 lush = vec3(0.085, 0.16, 0.05), dry = vec3(0.25, 0.25, 0.10), deep = vec3(0.045, 0.105, 0.04);
-  vec3 col = mix(lush, deep, nz.a * 0.8);
-  col = mix(col, dry, smoothstep(0.55, 0.85, nz.b) * 0.65 + hB.x * 0.12);
+  vec3 col = mix(lush, deep, clamp(nz.a * 0.45 + (lsh - 0.45) * 1.5, 0.0, 1.0));
+  col = mix(col, dry, clamp(smoothstep(0.55, 0.85, nz.b) * 0.35 + smoothstep(0.5, 0.12, lsh) * 0.75, 0.0, 1.0) + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
   float fc = fract(hC.y * 7.0);
   vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.32 ? vec3(0.8, 0.8, 0.75) : fc < 0.55 ? vec3(0.85, 0.62, 0.05) : fc < 0.72 ? vec3(0.42, 0.2, 0.6)
@@ -285,7 +288,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v5';
+  mat.customProgramCacheKey = () => 'grass-v6';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

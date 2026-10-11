@@ -360,9 +360,11 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
   let physChunk = -1;
 
   // ---- ground data: forest floor under the crowns, less grass, a little darker
-  const gd = terrainView.groundData, DN = terrainView.groundN;
+  const gd = terrainView.groundData, ld = terrainView.landData, DN = terrainView.groundN;
   for (const t of trees) {
     const v = variants[t.v];
+    // what falls from it: needles, leaves or petals (the land data's litter, terrainView.js)
+    const litter = v.kind === 'blossom' ? 255 : v.kind === 'spruce' || v.kind === 'pine' ? 0 : 128;
     const R = v.geo.crownR * t.s * (v.kind === 'birch' ? 0.8 : 1.0) + 1.0;
     const cx = Math.round(t.x + HALF), cz = Math.round(t.z + HALF);
     const ri = Math.ceil(R);
@@ -374,6 +376,7 @@ export function buildTrees(RAPIER, world, terrain, colliderSurface, renderer, te
       const o = (z * DN + x) * 4;
       const w = 1 - d * d;
       const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : v.kind === 'blossom' || v.kind === 'oak' ? 0.5 : 1.0;
+      if (255 * w * canopy >= gd[o + 1]) ld[o + 2] = litter;
       gd[o + 1] = Math.min(255, Math.max(gd[o + 1], 255 * w * canopy));
       gd[o + 3] = Math.max(0, gd[o + 3] - 255 * w * canopy * 0.55);
       gd[o] = Math.max(100, gd[o] - 50 * w * canopy - (d < 0.25 ? 30 : 0));

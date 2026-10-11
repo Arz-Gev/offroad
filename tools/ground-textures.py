@@ -7,7 +7,7 @@ from PIL import Image
 
 LAYERS = {   # game layer -> Poly Haven id (textures.js PHOTO)
     'grass': 'forrest_ground_01', 'dirt': 'rocky_trail_02', 'rock': 'rock_face_03', 'mud': 'brown_mud_02',
-    'sand': 'rocky_trail', 'forest': 'forrest_ground_03', 'soil': 'brown_mud_dry', 'cliff': 'aerial_rocks_02',
+    'sand': 'rocky_trail', 'forest': 'forrest_ground_03', 'soil': 'brown_mud_dry',
 }
 OUT = os.path.join(os.path.dirname(__file__), '..', 'public', 'ground')
 

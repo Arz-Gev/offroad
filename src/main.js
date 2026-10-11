@@ -10,6 +10,7 @@ import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
 import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
+import { buildDebris } from './world/debris.js';
 import { buildLife } from './world/life.js';
 import { Weather } from './world/weather.js';
 import { makeRockMaterial } from './world/materials.js';
@@ -93,6 +94,9 @@ async function main() {
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
+  const debris = buildDebris(terrain, terrainView);   // stones, leaves, cones, twigs and petals on the ground
+  scene.add(debris.group);
+  scenery.parts.push(debris);
   const life = buildLife(terrainView, env, trees);   // pollen, butterflies, fireflies, birds, petals, leaves
   scene.add(life.group);
   scenery.parts.push(life);
