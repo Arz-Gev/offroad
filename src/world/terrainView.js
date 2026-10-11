@@ -220,9 +220,6 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
   trailTex.needsUpdate = true;
   const nTex = bakeNormalTexture(renderer, hTex, NN, CELL, trailTex);
   trailTex.dispose();
-  // the vista's normals are taken from its heights in the fragment shader (four filtered fetches: the same as a
-  // baked normal map, without its texture unit)
-  if (floatLinear) { fTex.magFilter = THREE.LinearFilter; fTex.minFilter = THREE.LinearFilter; }
 
   // ---- splat (dirt, mud, rock, sand), blurred; texel (ix, iz) natural orientation
   const splatData = new Uint8Array(NN * NN * 4);
@@ -326,7 +323,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
     uTile: { value: LAYER_TILE.map(t => 1 / t) }, uDetail: { value: 2 },
-    uWet: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
+    uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uSnow: { value: 330 },
   };
   const onBeforeCompile = (sh) => {
@@ -339,7 +336,7 @@ uniform vec2 uMorph[${LEVELS}];
 uniform vec2 uCamXZ;
 uniform vec4 uMap, uFar;
 varying vec3 vWPos;
-varying float vMorph;
+varying vec3 vFarN;
 float tHgtNear(vec2 xz) {
   ivec2 g = ivec2(round((xz + uMap.x) / uMap.y));
   g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1));
@@ -366,19 +363,24 @@ float h0 = tHgt(wxz);
 float h1 = (frac2.x + frac2.y) > 0.0 ? tHgt(txz) : h0;
 vec3 transformed = vec3(mix(wxz, txz, morphK), mix(h0, h1, morphK)).xzy;
 vWPos = transformed;
-vMorph = morphK;`);
+// the vista's normal, per vertex (its heights are a 16 m grid; per pixel it cost four float fetches)
+vFarN = vec3(0.0, 1.0, 0.0);
+if (max(abs(transformed.x), abs(transformed.z)) > uMap.x - 48.0) {
+  float e = uFar.y;
+  vec2 q = transformed.xz;
+  vFarN = vec3(tHgtFar(q - vec2(e, 0.0)) - tHgtFar(q + vec2(e, 0.0)), 2.0 * e, tHgtFar(q - vec2(0.0, e)) - tHgtFar(q + vec2(0.0, e)));
+}`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 precision highp sampler2DArray;
 uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
-uniform highp sampler2D tFarHeight;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
 varying vec3 vWPos;
-varying float vMorph;
+varying vec3 vFarN;
 float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0;
 vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control flow)
 vec3 gDpx, gDpy;
@@ -386,13 +388,6 @@ float gVar;      // anti-tiling: a low-frequency noise that picks each region's 
 float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 const vec2 SUN_SIDE = vec2(0.41, -0.91);   // the midday sun's side (south), xz
-// the vista's normal from its heights (filtered: the same as a baked normal map's)
-vec3 farNormal(vec2 xz) {
-  vec2 uv = ((xz + uFar.x) / uFar.y + 0.5).yx / uFar.z, e = vec2(1.0 / uFar.z, 0.0);
-  float hx = textureLod(tFarHeight, uv - e.yx, 0.0).r - textureLod(tFarHeight, uv + e.yx, 0.0).r;
-  float hz = textureLod(tFarHeight, uv - e, 0.0).r - textureLod(tFarHeight, uv + e, 0.0).r;
-  return normalize(vec3(hx, 2.0 * uFar.y, hz));
-}
 // one layer, planar (xz). Each region of the ground reads the tile at its own offset; where the noise steps to the
 // next offset the two are blended, favouring the higher texel (after Inigo Quilez, "texture repetition")
 void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
@@ -597,9 +592,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   vec4 ld = texture2D(tLand, uvD);
   vec4 nz0 = texture2D(tNoise, p.xz / 23.0);
   vec4 nzP = texture2D(tNoise, p.xz / 53.0 + 0.61);
-  vec2 wq = texture2D(tNoise, p.xz / 211.0 + 0.13).rg;
-  // macro variation (large scale) to break everything up
-  float mac = texture2D(tNoise, p.xz / 420.0).r;
+  // macro variation (large scale) to break everything up; wq warps the rock beds
+  vec4 m4 = texture2D(tNoise, p.xz / 300.0);
+  float mac = m4.r;
+  vec2 wq = m4.gb;
   float mac2 = texture2D(tNoise, p.xz / 97.0 + 0.3).g;
   vec3 nG;
   if (inMap) {
@@ -608,7 +604,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   } else {
     // vista: normals from its heights plus procedural detail (its heightmap is only 16 m); lushness and rock kind
     // from noise: higher is drier and stonier
-    nG = farNormal(p.xz);
+    nG = normalize(vFarN);
     vec4 dz1 = textureGrad(tNoise, p.xz / 41.0, gDx / 41.0, gDy / 41.0), dz2 = textureGrad(tNoise, p.xz / 13.0 + 0.5, gDx / 13.0, gDy / 13.0);
     nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
     sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0); nt.b = 1.0;
@@ -669,7 +665,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     vec4 a1, n1, a2, n2;
     // near the camera the ground has depth: parallax occlusion on the dominant layer, with its own sun shadow
     vec2 pxz = p.xz;
-    float pomK = (uDetail > 1.5 ? 1.0 - smoothstep(5.0, 10.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    // (not on the meadow: the grass covers it)
+    float pomK = (uDetail > 1.5 && l1 > 0.5 ? 1.0 - smoothstep(4.0, 8.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
     if (pomK > 0.0) {
       float pomD;
       pxz = mix(p.xz, pomAt(l1, p.xz, normalize(p - cameraPosition), 0.05, pomD), pomK);
@@ -687,11 +684,37 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
       float k = b2 / max(b1 + b2, 1e-4);
       c = mix(a1.rgb, a2.rgb, k); nn = mix(n1, n2, k); hgt = mix(a1.a, a2.a, k);
     } else { c = a1.rgb; nn = n1; hgt = a1.a; }
-    // the ruts are packed hard by the wheels: darker, smoother
+    // the ruts are packed hard by the wheels: darker, smoother, with a dull sheen
     nn.xy = mix(nn.xy, vec2(0.5), rut * 0.45);
     c *= 1.0 - 0.1 * rut;
-    nn.b -= 0.08 * rut;
+    nn.b = mix(nn.b, 0.6, rut * 0.6);
+    // dried mud cracks into curled plates (the slab structure, small): round the mud holes and in the low spots of the
+    // trails, when it hasn't rained
+    float dryMud = (wMud * (1.0 - smoothstep(0.3, 0.6, gd.b)) + wTrail * smoothstep(0.6, 0.72, nzP.a) * 0.6) * (1.0 - uWet) * (1.0 - smoothstep(25.0, 45.0, dist));
+    if (dryMud > 0.02) {
+      vec2 cuv = p.xz / 1.4;
+      vec4 ca = textureGrad(tAlb, vec3(cuv, ${LAYER.slabs}.0), gDx / 1.4, gDy / 1.4), cn = textureGrad(tLNrm, vec3(cuv, ${LAYER.slabs}.0), gDx / 1.4, gDy / 1.4);
+      c = mix(c, c * mix(1.25, 0.45, ca.g) * vec3(1.12, 1.0, 0.86), dryMud);
+      nn = mix(nn, vec4(cn.xy, 0.9, cn.a), dryMud * 0.8);
+      hgt = mix(hgt, ca.a, dryMud);
+    }
     nW = onPlanar((nn.xy * 2.0 - 1.0) * nk, nG);
+    // close up, the tyres' tread runs along the ruts (the trail's direction: across the gradient of the trail
+    // distance), fresh in places and worn away in others
+    if (rut > 0.05 && dist < 30.0) {
+      vec2 e = vec2(1.0 / uMap.z, 0.0);
+      vec2 tg = vec2(textureLod(tNrm, uvN + e, 0.0).a - textureLod(tNrm, uvN - e, 0.0).a, textureLod(tNrm, uvN + e.yx, 0.0).a - textureLod(tNrm, uvN - e.yx, 0.0).a);
+      if (dot(tg, tg) > 1e-6) {
+        vec2 dir = normalize(vec2(-tg.y, tg.x));
+        float q = dot(p.xz, dir) / 0.11 + abs(td - 0.8) * 3.0;
+        float fq = (abs(dot(gDx, dir)) + abs(dot(gDy, dir))) / 0.11;
+        float tread = rut * (1.0 - smoothstep(0.1, 0.16, abs(td - 0.8))) * smoothstep(0.35, 0.65, nzP.b) * (1.0 - smoothstep(0.25, 0.6, fq));
+        #define TREAD(x) (smoothstep(0.55, 0.62, x) * (1.0 - smoothstep(0.88, 0.95, x)))
+        float gq = fract(q), groove = TREAD(gq), dg = TREAD(gq + 0.02) - TREAD(gq - 0.02);
+        c *= 1.0 - 0.18 * groove * tread;
+        nW = normalize(nW + vec3(dir.x, 0.0, dir.y) * dg * 1.2 * tread);
+      }
+    }
   } else {
     // far away: the layers' average colours (their last mip)
     c = textureLod(tAlb, vec3(0.5, 0.5, 0.0), 12.0).rgb * tGrass * wGrass + textureLod(tAlb, vec3(0.5, 0.5, 1.0), 12.0).rgb * tSoil * wDirt
@@ -733,7 +756,11 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float track = inMap ? texture2D(uTrack, tuv).r : 0.0;
   c *= 1.0 - track * 0.3;
   // wetness: shore, mud, rain. Soil drinks it in and goes dark and saturated, rock much less
-  gWet = clamp(max(gd.b * 0.9, uWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
+  // after rain the ground dries unevenly: rock, slopes and ridges first (they shed the water), hollows, ruts, mud and
+  // the shade under the trees last, in patches
+  float hold = clamp(0.55 + 0.4 * (lush - 0.5) + 0.3 * rut + 0.3 * wMud + 0.25 * gd.g - 0.45 * kRock - 0.8 * slope + (nz0.g - 0.5) * 0.6, 0.0, 1.0);
+  float rainWet = smoothstep(0.0, 0.3, uWet - (1.0 - hold) * 0.6);
+  gWet = clamp(max(gd.b * 0.9, rainWet) + wMud * 0.4 + track * wMud * 0.4, 0.0, 1.0);
   float soak = gWet * (1.0 - 0.55 * kRock * (1.0 - rMoss));
   c *= 1.0 - 0.42 * soak;
   c = max(mix(vec3(lum(c)), c, 1.0 + 0.3 * soak), 0.0);
@@ -741,7 +768,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   // rain (uWet): water stands in the ruts, between the stones and in the low flat patches: dark, mirror smooth
   float pud = 0.0;
   if (uWet > 0.0) {
-    float basin = smoothstep(0.62, 0.7, texture2D(tNoise, p.xz / 4.5 + 0.71).b + (0.5 - mac2) * 0.2);
+    // (the puddles shrink as the ground dries: the threshold rises)
+    float basin = smoothstep(0.62, 0.7, texture2D(tNoise, p.xz / 4.5 + 0.71).b + (0.5 - mac2) * 0.2 - (1.0 - uWet) * 0.12);
     float inRut = rut * smoothstep(0.3, 0.55, nz0.b + (0.5 - hgt) * 0.4);
     float pock = smoothstep(0.3, 0.15, hgt - 0.25 * uWet);
     pud = uWet * max(max(basin, inRut), pock) * smoothstep(0.45, 0.85, wTrail + wMud + wSoil + wSand * 0.5)

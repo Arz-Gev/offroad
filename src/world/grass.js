@@ -95,6 +95,7 @@ attribute vec3 aBlade;
 varying vec3 vGCol;
 varying vec3 vGFace;
 varying float vGAO;
+varying vec3 vGPos;
 vec2 gHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float gHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
 float groundAt(vec2 xz) {
@@ -118,7 +119,7 @@ void gShape(float sd, float tb, vec3 base, vec3 side, vec2 bend, float ht, float
 export function buildGrass(terrainView, opts = {}) {
   const U = terrainView.uniforms;
   const shared = {
-    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tLand: U.tLand, tNoise: U.tNoise, tTrack: U.uTrack,
+    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tLand: U.tLand, tNoise: U.tNoise, tTrack: U.uTrack, uDew: U.uDew,
     uMap: U.uMap,
     uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
@@ -174,7 +175,7 @@ float dens = gdv.a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
-vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0);
+vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0); vGPos = vec3(0.0);
 if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vec2 hC = gHash22(cellIdx + 41.3);
   vec4 nz = textureLod(tNoise, bxz / 61.0, 0.0);
@@ -251,11 +252,11 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
     gPos = mix(gPos, p1, f); objectNormal = mix(objectNormal, n1, f); vGCol = mix(vGCol, c1, f); vGAO = mix(vGAO, a1, f);
   }
 }`)
-      .replace('#include <begin_vertex>', 'vec3 transformed = gPos;')
+      .replace('#include <begin_vertex>', 'vec3 transformed = gPos;\nvGPos = gPos;')
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
       .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying vec3 vGPos;\nuniform float uDew;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
 // thin, translucent blades: whichever face we see is lit like the face towards the sun (lit by its own
@@ -284,11 +285,25 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
   float gBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
   float gTip = clamp((vGAO - 0.6) / 0.4, 0.0, 1.0);
   outgoingLight += reflectedLight.directDiffuse * vec3(1.15, 1.2, 0.55) * (pow(gBack, 1.5) * 3.2) * (0.25 + 0.75 * gTip);
+  // dew in the morning (and drops after rain): tiny mirrors scattered over the blades, each turned its own way, so
+  // the sunlit ones glint as the view moves
+  float gDist = length(vViewPosition);
+  if (uDew > 0.01 && gDist < 16.0) {
+    vec3 q = floor(vGPos * 45.0);
+    float hh = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    if (hh > 0.75) {
+      vec3 rn = normalize(mat3(viewMatrix) * (vec3(fract(hh * 113.7), fract(hh * 71.3) * 0.5 + 0.6, fract(hh * 31.1)) * 2.0 - vec3(1.0, 0.6, 1.0)));
+      float gl = pow(max(dot(rn, normalize(sunLights[0].direction + normalize(vViewPosition))), 0.0), 80.0);
+      float sun = dot(reflectedLight.directDiffuse, vec3(0.333)) / max(dot(diffuseColor.rgb, vec3(0.333)), 1e-3);
+      float drop = smoothstep(0.4, 0.2, length(fract(vGPos * 45.0) - 0.5));
+      outgoingLight += vec3(1.0, 0.97, 0.9) * sun * gl * drop * uDew * 40.0 * (1.0 - smoothstep(10.0, 16.0, gDist)) * (0.3 + 0.7 * gTip);
+    }
+  }
 }
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v6';
+  mat.customProgramCacheKey = () => 'grass-v7';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

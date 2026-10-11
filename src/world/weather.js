@@ -222,6 +222,9 @@ export class Weather {
     if (Math.abs(this.s - (e.appliedWeather?.s ?? -1)) > 0.004 || Math.abs(this.bow - (e.appliedWeather?.bow ?? -1)) > 0.004) e.dirty = true;
 
     this.terrainView.uniforms.uWet.value = this.wet * 0.85;
+    // dew on the grass at dawn, until the sun has dried it by mid morning; drops after a shower
+    const h = e.hour, ss = THREE.MathUtils.smoothstep;
+    this.terrainView.uniforms.uDew.value = Math.max(ss(h, 4.8, 6.3) * (1 - ss(h, 8.5, 10.5)), this.wet * (1 - this.rain) * 0.7);
     if (this.dust) this.dust.wet = this.wet;
     if (this.water?.setRain) this.water.setRain(this.rain);
 

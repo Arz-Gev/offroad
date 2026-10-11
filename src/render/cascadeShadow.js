@@ -14,7 +14,8 @@ import { CLOUD_GLSL } from '../world/clouds.js';
 //
 // three's WebGLShadowMap tests every object's layers against the *view* camera, not the shadow camera, so the
 // shadow pass sets the view camera's layers per tile (attach): world tiles see layers 0 and SHADOW_LAYER (the
-// shadow-only proxies, trees.js), the car tile CAR_LAYER only, the lamps' shadows 0 and SHADOW_LAYER.
+// shadow-only proxies, trees.js), the nearest also NEAR_SHADOW_LAYER (debris.js), the car tile CAR_LAYER only, the
+// lamps' shadows 0 and SHADOW_LAYER.
 //
 // The shader side comes from installCascadeShadowChunks(): MAX_CASCADES slots are always declared (the last one
 // is the car's); unused ones carry an empty depth range and draw nothing. The `w` of each cascade vec4 is its
@@ -22,7 +23,8 @@ import { CLOUD_GLSL } from '../world/clouds.js';
 
 export const CAR_LAYER = 2;      // the player's car: drawn by the view camera and into the car's tile only
 export const SHADOW_LAYER = 1;   // shadow-only proxies: drawn into the shadow maps only
-const WORLD_MASK = 1 | (1 << SHADOW_LAYER), CAR_MASK = 1 << CAR_LAYER;
+export const NEAR_SHADOW_LAYER = 3;   // shadow-only proxies of small things: drawn into the nearest cascade only
+const WORLD_MASK = 1 | (1 << SHADOW_LAYER), CAR_MASK = 1 << CAR_LAYER, NEAR_MASK = WORLD_MASK | (1 << NEAR_SHADOW_LAYER);
 const WORLD_MAX = 2;                       // world cascades
 const CAR = WORLD_MAX;                     // the car's slot
 export const MAX_CASCADES = WORLD_MAX + 1;
@@ -144,7 +146,7 @@ export class CascadedSunShadow extends THREE.LightShadow {
 
   // WebGLShadowMap asks for each tile's camera right before drawing the tile: set the layers it draws
   getCamera(i = 0) {
-    if (this._rendering) this._viewCamera.layers.mask = i === CAR ? (this.car.focus ? CAR_MASK : 0) : i < this.cascades ? WORLD_MASK : 0;
+    if (this._rendering) this._viewCamera.layers.mask = i === CAR ? (this.car.focus ? CAR_MASK : 0) : i === 0 ? NEAR_MASK : i < this.cascades ? WORLD_MASK : 0;
     return this._cameras[i];
   }
   getMatrix(i = 0) { return this._matrices[i]; }
