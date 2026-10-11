@@ -30,7 +30,7 @@ float hg(float mu, float g) { float g2 = g * g; return (1.0 - g2) / (12.5663706 
 float density(vec3 p) {
   float d = uDens.x * exp(-max(p.y - uDens.z, 0.0) * uDens.y);
   if (uDens.w > 0.0) {
-    float n = texture(tNoise, (p + vec3(uWind.x, 0.0, uWind.y)) / vec3(60.0, 30.0, 60.0)).r;
+    float n = textureLod(tNoise, (p + vec3(uWind.x, 0.0, uWind.y)) / vec3(60.0, 30.0, 60.0), 0.0).r;
     d *= mix(1.0, n * 2.2, uDens.w);
   }
   return d;

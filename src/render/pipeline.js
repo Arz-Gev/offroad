@@ -199,10 +199,17 @@ void main() {
 const CLOUD_VERT = /* glsl */`
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 1.0, 1.0); }`;
+// four bilinear taps half a cloud texel apart (a 3x3 tent): the temporal blend leaves a fine grain of the march's
+// jitter that read as cotton-wool fuzz on the cloud edges
 const CLOUD_COMP_FRAG = /* glsl */`
 uniform sampler2D tClouds;
+uniform vec2 uTexel;
 varying vec2 vUv;
-void main() { gl_FragColor = texture2D(tClouds, vUv); }`;
+void main() {
+  vec2 o = uTexel * 0.5;
+  gl_FragColor = 0.25 * (texture2D(tClouds, vUv + vec2(-o.x, -o.y)) + texture2D(tClouds, vUv + vec2(o.x, -o.y))
+    + texture2D(tClouds, vUv + vec2(-o.x, o.y)) + texture2D(tClouds, vUv + vec2(o.x, o.y)));
+}`;
 
 const COMPOSITE_FRAG = /* glsl */`
 uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth;
@@ -394,7 +401,7 @@ export class RenderPipeline {
     this.clouds = null;   // Clouds (world/clouds.js), set by the environment
     this.fog = null;      // VolumetricFog (volumetricFog.js), set by the environment
     this.cloudCompMat = new THREE.ShaderMaterial({
-      vertexShader: CLOUD_VERT, fragmentShader: CLOUD_COMP_FRAG, uniforms: { tClouds: { value: null } },
+      vertexShader: CLOUD_VERT, fragmentShader: CLOUD_COMP_FRAG, uniforms: { tClouds: { value: null }, uTexel: { value: new THREE.Vector2() } },
       depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth, transparent: true,
       blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.SrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
@@ -462,6 +469,7 @@ export class RenderPipeline {
       this.clouds.setSize(this.width, this.height);
       this.clouds.render(this.camera, this.hdr.depthTexture);
       this.cloudCompMat.uniforms.tClouds.value = this.clouds.texture;
+      this.cloudCompMat.uniforms.uTexel.value.set(1 / this.clouds.width, 1 / this.clouds.height);
       r.autoClear = false;
       this.pass(this.cloudCompMat, this.hdr);
       r.autoClear = true;

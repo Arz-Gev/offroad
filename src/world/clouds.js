@@ -11,14 +11,14 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 // - Light: Beer-Lambert to the sun in a few steps, a "powder" darkening of thin cloud facing the light, two
 //   Henyey-Greenstein lobes (bright rims towards the sun), sky light from above; far clouds fade into the sky.
 
-export const BASE = 1500, TOP = 3300;
+export const BASE = 1200, TOP = 3000;
 
 // The coverage noise: four octaves of smooth value noise summed into one tileable texture, made once. Every
 // lit pixel (cloud shadows) and every raymarch step reads it once; computed in the shader it cost 16 hashes a
 // call (~0.5 ms of cloud shadows at 2592x1362 on an M1 Pro, and most of the march). A DataTexture: the clone
 // each material gets of it shares the source, so one GPU texture.
-const NOISE_CELLS = 32;   // cells of the coarsest octave across the texture (one cell = 2400 m)
-function makeCoverNoise(N = 512) {
+const NOISE_CELLS = 64, CELL = 900;   // cells of the coarsest octave across the texture, metres a cell
+function makeCoverNoise(N = 1024) {
   let seed = 4242;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const sum = new Float32Array(N * N);
@@ -66,7 +66,7 @@ float cloudShadow(vec3 p) { return 1.0; }
 uniform sampler2D tCloudNoise;
 // cloud coverage over a world xz (m): 0 clear sky .. 1 a thick cloud
 float cloudCover(vec2 xz) {
-  float n = textureLod(tCloudNoise, (xz + uCloudMap.xy) / ${(2400 * NOISE_CELLS).toFixed(1)}, 0.0).r;
+  float n = textureLod(tCloudNoise, (xz + uCloudMap.xy) / ${(CELL * NOISE_CELLS).toFixed(1)}, 0.0).r;
   return smoothstep(1.0 - uCloudMap.z, 1.0 - uCloudMap.z + 0.22, n);
 }
 // sunlight left after the clouds above a world point (soft: the shadow of the coverage, not of every puff)
@@ -125,8 +125,11 @@ function makeNoise3D(renderer, N = 64) {
   const rt = new THREE.WebGL3DRenderTarget(N, N, N, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false });
   const t = rt.texture;
   t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
-  t.minFilter = t.magFilter = THREE.LinearFilter;
-  t.generateMipmaps = false;
+  // mipmapped: the march picks the level from the distance (the fine erosion seen from kilometres away is smaller
+  // than a texel of the cloud texture and aliased into a fixed grain)
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
   const mat = new THREE.ShaderMaterial({
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: NOISE_FRAG, uniforms: { uZ: { value: 0 } }, depthTest: false, depthWrite: false,
@@ -153,7 +156,7 @@ uniform mat4 uInvViewProj, uPrevViewProj;
 uniform vec3 uCam, uLight, uLightCol, uAmbTop, uAmbBot, uOvercastCol;
 uniform float uOvercast;
 uniform vec2 uWind3, uTexel;
-uniform float uFrame, uDensity, uBlend, uHaze, uSteps;
+uniform float uFrame, uDensity, uBlend, uHaze, uSteps, uSunGain, uPixAngle;
 varying vec2 vUv;
 const float BASE = ${BASE.toFixed(1)}, TOP = ${TOP.toFixed(1)};
 vec3 lut(vec3 d) {
@@ -162,23 +165,29 @@ vec3 lut(vec3 d) {
   return texture2D(tLUT, vec2(fract(atan(d.x, d.z) / 6.2831853), t * 0.5 + 0.5)).rgb;
 }
 float remap(float v, float a, float b, float c, float d) { return c + (v - a) / (b - a) * (d - c); }
+float cTop = 0.3;   // the top of the cloud at the last density() sample, 0..1 of the slab
+float cLod = 0.0;   // mip level of the noise for the current step (from its distance)
 // cloud density at a world point; lod 1 adds the eroding detail
 float density(vec3 p, float detail) {
   float h = (p.y - BASE) / (TOP - BASE);
   if (h < 0.0 || h > 1.0) return 0.0;
   float cov = cloudCover(p.xz);
   if (cov < 0.01) return 0.0;
-  // flat bellies, rounded tops; thick coverage grows taller towers
-  float hg = smoothstep(0.0, 0.07, h) * (1.0 - smoothstep(0.25 + 0.6 * cov, 0.35 + 0.65 * cov, h));
+  // flat bellies all at one height (the plane of bases running off to the horizon is the strongest cue to their
+  // size and distance), domed tops: the middle of a cloud grows tallest, and a fuller sky grows taller towers
+  float top = cov * (0.3 + 0.55 * uCloudMap.z * uCloudMap.z);
+  cTop = top;
+  float hg = smoothstep(0.0, 0.02, h) * (1.0 - smoothstep(top * 0.45, top, h));
   vec3 q = vec3(p.x + uWind3.x, p.y, p.z + uWind3.y);
-  float shape = texture(tShape, q / 2000.0).r;
+  float shape = textureLod(tShape, q / 900.0, cLod - 2.0).r;
   float d = clamp(remap(shape * hg, 1.0 - cov * 0.92, 1.0, 0.0, 1.0), 0.0, 1.0);
   if (d <= 0.0 || detail <= 0.0) return d;
-  vec4 dn = texture(tShape, q / 270.0);
-  float fine = dn.g * 0.625 + dn.b * 0.25 + dn.a * 0.125;
+  // only the coarsest Worley octaves (cells of ~40, 20 and 10 m): finer ones alias into a fixed grain at the
+  // kilometres the clouds are seen from
+  float fine = textureLod(tShape, q / 240.0, cLod).g;
   // the edges (low density, the top of the cloud) are eroded the most: wisps and cauliflower billows
   fine = mix(fine, 1.0 - fine, clamp(h * 4.0, 0.0, 1.0));
-  return clamp(remap(d, fine * 0.55 * detail, 1.0, 0.0, 1.0), 0.0, 1.0);
+  return clamp(remap(d, fine * 0.45 * detail, 1.0, 0.0, 1.0) * 1.6, 0.0, 1.0);
 }
 float hg(float mu, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * mu, 1.5)); }
 void main() {
@@ -193,7 +202,10 @@ void main() {
   vec3 dir = normalize(wp.xyz / wp.w - uCam);
   vec4 res = vec4(0.0, 0.0, 0.0, 1.0);
   if (sky > 0.0 && dir.y > -0.03) {
-    float t0 = (BASE - uCam.y) / max(dir.y, 1e-4), t1 = (TOP - uCam.y) / max(dir.y, 1e-4);
+    // march only the band the tops can reach under this sky (fair-weather cumulus fill the lowest ~40 %): the
+    // same steps sample the clouds far finer
+    float topY = BASE + (TOP - BASE) * min(0.3 + 0.55 * uCloudMap.z * uCloudMap.z, 1.0);
+    float t0 = (BASE - uCam.y) / max(dir.y, 1e-4), t1 = (topY - uCam.y) / max(dir.y, 1e-4);
     if (dir.y < 1e-4) { t0 = 0.0; t1 = 0.0; }
     // a grazing ray crosses tens of km of the slab: march its first 14 km (the haze hides the rest) with more steps
     t1 = min(t1, min(t0 + 14000.0, 42000.0));
@@ -205,7 +217,7 @@ void main() {
       float jit = fract(cHash(gl_FragCoord.xy * 0.731) + uFrame * 0.6180340);
       float t = t0 + dt * jit;
       // the fine erosion fades out with distance: sampled steps far apart it aliased into vertical streaks
-      float detail = 1.0 - smoothstep(9000.0, 20000.0, t0);
+      float detail = 1.0 - smoothstep(6000.0, 14000.0, t0);
       float mu = dot(dir, uLight);
       // multiple scattering, approximated by octaves (Hillaire / Wrenninge): each scatters less, reaches deeper and
       // is less forward-peaked; deep cloud is lit softly instead of going grey
@@ -216,10 +228,12 @@ void main() {
       for (int i = 0; i < 144; i++) {
         if (float(i) >= n || T < 0.02) break;
         vec3 p = uCam + dir * t;
-        float d = density(p, detail) * uDensity;
+        // a cloud texel's footprint against a texel of the 240 m detail noise (3.75 m)
+        cLod = log2(max(t * uPixAngle / 3.75, 1.0));
+        float d = density(p, detail) * uDensity, top = cTop;
         if (d > 0.002) {
           // light: optical depth towards the sun in a few growing steps
-          float od = 0.0, ls = 70.0;
+          float od = 0.0, ls = 35.0;
           vec3 lp = p + uLight * ls * (jit - 0.5);   // jittered too: fixed steps banded the self-shadow
           for (int j = 0; j < 5; j++) { lp += uLight * ls; od += density(lp, j < 2 ? detail : 0.0) * uDensity * ls; ls *= 1.7; }
           float sigma = 0.026;
@@ -227,8 +241,10 @@ void main() {
           float sun = exp(-tau) * ph0 + 0.5 * exp(-tau * 0.4) * ph1 + 0.25 * exp(-tau * 0.16) * ph2;
           // "powder": light that has gone only a little way in is not yet scattered back: crisp, darker creases
           float powder = 1.0 - exp(-tau * 2.0);
-          float h = (p.y - BASE) / (TOP - BASE);
-          vec3 S = uLightCol * sun * mix(1.0, powder, 0.5) * 15.0 + mix(uAmbBot, uAmbTop, h) * (0.4 + 0.6 * h);
+          // sky light comes from above: the bellies are in the shade of the cloud over them (grey-blue), the
+          // domes take the full sky
+          float hr = clamp((p.y - BASE) / max(top * (TOP - BASE), 60.0), 0.0, 1.0);
+          vec3 S = uLightCol * sun * mix(1.0, powder, 0.5) * uSunGain + mix(uAmbBot, uAmbTop, hr) * (0.25 + 0.75 * hr * hr);
           float ext = exp(-d * sigma * dt);
           col += T * S * (1.0 - ext);
           T *= ext;
@@ -277,7 +293,7 @@ export class Clouds {
         uCam: { value: new THREE.Vector3() }, uLight: { value: new THREE.Vector3(0, 1, 0) }, uLightCol: { value: new THREE.Vector3(1, 1, 1) },
         uAmbTop: { value: new THREE.Vector3(0.3, 0.35, 0.45) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.2, 0.25) }, uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3() },
         uWind3: { value: new THREE.Vector2() }, uTexel: { value: new THREE.Vector2() },
-        uFrame: { value: 0 }, uDensity: { value: 1 }, uBlend: { value: 1 }, uHaze: { value: 0.00004 }, uSteps: { value: 48 },
+        uFrame: { value: 0 }, uDensity: { value: 1 }, uBlend: { value: 1 }, uHaze: { value: 0.00004 }, uSteps: { value: 48 }, uSunGain: { value: 10 }, uPixAngle: { value: 0.003 },
       },
     });
     this.quad = new FullScreenQuad(this.mat);
@@ -305,8 +321,10 @@ export class Clouds {
     u.uWind3.value.set(this.wind.x * 1.35, this.wind.y * 1.35);   // the shape drifts a little faster than the coverage: the clouds churn
     u.uTexel.value.set(1 / this.width, 1 / this.height);
     u.uFrame.value = this.frame++ % 1024;
-    u.uBlend.value = this.reset ? 1 : 0.08;
+    u.uBlend.value = this.reset ? 1 : 0.06;
     u.uSteps.value = this.steps;
+    // the angle one texel of the cloud texture spans (radians)
+    u.uPixAngle.value = 2 * Math.tan(camera.fov * Math.PI / 360) / this.height;
     u.tDepth.value = depthTexture;
     u.tPrev.value = this.rts[this.idx].texture;
     this.idx = 1 - this.idx;
