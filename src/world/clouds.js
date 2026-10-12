@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ORIGIN, mod } from './origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 // Volumetric clouds: cumulus in a slab from BASE to TOP metres, raymarched at a fraction of the screen
@@ -311,7 +312,10 @@ export class Clouds {
   // wind drift (m/s) and coverage come from the environment each frame
   update(dt, windX, windZ) {
     this.wind.x += windX * dt; this.wind.y += windZ * dt;
-    CLOUD.map.x = this.wind.x; CLOUD.map.y = this.wind.y;
+    // the coverage is tied to the world, not the local frame (origin.js): the origin goes into the offset, wrapped
+    // at the texture's period
+    const P = CELL * NOISE_CELLS;
+    CLOUD.map.x = mod(this.wind.x + ORIGIN.x, P); CLOUD.map.y = mod(this.wind.y + ORIGIN.z, P);
   }
   render(camera, depthTexture) {
     const u = this.mat.uniforms, r = this.renderer;
@@ -319,7 +323,7 @@ export class Clouds {
     u.uInvViewProj.value.copy(_vp).invert();
     u.uPrevViewProj.value.copy(this.reset ? _vp : this.prevViewProj);
     u.uCam.value.copy(camera.position);
-    u.uWind3.value.set(this.wind.x * 1.35, this.wind.y * 1.35);   // the shape drifts a little faster than the coverage: the clouds churn
+    u.uWind3.value.set(mod(this.wind.x * 1.35 + ORIGIN.x, 3600), mod(this.wind.y * 1.35 + ORIGIN.z, 3600));   // the shape drifts a little faster than the coverage: the clouds churn
     u.uTexel.value.set(1 / this.width, 1 / this.height);
     u.uFrame.value = this.frame++ % 1024;
     u.uBlend.value = this.reset ? 1 : 0.06;

@@ -88,8 +88,9 @@ void main() {
   vec3 col = lut(d);
   float up = d.y;
 
-  // below the horizon (seen only from high ground, mostly hidden by terrain): dark ground haze
-  col = mix(col, uGround + col * 0.6, smoothstep(0.0, -0.08, up));
+  // below the horizon (seen only from high ground, past the end of the vista): the horizon's haze, the colour the far
+  // land fades into (the world goes on; a dark band there read as the edge of it)
+  col = mix(col, lut(normalize(vec3(d.x, 0.0, d.z))) * 0.92 + uGround * 0.2, smoothstep(0.0, -0.08, up));
   // overcast (weather.js): the sky goes a soft grey, brightest overhead (it also greys the light probe); low down it
   // takes the haze's colour, the one the far hills fade to, so the ridges sink into it instead of standing out
   if (uOvercast > 0.0) col = mix(col, mix(uHazeCol, uOvercastCol * (0.6 + 0.4 * max(up, 0.0)), smoothstep(0.0, 0.3, up)), uOvercast * smoothstep(-0.12, 0.0, up));

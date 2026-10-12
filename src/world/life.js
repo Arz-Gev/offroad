@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PAT } from './origin.js';
 
 // Life in the air, all on the GPU (fixed buffers, positions from the time and a seed per particle, wrapped
 // round the camera, so nothing is uploaded per frame):
@@ -24,9 +25,11 @@ float lGround(vec2 xz) {
 }
 // ground data at xz: g = forest floor, a = grass density
 vec4 lData(vec2 xz) { return textureLod(tData, (xz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0); }
-// a seed position wrapped into a box of side B round the camera (horizontal), drifting with d
+// a seed position wrapped into a box of side B round the camera (horizontal), drifting with d; wrapped in the
+// pattern frame (origin.js), so nothing jumps when the local frame shifts
+uniform vec2 uPat;
 vec3 lWrap(vec3 seed, float B, vec3 d) {
-  vec2 xz = mod(seed.xz * B + d.xz - uCam.xz + 0.5 * B, B) - 0.5 * B + uCam.xz;
+  vec2 xz = mod(seed.xz * B + d.xz - (uCam.xz + uPat) + 0.5 * B, B) - 0.5 * B + uCam.xz;
   return vec3(xz.x, seed.y, xz.y);
 }
 `;
@@ -182,11 +185,12 @@ ${COMMON_UNIFORMS}
 attribute vec4 aSeed;
 attribute vec4 aBird;
 uniform float uBox;
+uniform vec2 uPat;
 varying float vLit;
 void main() {
   float fl = floor(aSeed.w * 5.0);                                      // which flock
   vec3 fs = fract(vec3(fl * 0.371 + 0.13, fl * 0.719 + 0.57, fl * 0.241 + 0.91));
-  vec2 fxz = mod(fs.xz * uBox + vec2(uWind.x, uWind.y) * uTime * 1.5 - uCam.xz + 0.5 * uBox, uBox) - 0.5 * uBox + uCam.xz;
+  vec2 fxz = mod(fs.xz * uBox + vec2(uWind.x, uWind.y) * uTime * 1.5 - (uCam.xz + uPat) + 0.5 * uBox, uBox) - 0.5 * uBox + uCam.xz;
   float R = 16.0 + fs.z * 34.0;
   float w = (0.16 + fs.x * 0.14) * (fs.y < 0.5 ? 1.0 : -1.0);          // turning one way or the other
   float a = uTime * w + aSeed.x * 1.6 + fl;                               // the birds spread along an arc
@@ -297,7 +301,7 @@ export function buildLife(terrainView, env, trees) {
   const group = new THREE.Group();
   group.name = 'life';
   const shared = {
-    tHeight: TU.tHeight, tData: TU.tData, uMap: TU.uMap,
+    tHeight: TU.tHeight, tData: TU.tData, uMap: TU.uMap, uPat: PAT,
     uTime: { value: 0 }, uDay: { value: 1 }, uNight: { value: 0 },
     uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Vector3(1, 1, 1) },
     uFill: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector2(0.5, 0.3) },
@@ -383,9 +387,10 @@ export function buildLife(terrainView, env, trees) {
   const petals = quads(900, PETAL_VERT, { uTrees: { value: treeSlots } });
   const leaves = quads(500, LEAF_VERT, { uBox: { value: 34 } });
   // the trees in blossom (trees.js variants of kind 'blossom'), nearest first every half second
-  const blossoms = trees ? trees.trees.filter(t => trees.variants[t.v].kind === 'blossom') : [];
+  let blossoms = [], treesVersion = -1;
   let slotT = 0;
   const pickTrees = (cam) => {
+    if (trees && trees.version !== treesVersion) { treesVersion = trees.version; blossoms = trees.trees.filter(t => trees.variants[t.v].kind === 'blossom'); }
     const near = blossoms.map(t => [t, (t.x - cam.x) ** 2 + (t.z - cam.z) ** 2]).filter(e => e[1] < 90 * 90).sort((a, b) => a[1] - b[1]).slice(0, 8);
     for (let i = 0; i < 8; i++) {
       const e = near[i];

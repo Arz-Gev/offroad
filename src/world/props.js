@@ -1,185 +1,62 @@
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
-import { makeSimplex2D, mulberry32, fbm } from './noise.js';
-import { LANES, PAD, SPAWN, SURF, MAP_SIZE, POI } from './terrain.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mulberry32 } from './noise.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 
-// Static obstacles with Rapier colliders: boulders and outcrops, the rock garden, concrete steps, logs,
-// the ruined hut. (Trees and fallen logs: trees.js.)
-// Returns a THREE.Group and fills colliderSurface (collider handle -> tyre surface).
+// Static obstacles with Rapier colliders: the boulders and outcrops (placed and shaped in the window bake,
+// windowBake.js) and the ruined huts at the world's hut sites. (Trees and fallen logs: trees.js.)
+// Per window: prepareWindow builds the meshes (not in the scene yet), applyWindow swaps them in and refills the
+// collider stream (colliders only within two 32 m chunks of the truck; a boulder's convex hull is built when it
+// first streams in).
 
-export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial = null) {
+const strHash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+
+export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial, win) {
   const group = new THREE.Group();
-  const rnd = mulberry32(1234);
-  const rnd2 = mulberry32(4321);   // rock shapes (keeps the positions drawn from rnd unchanged)
-  const noise = makeSimplex2D(99);
-  // boulder and hut colliders are streamed in around the truck (colliderStream.js)
-  const stream = new ColliderStream(RAPIER, world, colliderSurface);
-  group.userData.stream = stream;
-
-  // ---------------- boulders
-  // Shape: an icosphere cut by random planes (chunky broken-rock faces), then noise-displaced. Indexed, smooth normals;
-  // the triplanar rock material (materials.js) adds the surface detail.
   const rockMat = rockMaterial || new THREE.MeshStandardMaterial({ color: 0xa8a49c, roughness: 0.88, vertexColors: true });
-  const rockGeos = [];
-  const _v = new THREE.Vector3();
-  const addRock = (x, z, r, flat = 0.75, sink = 0.3) => {
-    let g = new THREE.IcosahedronGeometry(1, r > 0.9 ? 3 : 2);
-    g.deleteAttribute('normal'); g.deleteAttribute('uv');
-    g = mergeVertices(g);
-    const pos = g.attributes.position;
-    const seed = rnd() * 100;
-    const sx = r * (0.8 + rnd() * 0.5), sy = r * flat * (0.75 + rnd() * 0.4), sz = r * (0.8 + rnd() * 0.5);
-    const colors = new Float32Array(pos.count * 3);
-    const tint = 0.85 + rnd() * 0.25;
-    const planes = [];
-    for (let k = 0, n = 5 + Math.floor(rnd2() * 4); k < n; k++) {
-      const a = rnd2() * Math.PI * 2, e = (rnd2() - 0.35) * 1.4;
-      planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e), 0.74 + rnd2() * 0.22]);
-    }
-    for (let i = 0; i < pos.count; i++) {
-      _v.fromBufferAttribute(pos, i).normalize();
-      let rad = 1;
-      for (const [px, py, pz, d] of planes) { const c = _v.x * px + _v.y * py + _v.z * pz; if (c > 1e-3) rad = Math.min(rad, d / c); }
-      const vx = _v.x * rad, vy = _v.y * rad, vz = _v.z * rad;
-      const n = 1 + 0.16 * fbm(noise, vx * 1.3 + seed, vz * 1.3 + vy * 0.7 + seed, 3) + 0.05 * noise(vx * 5 + seed, vy * 5 - vz * 5);
-      pos.setXYZ(i, vx * sx * n, vy * sy * n, vz * sz * n);
-      const c = tint * (0.98 + 0.27 * (vy * 0.5 + 0.5));
-      colors[i * 3] = c; colors[i * 3 + 1] = c * 0.97; colors[i * 3 + 2] = c * 0.92;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const ry = rnd() * Math.PI * 2;
-    g.rotateY(ry);
-    g.rotateX((rnd() - 0.5) * 0.4);
-    // The collider is the convex hull of these vertices, so the mesh is made the same shape: vertices in a dent are
-    // pushed out (from the centre) onto the hull. Otherwise a tyre sits on the hull over a dip the mesh shows (5 cm at
-    // the 90th percentile on rock tops, tools/groundmatch.mjs) and the drawn tyre floats. The physics is unchanged.
-    const pts3 = [];
-    for (let i = 0; i < pos.count; i++) pts3.push(new THREE.Vector3().fromBufferAttribute(pos, i));
-    const hull = new ConvexHull().setFromPoints(pts3);
-    const nf = hull.faces.length, fp = new Float64Array(nf * 4);
-    const onHull = new Set();
-    hull.faces.forEach((f, k) => {
-      fp[k * 4] = f.normal.x; fp[k * 4 + 1] = f.normal.y; fp[k * 4 + 2] = f.normal.z; fp[k * 4 + 3] = f.constant;
-      let e = f.edge; do { onHull.add(e.vertex.point); e = e.next; } while (e !== f.edge);
-    });
-    for (let i = 0; i < pts3.length; i++) {
-      if (onHull.has(pts3[i])) continue;   // a hull vertex already
-      const p = pts3[i];
-      let t = Infinity;
-      for (let k = 0; k < nf * 4; k += 4) { const d = fp[k] * p.x + fp[k + 1] * p.y + fp[k + 2] * p.z; if (d > 1e-9) { const tt = fp[k + 3] / d; if (tt < t) t = tt; } }
-      if (t > 1 && t < 2) pos.setXYZ(i, p.x * t, p.y * t, p.z * t);
-    }
-    const ground = Math.min(terrain.heightAt(x - sx * 0.5, z), terrain.heightAt(x + sx * 0.5, z), terrain.heightAt(x, z - sz * 0.5), terrain.heightAt(x, z + sz * 0.5), terrain.heightAt(x, z));
-    const y = ground + sy * (1 - sink) - sy;
-    g.computeVertexNormals();
-    const pts = new Float32Array(g.attributes.position.array);
-    const desc = RAPIER.ColliderDesc.convexHull(pts);
-    if (!desc) return;
-    desc.setTranslation(x, y + sy, z).setFriction(0.9);
-    stream.add(x, z, desc, SURFACES.rock);
-    g.translate(x, y + sy, z);
-    rockGeos.push(g);
+  const beamMat = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 0.95, map: makeBarkTexture() });
+  const stream = new ColliderStream(RAPIER, world, colliderSurface);
+  let cur = { meshes: [] };
+
+  const prepare = (t, w) => {
+    const next = { meshes: [], items: [], rockCount: w.rocks.hulls.length };
+    return { next, steps: [() => {
+      const R = w.rocks;
+      if (R.idx.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(R.pos, 3));
+        g.setAttribute('normal', new THREE.BufferAttribute(R.nrm, 3));
+        g.setAttribute('color', new THREE.BufferAttribute(R.col, 3));
+        g.setIndex(new THREE.BufferAttribute(R.idx, 1));
+        g.computeBoundingSphere();
+        const rocks = new THREE.Mesh(g, rockMat);
+        rocks.castShadow = true; rocks.receiveShadow = true;
+        rocks.name = 'boulders';
+        next.meshes.push(rocks);
+      }
+      for (const h of R.hulls) next.items.push({ x: h.x, z: h.z, desc: () => { const d = RAPIER.ColliderDesc.convexHull(h.pts); return d && d.setTranslation(h.x, h.y, h.z).setFriction(0.9); }, surface: SURFACES.rock });
+      for (const s of t.sites) if (s.type === 'hut') buildHut(next, RAPIER, t, s, rockMat, beamMat, mulberry32(strHash(s.id)));
+    }] };
   };
-  const clear = (x, z, m) => !terrain.isTrail(x, z, m) && !(x > PAD.x0 - m && x < PAD.x1 + m && z > PAD.z0 - m && z < PAD.z1 + m)
-    && Math.hypot(x - SPAWN.x, z - SPAWN.z) > 25 && Math.hypot(x - POI.hut.x, z - POI.hut.z) > 14 && terrain.waterLevelAt(x, z) < -1e8;
-  const slopeAt = (x, z) => Math.hypot(terrain.heightAt(x + 1, z) - terrain.heightAt(x - 1, z), terrain.heightAt(x, z + 1) - terrain.heightAt(x, z - 1)) / 2;
-
-  // rock garden in lane C
-  for (let k = 0; k < 46; k++) {
-    const z = 40 - rnd() * 62, x = LANES.C + (rnd() - 0.5) * 6.4;
-    addRock(x, z, 0.28 + rnd() * rnd() * 0.62, 0.66, 0.38);
-  }
-  // scattered boulders across the map (off the trails and the pad), more on rocky slopes
-  let placed = 0;
-  for (let tries = 0; tries < 9000 && placed < 260; tries++) {
-    const x = (rnd() - 0.5) * (MAP_SIZE - 40), z = (rnd() - 0.5) * (MAP_SIZE - 40);
-    if (!clear(x, z, 6)) continue;
-    const sl = slopeAt(x, z), rocky = terrain.surfaceId(x, z) === SURF.rock ? 1 : Math.min(1, Math.max(0, (sl - 0.2) / 0.35));
-    if (rnd() > 0.3 + 0.7 * rocky) continue;
-    const big = rnd() < 0.15 + rocky * 0.15;
-    const r = big ? 1.2 + rnd() * 1.4 : 0.35 + rnd() * 0.7;
-    addRock(x, z, r, 0.65 + rnd() * 0.3, 0.3);
-    if (rnd() < 0.5) for (let c = 0; c < 3; c++) addRock(x + (rnd() - 0.5) * r * 4, z + (rnd() - 0.5) * r * 4, r * (0.3 + rnd() * 0.4), 0.7, 0.35);
-    placed++;
-  }
-  // outcrops: big slabs half buried in the steeper hillsides
-  placed = 0;
-  for (let tries = 0; tries < 6000 && placed < 55; tries++) {
-    const x = (rnd() - 0.5) * (MAP_SIZE - 60), z = (rnd() - 0.5) * (MAP_SIZE - 60);
-    if (!clear(x, z, 10)) continue;
-    const sl = slopeAt(x, z);
-    if (sl < 0.3 || sl > 0.9) continue;
-    addRock(x, z, 2.4 + rnd() * 2.2, 0.55 + rnd() * 0.2, 0.5);
-    placed++;
-  }
-  if (rockGeos.length) {
-    const merged = mergeGeometries(rockGeos);
-    const rocks = new THREE.Mesh(merged, rockMat);
-    rocks.castShadow = true; rocks.receiveShadow = true;
-    rocks.name = 'boulders';
-    group.add(rocks);
-  }
-  group.userData.rockCount = rockGeos.length;
-
-  buildHut(stream, RAPIER, terrain, group, rockMat, rnd2);
-
-  // ---------------- lane B: concrete steps then logs
-  const concrete = new THREE.MeshStandardMaterial({ color: 0x9c9890, roughness: 0.9 });
-  const stepHeights = [0.15, 0.25, 0.35, 0.45];
-  stepHeights.forEach((h, k) => {
-    const z = 34 - k * 8;
-    const y = terrain.heightAt(LANES.B, z);
-    const hx = 2.2, hz = 0.7;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, h + 0.4, hz * 2), concrete);
-    m.position.set(LANES.B, y + (h - 0.4) / 2 + 0.0, z);
-    m.castShadow = m.receiveShadow = true;
-    group.add(m);
-    const col = world.createCollider(RAPIER.ColliderDesc.cuboid(hx, (h + 0.4) / 2, hz).setTranslation(m.position.x, m.position.y, m.position.z).setFriction(0.95));
-    colliderSurface.set(col.handle, SURFACES.concrete);
-  });
-  const bark = makeBarkTexture();
-  const logMat = new THREE.MeshStandardMaterial({ color: 0x8a7258, map: bark, roughness: 0.9 });
-  [0.12, 0.2, 0.28].forEach((r, k) => {
-    const z = 2 - k * 7.5;
-    const y = terrain.heightAt(LANES.B, z) + r * 0.85;
-    const len = 6;
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, len, 16), logMat);
-    m.rotation.z = Math.PI / 2;
-    m.rotation.y = (k - 1) * 0.12;
-    m.position.set(LANES.B, y, z);
-    m.castShadow = m.receiveShadow = true;
-    group.add(m);
-    const q = m.quaternion;
-    const col = world.createCollider(RAPIER.ColliderDesc.cylinder(len / 2, r).setTranslation(LANES.B, y, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setFriction(0.7));
-    colliderSurface.set(col.handle, SURFACES.wood);
-  });
-  // lane markers (posts) at lane starts
-  const postMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.7 });
-  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xc8301e, roughness: 0.6 });
-  for (const lx of Object.values(LANES)) for (const s of [-1, 1]) {
-    const x = lx + s * 4.2, z = 44;
-    const y = terrain.heightAt(x, z);
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 8), postMat);
-    p.position.set(x, y + 0.6, z);
-    p.castShadow = true;
-    group.add(p);
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.2, 8), stripeMat);
-    st.position.set(x, y + 1.0, z);
-    group.add(st);
-  }
-
-  stream.update(SPAWN.x, SPAWN.z);
-  return group;
+  const apply = (next) => {
+    for (const m of cur.meshes) { group.remove(m); m.geometry.dispose(); }
+    cur = next;
+    for (const m of cur.meshes) group.add(m);
+    stream.clear();
+    for (const it of next.items) stream.add(it.x, it.z, it.desc, it.surface);
+    group.userData.rockCount = next.rockCount;
+  };
+  { const first = prepare(terrain, win); for (const s of first.steps) s(); apply(first.next); }
+  group.userData.stream = stream;
+  return { group, stream, prepareWindow: prepare, applyWindow: apply, get rockMesh() { return cur.meshes.find(m => m.name === 'boulders'); } };
 }
 
-// A ruined stone hut off the southern straight of the outer loop: rubble walls with a doorway and a window,
-// a gable end with a chimney, two roof beams (one fallen) and stones around. Colliders per wall segment.
-function buildHut(stream, RAPIER, terrain, group, stoneMat, rnd) {
-  const { x: hx, z: hz, yaw } = POI.hut;
+// A ruined stone hut: rubble walls with a doorway and a window, a gable end with a chimney, two roof beams (one
+// fallen) and stones around. Colliders per wall segment. out: { meshes, items } (the window being prepared)
+function buildHut(out, RAPIER, terrain, site, stoneMat, beamMat, rnd) {
+  const { x: hx, z: hz, yaw } = site;
   const base = terrain.heightAt(hx, hz);
   const parts = [];
   const cos = Math.cos(yaw), sin = Math.sin(yaw);
@@ -200,7 +77,7 @@ function buildHut(stream, RAPIER, terrain, group, stoneMat, rnd) {
     parts.push(g);
     if (collide) {
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, tilt));
-      stream.add(wx, wz, RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(wx, gy + y0 + h / 2, wz).setRotation(q).setFriction(0.9), SURFACES.rock);
+      out.items.push({ x: wx, z: wz, desc: RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(wx, gy + y0 + h / 2, wz).setRotation(q).setFriction(0.9), surface: SURFACES.rock });
     }
   };
   const W = 6.4, D = 4.6, T = 0.5, SEG = 0.55;
@@ -237,9 +114,8 @@ function buildHut(stream, RAPIER, terrain, group, stoneMat, rnd) {
   const mesh = new THREE.Mesh(geo, stoneMat);
   mesh.castShadow = mesh.receiveShadow = true;
   mesh.name = 'hut';
-  group.add(mesh);
+  out.meshes.push(mesh);
   // roof beams: one still spanning the gable to the front wall, one fallen inside
-  const beamMat = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 0.95, map: makeBarkTexture() });
   const beam = (lx0, ly0, lz0, lx1, ly1, lz1, r) => {
     const [ax, az] = toWorld(lx0, lz0), [bx, bz] = toWorld(lx1, lz1);
     const a = new THREE.Vector3(ax, base + ly0, az), b = new THREE.Vector3(bx, base + ly1, bz);
@@ -247,7 +123,7 @@ function buildHut(stream, RAPIER, terrain, group, stoneMat, rnd) {
     m.position.copy(a).add(b).multiplyScalar(0.5);
     m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
     m.castShadow = m.receiveShadow = true;
-    group.add(m);
+    out.meshes.push(m);
   };
   beam(-W / 2 + 0.2, 3.25, 0, W / 2 - 1.8, 2.15, 0.2, 0.11);
   beam(-1.2, 0.15, -1.6, 1.9, 1.05, 1.5, 0.1);

@@ -1,14 +1,19 @@
-// Shaded relief of the generated map (surfaces, trails, water, contour lines) as a PNG, for designing
-// the layout without starting the game.   node tools/mapimage.mjs out.png [pixelsPerMetre=1] [x0 z0 x1 z1]
+// Shaded relief of a window of the world (surfaces, roads, water, contour lines) as a PNG, for designing without
+// starting the game.   node tools/mapimage.mjs out.png [pixelsPerMetre=1] [x0 z0 x1 z1]
+// The window is centred on the start (WX=, WZ= world coordinates: another place); x0..z1 are local to it.
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-import { Terrain, MAP_SIZE, SURF } from '../src/world/terrain.js';
+import { Terrain, MAP_SIZE, SURF, WINDOW_STEP } from '../src/world/terrain.js';
+import { World } from '../src/world/worldgen.js';
 
 const out = process.argv[2] || 'map.png';
 const ppm = +(process.argv[3] || 1);
 const half = MAP_SIZE / 2;
 const [x0, z0, x1, z1] = process.argv.length >= 8 ? process.argv.slice(4, 8).map(Number) : [-half, -half, half, half];
-const t = new Terrain(7);
+const world = new World(+(process.env.SEED || 7)), sp = world.spawn();
+const snap = v => Math.round(v / WINDOW_STEP) * WINDOW_STEP;
+const t = new Terrain(world, snap(process.env.WX ? +process.env.WX : sp.x), snap(process.env.WZ ? +process.env.WZ : sp.z));
+console.log('window centre', t.ox, t.oz, 'sites', t.sites.map(s => `${s.type} ${s.x.toFixed(0)},${s.z.toFixed(0)}`).join('; '));
 console.log('gen ms', t.genMs.toFixed(0));
 const W = Math.round((x1 - x0) * ppm), Hh = Math.round((z1 - z0) * ppm);
 const img = Buffer.alloc(W * Hh * 3);

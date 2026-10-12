@@ -880,6 +880,16 @@ export class Vehicle {
   }
 
   // put the truck back on its wheels (level, or tilted by `rot` to sit on a slope)
+  // the local frame moved by (dx, dz) (world/origin.js): the body moves with it, keeping its motion; the world-space
+  // points of the wheels and axles follow (the contacts are cast again on the next step)
+  shift(dx, dz) {
+    const b = this.body, t = b.translation();
+    b.setTranslation({ x: t.x - dx, y: t.y, z: t.z - dz }, false);
+    for (const w of this.wheels) for (const v of [w.hub, w.P]) { v.x -= dx; v.z -= dz; }
+    for (const ax of this.axles) for (const v of [ax.A, ax.mount]) { v.x -= dx; v.z -= dz; }
+    this.readBody();
+  }
+
   reset(position, yaw, rot = null) {
     const b = this.body;
     const q = rot || new THREE.Quaternion().setFromAxisAngle(Y, yaw);

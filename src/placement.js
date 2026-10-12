@@ -1,46 +1,98 @@
 import * as THREE from 'three';
-import { SPAWN, LANES, HILL, POI } from './world/terrain.js';
+import { ORIGIN } from './world/origin.js';
+import { MAP_SIZE } from './world/terrain.js';
 import { rideRaise } from './vehicle/tuning.js';
 
-// Putting the vehicle somewhere: the menu's locations, teleports and Recover (R).
-// ctx: { RAPIER, world, terrain, vehicle, trees, props, onPlaced() }.
-export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced }) {
-  function trailSpot(x, z, back = 0) {
-    let best = null, bd = Infinity;
+// Putting the vehicle somewhere: the menu's locations (the start and the places found while driving), teleports
+// (near ones at once, far ones once the window round them is built: streamer.js) and Recover (R).
+// ctx: { RAPIER, world, terrain, vehicle, trees, props, streamer, spawn (world coordinates), onPlaced(), say() }.
+
+const FOUND_KEY = 'offroad.found.v1';
+const NAMES = {
+  hut: { tag: 'Ruin', title: 'Ruined hut', desc: 'An old stone hut by the road. Walls to nose up to, rubble round it.' },
+  lake: { tag: 'Water', title: 'Lake', desc: 'A lake in a hollow, a sandy shore, a stream running in from the hills.' },
+  quarry: { tag: 'Quarry', title: 'Old quarry', desc: 'A pit cut into the hillside: terraced walls, a gravel floor, a ramp in.' },
+  lookout: { tag: 'Summit', title: 'Lookout', desc: 'The top of a hill, a track winding up to it, the land laid out below.' },
+};
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+
+export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props, streamer, spawn, onPlaced, say }) {
+  // the nearest point on a road to (x, z) (local), facing along it; back: metres back along the road
+  function trailSpot(x, z, back = 0, maxD = Infinity) {
+    let best = null, bd = maxD * maxD;
     for (const c of terrain.trailCurves) {
       const n = Math.round(c.getLength() / 2), pts = c.getSpacedPoints(n);
       for (let k = 0; k <= n; k++) { const d = (pts[k].x - x) ** 2 + (pts[k].z - z) ** 2; if (d < bd) { bd = d; best = { pts, k, n }; } }
     }
+    if (!best) return null;
     const { pts, k } = best, k0 = Math.max(0, k - Math.round(back / 2)), k1 = Math.min(pts.length - 1, k0 + 3);
     const p = pts[k0], q = pts[k1];
     return { x: p.x, z: p.z, yaw: Math.atan2(-(q.x - p.x), -(q.z - p.z)) };
   }
-  // menu Locations tab (x, z, yaw also used by tools/browser-snippets.js)
-  const teleports = [
-    { name: 'Spawn', tag: 'Trail', title: 'Spawn', desc: 'Start of the trail loop: ruts, a mud hole and a branch towards the hills.', x: SPAWN.x, z: SPAWN.z, yaw: 0 },
-    { name: 'Axle twister', tag: 'Proving ground · lane A', title: 'Axle twister and whoops', desc: 'Offset humps that lift one wheel at a time. Watch the axle articulation.', x: LANES.A, z: 47, yaw: 0 },
-    { name: 'Steps and logs', tag: 'Proving ground · lane B', title: 'Steps and logs', desc: 'Ledges from 15 to 45 cm, then logs. Low range and a slow approach.', x: LANES.B, z: 47, yaw: 0 },
-    { name: 'Rock garden', tag: 'Proving ground · lane C', title: 'Rock garden', desc: 'Boulders. Needs low range, lockers and a careful line.', x: LANES.C, z: 47, yaw: 0 },
-    { name: 'Ramps', tag: 'Proving ground · lane D', title: 'Ramps 20° / 30° / 35°', desc: 'Climbs in low range. The steepest needs the centre diff locked.', x: LANES.D, z: 47, yaw: 0 },
-    { name: 'Mud and off-camber', tag: 'Proving ground · lane E', title: 'Mud and off-camber', desc: 'A deep mud hole and a side slope. Air down and keep momentum.', x: LANES.E, z: 47, yaw: 0 },
-    { name: 'The big hill', tag: 'Hill', title: 'The big hill', desc: 'A long climb with views over the whole map.', x: HILL.x - 52, z: HILL.z + 8, yaw: -Math.PI / 2 },
-    { name: 'Lake shore', tag: 'Outer loop · east', title: 'Lake shore', desc: 'A sandy beach on the lake. Splash through the shallows along the shore.', x: 386, z: 44, yaw: Math.atan2(-(POI.lake.x - 386), -(POI.lake.z - 44)) },
-    { name: 'The ford', tag: 'Outer loop · north-east', title: 'The ford', desc: 'The trail crosses the stream: 30 cm of water over gravel. Keep it slow and steady.', ...trailSpot(POI.ford.x, POI.ford.z, 35) },
-    { name: 'Ruined hut', tag: 'Outer loop · south', title: 'Ruined hut', desc: 'An old stone hut in the meadows, off the long southern straight.', ...trailSpot(POI.hut.x, POI.hut.z, 40) },
-    { name: 'Old quarry', tag: 'South-west', title: 'Old quarry', desc: 'A gravel pit with terraced walls. Loose ground, room to play.', x: POI.quarry.x + 10, z: POI.quarry.z + 6, yaw: Math.PI / 2 },
-    { name: 'Lookout', tag: 'Peak · spiral spur', title: 'Lookout summit', desc: 'The top of the spiral track: the whole map and the ranges beyond.', ...trailSpot(POI.lookout.x, POI.lookout.z, 14) },
-    { name: 'Pine forest', tag: 'Outer loop · north', title: 'Pine forest', desc: 'The trail through the dense northern forest. Lovely with the headlights at night.', ...trailSpot(POI.forest.x, POI.forest.z, 0) },
-  ];
+
+  // the menu's list: the start, then every place found (kept in the browser), nearest the start first
+  const describe = (s) => {
+    const n = NAMES[s.type], d = Math.hypot(s.x - spawn.x, s.z - spawn.z);
+    const dir = COMPASS[(Math.round(Math.atan2(s.x - spawn.x, s.z - spawn.z) / (Math.PI / 4)) + 8) % 8];   // north is +z (the midday sun is towards -z)
+    return { name: n.title, tag: `${n.tag} · ${d < 950 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(1) + ' km'} ${dir} of the start`, title: n.title, desc: n.desc, ax: s.x, az: s.z, site: s };
+  };
+  let found = [];
+  try { found = JSON.parse(localStorage.getItem(FOUND_KEY) || '[]').filter(s => NAMES[s.type]); } catch { found = []; }
+  const teleports = [];
+  const rebuild = () => {
+    teleports.length = 0;
+    teleports.push({ name: 'Start', tag: 'Road', title: 'The start', desc: 'Where the world begins: a road out into the hills, every way open.', ax: spawn.x, az: spawn.z, yaw: spawn.yaw, start: true });
+    for (const s of [...found].sort((a, b) => Math.hypot(a.x - spawn.x, a.z - spawn.z) - Math.hypot(b.x - spawn.x, b.z - spawn.z))) teleports.push(describe(s));
+  };
+  rebuild();
+  // places within ~120 m of the truck are found (checked twice a second)
+  let findT = 0;
+  const discover = (dt) => {
+    if ((findT -= dt) > 0) return;
+    findT = 0.5;
+    for (const s of terrain.sites) {
+      if (!NAMES[s.type] || found.some(f => f.id === s.id)) continue;
+      const r = s.type === 'lake' ? Math.max(s.lake?.rx ?? 60, s.lake?.rz ?? 60) + 60 : 120;
+      if (Math.hypot(s.x - vehicle.pos.x, s.z - vehicle.pos.z) > r) continue;
+      const f = { id: s.id, type: s.type, x: s.ax, z: s.az };
+      found.push(f);
+      try { localStorage.setItem(FOUND_KEY, JSON.stringify(found)); } catch { /* private mode: kept for this session */ }
+      rebuild();
+      say?.('found', `Found: ${NAMES[s.type].title} · added to Locations`, 'good');
+    }
+  };
+
+  // a location's local position and heading (in the current window)
+  const localSpot = (t) => {
+    const x = t.ax - ORIGIN.x, z = t.az - ORIGIN.z;
+    if (t.start) return { x, z, yaw: t.yaw };
+    const s = t.site;
+    if (s.type === 'lake') {
+      // on the shore, facing the water
+      const lk = terrain.sites.find(q => q.id === s.id)?.lake;
+      if (lk) {
+        for (let k = 0; k < 16; k++) {
+          const a = k / 16 * Math.PI * 2, px = lk.x + Math.cos(a) * lk.rx * 1.3, pz = lk.z + Math.sin(a) * lk.rz * 1.3;
+          if (terrain.waterLevelAt(px, pz) < -1e8 && terrain.normalAt(px, pz).y > 0.93) return { x: px, z: pz, yaw: Math.atan2(-(lk.x - px), -(lk.z - pz)) };
+        }
+      }
+    }
+    if (s.type === 'quarry') { const sp = trailSpot(x, z, 25, 120); if (sp) return sp; }
+    if (s.type === 'lookout') { const sp = trailSpot(x, z, 14, 80); if (sp) return sp; }
+    const sp = trailSpot(x, z, 0, 90);
+    if (sp) return sp;
+    return { x: x + 12, z, yaw: 0 };
+  };
 
   const nearestLocation = () => {
     let best = -1, bd = 25 * 25;
-    teleports.forEach((t, i) => { const dd = (t.x - vehicle.pos.x) ** 2 + (t.z - vehicle.pos.z) ** 2; if (dd < bd) { bd = dd; best = i; } });
+    teleports.forEach((t, i) => { const dd = (t.ax - ORIGIN.x - vehicle.pos.x) ** 2 + (t.az - ORIGIN.z - vehicle.pos.z) ** 2; if (dd < bd) { bd = dd; best = i; } });
     return best;
   };
 
   const streamAround = (x, z) => {
     trees.updatePhysics(x, z);
-    props.userData.stream.update(x, z);
+    props.stream.update(x, z);
     world.step();   // queries see streamed colliders only after a step
   };
   const placeVehicle = (x, z, yaw, lift = 0.5) => {
@@ -50,6 +102,22 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
     vehicle.reset({ x, y: y + lift + rideRaise(vehicle.P), z }, yaw);
     onPlaced();
   };
+  // somewhere in the world (world coordinates): at once if it is well inside the window, else once the window round it
+  // is built. spot(): the local spot once there (default: the point itself)
+  const near = (ax, az) => Math.abs(ax - ORIGIN.x) < MAP_SIZE / 2 - 120 && Math.abs(az - ORIGIN.z) < MAP_SIZE / 2 - 120;
+  const placeWorld = async (ax, az, yaw, spot = null) => {
+    if (!near(ax, az)) {
+      say?.('place', 'Travelling…', '', 6);
+      const ok = await streamer.goTo(ax, az);
+      if (!ok) return false;
+    }
+    const s = spot ? spot() : { x: ax - ORIGIN.x, z: az - ORIGIN.z, yaw };
+    placeVehicle(s.x, s.z, s.yaw ?? yaw);
+    return true;
+  };
+  const teleportTo = (t) => placeWorld(t.ax, t.az, t.yaw ?? 0, () => localSpot(t));
+  // a site of the world ({ type, x, z, id }, world coordinates), as the menu would go there (tools)
+  const visit = (s) => teleportTo(describe(s));
 
   // How the truck would stand at (x, z) facing yaw: tilted to a ground plane fitted under its wheels,
   // just above the tyres' touch (a bump under a wheel or the belly lifts it).
@@ -151,5 +219,5 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
     } else placeVehicle(vehicle.pos.x, vehicle.pos.z, vehicle.yaw(), 1.0);
   };
 
-  return { teleports, nearestLocation, placeVehicle, recover };
+  return { teleports, nearestLocation, placeVehicle, placeWorld, teleportTo, visit, discover, recover };
 }
