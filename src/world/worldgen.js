@@ -16,6 +16,8 @@ export const ROAD_CELL = 400;
 export const REGION = 1200;
 const GRID = 8;                         // m: road / stream routing grid
 const TAN = d => Math.tan(d * Math.PI / 180);
+// the road bed's 2D low-pass: a 7 x 7 Gaussian over the routing grid (sigma 1.4 cells, ~11 m), normalised
+const BED_K = (() => { const k = []; let s = 0; for (let u = -3; u <= 3; u++) for (let v = -3; v <= 3; v++) { const w = Math.exp(-(u * u + v * v) / (2 * 1.4 * 1.4)); k.push(w); s += w; } return k.map(w => w / s); })();
 
 // integer hash -> [0, 1)
 export function hash3(a, b, c = 0) {
@@ -112,6 +114,21 @@ function simplify(d, tol) {
   for (let i = 0; i < n; i++) if (keep[i]) { px.push(d[2 * i]); pz.push(d[2 * i + 1]); }
   return { px, pz };
 }
+// the router's moves (8 neighbours and the knight's moves, by angle), their lengths in cells, and per heading the moves
+// allowed next (turning up to ~55 degrees) with their turning cost (heading 16: none yet, any move)
+const MV16 = [[1, 0], [2, 1], [1, 1], [1, 2], [0, 1], [-1, 2], [-1, 1], [-2, 1], [-1, 0], [-2, -1], [-1, -1], [-1, -2], [0, -1], [1, -2], [1, -1], [2, -1]];
+const MVLEN = MV16.map(([a, b]) => Math.hypot(a, b));
+const NEXT16 = MV16.map(([a, b]) => {
+  const out = [];
+  MV16.forEach(([c, d], m) => {
+    let t = Math.abs(Math.atan2(d, c) - Math.atan2(b, a));
+    if (t > Math.PI) t = 2 * Math.PI - t;
+    if (t <= 0.97) out.push([m, 1.2 * t * t]);
+  });
+  return out;
+});
+NEXT16.push(MV16.map((_, m) => [m, 0]));
+
 // ridged noise with each octave turned (plain ridged lines its creases up along the simplex grid's axes)
 function ridgedR(noise, x, y, oct) {
   let a = 1, s = 0, norm = 0;
@@ -157,7 +174,7 @@ export class World {
     this.n1 = makeSimplex2D(s); this.n2 = makeSimplex2D(s + 11); this.n3 = makeSimplex2D(s + 23);
     this.n4 = makeSimplex2D(s + 37); this.n5 = makeSimplex2D(s + 51); this.n6 = makeSimplex2D(s + 67);
     this.n7 = makeSimplex2D(s + 83); this.n8 = makeSimplex2D(s + 97); this.n9 = makeSimplex2D(s + 113);
-    this.nodes = new Map(); this.edges = new Map(); this.regions = new Map(); this.gridTiles = new Map();
+    this.nodes = new Map(); this.edges = new Map(); this.regions = new Map(); this.gridTiles = new Map(); this.bedTiles = new Map();
     this.makeFineTile();
   }
 
@@ -169,12 +186,16 @@ export class World {
     const region = fbm(n1, X * 0.00021, Z * 0.00021, 3);                                     // regional level
     const roll = fbm(n2, X * 0.0055 + 13.1, Z * 0.0055, 3) * 8;
     const hills = fbm(n4, X * 0.0024, Z * 0.0024, 3) * 22 + fbm(n5, X * 0.009, Z * 0.009, 2) * 4;
-    const mm = smoothstep(0.2, 0.5, fbm(n9, X * 0.00034 + 7.3, Z * 0.00034, 3) + region * 0.3);
+    const mm = this.mountains(X, Z, region);
     let h = region * 50 + roll + hills * (0.8 + 0.6 * mm);
     if (mm > 0) h += mm * (15 + 75 * ridgedR(n6, X * 0.0011, Z * 0.0011, 4) * (0.6 + 0.4 * smoothstep(-0.3, 0.5, n5(X * 0.0007, Z * 0.0007))));
     const rr = smoothstep(0.3, 0.68, fbm(n7, X * 0.0001 + 3.7, Z * 0.0001, 2));
     if (rr > 0) h += rr * rr * 300 * ridgedR(n8, X * 0.0006, Z * 0.0006, 5);
     return h;
+  }
+  // how much of mountain country (X, Z) is in: 0 .. 1 (region: the regional level, if known)
+  mountains(X, Z, region = fbm(this.n1, X * 0.00021, Z * 0.00021, 3)) {
+    return smoothstep(0.2, 0.5, fbm(this.n9, X * 0.00034 + 7.3, Z * 0.00034, 3) + region * 0.3);
   }
   // the relief with the lakes' basins in it: the bed under the water, a shore that rises gently from it (cut down
   // where the ground was higher, built up where it was lower, so the water never spills over the rim)
@@ -214,6 +235,35 @@ export class World {
     this.fineTile = t; this.fineT = T;
   }
   fineAt(ixA, izA) { const T = this.fineT; return this.fineTile[(((ixA % T) + T) % T) * T + (((izA % T) + T) % T)]; }
+  // the roads' bed: base() low-passed in 2D (a Gaussian, sigma ~11 m, over the routing grid; cached tiles), so any two
+  // roads at the same place lie at the same height and the bumps shorter than ~30 m are gone. lakes: never below
+  // their shores
+  bedGrid(i, j) {
+    const ti = i >> 6, tj = j >> 6, key = ti * 1048576 + tj;
+    let t = this.bedTiles.get(key);
+    if (!t) {
+      t = new Float32Array(64 * 64);
+      const K = BED_K, R = 3;
+      for (let a = 0; a < 64; a++) for (let b = 0; b < 64; b++) {
+        const ci = (ti << 6) + a, cj = (tj << 6) + b;
+        let s = 0;
+        for (let u = -R; u <= R; u++) for (let v = -R; v <= R; v++) s += K[(u + R) * 7 + v + R] * this.baseGrid(ci + u, cj + v);
+        t[a * 64 + b] = s;
+      }
+      this.bedTiles.set(key, t);
+      if (this.bedTiles.size > 4096) this.bedTiles.delete(this.bedTiles.keys().next().value);
+    }
+    return t[(i - (ti << 6)) * 64 + (j - (tj << 6))];
+  }
+  bed(X, Z, lakes = null) {
+    const fx = X / GRID, fz = Z / GRID, i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
+    let h = (this.bedGrid(i, j) * (1 - tx) + this.bedGrid(i + 1, j) * tx) * (1 - tz) + (this.bedGrid(i, j + 1) * (1 - tx) + this.bedGrid(i + 1, j + 1) * tx) * tz;
+    for (const l of lakes || this.lakesNear(X, Z, 0)) {
+      const e = Math.hypot((X - l.x) / l.rx, (Z - l.z) / l.rz);
+      if (e < 1.8) h = Math.max(h, l.level + 0.4 + (e - 1) * 1.5);
+    }
+    return h;
+  }
   slope(X, Z, e = 6) { return Math.hypot(this.base(X + e, Z) - this.base(X - e, Z), this.base(X, Z + e) - this.base(X, Z - e)) / (2 * e); }
   // base() on the routing grid (GRID m, absolute), in cached 64 x 64 tiles: neighbouring routes share their corridors
   baseGrid(i, j) {
@@ -323,10 +373,13 @@ export class World {
     const nodesIn = [];
     for (let i = Math.floor(x0 / ROAD_CELL); i < Math.floor((x0 + REGION) / ROAD_CELL); i++)
       for (let j = Math.floor(z0 / ROAD_CELL); j < Math.floor((z0 + REGION) / ROAD_CELL); j++) nodesIn.push(this.node(i, j));
+    // near a road? By the straight line between the linked nodes, with room for the route's wandering (the routes
+    // themselves would make every region work out the roads of all its neighbours)
     const nearRoad = (X, Z, R) => {
-      for (const nd of this.nodesAround(X, Z, R + ROAD_CELL)) for (const e of this.edgesOf(nd)) {
-        if (X < e.bb[0] - R || X > e.bb[2] + R || Z < e.bb[1] - R || Z > e.bb[3] + R) continue;
-        for (let k = 0; k < e.xs.length; k += 8) if ((e.xs[k] - X) ** 2 + (e.zs[k] - Z) ** 2 < R * R) return true;
+      for (const nd of this.nodesAround(X, Z, R + ROAD_CELL)) for (const [i, j] of this.links(nd.ci, nd.cj)) {
+        const o = this.node(i, j), ax = nd.x, az = nd.z, bx = o.x - ax, bz = o.z - az;
+        const u = Math.max(0, Math.min(1, ((X - ax) * bx + (Z - az) * bz) / (bx * bx + bz * bz || 1)));
+        if (Math.hypot(X - ax - bx * u, Z - az - bz * u) < R + 70) return true;
       }
       return false;
     };
@@ -389,7 +442,7 @@ export class World {
         let steep = 0;
         for (let a = 0; a < 8; a++) steep += this.slope(best.X + Math.cos(a * 0.785) * 50, best.Z + Math.sin(a * 0.785) * 50, 8);
         if (!(prom > 18 && prom < 140 && steep / 8 < 0.45 && clearOf(best.X, best.Z, 30) && !nearRoad(best.X, best.Z, 40))) continue;
-        const top = this.base(best.X, best.Z);
+        const top = this.bed(best.X, best.Z);   // the flat top the spur ends on (terrain.js levels it)
         const nd = this.nearestNode(best.X, best.Z);
         const spur = this.route({ x: nd.x, z: nd.z, h: nd.h }, { x: best.X, z: best.Z, h: top }, `p${ri}_${rj}`, { spur: true, grade: 14, corridor: 260 });
         if (!spur) continue;
@@ -430,9 +483,7 @@ export class World {
       }
       x = bx; z = bz;
     }
-    let h = 0, c = 0;
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { h += this.base(x + a * 6, z + b * 6); c++; }
-    n = { ci, cj, x, z, h: h / c, key };
+    n = { ci, cj, x, z, h: this.bed(x, z), key };
     this.nodes.set(key, n);
     return n;
   }
@@ -522,35 +573,41 @@ export class World {
     const cell = (X, Z) => [Math.max(0, Math.min(W - 1, Math.round(X / GRID) - gx0)), Math.max(0, Math.min(Hh - 1, Math.round(Z / GRID) - gz0))];
     const [si, sj] = cell(a.x, a.z), [ti, tj] = cell(b.x, b.z);
     const start = si * Hh + sj, goal = ti * Hh + tj;
-    const g = new Float32Array(n).fill(Infinity), from = new Int32Array(n).fill(-1), done = new Uint8Array(n);
+    // A* over (cell, heading): a move may turn at most ~55 degrees from the last and turning costs, so a hairpin is
+    // a curve of several moves (~10 m radius) and the line doesn't zigzag
+    const NH = MV16.length, NS = n * (NH + 1);
+    const g = new Float32Array(NS).fill(Infinity), from = new Int32Array(NS).fill(-1), done = new Uint8Array(NS);
     const gmax = TAN(opts.grade ?? 13);
-    const MOVES = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1], [2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]];
     const heur = (k) => { const i = (k / Hh) | 0, j = k - i * Hh; return Math.hypot(i - ti, j - tj) * GRID; };
     const heap = new Heap();
-    g[start] = 0; heap.push(heur(start), start);
+    const s0 = start * (NH + 1) + NH;   // heading NH: none yet (any move)
+    g[s0] = 0; heap.push(heur(start), s0);
+    let end = -1;
     while (heap.size) {
-      const u = heap.pop();
-      if (done[u]) continue;
-      done[u] = 1;
-      if (u === goal) break;
+      const su = heap.pop();
+      if (done[su]) continue;
+      done[su] = 1;
+      const u = (su / (NH + 1)) | 0, hu = su - u * (NH + 1);
+      if (u === goal) { end = su; break; }
       const ui = (u / Hh) | 0, uj = u - ui * Hh;
-      for (const [di, dj] of MOVES) {
+      for (const [m, turnC] of NEXT16[hu]) {
+        const [di, dj] = MV16[m];
         const vi = ui + di, vj = uj + dj;
         if (vi < 0 || vj < 0 || vi >= W || vj >= Hh) continue;
-        const v = vi * Hh + vj;
-        if (done[v]) continue;
-        const d = Math.hypot(di, dj) * GRID, gr = Math.abs(hg[v] - hg[u]) / d;
+        const v = vi * Hh + vj, sv = v * (NH + 1) + m;
+        if (done[sv]) continue;
+        const d = MVLEN[m] * GRID, gr = Math.abs(hg[v] - hg[u]) / d;
         // steep ground costs more and more past the target grade; water is (nearly) a wall; a little low-frequency
-        // noise makes the routes wander like real tracks
-        let c = d * (1 + 18 * gr * gr + (gr > gmax ? 260 * (gr - gmax) * (gr - gmax) + 6 * (gr - gmax) : 0) + 0.35 * wig[v]);
+        // noise makes the routes wander like real tracks; turning costs
+        let c = d * (1 + 18 * gr * gr + (gr > gmax ? 260 * (gr - gmax) * (gr - gmax) + 6 * (gr - gmax) : 0) + 0.35 * wig[v] + turnC);
         if (wet[v]) c += d * 80;
-        const ng = g[u] + c;
-        if (ng < g[v]) { g[v] = ng; from[v] = u; heap.push(ng + heur(v), v); }
+        const ng = g[su] + c;
+        if (ng < g[sv]) { g[sv] = ng; from[sv] = su; heap.push(ng + heur(v), sv); }
       }
     }
-    if (from[goal] < 0 && goal !== start) return null;
+    if (end < 0) return null;
     const path = [];
-    for (let k = goal; k >= 0; k = from[k]) { const i = (k / Hh) | 0, j = k - i * Hh; path.push((gx0 + i) * GRID, (gz0 + j) * GRID); if (k === start) break; }
+    for (let k = end; k >= 0; k = from[k]) { const c2 = (k / (NH + 1)) | 0, i = (c2 / Hh) | 0, j = c2 - i * Hh; path.push((gx0 + i) * GRID, (gz0 + j) * GRID); if (k === s0) break; }
     path.reverse();   // pairs reversed too: fix below
     const pts = [];
     for (let k = 0; k < path.length; k += 2) pts.push(path[k + 1], path[k]);
@@ -571,33 +628,15 @@ export class World {
     if (ns < 8) return null;
     // a spur too short for the climb to its site can't keep to the grade: no road (the site picks another place)
     if (opts.spur && Math.abs(b.h - a.h) > len * TAN(opts.grade ?? 15) * 0.8) return null;
-    // ---- the bed: the ground along the line, low-passed, crests cut down to the grade limit, ends on the nodes
+    // ---- the bed: the world's road bed field along the line (bed(): the ground low-passed in 2D, so roads that
+    // meet or run side by side agree), smoothed a little more along it; a spur's far end goes down to its site
+    // (the quarry's floor)
     const hs = new Float64Array(ns);
-    // (sampled every 2 m and interpolated: it is low-passed over tens of metres next)
-    for (let k = 0; k < ns; k += 4) hs[k] = this.base(xs[k], zs[k]);
-    if ((ns - 1) % 4) hs[ns - 1] = this.base(xs[ns - 1], zs[ns - 1]);
-    for (let k = 0; k < ns; k++) if (k % 4 && k !== ns - 1) { const k0 = k - (k % 4), k1 = Math.min(ns - 1, k0 + 4), f = (k - k0) / (k1 - k0); hs[k] = hs[k0] + (hs[k1] - hs[k0]) * f; }
-    boxSmooth(hs, 30, 6);
-    const maxG = TAN(opts.grade ?? 15) * (len / (ns - 1));
-    const cut = () => {
-      for (let k = 1; k < ns; k++) hs[k] = Math.min(hs[k], hs[k - 1] + maxG);
-      for (let k = ns - 2; k >= 0; k--) hs[k] = Math.min(hs[k], hs[k + 1] + maxG);
-    };
-    cut();
-    const blend = Math.min(120, Math.floor(ns / 2.5));
-    const d0 = a.h - hs[0], d1 = b.h - hs[ns - 1];
-    for (let k = 0; k < ns; k++) hs[k] += d0 * Math.max(0, 1 - k / blend) + d1 * Math.max(0, 1 - (ns - 1 - k) / blend);
-    const e0 = hs[0], e1 = hs[ns - 1];
-    cut(); hs[0] = e0; hs[ns - 1] = e1;
-    // a node on a crest sits above the cut bed: fill up to it at the grade limit, so the road climbs to the
-    // junction instead of stepping up at it
-    for (let k = 1; k < ns; k++) hs[k] = Math.max(hs[k], hs[k - 1] - maxG);
-    for (let k = ns - 2; k >= 0; k--) hs[k] = Math.max(hs[k], hs[k + 1] - maxG);
-    for (let p = 0; p < 3; p++) {
-      const o = hs.slice();
-      for (let k = 1; k < ns - 1; k++) { let s = 0, c = 0; for (let j = -12; j <= 12; j++) { s += hs[Math.max(0, Math.min(ns - 1, k + j))]; c++; } o[k] = s / c; }
-      o[0] = e0; o[ns - 1] = e1;
-      hs.set(o);
+    for (let k = 0; k < ns; k++) hs[k] = this.bed(xs[k], zs[k], lakes);
+    boxSmooth(hs, 6, 2);
+    if (opts.spur && Math.abs(b.h - hs[ns - 1]) > 0.05) {
+      const blend = Math.min(160, Math.floor(ns / 2)), d1 = b.h - hs[ns - 1];
+      for (let k = 0; k < ns; k++) { const t = Math.max(0, 1 - (ns - 1 - k) / blend); hs[k] += d1 * t * t * (3 - 2 * t); }
     }
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (let k = 0; k < ns; k++) { x0 = Math.min(x0, xs[k]); x1 = Math.max(x1, xs[k]); z0 = Math.min(z0, zs[k]); z1 = Math.max(z1, zs[k]); }
@@ -670,10 +709,17 @@ export class World {
       width[k] = 2.6 + 1.4 * (0.5 + 0.5 * this.n5(k * 0.02, 3.3 + src.X * 1e-3)) * Math.min(1, 0.4 + k / ns);
       level[k] = lerp(hs[k] - 0.45, lk.level, smoothstep(ns - 40, ns - 1, k));
     }
-    // fords: where a road crosses, wider and shallower (the links only: spurs need the sites, which need the
-    // streams' regions; a spur never crosses a stream far from a link... and if it does, it fords a narrow one)
-    let bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity;
-    for (let k = 0; k < ns; k++) { bx0 = Math.min(bx0, xs[k]); bx1 = Math.max(bx1, xs[k]); bz0 = Math.min(bz0, zs[k]); bz1 = Math.max(bz1, zs[k]); }
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (let k = 0; k < ns; k++) { x0 = Math.min(x0, xs[k]); x1 = Math.max(x1, xs[k]); z0 = Math.min(z0, zs[k]); z1 = Math.max(z1, zs[k]); }
+    return { xs, zs, level, width, ford: null, lake: lk, bb: [x0, z0, x1, z1] };
+  }
+
+  // a stream's fords: where a road crosses, wider and shallower (worked out when a window first needs the stream: the
+  // roads round it then exist anyway; the links only, spurs need the sites, which need the streams' regions)
+  streamFords(st) {
+    if (st.ford) return st;
+    const { xs, zs, width } = st, ns = xs.length, ford = new Float64Array(ns);
+    const [bx0, bz0, bx1, bz1] = st.bb;
     const cells = new Map(), cellKey = (x, z) => Math.floor(x / 32) * 65536 + Math.floor(z / 32);
     for (let k = 0; k < ns; k += 2) { const key = cellKey(xs[k], zs[k]); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(k); }
     for (const e of this.linksIn(bx0, bz0, bx1, bz1, 30)) for (let j = 0; j < e.xs.length; j += 4) {
@@ -690,14 +736,13 @@ export class World {
     for (let k = 1; k < ns; k++) ford[k] = Math.max(ford[k], ford[k - 1] * 0.9);
     for (let k = ns - 2; k >= 0; k--) ford[k] = Math.max(ford[k], ford[k + 1] * 0.9);
     for (let k = 0; k < ns; k++) width[k] += ford[k] * 3.5;
-    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
-    for (let k = 0; k < ns; k++) { x0 = Math.min(x0, xs[k]); x1 = Math.max(x1, xs[k]); z0 = Math.min(z0, zs[k]); z1 = Math.max(z1, zs[k]); }
-    return { xs, zs, level, width, ford, lake: lk, bb: [x0, z0, x1, z1] };
+    st.ford = ford;
+    return st;
   }
 
   // where a new game starts: on a road near the origin, facing along it
   spawn() {
-    for (let r = 0; r < 6; r++) for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+    for (let r = 0; r < 12; r++) for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
       if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
       const nd = this.node(i, j);
       for (const e of this.edgesOf(nd)) {
@@ -705,7 +750,7 @@ export class World {
         const fromA = e.a === nd, n = e.xs.length, k = fromA ? 80 : n - 81, k2 = fromA ? k + 6 : k - 6;
         if (n < 200) continue;
         const x = e.xs[k], z = e.zs[k];
-        if (this.inLake(x, z, this.lakesNear(x, z, 50), 1.3) < 1 || this.slope(x, z, 25) > 0.1) continue;
+        if (this.inLake(x, z, this.lakesNear(x, z, 50), 1.3) < 1 || this.slope(x, z, 25) > 0.1 || this.mountains(x, z) > 0.02) continue;
         return { x, z, yaw: Math.atan2(-(e.xs[k2] - x), -(e.zs[k2] - z)) };
       }
     }

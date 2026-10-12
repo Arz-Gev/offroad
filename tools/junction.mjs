@@ -1,12 +1,15 @@
-import { Terrain, N, CELL, MAP_SIZE } from '../src/world/terrain.js';
-// Steepest slope on the trail centrelines (cells within 1.6 m of a trail), plus the worst spots.
-const t = new Terrain(7);
+import { N, CELL, MAP_SIZE } from '../src/world/terrain.js';
+import { loadWindow } from './worldwindow.mjs';
+// Steepest slope on the road centrelines (cells within 1.6 m of a road) in a window of the world (worldwindow.mjs:
+// the start, or WX= / WZ=), plus the worst spots. The window's outer 40 m blend into the vista: left out.
+const { terrain: t, ms } = loadWindow();
+t.genMs = ms;
 const NN = N + 1, half = MAP_SIZE / 2;
 const spots = [];
 for (let ix = 1; ix < N; ix++) for (let iz = 1; iz < N; iz++) {
   const i = ix * NN + iz;
   const d = t.trailDist[i];
-  if (d > 1.6) continue;
+  if (d > 1.6 || Math.min(ix, iz, N - ix, N - iz) < 80) continue;
   const gx = (t.heights[i + NN] - t.heights[i - NN]) / (2 * CELL), gz = (t.heights[i + 1] - t.heights[i - 1]) / (2 * CELL);
   const s = Math.hypot(gx, gz);
   if (s > 0.3) spots.push([s, -half + ix * CELL, -half + iz * CELL]);

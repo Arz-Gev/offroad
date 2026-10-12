@@ -10,8 +10,8 @@ import * as THREE from 'three';
 import { Vehicle } from '../src/vehicle/Vehicle.js';
 import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone, rideRaise } from '../src/vehicle/tuning.js';
-import { Terrain } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
+import { loadWindow } from './worldwindow.mjs';
 await RAPIER.init();
 const H = 1 / 240, G = 9.81;
 const count = +(process.argv[2] || 60);
@@ -21,14 +21,16 @@ const roll = +(process.env.ROLL || 0) * Math.PI / 180;
 const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 }); world.timestep = H;
-const terrain = new Terrain();
+const { terrain, win } = loadWindow();   // a window of the world (worldwindow.mjs: the start, or WX= / WZ=)
 terrain.createCollider(RAPIER, world);
 const colliderSurface = new Map();
-buildProps(RAPIER, world, terrain, colliderSurface, null);
+const props = buildProps(RAPIER, world, terrain, colliderSurface, null, win);
+for (const list of props.stream.items) for (const it of list) if (typeof it.desc === 'function') it.desc = it.desc();
+props.stream.update(0, 0); props.stream.ring = 99; props.stream.cur = -1; props.stream.update(0, 0);
 world.step();
 const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
 const P = carParams();
-const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: terrain.heightAt(0, 46) + 1, z: 46 }, surfaceAt });
+const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: terrain.heightAt(0, 0) + 1, z: 0 }, surfaceAt });
 const m = v.totalMass, I = P.bodyInertia;
 const energy = () => {
   const w = v.angVel.clone().applyQuaternion(v.quat.clone().invert());

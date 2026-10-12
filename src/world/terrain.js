@@ -41,6 +41,29 @@ export class Path {
   getSpacedPoints(n) { const out = []; for (let k = 0; k <= n; k++) out.push(this.getPointAt(k / n)); return out; }
 }
 
+// a road's bed where it crosses a stream: eased down to just under the water (a ford ~0.3 m deep) over ~40 m each
+// side; a copy (the world's own profile stays as it is). Pure: the same in every window
+function fordProfile(e, streams) {
+  let hs = e.hs;
+  for (const st of streams) {
+    if (st.bb[2] < e.bb[0] - 40 || st.bb[0] > e.bb[2] + 40 || st.bb[3] < e.bb[1] - 40 || st.bb[1] > e.bb[3] + 40) continue;
+    const n = e.xs.length, m = st.xs.length;
+    for (let k = 0; k < n; k += 4) {
+      // nearest stream sample (coarse then fine)
+      let bd = 1e9, bj = -1;
+      for (let j = 0; j < m; j += 8) { const d = (st.xs[j] - e.xs[k]) ** 2 + (st.zs[j] - e.zs[k]) ** 2; if (d < bd) { bd = d; bj = j; } }
+      if (bd > 60 * 60) continue;
+      for (let j = Math.max(0, bj - 8); j < Math.min(m, bj + 9); j++) { const d = (st.xs[j] - e.xs[k]) ** 2 + (st.zs[j] - e.zs[k]) ** 2; if (d < bd) { bd = d; bj = j; } }
+      const d = Math.sqrt(bd);
+      if (d > 45) continue;
+      const target = st.level[bj] - 0.3, w = smoothstep(45, st.width[bj] + 2, d);
+      if (hs === e.hs) hs = Float64Array.from(e.hs);
+      for (let q = k; q < Math.min(n, k + 4); q++) if (hs[q] > target) hs[q] = lerp(hs[q], target, w);
+    }
+  }
+  return hs;
+}
+
 export class Terrain {
   // world: worldgen World; (ox, oz): the absolute position of the window's centre (multiples of WINDOW_STEP)
   constructor(world, ox = 0, oz = 0) {
@@ -173,12 +196,13 @@ export class Terrain {
     this.lake = this.lakes[0] || null;
     lap('carve');
 
-    // ---- roads
-    this.buildTrails(roads);
+    // ---- roads (down into the fords first: a road meets a stream at its water, not over a trench)
+    for (const s of streams) W.streamFords(s);
+    this.buildTrails(roads.map(e => ({ ...e, hs: fordProfile(e, streams) })));
     lap('trails');
 
     // ---- streams (after the roads: the fords dip the road into the bed)
-    for (const s of streams) this.carveStream(s);
+    for (const s of streams) this.carveStream(W.streamFords(s));
 
     // ---- mud holes on the roads (at the bottom of a dip)
     const muds = [];
@@ -295,7 +319,7 @@ export class Terrain {
     const dist = new Float32Array(NN * NN).fill(1e9), th = new Float32Array(NN * NN);
     const wsum = new Float32Array(NN * NN), hsum = new Float32Array(NN * NN), wmax = new Float32Array(NN * NN);
     const touchedAll = [];
-    const R = 6;
+    const R = 11;   // m: the band (6 m) and, below a road on a slope, its embankment
     for (const e of roads) {
       const n = e.xs.length;
       const xs = new Float64Array(n), zs = new Float64Array(n);
@@ -327,8 +351,11 @@ export class Terrain {
       }
       for (const i of touched) {
         const d = dist[i];
-        if (d <= 6) {
-          const w = smoothstep(5.5, 2.4, d);
+        // the bed blends out by 5.5 m; where the ground falls away below it (a road across a slope) a wider
+        // embankment carries it, so the edge isn't a drop
+        const fill = th[i] > H[i] + 0.3;
+        if (d <= 6 || (fill && d <= R)) {
+          const w = fill ? smoothstep(R, 2.4, d) : smoothstep(5.5, 2.4, d);
           if (wsum[i] === 0) touchedAll.push(i);
           wsum[i] += 1e-3 + w; hsum[i] += (1e-3 + w) * th[i];
           if (w > wmax[i]) wmax[i] = w;

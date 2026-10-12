@@ -89,7 +89,8 @@ window.roadDriver = (kmh, turn = 0) => {
           if (Math.hypot(q.xs[end] - ex, q.zs[end] - ez) > 12 || q.xs.length < 60) continue;
           const k = end + d * 30, ax = q.xs[k] - q.xs[end], az = q.zs[k] - q.zs[end], l = Math.hypot(ax, az) || 1;
           const straight = (ax * hx + az * hz) / l, side = (hx * az - hz * ax) / l;
-          const score = straight + turn * side + (Math.random() - 0.5) * 0.3;
+          const spur = window.game.terrain.roads?.find(r => r.path === q)?.spur;   // a spur ends at its site: a dead end
+          const score = straight + turn * side + (Math.random() - 0.5) * 0.3 - (spur ? 3 : 0);
           if (score > bs) { bs = score; best = [q, end, d]; }
         }
       }
