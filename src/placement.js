@@ -71,10 +71,14 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
       // on the shore, facing the water
       const lk = terrain.sites.find(q => q.id === s.id)?.lake;
       if (lk) {
-        for (let k = 0; k < 16; k++) {
-          const a = k / 16 * Math.PI * 2, px = lk.x + Math.cos(a) * lk.rx * 1.3, pz = lk.z + Math.sin(a) * lk.rz * 1.3;
-          if (terrain.waterLevelAt(px, pz) < -1e8 && terrain.normalAt(px, pz).y > 0.93) return { x: px, z: pz, yaw: Math.atan2(-(lk.x - px), -(lk.z - pz)) };
+        // on the shore, along it (facing the water it rolled in), on the flattest spot round it
+        let best = null, bs = 0;
+        for (let k = 0; k < 24; k++) {
+          const a = k / 24 * Math.PI * 2, px = lk.x + Math.cos(a) * lk.rx * 1.32, pz = lk.z + Math.sin(a) * lk.rz * 1.32;
+          const ny = terrain.normalAt(px, pz).y;
+          if (terrain.waterLevelAt(px, pz) < -1e8 && ny > bs) { bs = ny; best = { x: px, z: pz, yaw: Math.atan2(-(-Math.sin(a) * lk.rx), -(Math.cos(a) * lk.rz)) }; }
         }
+        if (best) return best;
       }
     }
     if (s.type === 'quarry') { const sp = trailSpot(x, z, 25, 120); if (sp) return sp; }

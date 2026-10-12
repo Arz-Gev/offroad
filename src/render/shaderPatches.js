@@ -92,12 +92,10 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 				vec2 ad = abs( d.xz ) + 1e-4;
 				vec2 te = ( atmoVista.y - cameraPosition.xz * sign( d.xz ) ) / ad;
 				od += atmoVista.x * dist * ( 1.0 - clamp( min( te.x, te.y ), 0.0, 1.0 ) );
-				// the vista ends at its own square (half size z): the land is all haze before it does, so from high
-				// ground the world sinks into the haze instead of stopping
-				if ( atmoVista.z > 0.0 ) {
-					vec2 tv = ( atmoVista.z - cameraPosition.xz * sign( d.xz ) ) / ad;
-					edgeF = smoothstep( 0.72, 0.97, 1.0 / max( min( tv.x, tv.y ), 1e-3 ) );
-				}
+				// the vista ends at its own square (half size z, round the window, so 3.2+ km from the camera): the land
+				// is all haze before it does, by the distance from the camera (the square moves with the window), so
+				// from high ground the world sinks into the haze instead of stopping
+				if ( atmoVista.z > 0.0 ) edgeF = smoothstep( atmoVista.z * 0.6, atmoVista.z * 0.78, length( d.xz ) );
 			}
 			return mix( min( 1.0 - exp( - od ), atmoToward.w ), 1.0, edgeF );
 		}

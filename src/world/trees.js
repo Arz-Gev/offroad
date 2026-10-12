@@ -4,6 +4,9 @@ import { SURFACES } from '../vehicle/tire.js';
 import { makeFoliageAtlas } from './foliage.js';
 import { TREE_KINDS } from './treeKinds.js';
 import { PAT_GLSL, PAT } from './origin.js';
+
+// m from the camera: past these only the far share of the trees is drawn (windowBake.js SUB_SHARE)
+export const SUB_FADE = [220, 260];
 import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
@@ -250,9 +253,15 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
   const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos };
+  // uSubFade: past x..y m only the far share of the trees is drawn (windowBake.js SUB_SHARE: the far ring has only
+  // those), a little bigger to fill in; so the window moving (its trees replacing the ring's) shows nothing
+  const subFade = { value: new THREE.Vector2(SUB_FADE[0], SUB_FADE[1]) };
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos, uSubFade: subFade };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
+attribute float aSub;
+uniform vec2 uSubFade;
+varying float vSubKeep;
 uniform float uImpRows;
 uniform float uImpH[${variants.length}];
 uniform float uImpW[${variants.length}];
@@ -279,10 +288,12 @@ vec3 toCam = cameraPosition - ip;
 float azW = atan(toCam.x, toCam.z);
 float vf = (azW - yaw) / 6.2831853 * ${VIEWS}.0;
 float view = mod(floor(vf + 0.5), ${VIEWS}.0);
-float H = uImpH[int(aVar)] * isc;
+vTreeDist = distance(ip, uViewPos);
+float subK = smoothstep(uSubFade.x, uSubFade.y, vTreeDist);
+vSubKeep = aSub > 0.5 ? 1.0 : 1.0 - subK;
+float H = uImpH[int(aVar)] * isc * (aSub > 0.5 ? 1.0 + 0.22 * subK : 1.0);
 vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
-vTreeDist = distance(ip, uViewPos);
 vImpSoft = uImpSoft[int(aVar)];
 {
   // the crown as a ball (centre at 0.62 of the height): left / right, up / down and towards the viewer
@@ -320,9 +331,10 @@ varying float vImpYaw;
 varying float vTreeDist;
 varying vec3 vImpRound;
 varying float vImpSoft;
+varying float vSubKeep;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (ditherHash(gl_FragCoord.xy) >= smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
+if (ditherHash(gl_FragCoord.xy) >= min(smoothstep(uFade.x, uFade.y, vTreeDist), vSubKeep)) discard;`);
       if (!depth) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
 float faceDirection = 1.0;
 vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
@@ -350,7 +362,7 @@ if (vImpSoft > 0.5) {
 #endif
 #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v2';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v3';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });
@@ -379,19 +391,28 @@ if (vImpSoft > 0.5) {
   const prepare = (w) => {
     const next = {};
     return { next, steps: [() => {
-      const T = w.trees, n = T.length / 6, trees = new Array(n), matrices = new Float32Array(n * 16), aVar = new Float32Array(Math.max(1, n));
+      // the window's trees (x, y, z, s, yaw, v, far share), then the far ring's (x, y, z, s, yaw, v: all far share)
+      const T = w.trees, n = T.length / 7, F = w.farTrees || new Float32Array(0), nf = F.length / 6, total = n + nf;
+      const trees = new Array(n), matrices = new Float32Array(n * 16), aVar = new Float32Array(Math.max(1, total)), aSub = new Float32Array(Math.max(1, total));
       const geo = impGeo.clone();
-      const impMesh = new THREE.InstancedMesh(geo, impMat, Math.max(1, n));
+      const impMesh = new THREE.InstancedMesh(geo, impMat, Math.max(1, total));
       for (let i = 0; i < n; i++) {
-        const t = trees[i] = { x: T[i * 6], y: T[i * 6 + 1], z: T[i * 6 + 2], s: T[i * 6 + 3], yaw: T[i * 6 + 4], v: T[i * 6 + 5] };
+        const t = trees[i] = { x: T[i * 7], y: T[i * 7 + 1], z: T[i * 7 + 2], s: T[i * 7 + 3], yaw: T[i * 7 + 4], v: T[i * 7 + 5] };
         qq.setFromAxisAngle(up, t.yaw); sc.setScalar(t.s); ps.set(t.x, t.y - 0.15, t.z);
         mtx.compose(ps, qq, sc);
         mtx.toArray(matrices, i * 16);
         impMesh.setMatrixAt(i, mtx);
-        aVar[i] = t.v;
+        aVar[i] = t.v; aSub[i] = T[i * 7 + 6];
       }
-      impMesh.count = n;
+      for (let i = 0; i < nf; i++) {
+        qq.setFromAxisAngle(up, F[i * 6 + 4]); sc.setScalar(F[i * 6 + 3]); ps.set(F[i * 6], F[i * 6 + 1] - 0.15, F[i * 6 + 2]);
+        mtx.compose(ps, qq, sc);
+        impMesh.setMatrixAt(n + i, mtx);
+        aVar[n + i] = F[i * 6 + 5]; aSub[n + i] = 1;
+      }
+      impMesh.count = total;
       geo.setAttribute('aVar', new THREE.InstancedBufferAttribute(aVar, 1));
+      geo.setAttribute('aSub', new THREE.InstancedBufferAttribute(aSub, 1));
       impMesh.frustumCulled = false;
       impMesh.castShadow = impShadow; impMesh.receiveShadow = true;
       impMesh.customDepthMaterial = impDepth;

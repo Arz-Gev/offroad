@@ -157,7 +157,7 @@ export class World {
     this.n1 = makeSimplex2D(s); this.n2 = makeSimplex2D(s + 11); this.n3 = makeSimplex2D(s + 23);
     this.n4 = makeSimplex2D(s + 37); this.n5 = makeSimplex2D(s + 51); this.n6 = makeSimplex2D(s + 67);
     this.n7 = makeSimplex2D(s + 83); this.n8 = makeSimplex2D(s + 97); this.n9 = makeSimplex2D(s + 113);
-    this.nodes = new Map(); this.edges = new Map(); this.regions = new Map();
+    this.nodes = new Map(); this.edges = new Map(); this.regions = new Map(); this.gridTiles = new Map();
     this.makeFineTile();
   }
 
@@ -215,6 +215,31 @@ export class World {
   }
   fineAt(ixA, izA) { const T = this.fineT; return this.fineTile[(((ixA % T) + T) % T) * T + (((izA % T) + T) % T)]; }
   slope(X, Z, e = 6) { return Math.hypot(this.base(X + e, Z) - this.base(X - e, Z), this.base(X, Z + e) - this.base(X, Z - e)) / (2 * e); }
+  // base() on the routing grid (GRID m, absolute), in cached 64 x 64 tiles: neighbouring routes share their corridors
+  baseGrid(i, j) {
+    return this.gridTile(i, j)[((i - ((i >> 6) << 6)) * 64 + (j - ((j >> 6) << 6))) * 2];
+  }
+  // a routing tile: per cell base() and a low-frequency wiggle (0..1) that makes routes wander
+  gridTile(i, j) {
+    const ti = i >> 6, tj = j >> 6, key = ti * 1048576 + tj;
+    let t = this.gridTiles.get(key);
+    if (!t) {
+      t = new Float32Array(64 * 64 * 2);
+      for (let a = 0; a < 64; a++) for (let b = 0; b < 64; b++) {
+        const X = ((ti << 6) + a) * GRID, Z = ((tj << 6) + b) * GRID, o = (a * 64 + b) * 2;
+        t[o] = this.base(X, Z); t[o + 1] = 0.5 + 0.5 * this.n3(X * 0.012 + 5.5, Z * 0.012);
+      }
+      this.gridTiles.set(key, t);
+      if (this.gridTiles.size > 4096) this.gridTiles.delete(this.gridTiles.keys().next().value);
+    }
+    return t;
+  }
+  wigGrid(i, j) { return this.gridTile(i, j)[((i - ((i >> 6) << 6)) * 64 + (j - ((j >> 6) << 6))) * 2 + 1]; }
+  // base() bilinear from the routing grid (smooth enough for stream beds)
+  baseFast(X, Z) {
+    const fx = X / GRID, fz = Z / GRID, i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
+    return (this.baseGrid(i, j) * (1 - tx) + this.baseGrid(i + 1, j) * tx) * (1 - tz) + (this.baseGrid(i, j + 1) * (1 - tx) + this.baseGrid(i + 1, j + 1) * tx) * tz;
+  }
 
   // ------------------------------------------------------------------ regions: lakes, streams, sites
   region(ri, rj) {
@@ -230,8 +255,8 @@ export class World {
     // two regions' lakes never meet.
     if (rnd() < 0.6) {
       let best = null;
-      for (let gx = 230; gx <= REGION - 230; gx += 40) for (let gz = 230; gz <= REGION - 230; gz += 40) {
-        const X = x0 + gx + (rnd() - 0.5) * 20, Z = z0 + gz + (rnd() - 0.5) * 20;
+      for (let gx = 230; gx <= REGION - 230; gx += 56) for (let gz = 230; gz <= REGION - 230; gz += 56) {
+        const X = x0 + gx + (rnd() - 0.5) * 28, Z = z0 + gz + (rnd() - 0.5) * 28;
         const h = this.macro0(X, Z);
         let ring = 0, steep = 0;
         for (let a = 0; a < 8; a++) {
@@ -470,6 +495,7 @@ export class World {
   // every road (links and the spurs to sites) whose path may come within `m` of the box
   roadsIn(x0, z0, x1, z1, m = 8) {
     const out = this.linksIn(x0, z0, x1, z1, m);
+    // (a spur runs from its site, inside its region, to the nearest node, its corridor up to 260 m wide: 700 m covers it)
     for (const r of this.regionsIn(x0 - 700, z0 - 700, x1 + 700, z1 + 700)) for (const e of r.spurs) {
       if (e.bb[2] < x0 - m || e.bb[0] > x1 + m || e.bb[3] < z0 - m || e.bb[1] > z1 + m) continue;
       out.push(e);
@@ -489,9 +515,9 @@ export class World {
     const lakes = this.lakesNear((a.x + b.x) / 2, (a.z + b.z) / 2, dist / 2 + M);
     for (let i = 0; i < W; i++) for (let j = 0; j < Hh; j++) {
       const X = (gx0 + i) * GRID, Z = (gz0 + j) * GRID, k = i * Hh + j;
-      hg[k] = this.base(X, Z);
+      hg[k] = this.baseGrid(gx0 + i, gz0 + j);
       wet[k] = lakes.length && this.inLake(X, Z, lakes, 1.25) < 1 ? 1 : 0;
-      wig[k] = 0.5 + 0.5 * this.n3(X * 0.012 + 5.5, Z * 0.012);
+      wig[k] = this.wigGrid(gx0 + i, gz0 + j);
     }
     const cell = (X, Z) => [Math.max(0, Math.min(W - 1, Math.round(X / GRID) - gx0)), Math.max(0, Math.min(Hh - 1, Math.round(Z / GRID) - gz0))];
     const [si, sj] = cell(a.x, a.z), [ti, tj] = cell(b.x, b.z);
@@ -547,7 +573,10 @@ export class World {
     if (opts.spur && Math.abs(b.h - a.h) > len * TAN(opts.grade ?? 15) * 0.8) return null;
     // ---- the bed: the ground along the line, low-passed, crests cut down to the grade limit, ends on the nodes
     const hs = new Float64Array(ns);
-    for (let k = 0; k < ns; k++) hs[k] = this.base(xs[k], zs[k]);
+    // (sampled every 2 m and interpolated: it is low-passed over tens of metres next)
+    for (let k = 0; k < ns; k += 4) hs[k] = this.base(xs[k], zs[k]);
+    if ((ns - 1) % 4) hs[ns - 1] = this.base(xs[ns - 1], zs[ns - 1]);
+    for (let k = 0; k < ns; k++) if (k % 4 && k !== ns - 1) { const k0 = k - (k % 4), k1 = Math.min(ns - 1, k0 + 4), f = (k - k0) / (k1 - k0); hs[k] = hs[k0] + (hs[k1] - hs[k0]) * f; }
     boxSmooth(hs, 30, 6);
     const maxG = TAN(opts.grade ?? 15) * (len / (ns - 1));
     const cut = () => {
@@ -593,7 +622,7 @@ export class World {
     const gx0 = Math.floor((Math.min(a.x, end.x) - M) / GRID), gz0 = Math.floor((Math.min(a.z, end.z) - M) / GRID);
     const W = Math.ceil((Math.max(a.x, end.x) + M) / GRID) - gx0 + 1, Hh = Math.ceil((Math.max(a.z, end.z) + M) / GRID) - gz0 + 1;
     const n = W * Hh, hg = new Float32Array(n);
-    for (let i = 0; i < W; i++) for (let j = 0; j < Hh; j++) hg[i * Hh + j] = this.base((gx0 + i) * GRID, (gz0 + j) * GRID);
+    for (let i = 0; i < W; i++) for (let j = 0; j < Hh; j++) hg[i * Hh + j] = this.baseGrid(gx0 + i, gz0 + j);
     const cell = (X, Z) => Math.max(0, Math.min(W - 1, Math.round(X / GRID) - gx0)) * Hh + Math.max(0, Math.min(Hh - 1, Math.round(Z / GRID) - gz0));
     const start = cell(a.x, a.z), goal = cell(end.x, end.z), gi = (goal / Hh) | 0, gj = goal - gi * Hh;
     const g = new Float32Array(n).fill(Infinity), from = new Int32Array(n).fill(-1), done = new Uint8Array(n);
@@ -630,7 +659,7 @@ export class World {
     let hs = new Float64Array(ns);
     for (let k = 0; k < ns; k++) {
       let m = Infinity;
-      for (const o of [-3, 0, 3]) m = Math.min(m, this.base(xs[k] + o, zs[k]), this.base(xs[k], zs[k] + o));
+      for (const o of [-3, 0, 3]) m = Math.min(m, this.baseFast(xs[k] + o, zs[k]), this.baseFast(xs[k], zs[k] + o));
       hs[k] = m;
     }
     boxSmooth(hs, 10, 3);
@@ -645,12 +674,17 @@ export class World {
     // streams' regions; a spur never crosses a stream far from a link... and if it does, it fords a narrow one)
     let bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity;
     for (let k = 0; k < ns; k++) { bx0 = Math.min(bx0, xs[k]); bx1 = Math.max(bx1, xs[k]); bz0 = Math.min(bz0, zs[k]); bz1 = Math.max(bz1, zs[k]); }
+    const cells = new Map(), cellKey = (x, z) => Math.floor(x / 32) * 65536 + Math.floor(z / 32);
+    for (let k = 0; k < ns; k += 2) { const key = cellKey(xs[k], zs[k]); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(k); }
     for (const e of this.linksIn(bx0, bz0, bx1, bz1, 30)) for (let j = 0; j < e.xs.length; j += 4) {
       const ex = e.xs[j], ez = e.zs[j];
       if (ex < bx0 - 30 || ex > bx1 + 30 || ez < bz0 - 30 || ez > bz1 + 30) continue;
-      for (let k = 0; k < ns; k += 2) {
-        const d = Math.hypot(xs[k] - ex, zs[k] - ez);
-        if (d < 30) ford[k] = Math.max(ford[k], smoothstep(30, 8, d));
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const list = cells.get(cellKey(ex + a * 32, ez + b * 32));
+        if (list) for (const k of list) {
+          const d = Math.hypot(xs[k] - ex, zs[k] - ez);
+          if (d < 30) ford[k] = Math.max(ford[k], smoothstep(30, 8, d));
+        }
       }
     }
     for (let k = 1; k < ns; k++) ford[k] = Math.max(ford[k], ford[k - 1] * 0.9);

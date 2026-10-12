@@ -3,7 +3,7 @@ import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { MAP_SIZE, CELL, N, SURF, FAR_SIZE } from './terrain.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
-import { rngAt } from './worldgen.js';
+import { rngAt, hash3 } from './worldgen.js';
 
 // Everything about a window of the world that is worked out on the CPU from its terrain, off the main thread
 // (windowWorker.js; tools run it directly): the surface splat, the ground and land data maps, the culling pyramid
@@ -284,44 +284,73 @@ function siteClear(sites, x, z, m) {
 }
 const inLakes = (terrain, x, z, k, m) => terrain.lakes.some(l => Math.hypot((x - l.x) / (l.rx * k + m), (z - l.z) / (l.rz * k + m)) < 1.05);
 
-// dims: per variant { kind, crownR, trunkR }. Returns trees (x, y, z, s, yaw, v per tree, local) and logs
+// The far share of the trees: beyond SUB_FADE metres (trees.js) only the trees of this share are drawn, in the window
+// and in the ring of far trees round it alike, so nothing pops when the window moves (and the far ring is cheap)
+export const SUB_SHARE = 0.45;
+const G = 3.4;   // m: forest grid
+// one cell of the forest grid: its tree or null, by the same rule in the window and the far ring. ctx gives the
+// ground: h(x, z), flat(x, z) (not too steep), blocked(x, z) (roads, sites, water...), lakes (local)
+function forestCell(gi, gj, ox, oz, ctx) {
+  const rnd = rngAt(gi, gj, 3301);
+  const X = gi * G + (rnd() - 0.5) * G * 0.9, Z = gj * G + (rnd() - 0.5) * G * 0.9;
+  const x = X - ox, z = Z - oz;
+  const y = ctx.h(x, z);
+  const dens = forestDens(X, Z, y);
+  const p = sst(0.28, 0.8, dens) * 0.72 + 0.008;
+  if (rnd() > p || ctx.blocked(x, z) || !ctx.flat(x, z)) return null;
+  // species: birches near water and in birch country, pines on high or dry ground, a few snags
+  let wet = 0;
+  for (const l of ctx.lakes) wet = Math.max(wet, 1 - Math.hypot((x - l.x) / (l.rx + 70), (z - l.z) / (l.rz + 70)));
+  const k = nKind(X * 0.01, Z * 0.01), kb = fbm(nKind, X * 0.0013 + 40, Z * 0.0013, 2);
+  let vi;
+  const roll = rnd();
+  if (roll < 0.025) vi = 5;
+  else if (roll < 0.06 + wet * 0.6 + sst(0.05, 0.35, kb) * 0.35 + (k > 0.45 ? 0.2 : 0)) vi = 4;
+  else if (y > 90 || k < -0.35 || roll < 0.2) vi = rnd() < 0.5 ? 2 : 3;
+  else vi = rnd() < 0.55 ? 0 : 1;
+  const s = 0.75 + rnd() * 0.5;
+  return { x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi, h: rnd(), sub: hash3(gi, gj, 3311) < SUB_SHARE ? 1 : 0 };
+}
+// one 36 m meadow cell's lone tree or group (oaks, trees in blossom), all in the far share
+function meadowCell(ci, cj, ox, oz, ok, h) {
+  const C = 36, rnd = rngAt(ci, cj, 3407), out = [];
+  if (rnd() > 0.3) return out;
+  const x = (ci + 0.2 + 0.6 * rnd()) * C - ox, z = (cj + 0.2 + 0.6 * rnd()) * C - oz;
+  const oak = rnd() < 0.35;
+  if (!ok(x, z, oak ? 12 : 8)) return out;
+  const n = oak ? 1 : rnd() < 0.4 ? 1 : 2 + Math.floor(rnd() * 3);
+  for (let k = 0; k < n; k++) {
+    const a = rnd() * Math.PI * 2, d = k === 0 ? 0 : 5 + rnd() * 4;
+    const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+    const vi = oak ? 8 : rnd() < 0.5 ? 6 : 7;
+    const s = oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw = rnd() * Math.PI * 2;
+    if (k > 0 && !ok(px, pz, 4)) continue;
+    out.push({ x: px, y: h(px, pz), z: pz, s, yaw, v: vi, h: 0.5, sub: 1 });
+  }
+  return out;
+}
+
+// dims: per variant { kind, crownR, trunkR }. Returns trees (x, y, z, s, yaw, v, sub per tree, local) and logs
 // (x, y, z, yaw, pitch, r, k), and writes the forest floor into the ground and land data
 function placeTrees(terrain, dims, gd, ld) {
   const ox = terrain.ox, oz = terrain.oz;
   const trees = [];
-  const G = 3.4;
   const nrm = { x: 0, y: 1, z: 0, set(a, b, c) { this.x = a; this.y = b; this.z = c; return this; } };
+  const ctx = {
+    h: (x, z) => terrain.surfaceHeight(x, z),
+    flat: (x, z) => terrain.normalAt(x, z, nrm).y >= 0.8,
+    blocked: (x, z) => {
+      if (terrain.isTrail(x, z, 7.5) || !siteClear(terrain.sites, x, z, 0) || inLakes(terrain, x, z, 1, 6) || terrain.waterLevelAt(x, z) > -1e8) return true;
+      const sid = terrain.surfaceId(x, z);
+      return sid === SURF.mud || sid === SURF.sand;
+    },
+    lakes: terrain.lakes,
+  };
   const gi0 = Math.ceil((ox - HALF + 6) / G), gi1 = Math.floor((ox + HALF - 6) / G);
   const gj0 = Math.ceil((oz - HALF + 6) / G), gj1 = Math.floor((oz + HALF - 6) / G);
   for (let gi = gi0; gi <= gi1; gi++) for (let gj = gj0; gj <= gj1; gj++) {
-    const rnd = rngAt(gi, gj, 3301);
-    const X = gi * G + (rnd() - 0.5) * G * 0.9, Z = gj * G + (rnd() - 0.5) * G * 0.9;
-    const x = X - ox, z = Z - oz;
-    if (Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6) continue;
-    const y = terrain.surfaceHeight(x, z);
-    const dens = forestDens(X, Z, y);
-    const p = sst(0.28, 0.8, dens) * 0.72 + 0.008;
-    if (rnd() > p) continue;
-    if (terrain.isTrail(x, z, 7.5)) continue;
-    if (!siteClear(terrain.sites, x, z, 0)) continue;
-    if (inLakes(terrain, x, z, 1, 6)) continue;
-    if (terrain.waterLevelAt(x, z) > -1e8) continue;
-    const sid = terrain.surfaceId(x, z);
-    if (sid === SURF.mud || sid === SURF.sand) continue;
-    terrain.normalAt(x, z, nrm);
-    if (nrm.y < 0.8) continue;
-    // species: birches near water and in birch country, pines on high or dry ground, a few snags
-    let wet = 0;
-    for (const l of terrain.lakes) wet = Math.max(wet, 1 - Math.hypot((x - l.x) / (l.rx + 70), (z - l.z) / (l.rz + 70)));
-    const k = nKind(X * 0.01, Z * 0.01), kb = fbm(nKind, X * 0.0013 + 40, Z * 0.0013, 2);
-    let vi;
-    const roll = rnd();
-    if (roll < 0.025) vi = 5;
-    else if (roll < 0.06 + wet * 0.6 + sst(0.05, 0.35, kb) * 0.35 + (k > 0.45 ? 0.2 : 0)) vi = 4;
-    else if (y > 90 || k < -0.35 || roll < 0.2) vi = rnd() < 0.5 ? 2 : 3;
-    else vi = rnd() < 0.55 ? 0 : 1;
-    const s = 0.75 + rnd() * 0.5;
-    trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi, h: rnd() });
+    const t = forestCell(gi, gj, ox, oz, ctx);
+    if (t && Math.abs(t.x) <= HALF - 6 && Math.abs(t.z) <= HALF - 6) trees.push(t);
   }
   const nForestTrees = trees.length;
 
@@ -345,22 +374,7 @@ function placeTrees(terrain, dims, gd, ld) {
     };
     const C = 36;
     for (let ci = Math.ceil((ox - HALF) / C); ci <= Math.floor((ox + HALF) / C); ci++) for (let cj = Math.ceil((oz - HALF) / C); cj <= Math.floor((oz + HALF) / C); cj++) {
-      const rnd = rngAt(ci, cj, 3407);
-      if (rnd() > 0.3) continue;
-      const x = (ci + 0.2 + 0.6 * rnd()) * C - ox, z = (cj + 0.2 + 0.6 * rnd()) * C - oz;
-      const oak = rnd() < 0.35;
-      if (!ok(x, z, oak ? 12 : 8)) continue;
-      const n = oak ? 1 : rnd() < 0.4 ? 1 : 2 + Math.floor(rnd() * 3);
-      const placed = [];
-      for (let k = 0; k < n; k++) {
-        const a = rnd() * Math.PI * 2, d = k === 0 ? 0 : 5 + rnd() * 4;
-        const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
-        const vi = oak ? 8 : rnd() < 0.5 ? 6 : 7;
-        const s = oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw = rnd() * Math.PI * 2;
-        if (k > 0 && !ok(px, pz, 4)) continue;
-        placed.push({ x: px, y: terrain.surfaceHeight(px, pz), z: pz, s, yaw, v: vi, h: 0.5 });
-      }
-      for (const t of placed) { trees.push(t); occ[cellOf(t.x, t.z)] = 1; }
+      for (const t of meadowCell(ci, cj, ox, oz, ok, ctx.h)) { trees.push(t); occ[cellOf(t.x, t.z)] = 1; }
     }
   }
 
@@ -405,9 +419,101 @@ function placeTrees(terrain, dims, gd, ld) {
       gd[o] = Math.max(100, gd[o] - 50 * w * canopy - (d < 0.25 ? 30 : 0));
     }
   }
-  const T = new Float32Array(trees.length * 6);
-  trees.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v], i * 6); });
+  const T = new Float32Array(trees.length * 7);
+  trees.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v, t.sub], i * 7); });
   return { trees: T, logs: Float32Array.from(logs) };
+}
+
+// ---------------------------------------------------------------- the far ring of trees
+// Round the window out to FAR_TREES (local square), the far share of the trees (the rest are hidden that far away
+// anyway, trees.js), on the vista's heights. No window data out there: roads from the world (a 4 m raster), its lakes
+// and sites; slopes from the vista. Shared rule (forestCell, meadowCell), so where the window comes the same trees are
+// there.
+export const FAR_TREES = 1024;
+function placeFarTrees(terrain) {
+  const W = terrain.world, ox = terrain.ox, oz = terrain.oz, R = FAR_TREES;
+  const RM = 4, RN = Math.ceil(2 * R / RM) + 1, mask = new Uint8Array(RN * RN);
+  const mark = (x, z, r) => {
+    const cx = Math.round((x + R) / RM), cz = Math.round((z + R) / RM), rc = Math.ceil(r / RM);
+    for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) {
+      const i = cx + a, j = cz + b;
+      if (i >= 0 && j >= 0 && i < RN && j < RN) mask[i * RN + j] = 1;
+    }
+  };
+  for (const e of W.roadsIn(ox - R, oz - R, ox + R, oz + R, 10)) for (let k = 0; k < e.xs.length; k += 4) mark(e.xs[k] - ox, e.zs[k] - oz, 7.5);
+  const lakes = W.lakesNear(ox, oz, R + 200).map(l => ({ x: l.x - ox, z: l.z - oz, rx: l.rx, rz: l.rz }));
+  const sites = [];
+  for (const r of W.regionsIn(ox - R - 100, oz - R - 100, ox + R + 100, oz + R + 100)) for (const q of r.sites) sites.push({ ...q, x: q.x - ox, z: q.z - oz });
+  for (const q of sites) if (q.type === 'quarry') mark(q.x, q.z, Math.max(q.rx, q.rz) + 4);
+  const roadAt = (x, z) => { const i = Math.round((x + R) / RM), j = Math.round((z + R) / RM); return i >= 0 && j >= 0 && i < RN && j < RN && mask[i * RN + j] === 1; };
+  const h = (x, z) => terrain.farHeight(x, z);
+  const slopeY = (x, z) => { const e = 6, gx = (h(x + e, z) - h(x - e, z)) / (2 * e), gz = (h(x, z + e) - h(x, z - e)) / (2 * e); return 1 / Math.hypot(gx, 1, gz); };
+  const inL = (x, z, m) => lakes.some(l => Math.hypot((x - l.x) / (l.rx + m), (z - l.z) / (l.rz + m)) < 1.05);
+  const ctx = {
+    h, lakes,
+    flat: (x, z) => slopeY(x, z) >= 0.8,
+    blocked: (x, z) => roadAt(x, z) || !siteClear(sites, x, z, 0) || inL(x, z, 6),
+  };
+  const out = [];
+  const inWindow = (x, z) => Math.abs(x) <= HALF - 6 && Math.abs(z) <= HALF - 6;
+  for (let gi = Math.ceil((ox - R) / G); gi <= Math.floor((ox + R) / G); gi++) for (let gj = Math.ceil((oz - R) / G); gj <= Math.floor((oz + R) / G); gj++) {
+    if (hash3(gi, gj, 3311) >= SUB_SHARE) continue;
+    const gx = gi * G - ox, gz = gj * G - oz;
+    if (Math.abs(gx) < HALF - 12 && Math.abs(gz) < HALF - 12) continue;   // the window's own (with a margin for the jitter)
+    const t = forestCell(gi, gj, ox, oz, ctx);
+    if (t && !inWindow(t.x, t.z)) out.push(t.x, t.y, t.z, t.s, t.yaw, t.v);
+  }
+  const okM = (x, z, clear) => {
+    if (inWindow(x, z) && Math.abs(x) < HALF - 30 && Math.abs(z) < HALF - 30) return false;
+    if (forestDens(x + ox, z + oz, h(x, z)) > 0.22 || roadAt(x, z)) return false;
+    if (!siteClear(sites, x, z, 2) || inL(x, z, 10)) return false;
+    return slopeY(x, z) > 0.88;
+  };
+  const C = 36;
+  for (let ci = Math.ceil((ox - R) / C); ci <= Math.floor((ox + R) / C); ci++) for (let cj = Math.ceil((oz - R) / C); cj <= Math.floor((oz + R) / C); cj++) {
+    const cx = ci * C + 18 - ox, cz = cj * C + 18 - oz;
+    if (Math.abs(cx) < HALF - 60 && Math.abs(cz) < HALF - 60) continue;
+    for (const t of meadowCell(ci, cj, ox, oz, okM, h)) if (!(Math.abs(t.x) < HALF - 30 && Math.abs(t.z) < HALF - 30)) out.push(t.x, t.y, t.z, t.s, t.yaw, t.v);
+  }
+  return Float32Array.from(out);
+}
+
+// ---------------------------------------------------------------- the vista's land
+// The vista (beyond the window, 16 m grid) is drawn from this: per cell r height, g lushness, b forest floor, a rock
+// kind, worked out like the window's land data and trees but from its coarse heights (no flow: hollows and the
+// height instead), so the land looks the same before and after the window comes over it.
+function makeFarLand(terrain) {
+  const f = terrain.far, n = f.n, H = f.heights, ox = terrain.ox, oz = terrain.oz, half = f.size / 2;
+  const out = new Float32Array(n * n * 4);
+  const at = (i, j) => H[Math.max(0, Math.min(n - 1, i)) * n + Math.max(0, Math.min(n - 1, j))];
+  const blur = (r) => {
+    const b = new Float32Array(n * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      let s2 = 0, c = 0;
+      for (let a = -r; a <= r; a++) for (let q = -r; q <= r; q++) { s2 += at(i + a, j + q); c++; }
+      b[i * n + j] = s2 / c;
+    }
+    return b;
+  };
+  const b1 = blur(1), b2 = blur(3);
+  const kn = makeSimplex2D(9137);
+  const lakes = terrain.world ? terrain.world.lakesNear(ox, oz, half + 200) : [];
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const o = i * n + j, h = H[o], X = ox - half + i * f.cell, Z = oz - half + j * f.cell;
+    const gx = (at(i + 1, j) - at(i - 1, j)) / (2 * f.cell), gz = (at(i, j + 1) - at(i, j - 1)) / (2 * f.cell), slope = Math.hypot(gx, gz);
+    const sunny = Math.max(-1, Math.min(1, (-gx * 0.41 + gz * 0.91) * 2.2 * 2));
+    const hollow = Math.max(-1, Math.min(1, (b1[o] - h) * 0.35 + (b2[o] - h) * 0.1));
+    let wet = 0;
+    for (const l of lakes) wet = Math.max(wet, 1 - Math.hypot((X - l.x) / (l.rx * 1.6), (Z - l.z) / (l.rz * 1.6)));
+    const nz = fbm(kn, X * 0.006, Z * 0.006, 3);
+    const lush = 0.58 + 0.45 * hollow - 0.2 * sunny + 0.45 * Math.max(0, wet) - 0.2 * sst(0.35, 0.9, slope) - 0.2 * sst(60, 160, h) + 0.22 * nz;
+    const canopy = sst(0.28, 0.8, forestDens(X, Z, h)) * 0.72 * (slope < 0.75 ? 1 : 0.3);
+    let kw = 1, ks = fbm(kn, X * 0.0021 + 31, Z * 0.0021, 2) > 0.05 ? 1 / 3 : 0;
+    const sl = fbm(kn, X * 0.0017 - 17, Z * 0.0017, 2);
+    if (sl > 0.25) { const w = sst(0.25, 0.4, sl) * 4; kw += w; ks += w; }
+    out[o * 4] = h; out[o * 4 + 1] = Math.max(0, Math.min(1, lush)); out[o * 4 + 2] = Math.min(1, canopy * 1.5); out[o * 4 + 3] = ks / kw;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- boulders
@@ -547,6 +653,10 @@ export function bakeWindow(terrain, dims) {
   lap('land');
   const { trees, logs } = placeTrees(terrain, dims, groundData, landData);
   lap('trees');
+  const farTrees = terrain.world ? placeFarTrees(terrain) : new Float32Array(0);
+  lap('farTrees');
+  const farLand = makeFarLand(terrain);
+  lap('farLand');
   const rocks = placeRocks(terrain);
   lap('rocks');
   const pyramid = makePyramid(terrain);
@@ -567,5 +677,5 @@ export function bakeWindow(terrain, dims) {
       grassDens.push({ w, a: cur });
     }
   }
-  return { splat, groundData, landData, groundN: DN, trees, logs, rocks, pyramid, grassDens, bakeTimes: times };
+  return { splat, groundData, landData, groundN: DN, trees, farTrees, farLand, logs, rocks, pyramid, grassDens, bakeTimes: times };
 }

@@ -5,7 +5,8 @@ import { ORIGIN } from './origin.js';
 // - The windows are built in a worker (windowWorker.js), a few seconds each; the truck can drive ~250 m from the
 //   window's centre before it nears the edge, so there is time at any speed the cars reach.
 // - When the truck is more than TRIGGER metres from the centre along x or z, the next window (centred on the
-//   nearest multiple of WINDOW_STEP) is asked for. When it arrives, its textures and meshes are made over a few frames
+//   nearest multiple of WINDOW_STEP) is asked for. It reaches 250+ m ahead of the truck at 100 km/h: past trees.js
+//   SUB_FADE, so the trees coming in with it are hidden (only the far share shows that far, and the far ring has it). When it arrives, its textures and meshes are made over a few frames
 //   (prepare's steps, one a frame), then it is swapped in at once (apply): every system takes the new window and
 //   everything in the scene and the physics shifts by the difference (origin.js), so the truck is near (0, 0)
 //   again.
@@ -13,7 +14,7 @@ import { ORIGIN } from './origin.js';
 //   is there, all steps in one frame.
 // hooks: { prepare(terrain, win) -> [steps], apply(terrain, win, dx, dz, prepared) }
 
-const TRIGGER = 150;
+const TRIGGER = 150;   // more than half a step, or the shift would put the truck past the trigger the other way
 
 export class Streamer {
   constructor(seed, hooks) {
@@ -79,6 +80,7 @@ export class Streamer {
       j.ms.push(Math.round((performance.now() - t0) * 10) / 10);
       return;
     }
+    if (this.holdSwap) return;   // tests: stop with the next window ready (then stepJob() swaps it in)
     this.job = null;
     const t0 = performance.now();
     this.swap(j.terrain, j.win);

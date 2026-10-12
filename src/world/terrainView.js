@@ -91,7 +91,9 @@ function windowTextureSteps(renderer, terrain, win, floatLinear, next) {
       // linear filtering lets the grass read a smooth height with one fetch (texelFetch ignores it)
       if (floatLinear) { hTex.magFilter = THREE.LinearFilter; hTex.minFilter = THREE.LinearFilter; }
       renderer.initTexture(hTex);
-      next.fTex = floatTex(terrain.far.heights, FN);
+      // the vista: height, lushness, forest floor, rock kind (windowBake.js makeFarLand)
+      next.fTex = new THREE.DataTexture(win.farLand, FN, FN, THREE.RGBAFormat, THREE.FloatType);
+      next.fTex.minFilter = next.fTex.magFilter = THREE.NearestFilter; next.fTex.generateMipmaps = false; next.fTex.needsUpdate = true;
       renderer.initTexture(next.fTex);
     },
     () => {
@@ -167,18 +169,20 @@ uniform vec2 uCamXZ;
 uniform vec4 uMap, uFar;
 varying vec3 vWPos;
 varying vec3 vFarN;
+varying vec3 vFarLand;   // the vista's lushness, forest floor, rock kind
 float tHgtNear(vec2 xz) {
   ivec2 g = ivec2(round((xz + uMap.x) / uMap.y));
   g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1));
   return texelFetch(tHeight, ivec2(g.y, g.x), 0).r;
 }
-float tHgtFar(vec2 xz) {
+vec4 tFar4(vec2 xz) {
   vec2 f = clamp((xz + uFar.x) / uFar.y, vec2(0.0), vec2(uFar.z - 1.001));
   ivec2 i = ivec2(floor(f)); vec2 t = f - vec2(i);
-  float a = texelFetch(tFarHeight, ivec2(i.y, i.x), 0).r, b = texelFetch(tFarHeight, ivec2(i.y, i.x + 1), 0).r;
-  float c = texelFetch(tFarHeight, ivec2(i.y + 1, i.x), 0).r, d = texelFetch(tFarHeight, ivec2(i.y + 1, i.x + 1), 0).r;
+  vec4 a = texelFetch(tFarHeight, ivec2(i.y, i.x), 0), b = texelFetch(tFarHeight, ivec2(i.y, i.x + 1), 0);
+  vec4 c = texelFetch(tFarHeight, ivec2(i.y + 1, i.x), 0), d = texelFetch(tFarHeight, ivec2(i.y + 1, i.x + 1), 0);
   return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
 }
+float tHgtFar(vec2 xz) { return tFar4(xz).r; }
 float tHgt(vec2 xz) { return max(abs(xz.x), abs(xz.y)) <= uMap.x + 0.01 ? tHgtNear(xz) : tHgtFar(xz); }`)
       .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = vec3(0.0, 1.0, 0.0);')
       .replace('#include <begin_vertex>', `
@@ -195,10 +199,12 @@ vec3 transformed = vec3(mix(wxz, txz, morphK), mix(h0, h1, morphK)).xzy;
 vWPos = transformed;
 // the vista's normal, per vertex (its heights are a 16 m grid; per pixel it cost four float fetches)
 vFarN = vec3(0.0, 1.0, 0.0);
+vFarLand = vec3(0.5, 0.0, 0.0);
 if (max(abs(transformed.x), abs(transformed.z)) > uMap.x - 48.0) {
   float e = uFar.y;
   vec2 q = transformed.xz;
   vFarN = vec3(tHgtFar(q - vec2(e, 0.0)) - tHgtFar(q + vec2(e, 0.0)), 2.0 * e, tHgtFar(q - vec2(0.0, e)) - tHgtFar(q + vec2(0.0, e)));
+  vFarLand = tFar4(q).gba;
 }`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -212,6 +218,7 @@ uniform float uDetail, uWet, uTrackSize, uSnow, uDipOff;
 uniform vec2 uTrackOrigin, uPat;
 varying vec3 vWPos;
 varying vec3 vFarN;
+varying vec3 vFarLand;
 float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0;
 vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control flow)
 vec3 gDpx, gDpy;
@@ -478,9 +485,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     nG = normalize(vFarN);
     vec4 dz1 = textureGrad(tNoise, p.xz / ${ppf(41)}, gDx / ${ppf(41)}, gDy / ${ppf(41)}), dz2 = textureGrad(tNoise, p.xz / ${ppf(13)} + 0.5, gDx / ${ppf(13)}, gDy / ${ppf(13)});
     nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
-    sp = vec4(0.0); gd = vec4(1.0, 0.0, 0.0, 1.0); nt.b = 1.0;
-    ld = vec4(clamp(0.45 + (mac2 - 0.5) * 0.8 - smoothstep(120.0, 320.0, p.y) * 0.35 - dot(nG.xz, SUN_SIDE) * 0.4, 0.0, 1.0), 0.0, 0.0,
-              smoothstep(0.4, 0.6, mac) * 0.333 + smoothstep(0.62, 0.72, wq.g) * 0.4);
+    // the vista's land (windowBake.js makeFarLand): as the window's, from the coarse heights
+    sp = vec4(0.0); nt.b = 1.0;
+    gd = vec4(1.0 - 0.3 * vFarLand.y, vFarLand.y, 0.0, 1.0 - 0.55 * vFarLand.y);
+    ld = vec4(vFarLand.x, 0.0, 0.0, vFarLand.z);
   }
   float td = inMap ? nt.a * 6.0 : 6.0;
   float vis = nt.b;
@@ -507,7 +515,6 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float wDirt = wTrail * (1.0 - 0.8 * verge) * (1.0 - 0.85 * crown);
   float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
-  if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
   // lines, in hollows and by water, with patches of clover (blue-green) and of thin, sun-bleached grass
@@ -682,7 +689,7 @@ reflectedLight.indirectSpecular *= gAO;
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_TIGHT: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v4' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v5' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);

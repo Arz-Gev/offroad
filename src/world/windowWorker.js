@@ -10,7 +10,8 @@ import { TREE_KINDS } from './treeKinds.js';
 
 let world = null, dims = null;
 
-self.onmessage = (e) => {
+// (only in a worker: tools import buildWindow from Node)
+if (typeof self !== 'undefined') self.onmessage = (e) => {
   const m = e.data;
   try {
     if (m.type === 'init') {
@@ -51,7 +52,7 @@ export function buildWindow(world, dims, ox, oz) {
     times: { ...t.times, ...b.bakeTimes, total: Math.round(performance.now() - t0) },
   };
   const transfer = [trailByte.buffer, t.heights.buffer, t.surface.buffer, t.trailDist.buffer, t.far.heights.buffer, b.splat.buffer, b.groundData.buffer, b.landData.buffer,
-    b.trees.buffer, b.logs.buffer, b.rocks.pos.buffer, b.rocks.nrm.buffer, b.rocks.col.buffer, b.rocks.idx.buffer,
+    b.trees.buffer, b.farTrees.buffer, b.farLand.buffer, b.logs.buffer, b.rocks.pos.buffer, b.rocks.nrm.buffer, b.rocks.col.buffer, b.rocks.idx.buffer,
     ...b.pyramid.mins.map(a => a.buffer), ...b.pyramid.maxs.map(a => a.buffer), ...b.pyramid.rocks.map(a => a.buffer), ...b.grassDens.map(l => l.a.buffer)];
   return { win, transfer };
 }
