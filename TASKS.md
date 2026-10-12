@@ -8,7 +8,6 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | Task | Notes |
 |---|---|
 | ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
-| ⏳ The dream look (PR #42): the player's verdict | Anything that is too much or not enough: the new clouds and oaks, depth of field (Soft by default), brightness, vignette, fog, mist, rain, the birds' level. Optional extras not done: fallen logs, stumps, mushrooms; leaves drifting across the tracks; headlight beams in the fog at night. |
 
 ## To do
 
@@ -17,7 +16,6 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | 📋 Bug: switching the lamps on by day changes the whole scene's lighting | Small | Reported by the player (PR #42): in daylight, turning the headlights on visibly changes the lighting of the entire scene, not just the area the beams reach. Suspects: the lamps becoming visible changes the lights hash and recompiles programs, `hemi.userData.level` / exposure reacting to the lamps, or the lamp warm-up state (DEVNOTES "Lights hash"). |
 | 📋 More cars (picked by the player) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997 (54 MB, needs slimming), HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail), a Land Cruiser (not the J200; e.g. the beige FJ40 "4x4 toyota Bj"). Recipe: `src/cars/README.md`. |
 | 📋 Body bounces off when the roof or a side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
-| 📋 PBR textures | Medium–large | Texture maps (normal, roughness, albedo) for the ground and the truck, as a Graphics option. |
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
@@ -39,7 +37,6 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | Task | Notes |
 |---|---|
 | ⏸ Suspension / landing / body impact sounds | Removed: nothing tried sounded right. See `DEVNOTES.md` → Sound. |
-| ⏸ Lake physics (driving into water) | Not a priority. |
 | ⏸ Short hitch on the first switch to night | Not a priority. |
 
 ## Decided by the player (don't redo unasked)
