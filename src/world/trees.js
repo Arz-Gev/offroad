@@ -220,7 +220,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const near = variants.map((v, i) => {
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
-    const crownMat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
+    const crownMat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, color: v.kind === 'birch' ? 0xfff2e0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
     patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);

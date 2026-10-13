@@ -171,7 +171,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1], undefined, 0.55),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
     makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
-    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
+    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0, 0, 0], FIELDS.poppy.value.toArray()),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();

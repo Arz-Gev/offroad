@@ -77,7 +77,7 @@ export function makeFoliageAtlas() {
       line(x0, y0, x1, y1, 3, hsl(20, 25, 22));
       for (let k = 0; k < 26; k++) {
         const u = R(0.15, 1), px = x0 + (x1 - x0) * u, py = y0 + (y1 - y0) * u;
-        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(42, 50), R(72, 84), R(48, 58)));
+        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(38, 46), R(68, 78), R(45, 55)));
       }
     }
   });
