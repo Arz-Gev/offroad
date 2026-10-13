@@ -247,6 +247,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vec3 col = mix(lush, deep, clamp(nz.a * 0.45 + (lsh - 0.45) * 1.5, 0.0, 1.0));
   col = mix(col, dry, clamp(smoothstep(0.55, 0.85, nz.b) * 0.35 + smoothstep(0.5, 0.12, lsh) * 0.75, 0.0, 1.0) + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
+  // the gusts show as waves of lighter grass rolling across the field (the blades bend over and show their paler
+  // sides), Ghost of Tsushima's visible wind
+  col *= 1.0 + 0.22 * (gust - 0.55) * min(uWind.z, 1.5);
   float fc = fract(hC.y * 7.0);
   vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.6 ? vec3(0.82, 0.82, 0.76) : vec3(0.86, 0.62, 0.06);   // white and yellow only
   if (fieldHead.r >= 0.0) head = fieldHead;

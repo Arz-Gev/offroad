@@ -91,7 +91,7 @@ for (const name of names) {
       else if (at === 'lookout') g.placeVehicle(s.x, s.z, 0.6);
       else g.placeVehicle(s.x + 14, s.z + 10, 0.6);
     }
-    g.grass.shared.uWind.value.z = 0;
+    g.grass.shared.uWind.value.z = ${+(args.wind ?? 0)};
     const o = ${JSON.stringify(v.orbit || null)}, dist = (window.__dist0 ??= g.rig.dist);
     g.input.mouse.lastMove = o ? 1e15 : 0;
     const c = ${JSON.stringify(v.cam || null)};
