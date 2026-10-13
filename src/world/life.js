@@ -152,7 +152,7 @@ void main() {
   vUv = aWing.yz;
   // a colour each: orange, lemon, white, sky blue, rose
   float k = fract(aSeed.w * 7.31);
-  vTint = k < 0.25 ? vec3(0.95, 0.42, 0.08) : k < 0.5 ? vec3(0.98, 0.86, 0.25) : k < 0.7 ? vec3(0.95, 0.94, 0.88) : k < 0.88 ? vec3(0.35, 0.62, 0.98) : vec3(0.95, 0.55, 0.7);
+  vTint = k < 0.25 ? vec3(0.95, 0.42, 0.08) : k < 0.55 ? vec3(0.98, 0.86, 0.25) : vec3(0.95, 0.94, 0.88);   // orange, yellow, white (the palette)
   vLit = 0.6 + 0.4 * abs(sin(ang));
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   if (scale < 1e-4) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
