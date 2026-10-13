@@ -14,7 +14,6 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 
 | Task | Size | Notes |
 |---|---|---|
-| 📋 Bug: switching the lamps on by day changes the whole scene's lighting | Small | Reported by the player (PR #42): in daylight, turning the headlights on visibly changes the lighting of the entire scene, not just the area the beams reach. Suspects: the lamps becoming visible changes the lights hash and recompiles programs, `hemi.userData.level` / exposure reacting to the lamps, or the lamp warm-up state (DEVNOTES "Lights hash"). |
 | 📋 More cars (picked by the player) | Small–medium each | Lada Niva, Jeep Wrangler (free), Jeep Wrangler 1997 (54 MB, needs slimming), HMMWV M998A1, Toyota GR Yaris Rally, classic G-Class W463 (Lexyc16, very low detail), a Land Cruiser (not the J200; e.g. the beige FJ40 "4x4 toyota Bj"). Recipe: `src/cars/README.md`. |
 | 📋 Body bounces off when the roof or a side hits something | Medium | Rapier contacts on the body are too stiff / springy: zero restitution, softer contact. |
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |

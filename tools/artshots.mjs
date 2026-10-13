@@ -13,6 +13,8 @@ fs.mkdirSync(out, { recursive: true });
 // at: 'start' or a site type; orbit: [yaw, pitch, distance] round the truck; hour
 const VIEWS = {
   start: { at: 'start', hour: 13 },
+  startLamps: { at: 'start', hour: 13, lights: 1 },
+  vistaLamps: { at: 'lookout', hour: 11, cam: [0, 8, 0, 190, -5], lights: 1 },
   cockpit: { at: 'start', hour: 13, camMode: 'cockpit' },
   hood: { at: 'lookout', hour: 15, camMode: 'hood' },
   wide: { at: 'start', hour: 13, orbit: [0.5, 0.35, 45] },
@@ -30,6 +32,7 @@ const VIEWS = {
   vistaN: { at: 'lookout', hour: 14, cam: [0, 8, 0, 0, -4] },
   vistaE: { at: 'lookout', hour: 16.5, cam: [0, 8, 0, 100, -5] },
   vistaS: { at: 'lookout', hour: 11, cam: [0, 8, 0, 190, -5] },
+  vistaS2: { at: 'lookout', hour: 11, cam: [0, 8, 0, 190, -5] },
   vistaW: { at: 'lookout', hour: 9, cam: [0, 8, 0, 280, -6] },
   air: { at: 'start', hour: 15, cam: [0, 70, 60, 20, -14] },
   eveningS: { at: 'lookout', hour: 18.3, cam: [0, 8, 0, 190, -5] },

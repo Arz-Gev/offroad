@@ -538,12 +538,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   vec3 nW = nG;
   // PAINTED (the concept-art look): no photo detail anywhere, every layer its own flat colour tinted by the land, the
   // shape from the heightfield alone; what varies is what a painter would put down: big soft value shifts
-  #ifdef PAINTED
-  const float NEAR_TEX = -1.0;
-  #else
-  const float NEAR_TEX = 600.0;
-  #endif
-  if (dist < NEAR_TEX) {
+  // (compiled out, not just skipped: its photo samplers then don't count against the 16 texture units, so the lamps'
+  // cookies leave the cloud shadows in place: CLOUD_TIGHT)
+  #ifndef PAINTED
+  if (dist < 600.0) {
     bool two = dist < 160.0;
     vec4 a1, n1, a2, n2;
     // near the camera the ground has depth: parallax occlusion on the dominant layer, with its own sun shadow
@@ -602,8 +600,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
         nW = normalize(nW + vec3(dir.x, 0.0, dir.y) * dg * 1.2 * tread);
       }
     }
-  } else {
-    // far away: the layers' average colours (their last mip)
+  } else
+  #endif
+  {
+    // far away (painted: everywhere): the layers' average colours (their last mip)
     vec3 tSoil = TINT(1.0);
     c = uAvg[0] * TINT(0.0) * wGrass + (uAvg[1] * wDirt + uAvg[3] * wMud * 0.95 + uAvg[6] * wSoil) * tSoil
       + uAvg[4] * TINT(4.0) * wSand + uAvg[5] * TINT(5.0) * wForest;
@@ -630,8 +630,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float kRock = 0.0, rMoss = 0.0;
   if (wRock > 0.01) {
     vec3 rc, rn; float rh, rcav, rrough;
-    #ifndef NO_ROCK
-    if (dist < NEAR_TEX) rockAt(p, nG, dist, nk, kind, lush, sY, sYd, sF, sY2, rc, rn, rh, rcav, rrough, rMoss);
+    #if !defined( NO_ROCK ) && !defined( PAINTED )
+    if (dist < 600.0) rockAt(p, nG, dist, nk, kind, lush, sY, sYd, sF, sY2, rc, rn, rh, rcav, rrough, rMoss);
     else
     #endif
     {
@@ -723,7 +723,7 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ ...(PAINTED_GROUND ? { PAINTED: '' } : {}), CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ ...(PAINTED_GROUND ? { PAINTED: '' } : { CLOUD_TIGHT: '' }), POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
