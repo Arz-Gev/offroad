@@ -32,6 +32,8 @@ const VIEWS = {
   vistaS: { at: 'lookout', hour: 11, cam: [0, 8, 0, 190, -5] },
   vistaW: { at: 'lookout', hour: 9, cam: [0, 8, 0, 280, -6] },
   air: { at: 'start', hour: 15, cam: [0, 70, 60, 20, -14] },
+  eveningS: { at: 'lookout', hour: 18.3, cam: [0, 8, 0, 190, -5] },
+  eveningW: { at: 'lookout', hour: 18.3, cam: [0, 8, 0, 280, -5] },
   high: { at: 'start', hour: 14, cam: [0, 220, 150, 200, -18] },
 };
 
