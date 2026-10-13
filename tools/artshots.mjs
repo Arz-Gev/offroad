@@ -127,6 +127,15 @@ for (const name of names) {
   const r = await send('Page.captureScreenshot', jpg ? { format: 'jpeg', quality: 88 } : { format: 'png' });
   fs.writeFileSync(path.join(out, name + (jpg ? '.jpg' : '.png')), Buffer.from(r.result.data, 'base64'));
   console.log('shot', name);
+  if (args.pick) {
+    // what is under a pixel (x,y in 0..1 of the frame): the objects a ray from the camera hits, nearest first
+    const [px, py] = args.pick.split(',').map(Number);
+    console.log('pick', await evaluate(`(() => {
+      const g = game, T = g.THREE, rc = new T.Raycaster();
+      rc.setFromCamera(new T.Vector2(${px} * 2 - 1, 1 - ${py} * 2), g.camera);
+      return rc.intersectObjects(g.scene.children, true).slice(0, 5).map(h => (h.object.name || h.object.type) + '/' + (h.object.parent?.name || '') + ' ' + h.distance.toFixed(1) + 'm ' + (h.object.material?.type || ''));
+    })()`));
+  }
 }
 const t = await evaluate(`JSON.stringify(game.timings || {})`);
 console.log('timings', t);
