@@ -39,6 +39,7 @@ const VIEWS = {
   eveningW: { at: 'lookout', hour: 18.3, cam: [0, 8, 0, 280, -5] },
   sunward: { at: 'start', hour: 18.6, cam: [0, 3, 0, 65, 4] },
   high: { at: 'start', hour: 14, cam: [0, 220, 150, 200, -18] },
+  forest: { at: 'start', hour: 13, cam: [-220, 3, 45, 30, 0] },   // inside the densest wood near the start (the heaviest view)
 };
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
