@@ -249,7 +249,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   // ---- impostors (all trees; the shader hides the ones the near meshes cover)
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  const impMat = new THREE.MeshLambertMaterial({ map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });   // Lambert: far crowns are matte; the GGX and specular IBL cost and showed nothing
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
   const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current
