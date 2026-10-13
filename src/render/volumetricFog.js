@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ORIGIN, mod } from '../world/origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { CLOUD_GLSL, cloudUniforms } from '../world/clouds.js';
 
@@ -184,7 +185,7 @@ export class VolumetricFog {
     u.uLightDir.value.copy(P.lightDir); u.uLightCol.value.copy(P.lightCol); u.uAmb.value.copy(P.amb);
     u.uDens.value.set(P.density, P.falloff, P.floor, P.wisps);
     u.uPhase.value.set(P.g, P.forward, P.back, 0);
-    u.uWind.value.copy(this.wind);
+    u.uWind.value.set(mod(this.wind.x + ORIGIN.x, 60), mod(this.wind.y + ORIGIN.z, 60));   // tied to the world (origin.js)
     u.uMaxDist.value = P.maxDist;
     u.uSteps.value = this.steps;
     u.uFrame.value = this.frame++ % 1024;

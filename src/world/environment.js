@@ -337,7 +337,8 @@ export class Environment {
     setVec4(ATMO.atmoGlow, sunRGB[0] * gk, sunRGB[1] * gk, sunRGB[2] * gk, 0.75);
     // valley mist: a shallow layer lying in the low ground (floor 6 m under the lake, falling off over ~9 m)
     setVec4(ATMO.atmoMist, Math.max(0, c.vmist), 0.11, -6, 0);
-    ATMO.atmoVista.x = c.vista;
+    // (the land beyond the window is the same world as the window, not a backdrop: a lighter haze than the keys')
+    ATMO.atmoVista.x = c.vista * 0.45;
     // volumetric fog: the haze in the low ground, lit through the shadows; in shade it takes the horizon's colour
     const F = this.fog.params;
     F.density = c.vfog * this.fogAmount; F.falloff = 0.022; F.floor = 0;

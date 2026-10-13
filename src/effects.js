@@ -188,6 +188,12 @@ export class Dust {
     g.attributes.alpha.needsUpdate = true;
     g.attributes.color.needsUpdate = true;
   }
+
+  // the local frame moved by (dx, dz) (origin.js)
+  shift(dx, dz) {
+    for (let i = 0; i < this.pos.length; i += 3) { this.pos[i] -= dx; this.pos[i + 2] -= dz; }
+    this.points.geometry.attributes.position.needsUpdate = true;
+  }
 }
 
 export class Tracks {
@@ -205,6 +211,25 @@ export class Tracks {
     this.timer = 0;
     this.dirty = false;
     this.box = [res, res, -1, -1];   // texels stamped since the last upload: x0, z0, x1, z1
+  }
+
+  // the local frame (and the window) moved by (dx, dz): the tracks move with the ground, what falls outside goes
+  shift(dx, dz) {
+    const res = this.res, k = res / MAP_SIZE, sx = Math.round(dx * k), sz = Math.round(dz * k), d = this.data;
+    // in place: rows in the order that never overwrites a row still to be read
+    const x0 = Math.max(0, -sx), x1 = Math.min(res, res - sx);
+    const row = (z) => {
+      const z0 = z + sz, o = z * res;
+      if (z0 < 0 || z0 >= res || x1 <= x0) { d.fill(0, o, o + res); return; }
+      d.copyWithin(o + x0, z0 * res + x0 + sx, z0 * res + x1 + sx);
+      if (x0 > 0) d.fill(0, o, o + x0);
+      if (x1 < res) d.fill(0, o + x1, o + res);
+    };
+    if (sz >= 0) for (let z = 0; z < res; z++) row(z); else for (let z = res - 1; z >= 0; z--) row(z);
+    this.tex.clearUpdateRanges();
+    this.tex.needsUpdate = true;
+    this.box = [res, res, -1, -1];
+    this.dirty = false;
   }
 
   stamp(v, dt) {

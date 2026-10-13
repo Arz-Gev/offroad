@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 import { mulberry32 } from './noise.js';
 import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
+import { PAT, pp, ORIGIN } from './origin.js';
 
 // Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the edges of
 // the strip between the ruts, scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
@@ -147,12 +148,13 @@ vDAO = ${kind === 'flat' || kind === 'stick' ? '0.8' : 'mix(0.3, 0.7, smoothstep
       .replace('#include <common>', `#include <common>
 uniform sampler2D tNoise;
 uniform float uWet;
+uniform vec2 uPat;
 varying vec3 vDCol;
 varying vec3 vDPos;
 varying float vDAO;`)
       .replace('#include <map_fragment>', `
 {
-  vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
+  vec4 nz = texture2D(tNoise, (vDPos.xz + uPat) * ${(1 / pp(1 / 1.7)).toFixed(6)} + vDPos.y * 0.9);
   diffuseColor.rgb *= vDCol * (0.78 + 0.44 * nz.a) * (1.0 - 0.35 * uWet);
 }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.9, 0.3, uWet);')
@@ -166,13 +168,13 @@ if (normal.z < 0.0) normal = -normal;
 vec3 nonPerturbedNormal = normal;`);
     }
   };
-  mat.customProgramCacheKey = () => `debris-${kind}${depth ? '-depth' : ''}-v1`;
+  mat.customProgramCacheKey = () => `debris-${kind}${depth ? '-depth' : ''}-v2`;
   return mat;
 }
 
 export function buildDebris(terrain, terrainView) {
   const U = terrainView.uniforms;
-  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 } };
+  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 }, uPat: PAT };
   let L = LEVELS.normal;
   const group = new THREE.Group();
   group.name = 'debris';
@@ -212,13 +214,16 @@ export function buildDebris(terrain, terrainView) {
   }
 
   // ---- placement
-  const gd = terrainView.groundData, ld = terrainView.landData, DN = terrainView.groundN;
-  const splat = terrainView.splat.image.data;
+  const DN = terrainView.groundN;
+  let gd, ld, splat;   // the current window's maps (terrainView), read when a chunk is made
   const cache = new Map();   // chunk key -> { blob: Float32Array, flat, stick }
   const nrm = new THREE.Vector3();
   function generate(cx, cz) {
+    gd = terrainView.groundData; ld = terrainView.landData; splat = terrainView.splat.image.data;
     const out = { blob: [], pebble: [], flat: [], stick: [] };
-    const rnd = mulberry32((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
+    // seeded by the chunk's place in the world (the window's shifts are whole chunks)
+    const ax = cx + Math.round(ORIGIN.x / CHUNK), az = cz + Math.round(ORIGIN.z / CHUNK);
+    const rnd = mulberry32((ax * 73856093) ^ (az * 19349663) ^ 0x5bd1e995);
     const x0 = -HALF + cx * CHUNK, z0 = -HALF + cz * CHUNK;
     const put = (list, x, z, sx, sy, sz, col, sink, yaw = rnd() * Math.PI * 2) => {
       const y = terrain.surfaceHeight(x, z);
@@ -317,6 +322,21 @@ export function buildDebris(terrain, terrainView) {
   return {
     group,
     get count() { return Object.values(meshes).reduce((n, M) => n + M.count, 0); },
+    // the local frame moved by (dx, dz) (whole chunks): the cached chunks follow; those near the old window's edge
+    // (where its heights blended into the vista) are made again
+    shift(dx, dz) {
+      const sx = Math.round(dx / CHUNK), sz = Math.round(dz / CHUNK), old = [...cache];
+      cache.clear();
+      for (const [k, c] of old) {
+        const cx = Math.floor(k / NC) - sx, cz = k % NC - sz;
+        if (cx < 4 || cz < 4 || cx >= NC - 4 || cz >= NC - 4) continue;
+        const ox = Math.floor(k / NC), oz = k % NC;
+        if (ox < 4 || oz < 4 || ox >= NC - 4 || oz >= NC - 4) continue;
+        for (const arr of Object.values(c)) for (let i = 0; i < arr.length; i += STRIDE) { arr[i] -= dx; arr[i + 2] -= dz; }
+        cache.set(cx * NC + cz, c);
+      }
+      dirty = true; lastKey = '';
+    },
     configure(q) {
       enabled = q.vegetation !== false && (q.bushes ?? 1) > 0 && q.veg !== 'off';
       group.visible = enabled;

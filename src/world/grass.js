@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 import { FIELDS } from './undergrowth.js';
+import { PAT, PAT_GLSL, PAT_PERIOD, ppf } from './origin.js';
 
 // GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
 // blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
@@ -91,7 +92,8 @@ uniform vec4 uCurve[65];  // per sampled distance (CURVE_N + 1): share of the gr
 uniform vec4 uWind;     // dir x, dir z, strength, time
 uniform vec4 uPush[5];  // xyz, radius
 uniform vec4 uTrackP;   // origin x, z, size
-attribute vec3 aBlade;
+uniform vec3 uCellPat;  // the pattern frame in cells (origin.js): offset x, z, period
+${PAT_GLSL}attribute vec3 aBlade;
 varying vec3 vGCol;
 varying vec3 vGFace;
 varying float vGAO;
@@ -124,6 +126,7 @@ export function buildGrass(terrainView, opts = {}) {
     uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
     uTrackP: { value: new THREE.Vector4(0, 0, MAP_SIZE, 0) },
+    uPat: PAT,
   };
   const group = new THREE.Group();
   group.name = 'grass';
@@ -131,6 +134,7 @@ export function buildGrass(terrainView, opts = {}) {
   const uniforms = {
     ...shared,
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
+    uCellPat: { value: new THREE.Vector3(0, 0, PAT_PERIOD / 0.1) },
     uLod: { value: new THREE.Vector4(8, 1, 100, 0.035) },
     uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy,
     uRad: { value: new THREE.Vector2(72, 100) },
@@ -158,7 +162,10 @@ for (int p = 0; p < 10; p++) {
 float gk = exp2(uLod.x);
 vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
 vec2 cellIdx = uGrid.xy + aTile * gk + vec2(float(ux), float(uz));
-vec2 hA = gHash22(cellIdx), hB = gHash22(cellIdx + 17.17);
+// the hash's cell: in the pattern frame (the window's shifts are whole cells), wrapped at its period
+vec2 cellH = mod(cellIdx + uCellPat.xy, uCellPat.z);
+vec2 hA = gHash22(cellH), hB = gHash22(cellH + 17.17);
+vec2 bq = (cellH + hA * exp2(float(lead))) * uGrid.z;   // the blade's place in the pattern frame
 vec2 bxz = (cellIdx + hA * exp2(float(lead))) * uGrid.z;
 float dCam = distance(bxz, cameraPosition.xz);
 float cu = sqrt(clamp(dCam / ${CURVE_MAX.toFixed(1)}, 0.0, 1.0)) * ${CURVE_N.toFixed(1)};
@@ -177,8 +184,8 @@ vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0); vGPos = vec3(0.0);
 if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
-  vec2 hC = gHash22(cellIdx + 41.3);
-  vec4 nz = textureLod(tNoise, bxz / 61.0, 0.0);
+  vec2 hC = gHash22(cellH + 41.3);
+  vec4 nz = textureLod(tNoise, bq / ${ppf(61)}, 0.0);
   #ifdef FLOAT_LINEAR
   float gy = textureLod(tHeight, ((bxz.yx + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0).r;
   #else
@@ -197,7 +204,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   float ff = smoothstep(uFieldFar.x, uFieldFar.y, dCam);
   if (ff > 0.0) {
     float fk = smoothstep(0.15, 0.5, dens) * (1.0 - smoothstep(0.25, 0.75, gdv.g)) * ff;
-    vec4 fl = textureLod(tNoise, bxz / uFieldLav.y + uFieldLav.w, 0.0), fp = textureLod(tNoise, bxz / uFieldPop.y + uFieldPop.w, 0.0);
+    vec4 fl = textureLod(tNoise, bq / uFieldLav.y + uFieldLav.w, 0.0), fp = textureLod(tNoise, bq / uFieldPop.y + uFieldPop.w, 0.0);
     float lav = uFieldLav.x * smoothstep(uFieldLav.z, uFieldLav.z + 0.1, fl.r * 0.7 + fl.g * 0.3) * fk;
     float pop = uFieldPop.x * smoothstep(uFieldPop.z, uFieldPop.z + 0.1, fp.r * 0.7 + fp.g * 0.3) * fk;
     if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.34, 0.2, 0.72); }
@@ -211,9 +218,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   // bend: natural lean + travelling wind gusts + pushed by the wheels
   vec2 bend = (hC - 0.5) * 0.5;
   float t = uWind.w;
-  float ph = dot(bxz, uWind.xy) * 0.09 - t * 1.3;
-  float gust = 0.55 + 0.45 * sin(ph) * sin(ph * 0.37 + bxz.x * 0.05 + 1.7);
-  float sway = sin(t * (1.6 + hA.y) + bxz.x * 0.35 + bxz.y * 0.2) * 0.12;
+  float ph = dot(bq, uWind.xy) * 0.09 - t * 1.3;
+  float gust = 0.55 + 0.45 * sin(ph) * sin(ph * 0.37 + bq.x * 0.05 + 1.7);
+  float sway = sin(t * (1.6 + hA.y) + bq.x * 0.35 + bq.y * 0.2) * 0.12;
   bend += uWind.xy * uWind.z * (gust * 0.7 - 0.1 + sway);
   float squash = 1.0;
   for (int i = 0; i < 5; i++) {
@@ -368,13 +375,15 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
     return t;
   }
 
-  // the largest grass density over 2^l x 2^l m blocks (l = 0..10), to skip tiles with no grass under them
-  const densMax = [];
-  {
-    const tex = U.tData.value, D = tex.image.data, W = tex.image.width;
+  // the largest grass density over 2^l x 2^l m blocks (l = 0..10), to skip tiles with no grass under them (made again
+  // for each window)
+  let densMax = [];
+  // from a ground-data map (RGBA, w x w): its alpha's max pyramid
+  const buildDens = (D, W) => {
+    const out = [];
     let w = W, cur = new Uint8Array(W * W);
     for (let i = 0; i < W * W; i++) cur[i] = D[i * 4 + 3];
-    densMax.push({ w, a: cur });
+    out.push({ w, a: cur });
     while (w > 1) {
       const w2 = Math.ceil(w / 2), nxt = new Uint8Array(w2 * w2);
       for (let z = 0; z < w2; z++) for (let x = 0; x < w2; x++) {
@@ -382,9 +391,11 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
         nxt[z * w2 + x] = Math.max(cur[z0 * w + x0], cur[z0 * w + x1], cur[z1 * w + x0], cur[z1 * w + x1]);
       }
       w = w2; cur = nxt;
-      densMax.push({ w, a: cur });
+      out.push({ w, a: cur });
     }
-  }
+    return out;
+  };
+  densMax = buildDens(U.tData.value.image.data, U.tData.value.image.width);
   // any grass in the world box? (the shader samples the 1 m density map bilinearly at the blade)
   const hasGrass = (x0, z0, x1, z1) => {
     let a = Math.floor(x0 + HALF), b = Math.floor(z0 + HALF), c = Math.floor(x1 + HALF) + 1, d = Math.floor(z1 + HALF) + 1;
@@ -402,6 +413,9 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
   const api = {
     group, shared, uniforms, lay,
     get tiles() { return tiles; },
+    // a new window (main.js): its density pyramid (windowBake.js), swapped in with the window
+    prepareWindow(w) { return { next: { dens: w.grassDens || buildDens(w.groundData, w.groundN) }, steps: [] }; },
+    applyWindow(next) { densMax = next.dens; },
     sent: 0,   // blades sent last frame
     // the GPU timer for the tuner (null if the browser has no timer queries); ms: smoothed grass time
     setTiming(renderer, on) {
@@ -421,8 +435,11 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
       enabled = q.vegetation !== false && dMax > 0.01;
       group.visible = enabled;
       if (!enabled) return;
-      const s = 1 / Math.sqrt(dMax);   // m between blades at the densest point
+      let s = 1 / Math.sqrt(dMax);   // m between blades at the densest point
       const n = Math.max(4, Math.min(9, Math.floor(Math.log2(32 / s)))), k = 2 ** n;
+      // snapped so a tile (k cells) divides the window's step (256 m): the grid and its thinning stay put on the
+      // ground when the frame shifts (origin.js)
+      s = 256 / (k * Math.max(1, Math.round(256 / (k * s))));
       const tile = k * s, h = Math.ceil(R / tile), T = 2 * h + 1;
       const share = new Float32Array(CURVE_N + 1);
       uniforms.uCurve.value.forEach((v, i) => {
@@ -456,6 +473,9 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
       // tile (0, 0) of the T x T block around the camera's tile; tiles are world-aligned
       const ti = Math.floor(cx / tile) - h, tj = Math.floor(cz / tile) - h;
       uniforms.uGrid.value.x = ti * k; uniforms.uGrid.value.y = tj * k;
+      // the pattern frame in whole cells (PAT is a multiple of 256 m, a whole number of cells)
+      const pc = Math.round(PAT_PERIOD / lay.s);
+      uniforms.uCellPat.value.set(Math.round(PAT.value.x / lay.s) % pc, Math.round(PAT.value.y / lay.s) % pc, pc);
       for (const m of tiles) {
         const t = m.userData.tile;
         if (!t) continue;

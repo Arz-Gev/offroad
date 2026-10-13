@@ -3,7 +3,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 
-import { Terrain, SPAWN } from './world/terrain.js';
+import { Terrain } from './world/terrain.js';
+import { Streamer } from './world/streamer.js';
+import { ORIGIN, setOrigin } from './world/origin.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { loadGroundPhotos } from './world/textures.js';
 import { buildGrass } from './world/grass.js';
@@ -19,7 +21,7 @@ import { Environment, QUICK_HOURS, QUICK_ORDER } from './world/environment.js';
 import { applySetup, rideRaise, useCar } from './vehicle/tuning.js';
 import { ColliderView } from './vehicle/colliderView.js';
 import { TuningPanel } from './tuningPanel.js';
-import { Vehicle } from './vehicle/Vehicle.js';
+import { Vehicle, GROUP_GROUND } from './vehicle/Vehicle.js';
 import { buildCarModel } from './vehicle/model/index.js';
 import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
@@ -45,6 +47,7 @@ import './ui.css';
 installShaderPatches();     // before any material compiles
 
 const H = 1 / 240;          // physics step
+const WORLD_SEED = 7;       // one world for everyone (friends in a room see the same land)
 const MAX_STEPS = 16;
 
 async function main() {
@@ -68,12 +71,21 @@ async function main() {
   setLoading('Generating terrain…', 0.2); await frame();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = H;
-  const terrain = new Terrain(7);
-  terrain.createCollider(RAPIER, world);
+  // the endless world: windows of it are built in a worker round the truck (streamer.js); the hooks are filled in
+  // once every system exists
+  const hooks = {};
+  const streamer = new Streamer(WORLD_SEED, { prepare: (t, w) => hooks.prepare(t, w), apply: (t, w, dx, dz) => hooks.apply(t, w, dx, dz) });
+  const spawnW = await streamer.spawn;   // world coordinates
+  const win0 = await streamer.first(spawnW.x, spawnW.z);
+  console.info('first window', win0.times);
+  setOrigin(win0.ox, win0.oz);
+  const terrain = Terrain.fromData(win0);
+  terrain.createCollider(RAPIER, world, GROUP_GROUND);
+  const SPAWN = { x: spawnW.x - ORIGIN.x, z: spawnW.z - ORIGIN.z, yaw: spawnW.yaw };   // local, in the first window
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
   const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
-  const terrainView = buildTerrainView(terrain, renderer, { noise: env.sky.noise, photos: await groundPhotos });
+  const terrainView = buildTerrainView(terrain, renderer, win0, { noise: env.sky.noise, photos: await groundPhotos });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
   const grass = buildGrass(terrainView);
@@ -85,10 +97,10 @@ async function main() {
 
   setLoading('Placing rocks and trees…', 0.5); await frame();
   const colliderSurface = new Map();
-  const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }));
-  scene.add(props);
+  const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }), win0);
+  scene.add(props.group);
   setLoading('Growing the forest…', 0.58); await frame();
-  const trees = buildTrees(RAPIER, world, terrain, colliderSurface, renderer, terrainView, grass.shared.uWind);
+  const trees = buildTrees(RAPIER, world, colliderSurface, renderer, grass.shared.uWind, win0);
   scene.add(trees.group);
   scenery.parts.push(trees);
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
@@ -104,6 +116,7 @@ async function main() {
   scene.add(weather.group);
   scenery.parts.push(weather);
   trees.updatePhysics(SPAWN.x, SPAWN.z);
+  props.stream.update(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
   const settings = new Settings();
@@ -156,20 +169,62 @@ async function main() {
     rig.first = true;
     game.redraw = 3;
   };
-  const { teleports, nearestLocation, placeVehicle, recover: recoverVehicle } = createPlacement({ RAPIER, world, terrain, vehicle, trees, props, onPlaced: afterPlace });
+  const { teleports, nearestLocation, placeVehicle, placeWorld, teleportTo, visit, discover, recover: recoverVehicle } = createPlacement({
+    RAPIER, world, terrain, vehicle, trees, props, streamer, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
     RAPIER, world, scene, vehicle, view, settings,
     say: (key, html, kind) => hud.toast(html, { kind, key }),
-    placeNear: (x, z, yaw) => placeVehicle(x, z, yaw),
+    placeNear: (x, z, yaw) => placeWorld(x, z, yaw),   // world coordinates
     friendShots: (p, n) => gunnery?.friendShots(p.model, p.proxy, n),
     changed: () => { if (menu.isOpen) menu.refresh(); },
   });
   game.mp = mp;
+
+  // ---------------------------------------------------------------- the next window of the world (streamer.js)
+  // prepare: the new window's textures, trees, rocks, huts, water and its ground collider, a step a frame; the
+  // collider is made ahead where it will lie once the frame has shifted (it matches the old ground where they meet)
+  const _shiftM = new THREE.Matrix4();
+  const dropJob = () => { if (hooks.job?.collider) world.removeCollider(hooks.job.collider, false); hooks.job = null; };
+  hooks.prepare = (t, w) => {
+    dropJob();
+    const dx = w.ox - ORIGIN.x, dz = w.oz - ORIGIN.z;
+    const job = hooks.job = { tv: terrainView.prepareWindow(t, w), tr: trees.prepareWindow(w), pr: props.prepareWindow(t, w), wa: water.prepareWindow(t, w), gr: grass.prepareWindow(w), collider: null };
+    return [...job.tv.steps, ...job.tr.steps, ...job.pr.steps, ...job.wa.steps, ...job.gr.steps, () => { job.collider = t.createCollider(RAPIER, world, GROUP_GROUND, dx, dz); }];
+  };
+  // apply: swap it in and shift everything by (dx, dz) so the truck is near the centre again (origin.js)
+  hooks.apply = (t, w, dx, dz) => {
+    const job = hooks.job, T = [], t0 = performance.now(), lap = () => T.push(Math.round((performance.now() - t0) * 10) / 10);
+    hooks.job = null;
+    world.removeCollider(terrain.collider, false);
+    job.collider.setTranslation({ x: 0, y: 0, z: 0 });
+    lap();
+    vehicle.shift(dx, dz);
+    for (const v of [prevPos, curPos, rPos]) { v.x -= dx; v.z -= dz; }
+    rig.shift(dx, dz); dust.shift(dx, dz); tracks.shift(dx, dz); gunnery?.shift(dx, dz); mp.shift(dx, dz); debris.shift(dx, dz);
+    // the temporal passes reproject last frame's view: it moved with the world
+    _shiftM.makeTranslation(dx, 0, dz);
+    for (const p of [pipeline.clouds, pipeline.fog]) p?.prevViewProj?.multiply(_shiftM);
+    setOrigin(w.ox, w.oz);
+    Object.assign(terrain, t);   // every system holds this one object: it now reads the new window
+    terrain.collider = job.collider;
+    lap();
+    terrainView.applyWindow(job.tv.next); lap(); trees.applyWindow(job.tr.next); lap(); props.applyWindow(job.pr.next); lap(); water.applyWindow(job.wa.next);
+    grass.applyWindow(job.gr.next); lap();
+    // the colliders round the truck, and a step so the scene queries see them (an almost zero one: nothing moves)
+    trees.updatePhysics(vehicle.pos.x, vehicle.pos.z);
+    props.stream.update(vehicle.pos.x, vehicle.pos.z);
+    lap();
+    world.timestep = 1e-6; world.step(); world.timestep = H;
+    vehicle.readBody();
+    lap();
+    hooks.lastApply = T;
+    game.redraw = 3;
+  };
 
   // ---------------------------------------------------------------- graphics quality
   let started = false;
@@ -270,8 +325,7 @@ async function main() {
   const teleport = i => {
     const t = teleports[i];
     if (!t) return;
-    placeVehicle(t.x, t.z, t.yaw);
-    say('place', escapeHTML(t.title), 'good');
+    teleportTo(t).then(ok => { if (ok) say('place', escapeHTML(t.title), 'good'); }, e => { console.warn(e); say('place', 'Could not get there', 'warn'); });
   };
   const next = (list, cur) => list[(list.indexOf(cur) + 1) % list.length];
   const toggle = key => settings.set(key, !settings.get(key));
@@ -473,14 +527,16 @@ async function main() {
         const t = vehicle.body.translation(), q = vehicle.body.rotation();
         curPos.set(t.x, t.y, t.z); curQ.set(q.x, q.y, q.z, q.w);
         trees.updatePhysics(t.x, t.z);
-        props.userData.stream.update(t.x, t.z);
+        props.stream.update(t.x, t.z);
         tracks.stamp(vehicle, H);
         acc -= H;
         steps++;
       }
       if (steps === MAX_STEPS) acc = 0;
       game.stepsPerFrame = steps;
-      if (curPos.y < -60) { placeVehicle(SPAWN.x, SPAWN.z, 0); say('place', 'Fell off the map: back at the spawn', 'warn'); }
+      if (curPos.y < -400) { teleport(0); say('place', 'Fell out of the world: back at the start', 'warn'); }
+      streamer.update(vehicle.pos.x, vehicle.pos.z);
+      discover(dt);
     }
     mark('physics');
     mp.update(paused ? 0 : dt, now - acc, { night: env.night, darkness: env.darkness, shadows: true });
@@ -515,7 +571,7 @@ async function main() {
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
       gun: gunnery ? { gunnery, sight: gunnerView, fov: rig.gunnerFov, locked: !!document.pointerLockElement } : null,
-      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
+      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${(vehicle.pos.x + ORIGIN.x).toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${(vehicle.pos.z + ORIGIN.z).toFixed(1)}  windows ${streamer.windows}${streamer.busy ? ' …' : ''}`,
     });
     tuning.update(dt, vehicle, raw);
     mark('hud');

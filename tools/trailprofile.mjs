@@ -2,20 +2,23 @@
 // unload the truck below a given speed (vertical curvature h'' < -g / v^2, measured over a 4 m base,
 // about the wheelbase), and short bumps (0.5-2 m wavelength) that shake it.
 //   node tools/trailprofile.mjs [kmh=65] [trail index or 'all']
-import { Terrain } from '../src/world/terrain.js';
+import { loadWindow } from './worldwindow.mjs';
 const kmh = +(process.argv[2] || 65), which = process.argv[3] ?? 'all';
-const t = new Terrain(7);
+const { terrain: t } = loadWindow();   // a window of the world (worldwindow.mjs: the start, or WX= / WZ=)
 const g = 9.81, v = kmh / 3.6, kLim = g / (v * v);
 const trails = which === 'all' ? t.trailCurves.map((_, i) => i) : [+which];
 for (const ti of trails) {
   const c = t.trailCurves[ti], len = c.getLength(), ds = 0.5, n = Math.floor(len / ds);
   const pts = c.getSpacedPoints(n);
   const h = pts.map(p => (t.surfaceHeight || t.heightAt).call(t, p.x, p.z));
+  // (only the part inside the window, clear of its edge where it blends into the vista)
+  const inside = pts.map(p => Math.abs(p.x) < 470 && Math.abs(p.z) < 470);
   const B = +(process.env.BASE || 4) * 2; // samples: 4 m base (about the wheelbase); BASE=2 for sharper features
   const crests = [];
   let rough = 0, rn = 0;
   for (let k = B; k < n - B; k++) {
     const d2 = (h[k + B] - 2 * h[k] + h[k - B]) / ((B * ds) ** 2);
+    if (!inside[k - B] || !inside[k + B]) continue;
     if (d2 < -kLim) crests.push({ s: k * ds, d2, x: pts[k].x, z: pts[k].z });
     // short-wave roughness: residual after a 2 m moving average
     let a = 0; for (let j = -2; j <= 2; j++) a += h[k + j]; a /= 5;

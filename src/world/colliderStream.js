@@ -21,11 +21,21 @@ export class ColliderStream {
     return Math.min(n - 1, Math.max(0, Math.floor((z + h) / this.chunk))) * n + Math.min(n - 1, Math.max(0, Math.floor((x + h) / this.chunk)));
   }
 
-  // desc: a Rapier ColliderDesc (created again on every stream-in); surface: tyre surface for the wheels
+  // desc: a Rapier ColliderDesc (created again on every stream-in) or a function making one (convex hulls are built
+  // only when they first stream in); surface: tyre surface for the wheels
   add(x, z, desc, surface) {
     this.items[this.chunkOf(x, z)].push({ desc, surface });
     this.total++;
     this.cur = -1;   // re-evaluate on the next update
+  }
+
+  // a new window: every collider and item goes
+  clear() {
+    for (const list of this.active.values()) for (const c of list) { this.surfaces.delete(c.handle); this.world.removeCollider(c, false); }
+    this.active.clear();
+    for (const l of this.items) l.length = 0;
+    this.total = 0;
+    this.cur = -1;
   }
 
   get count() { let n = 0; for (const l of this.active.values()) n += l.length; return n; }
@@ -49,6 +59,8 @@ export class ColliderStream {
       if (this.active.has(k)) continue;
       const list = [];
       for (const it of this.items[k]) {
+        if (typeof it.desc === 'function') it.desc = it.desc();
+        if (!it.desc) continue;
         const c = this.world.createCollider(it.desc);
         if (it.surface) this.surfaces.set(c.handle, it.surface);
         list.push(c);

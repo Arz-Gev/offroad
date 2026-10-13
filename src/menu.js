@@ -180,8 +180,9 @@ export class Menu {
 
   buildLocations() {
     const locs = this.api.locations;
+    this.locCount = locs.length;
     this.panes.locations.innerHTML = `
-      <p class="pane-lead">Teleport anywhere on the map. The proving ground lanes test one thing each.</p>
+      <p class="pane-lead">The world goes on in every direction. Places you have found (huts, lakes, quarries, lookouts) show up here: drive near one to add it.</p>
       <div class="loc-grid">${locs.map((l, i) => `
         <button class="loc" type="button" data-loc="${i}">
           <span class="loc-n">${i + 1}</span>
@@ -321,6 +322,7 @@ export class Menu {
 
   // ------------------------------------------------------------------ open / close
   open(tab) {
+    if (this.api.locations.length !== this.locCount) this.buildLocations();   // places found since
     if (!this.isOpen) {
       this.isOpen = true;
       this.root.hidden = false;
