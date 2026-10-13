@@ -20,7 +20,7 @@ const VIEWS = {
   dusk: { at: 'lookout', hour: 19.4, orbit: [2.2, 0.1, 12] },
   night: { at: 'start', hour: 23, orbit: [3.0, 0.1, 9], lights: 1 },
   rain: { at: 'lookout', hour: 13, orbit: [0.8, 0.15, 14], storm: 1 },
-  lake: { at: 'lake', hour: 10.5, orbit: [0.2, 0.15, 14] },
+  lake: { at: 'lake', hour: 10.5, cam: [0, 14, 0, 90, -9] },
   lookout: { at: 'lookout', hour: 15.5, orbit: [0.8, 0.3, 30] },
   hut: { at: 'hut', hour: 17, orbit: [1.6, 0.12, 12] },
   quarry: { at: 'quarry', hour: 12, orbit: [0.4, 0.4, 30] },
@@ -71,8 +71,18 @@ for (const name of names) {
     const at = ${JSON.stringify(v.at)};
     if (at === 'start') { const t = g.teleports[0]; g.placeVehicle(t.ax - g.ORIGIN.x, t.az - g.ORIGIN.z, t.yaw); }
     else {
-      const s = g.terrain.sites.filter(s => s.type === at).sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
-      if (!s) return 'no ' + at;
+      let s = g.terrain.sites.filter(s => s.type === at).sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
+      if (!s) {
+        // not in this window: the nearest one in the world (absolute coordinates), travel there
+        const W = new (await import('/src/world/worldgen.js')).World(window.__seed ?? 7), ox = g.ORIGIN.x, oz = g.ORIGIN.z, R = 4000;
+        const all = W.regionsIn(ox - R, oz - R, ox + R, oz + R).flatMap(r => r.sites || []).filter(q => q.type === at);
+        all.sort((a, b) => Math.hypot(a.x - ox, a.z - oz) - Math.hypot(b.x - ox, b.z - oz));
+        if (!all[0]) return 'no ' + at;
+        if (!(await g.placeWorld(all[0].x + 40, all[0].z, 0))) return 'travel failed';
+        for (let i = 0; i < 30; i++) frame(1 / 60);
+        s = g.terrain.sites.filter(q => q.type === at).sort((a, b) => Math.hypot(a.x - g.vehicle.pos.x, a.z - g.vehicle.pos.z) - Math.hypot(b.x - g.vehicle.pos.x, b.z - g.vehicle.pos.z))[0];
+        if (!s) return 'no ' + at + ' after travel';
+      }
       if (at === 'lake') { const lk = s.lake; g.placeVehicle(lk.x + lk.rx * 1.35, lk.z, Math.PI / 2); }
       else if (at === 'lookout') g.placeVehicle(s.x, s.z, 0.6);
       else g.placeVehicle(s.x + 14, s.z + 10, 0.6);

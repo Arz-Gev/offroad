@@ -86,7 +86,7 @@ uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing (m), unused
 uniform vec4 uLod;      // log2(cells per tile side), unused, grass distance (m), flower chance
 uniform vec2 uFieldFar;  // undergrowth.js FIELDS
-uniform vec4 uFieldLav, uFieldPop;
+uniform vec4 uFieldLav, uFieldPop, uFieldPam;
 uniform vec2 uRad;      // fade out start, end (m)
 uniform vec4 uCurve[65];  // per sampled distance (CURVE_N + 1): share of the grid drawn, height (m), width (m)
 uniform vec4 uWind;     // dir x, dir z, strength, time
@@ -136,7 +136,7 @@ export function buildGrass(terrainView, opts = {}) {
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
     uCellPat: { value: new THREE.Vector3(0, 0, PAT_PERIOD / 0.1) },
     uLod: { value: new THREE.Vector4(8, 1, 100, 0.018) },
-    uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy,
+    uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy, uFieldPam: FIELDS.pampas,
     uRad: { value: new THREE.Vector2(72, 100) },
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
   };
@@ -210,6 +210,10 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
     if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.86, 0.6, 0.05); }
     else if (hC.x < (lav + pop) * 0.85) { flower = 1.0; fieldHead = vec3(0.8, 0.07, 0.03); }
   }
+  // silver grass in drifts (FIELDS.pampas): taller and paler, most blades end in a cream plume
+  vec4 fsg = textureLod(tNoise, bq / uFieldPam.y + uFieldPam.w, 0.0);
+  float pam = uFieldPam.x * smoothstep(uFieldPam.z, uFieldPam.z + 0.08, fsg.r * 0.7 + fsg.g * 0.3) * smoothstep(0.15, 0.5, dens) * (1.0 - smoothstep(0.25, 0.75, gdv.g));
+  tall *= 1.0 + 0.8 * pam;
   float hD = cv.y, wD = cv.z;   // the height and width curves at this distance
   float ht = hD * tall * (0.6 + 0.7 * hB.y) * (0.25 + 0.75 * fade) * (1.0 - track * 0.75) * (1.0 - 0.6 * trailK) * (flower > 0.5 ? 0.8 : 1.0);
   float wd = wD * (0.7 + 0.6 * hC.y) * fade;
@@ -246,6 +250,8 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   float fc = fract(hC.y * 7.0);
   vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.6 ? vec3(0.82, 0.82, 0.76) : vec3(0.86, 0.62, 0.06);   // white and yellow only
   if (fieldHead.r >= 0.0) head = fieldHead;
+  col = mix(col, vec3(0.3, 0.27, 0.12), pam * 0.7);
+  if (pam > 0.5 && hC.y > 0.42) head = vec3(0.86, 0.8, 0.64);
   // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
   // below and above it (the tip: side 0)
   float segs = dCam < ${CLOSE.toFixed(1)} ? 4.0 : dCam < ${NEAR.toFixed(1)} ? 2.0 : 1.0;

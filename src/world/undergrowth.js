@@ -21,6 +21,8 @@ export const FIELDS = {
   far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
   lavender: { value: new THREE.Vector4(0.95, pp(420), 0.6, 0.17) },   // weight, patch size (m), threshold, seed
   poppy: { value: new THREE.Vector4(0.9, pp(330), 0.64, 0.61) },
+  // silver grass (susuki, Ghost of Tsushima's pale fields): drifts of the grass itself, taller, with cream plumes (grass.js)
+  pampas: { value: new THREE.Vector4(1, pp(380), 0.62, 0.39) },
 };
 
 const PARS = /* glsl */`
