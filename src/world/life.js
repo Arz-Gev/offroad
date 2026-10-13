@@ -250,7 +250,7 @@ void main() {
   float ph = fract(aSeed.z * 13.7);
   vec3 wp = tumble(p, 0.045, landed > 0.5 ? 0.0 : t, ph);
   float pink = fract(aSeed.x * 17.3);
-  vCol = pink < 0.55 ? vec3(0.98, 0.72, 0.8) : pink < 0.85 ? vec3(1.0, 0.92, 0.94) : vec3(0.96, 0.58, 0.7);
+  vCol = pink < 0.55 ? vec3(0.95, 0.62, 0.12) : pink < 0.85 ? vec3(0.98, 0.8, 0.2) : vec3(0.85, 0.4, 0.08);   // golden leaves
   vA = step(0.001, T.w) * smoothstep(0.0, 0.6, t) * (1.0 - smoothstep(period * 0.85, period, t)) * uDay;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   if (vA < 0.01) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);

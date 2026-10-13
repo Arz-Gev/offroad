@@ -135,7 +135,7 @@ export function buildGrass(terrainView, opts = {}) {
     ...shared,
     uGrid: { value: new THREE.Vector4(0, 0, 0.1, 0) },
     uCellPat: { value: new THREE.Vector3(0, 0, PAT_PERIOD / 0.1) },
-    uLod: { value: new THREE.Vector4(8, 1, 100, 0.035) },
+    uLod: { value: new THREE.Vector4(8, 1, 100, 0.018) },
     uFieldFar: FIELDS.far, uFieldLav: FIELDS.lavender, uFieldPop: FIELDS.poppy,
     uRad: { value: new THREE.Vector2(72, 100) },
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
@@ -207,7 +207,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
     vec4 fl = textureLod(tNoise, bq / uFieldLav.y + uFieldLav.w, 0.0), fp = textureLod(tNoise, bq / uFieldPop.y + uFieldPop.w, 0.0);
     float lav = uFieldLav.x * smoothstep(uFieldLav.z, uFieldLav.z + 0.1, fl.r * 0.7 + fl.g * 0.3) * fk;
     float pop = uFieldPop.x * smoothstep(uFieldPop.z, uFieldPop.z + 0.1, fp.r * 0.7 + fp.g * 0.3) * fk;
-    if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.34, 0.2, 0.72); }
+    if (hC.x < lav * 0.85) { flower = 1.0; fieldHead = vec3(0.86, 0.6, 0.05); }
     else if (hC.x < (lav + pop) * 0.85) { flower = 1.0; fieldHead = vec3(0.8, 0.07, 0.03); }
   }
   float hD = cv.y, wD = cv.z;   // the height and width curves at this distance
@@ -244,8 +244,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   col = mix(col, dry, clamp(smoothstep(0.55, 0.85, nz.b) * 0.35 + smoothstep(0.5, 0.12, lsh) * 0.75, 0.0, 1.0) + hB.x * 0.12);
   col *= 0.8 + 0.4 * hA.y;
   float fc = fract(hC.y * 7.0);
-  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.32 ? vec3(0.8, 0.8, 0.75) : fc < 0.55 ? vec3(0.85, 0.62, 0.05) : fc < 0.72 ? vec3(0.42, 0.2, 0.6)
-    : fc < 0.86 ? vec3(0.85, 0.42, 0.58) : vec3(0.3, 0.42, 0.9);
+  vec3 head = flower < 0.5 ? vec3(-1.0) : fc < 0.6 ? vec3(0.82, 0.82, 0.76) : vec3(0.86, 0.62, 0.06);   // white and yellow only
   if (fieldHead.r >= 0.0) head = fieldHead;
   // this blade's segments; a vertex its shape doesn't have goes on the shape's edge, between the vertices
   // below and above it (the tip: side 0)

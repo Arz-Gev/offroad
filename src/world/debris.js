@@ -295,7 +295,7 @@ export function buildDebris(terrain, terrainView) {
           n = Math.floor(forest * 14 + rnd());
           for (let k = 0; k < n; k++) {
             const s = 0.012 + rnd() * 0.008, t = rnd();
-            put(out.flat, x + rnd() - 0.5, z + rnd() - 0.5, s * 0.8, s, s, pack(0.85 - t * 0.1, 0.5 + t * 0.3, 0.6 + t * 0.25), 0);
+            put(out.flat, x + rnd() - 0.5, z + rnd() - 0.5, s * 0.8, s, s, pack(0.8 - t * 0.1, 0.5 + t * 0.2, 0.1 + t * 0.05), 0);
           }
         }
       }

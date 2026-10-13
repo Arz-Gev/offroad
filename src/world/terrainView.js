@@ -325,7 +325,7 @@ vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree,
   if (l < 0.5) {
     #ifdef PAINTED
     // fresh: yellow-green on the dry ridges, a full green down the drainage, deep green in the hollows
-    vec3 g = lush < 0.5 ? mix(vec3(0.26, 0.27, 0.06), vec3(0.13, 0.22, 0.045), lush * 2.0) : mix(vec3(0.13, 0.22, 0.045), vec3(0.06, 0.15, 0.035), lush * 2.0 - 1.0);
+    vec3 g = lush < 0.5 ? mix(vec3(0.22, 0.27, 0.055), vec3(0.13, 0.22, 0.045), lush * 2.0) : mix(vec3(0.13, 0.22, 0.045), vec3(0.06, 0.15, 0.035), lush * 2.0 - 1.0);
     #else
     vec3 g = lush < 0.5 ? mix(vec3(0.27, 0.22, 0.075), vec3(0.13, 0.2, 0.05), lush * 2.0) : mix(vec3(0.13, 0.2, 0.05), vec3(0.055, 0.13, 0.035), lush * 2.0 - 1.0);
     #endif
@@ -336,7 +336,7 @@ vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree,
   if (l < 3.5 || l > 5.5) return mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush) * (l > 2.5 && l < 3.5 ? 0.95 : 1.0);
   if (l < 4.5) return mix(vec3(1.0), rockTone(kind, 0.55) / max(uAvg[4], vec3(0.02)), kScree * 0.75);
   return mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6)
-    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.2, 0.98, 1.0), step(0.75, litter)), step(0.25, litter));
+    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.3, 1.05, 0.6), step(0.75, litter)), step(0.25, litter));
 }
 // ---- rock. Kinds (k: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate) differ in colour, bedding and weathering.
 // light and dark tones of each kind (linear)
