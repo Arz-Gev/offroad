@@ -91,6 +91,7 @@ const GFX_SECTIONS = [
     row('gSSAO', 'Ambient occlusion', 'seg', { options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] }),
     row('gAA', 'Anti-aliasing', 'seg', { options: [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa2', 'MSAA 2×'], ['msaa4', 'MSAA 4×']] }),
     row('gBloom', 'Bloom', 'switch'),
+    row('gPaint', 'Paint filter', 'switch'),
     row('dust', 'Dust, mud and splashes', 'switch'),
   ] },
   { title: 'World detail', rows: [
