@@ -142,9 +142,9 @@ export function makeFoliageAtlas() {
   cell(CELLS.blossom, () => {
     for (let k = 0; k < 70; k++) {
       const r = Math.sqrt(rnd()) * S * 0.42, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(30, 40), R(70, 82), R(42, 50)));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(30, 40), R(60, 72), R(34, 42)));
     }
-    const pal = [[38, 88, 56], [34, 86, 52], [44, 90, 60], [28, 82, 50], [46, 80, 64], [24, 80, 48]];
+    const pal = [[36, 72, 46], [32, 70, 42], [42, 74, 50], [26, 68, 40], [44, 62, 52], [22, 66, 38]];
     for (let k = 0; k < 230; k++) {
       const r = Math.pow(rnd(), 0.6) * S * 0.44, a = R(0, Math.PI * 2);
       const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, pr = R(8, 15);
