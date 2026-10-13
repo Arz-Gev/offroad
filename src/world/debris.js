@@ -3,6 +3,7 @@ import { MAP_SIZE, CELL, N } from './terrain.js';
 import { mulberry32 } from './noise.js';
 import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { PAT, pp, ORIGIN } from './origin.js';
+import { PAINTED_GROUND } from '../render/look.js';
 
 // Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the edges of
 // the strip between the ruts, scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
@@ -28,6 +29,9 @@ const LEVELS = {
   normal: { r: { blob: 34, pebble: 22, flat: 24, stick: 28 }, scree: 0.9, rockFoot: 1.5, sand: 0.8, wetSand: 1.2, small: 0.12, sizeFade: 1, allShadows: false },
   ultra: { r: { blob: 40, pebble: 26, flat: 30, stick: 34 }, scree: 2.0, rockFoot: 2.5, sand: 1.1, wetSand: 1.5, small: 0.07, sizeFade: 0, allShadows: true },
 };
+// the painted look (terrainView.js PAINTED_GROUND) wants the roads and verges calm: a few stones where a painter
+// would put them, not a scatter of pebbles
+const STONE_SHARE = PAINTED_GROUND ? 0.3 : 1;
 const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz seed sink
 
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -130,7 +134,7 @@ vec3 dS = aB.xyz * dFade;
 
 function makeMaterial(kind, uniforms, depth = false) {
   const mat = depth ? new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
-    : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });
+    : new THREE.MeshLambertMaterial({ color: 0xffffff, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });   // matte
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_PARS);
@@ -246,7 +250,7 @@ export function buildDebris(terrain, terrainView) {
       const verge = smooth(1.05, 1.5, td) * (1 - smooth(2.4, 3.2, td));
       const crownEdge = smooth(0.15, 0.32, td) * (1 - smooth(0.42, 0.6, td));
       let dStone = verge * 2.6 + trail * (crownEdge * 1.6 + 0.25) + scree * L.scree + rock * (1 - rock) * L.rockFoot + sand * L.sand + wet * sand * L.wetSand;
-      dStone *= (1 - mud) * (1 - 0.6 * grass * (1 - trail) * (1 - verge));
+      dStone *= (1 - mud) * (1 - 0.6 * grass * (1 - trail) * (1 - verge)) * STONE_SHARE;
       let n = Math.floor(dStone + rnd());
       for (let k = 0; k < n; k++) {
         const big = rnd() < 0.015 + scree * 0.2 + rock * 0.08, s = big ? 0.1 + rnd() * 0.16 * (1 + scree) : 0.025 + rnd() * 0.07 + rnd() * rnd() * 0.05;
@@ -291,7 +295,7 @@ export function buildDebris(terrain, terrainView) {
           n = Math.floor(forest * 14 + rnd());
           for (let k = 0; k < n; k++) {
             const s = 0.012 + rnd() * 0.008, t = rnd();
-            put(out.flat, x + rnd() - 0.5, z + rnd() - 0.5, s * 0.8, s, s, pack(0.85 - t * 0.1, 0.5 + t * 0.3, 0.6 + t * 0.25), 0);
+            put(out.flat, x + rnd() - 0.5, z + rnd() - 0.5, s * 0.8, s, s, pack(0.8 - t * 0.1, 0.5 + t * 0.2, 0.1 + t * 0.05), 0);
           }
         }
       }

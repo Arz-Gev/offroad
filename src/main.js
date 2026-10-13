@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { installShaderPatches } from './render/shaderPatches.js';
+import { installShaderPatches, ATMO } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 
 import { Terrain } from './world/terrain.js';
@@ -75,6 +75,11 @@ async function main() {
   // once every system exists
   const hooks = {};
   const streamer = new Streamer(WORLD_SEED, { prepare: (t, w) => hooks.prepare(t, w), apply: (t, w, dx, dz) => hooks.apply(t, w, dx, dz) });
+  // while the worker builds the first window: the sky and light, and the truck's model (neither needs the land)
+  const env = new Environment(renderer, scene, pipeline);
+  const settings = new Settings();
+  const car = settings.get('car');
+  const modelP = buildCarModel(car);
   const spawnW = await streamer.spawn;   // world coordinates
   const win0 = await streamer.first(spawnW.x, spawnW.z);
   console.info('first window', win0.times);
@@ -83,7 +88,6 @@ async function main() {
   terrain.createCollider(RAPIER, world, GROUP_GROUND);
   const SPAWN = { x: spawnW.x - ORIGIN.x, z: spawnW.z - ORIGIN.z, yaw: spawnW.yaw };   // local, in the first window
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
-  const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
   const terrainView = buildTerrainView(terrain, renderer, win0, { noise: env.sky.noise, photos: await groundPhotos });
   scene.add(terrainView.mesh);
@@ -119,8 +123,6 @@ async function main() {
   props.stream.update(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
-  const settings = new Settings();
-  const car = settings.get('car');
   useCar(car);   // before the panel is built: stock, ranges and saved setups are per car
   const tuningApi = {};
   const tuning = new TuningPanel(tuningApi);
@@ -130,7 +132,7 @@ async function main() {
   const vehicle = new Vehicle(RAPIER, world, P, { position: { x: SPAWN.x, y: spawnY, z: SPAWN.z }, yaw: SPAWN.yaw, surfaceAt });
   vehicle.pressures = [tuning.setup.tyres.pressF, tuning.setup.tyres.pressR];
   world.step();
-  const model = await buildCarModel(car);
+  const model = await modelP;
   scene.add(model.root);
   env.sun.shadow.setCar?.(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
   model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
@@ -173,7 +175,7 @@ async function main() {
     RAPIER, world, terrain, vehicle, trees, props, streamer, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { ATMO, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -550,6 +552,7 @@ async function main() {
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
+      if (game.camPose) game.camPose(camera);   // tools (artshots.mjs): a free camera
       pipeline.params.dofFocus = camera.position.distanceTo(rPos);   // the miniature depth of field focuses on the truck
       mp.updateTags(camera);
       env.update(dt, rPos, camera);

@@ -3,6 +3,7 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { MAP_SIZE, CELL, N, FAR_SIZE, FAR_CELL } from './terrain.js';
 import { bakeGroundLayers, LAYER, LAYER_COUNT, LAYER_TILE } from './textures.js';
 import { PAT, ppf, ORIGIN } from './origin.js';
+import { PAINTED_GROUND } from '../render/look.js';
 
 // Terrain renderer: CDLOD over the 1 km physics map and the 8 km render-only vista, drawn as one instanced grid
 // patch (32x32 quads; level k has vertex spacing 0.5 * 2^k m). The CPU walks a quadtree each frame (frustum culled,
@@ -322,7 +323,12 @@ void triAt(float l, float t, vec3 p, vec3 n0, vec3 w, float nk, out vec4 alb, ou
 vec3 rockTone(float k, float t);
 vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree, float litter) {
   if (l < 0.5) {
+    #ifdef PAINTED
+    // fresh: yellow-green on the dry ridges, a full green down the drainage, deep green in the hollows
+    vec3 g = lush < 0.5 ? mix(vec3(0.22, 0.27, 0.055), vec3(0.13, 0.22, 0.045), lush * 2.0) : mix(vec3(0.13, 0.22, 0.045), vec3(0.06, 0.15, 0.035), lush * 2.0 - 1.0);
+    #else
     vec3 g = lush < 0.5 ? mix(vec3(0.27, 0.22, 0.075), vec3(0.13, 0.2, 0.05), lush * 2.0) : mix(vec3(0.13, 0.2, 0.05), vec3(0.055, 0.13, 0.035), lush * 2.0 - 1.0);
+    #endif
     g = mix(g, vec3(0.065, 0.15, 0.075), smoothstep(0.62, 0.72, nzP.r) * 0.55);
     g = mix(g, vec3(0.3, 0.26, 0.12), smoothstep(0.64, 0.76, nzP.g) * smoothstep(0.55, 0.25, lush) * 0.7);
     return g / vec3(0.13, 0.2, 0.05);
@@ -330,7 +336,7 @@ vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree,
   if (l < 3.5 || l > 5.5) return mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush) * (l > 2.5 && l < 3.5 ? 0.95 : 1.0);
   if (l < 4.5) return mix(vec3(1.0), rockTone(kind, 0.55) / max(uAvg[4], vec3(0.02)), kScree * 0.75);
   return mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6)
-    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.2, 0.98, 1.0), step(0.75, litter)), step(0.25, litter));
+    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.3, 1.05, 0.6), step(0.75, litter)), step(0.25, litter));
 }
 // ---- rock. Kinds (k: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate) differ in colour, bedding and weathering.
 // light and dark tones of each kind (linear)
@@ -514,6 +520,9 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float crown = smoothstep(0.5, 0.2, td) * smoothstep(0.05, 0.4, gd.a);
   float wDirt = wTrail * (1.0 - 0.8 * verge) * (1.0 - 0.85 * crown);
   float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
+  #ifdef PAINTED
+  wSoil *= 0.3;   // the slopes stay green (bare soil only by the roads)
+  #endif
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
@@ -527,6 +536,11 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float nk = 1.0 - smoothstep(90.0, 320.0, dist);
   vec3 c; vec4 nn; float hgt = 0.5;
   vec3 nW = nG;
+  // PAINTED (the concept-art look): no photo detail anywhere, every layer its own flat colour tinted by the land, the
+  // shape from the heightfield alone; what varies is what a painter would put down: big soft value shifts
+  // (compiled out, not just skipped: its photo samplers then don't count against the 16 texture units, so the lamps'
+  // cookies leave the cloud shadows in place: CLOUD_TIGHT)
+  #ifndef PAINTED
   if (dist < 600.0) {
     bool two = dist < 160.0;
     vec4 a1, n1, a2, n2;
@@ -586,27 +600,55 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
         nW = normalize(nW + vec3(dir.x, 0.0, dir.y) * dg * 1.2 * tread);
       }
     }
-  } else {
-    // far away: the layers' average colours (their last mip)
+  } else
+  #endif
+  {
+    // far away (painted: everywhere): the layers' average colours (their last mip)
     vec3 tSoil = TINT(1.0);
     c = uAvg[0] * TINT(0.0) * wGrass + (uAvg[1] * wDirt + uAvg[3] * wMud * 0.95 + uAvg[6] * wSoil) * tSoil
       + uAvg[4] * TINT(4.0) * wSand + uAvg[5] * TINT(5.0) * wForest;
     c /= max(1e-3, wGrass + wDirt + wMud + wSand + wForest + wSoil);
     nn = vec4(0.5, 0.5, 0.9, 1.0);
+    #ifdef PAINTED
+    // the ruts darker and smoother, a lighter verge; broad strokes of value (a few metres, stretched along the slope's
+    // contour, as a brush would follow the form)
+    // a road is a clear warm earth (painted roads lead the eye), the grass strip between the ruts stays green
+    c = mix(c, vec3(0.3, 0.2, 0.11) * (0.9 + 0.2 * mac), wTrail * (1.0 - 0.85 * crown) * (1.0 - 0.5 * verge) * 0.6);
+    c *= (1.0 - 0.16 * rut) * (1.0 + 0.08 * verge * wTrail);
+    vec2 ct = normalize(vec2(-nG.z, nG.x) + vec2(1e-4, 0.0));
+    vec2 sq = vec2(dot(p.xz, ct), dot(p.xz, vec2(-ct.y, ct.x)) * 3.0);
+    float sBig = texture2D(tNoise, sq / ${ppf(9)} + 0.37).g;
+    float stroke = sBig * 0.6 + texture2D(tNoise, sq / ${ppf(3.1)} + 0.11).b * 0.4;
+    // bare ground (sand, gravel, soil, forest floor: no grass over it) takes the strokes more strongly, with a slight
+    // warm / cool shift between them, as a painter would break up a flat floor
+    float bare = clamp(wSand + wSoil + wForest * 0.6 + wMud, 0.0, 1.0);
+    c *= 0.9 + 0.2 * stroke + bare * (sBig - 0.5) * 0.16;
+    c *= mix(vec3(1.0), mix(vec3(0.94, 0.97, 1.05), vec3(1.06, 1.0, 0.92), sBig), bare * 0.5);
+    // sand and gravel (quarry floors, lake shores) a warm ochre: their photo average was a cool grey (a concrete lot)
+    c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.8), 0.8 * wSand / max(1e-3, wGrass + wDirt + wMud + wSand + wForest + wSoil));
+    #endif
   }
   // rock: blended in by height (it stands proud of the soil around it)
   float kRock = 0.0, rMoss = 0.0;
   if (wRock > 0.01) {
     vec3 rc, rn; float rh, rcav, rrough;
-    #ifndef NO_ROCK
+    #if !defined( NO_ROCK ) && !defined( PAINTED )
     if (dist < 600.0) rockAt(p, nG, dist, nk, kind, lush, sY, sYd, sF, sY2, rc, rn, rh, rcav, rrough, rMoss);
     else
     #endif
     {
       // far: the kind's colour by the coarse beds, a little moss on the gentler, damper parts
+      #ifdef PAINTED
+      // painted rock: light, cool planes (a lavender grey in the light, the shade does the rest), a few broad bands,
+      // grass taking over wherever it is less than steep
+      rc = rockTone(kind, hash11(floor(sY2) * 3.1 + 7.0) * 0.35 + 0.6) * vec3(1.08, 1.06, 1.16) * (0.92 + 0.16 * hash11(floor(sY) * 1.7 + 3.0));
+      rMoss = smoothstep(0.62, 0.8, nG.y + lush * 0.25 + (mac2 - 0.5) * 0.15) * 0.9;
+      rc = mix(rc, uAvg[0] * TINT(0.0), rMoss);
+      #else
       rc = rockTone(kind, hash11(floor(sY2) * 3.1 + 7.0) * 0.6 + 0.2);
       rMoss = smoothstep(0.55, 0.9, lush + nG.y * 0.4 - 0.25) * 0.6;
       rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
+      #endif
       rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
     }
     float hR = rh + wRock * 1.3, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - 0.3;
@@ -683,7 +725,7 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ ...(PAINTED_GROUND ? { PAINTED: '' } : { CLOUD_TIGHT: '' }), POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;

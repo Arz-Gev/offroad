@@ -27,6 +27,7 @@ export function createGraphics(ctx) {
     q = { ...q, vegetation: settings.get('gVeg') !== 'off' };
     gfx.q = q;
     pipeline.configure({ msaa: q.msaa, fxaa: q.fxaa, ssao: q.ssao, dofTaps: DOF[q.clouds] ?? 0 });
+    pipeline.params.paint = (q.paint ?? !(q.clouds === 'off' || q.clouds === 'low')) ? 1 : 0;   // the paint filter (~0.5 ms at 1440p): not on Mobile and Low
     pipeline.params.bloom = q.bloom !== false;
     applyResolution();
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;

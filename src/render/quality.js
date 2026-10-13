@@ -111,7 +111,7 @@ export function presetToGfx(q) {
   return {
     gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
-    gVeg: q.veg,
+    gVeg: q.veg, gPaint: q.paint ?? !(q.clouds === 'off' || q.clouds === 'low'),
   };
 }
 export function gfxToQuality(g) {
@@ -120,7 +120,7 @@ export function gfxToQuality(g) {
     shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
     impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
     clouds: g.gShadows in CLOUDS ? g.gShadows : 'medium',   // the clouds follow the shadow level
-    veg: g.gVeg, ...vegOf(g.gVeg),
+    veg: g.gVeg, ...vegOf(g.gVeg), paint: g.gPaint,
   };
 }
 

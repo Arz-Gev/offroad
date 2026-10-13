@@ -38,7 +38,7 @@ export function makeFoliageAtlas() {
         const t = k / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
         for (const sd of [-1, 1]) {
           const a = ang + sd * R(0.75, 1.15), l = R(11, 17) * (1 - t * 0.35);
-          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 145), R(30, 46), R(22, 37)));
+          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(138, 148), R(24, 30), R(21, 28)));
         }
       }
       if (depth > 0) for (let k = 1; k < 6; k++) {
@@ -58,7 +58,7 @@ export function makeFoliageAtlas() {
       for (let k = 0; k < 55; k++) {
         const a = a0 + R(-1.7, 1.7), l = R(26, 62), u = R(0.4, 1);
         const px = S / 2 + (cx - S / 2) * u, py = S - 4 + (cy - S + 4) * u;
-        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(90, 120), R(30, 44), R(26, 40)));
+        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(100, 110), R(34, 40), R(28, 35)));
       }
     }
   });
@@ -77,7 +77,7 @@ export function makeFoliageAtlas() {
       line(x0, y0, x1, y1, 3, hsl(20, 25, 22));
       for (let k = 0; k < 26; k++) {
         const u = R(0.15, 1), px = x0 + (x1 - x0) * u, py = y0 + (y1 - y0) * u;
-        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(72, 100), R(38, 58), R(34, 52)));
+        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(38, 46), R(68, 78), R(45, 55)));
       }
     }
   });
@@ -90,7 +90,7 @@ export function makeFoliageAtlas() {
     for (let k = 3; k < 34; k++) {
       const t = k / 34, y = -len * t, pl = 150 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - t * 0.3) + 8;
       for (const sd of [-1, 1]) {
-        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(92, 118), R(40, 56), R(29, 41));
+        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(96, 106), R(34, 42), R(26, 33));
         g.beginPath(); g.moveTo(0, -3); for (let s = 0; s <= 8; s++) { const u = s / 8; g.lineTo(u * pl, -3 - Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) + (s % 2) * 3); }
         for (let s = 8; s >= 0; s--) { const u = s / 8; g.lineTo(u * pl, 3 + Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) - (s % 2) * 3); }
         g.closePath(); g.fill(); g.restore();
@@ -103,7 +103,7 @@ export function makeFoliageAtlas() {
   cell(CELLS.bush, () => {
     for (let k = 0; k < 260; k++) {
       const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(80, 125), R(32, 52), R(24, 40)));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(94, 108), R(36, 44), R(27, 35)));
     }
   });
 
@@ -131,7 +131,7 @@ export function makeFoliageAtlas() {
     for (let k = 0; k < 26; k++) {
       const x = R(40, S - 40), h = R(200, 440), top = S - h;
       line(x, S, x + R(-30, 30), top, 3, hsl(95, 40, 28));
-      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55), hsl(4, 82, 52), hsl(218, 72, 62), hsl(330, 70, 76)][k % 7];
+      const col = [hsl(48, 90, 58), hsl(0, 0, 94), hsl(44, 85, 54), hsl(50, 40, 90)][k % 4];
       g.fillStyle = col;
       for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * 10, top + Math.sin(a) * 10, 9, 6, a, 0, Math.PI * 2); g.fill(); }
       g.fillStyle = hsl(45, 80, 45); g.beginPath(); g.arc(x, top, 6, 0, Math.PI * 2); g.fill();
@@ -142,9 +142,9 @@ export function makeFoliageAtlas() {
   cell(CELLS.blossom, () => {
     for (let k = 0; k < 70; k++) {
       const r = Math.sqrt(rnd()) * S * 0.42, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(85, 110), R(40, 58), R(36, 48)));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(30, 40), R(60, 72), R(34, 42)));
     }
-    const pal = [[340, 70, 86], [345, 65, 80], [0, 0, 97], [330, 55, 90], [20, 75, 86], [350, 80, 76]];
+    const pal = [[36, 72, 46], [32, 70, 42], [42, 74, 50], [26, 68, 40], [44, 62, 52], [22, 66, 38]];
     for (let k = 0; k < 230; k++) {
       const r = Math.pow(rnd(), 0.6) * S * 0.44, a = R(0, Math.PI * 2);
       const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, pr = R(8, 15);
@@ -152,8 +152,7 @@ export function makeFoliageAtlas() {
       const rot = R(0, Math.PI * 2);
       g.fillStyle = hsl(h, sat, l * R(0.94, 1.03));
       for (let p = 0; p < 5; p++) { const pa = rot + p / 5 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(pa) * pr * 0.75, y + Math.sin(pa) * pr * 0.75, pr * 0.62, pr * 0.48, pa, 0, Math.PI * 2); g.fill(); }
-      g.fillStyle = hsl(48, 85, 62); g.beginPath(); g.arc(x, y, pr * 0.28, 0, Math.PI * 2); g.fill();
-    }
+      }
   });
 
   // 9: oak: dense lobed broad leaves, fresh greens with lighter sunlit ones
@@ -161,7 +160,7 @@ export function makeFoliageAtlas() {
     for (let k = 0; k < 300; k++) {
       const r = Math.sqrt(rnd()) * S * 0.45, a = R(0, Math.PI * 2);
       const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, l = R(34, 54), w = R(20, 30), ang = R(0, Math.PI * 2);
-      const col = rnd() < 0.18 ? hsl(R(72, 92), R(42, 55), R(40, 50)) : hsl(R(88, 118), R(34, 52), R(20, 36));
+      const col = rnd() < 0.18 ? hsl(R(80, 88), R(46, 52), R(40, 46)) : hsl(R(96, 108), R(38, 46), R(24, 32));
       leaf(x, y, ang, l, w, col);
       leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
     }
@@ -176,7 +175,7 @@ export function makeFoliageAtlas() {
       const spike = R(60, 105);
       for (let f = 0; f < 11; f++) {
         const t = f / 10, px = x1 - Math.sin(lean) * spike * t + R(-3, 3), py = y1 + Math.cos(lean) * spike * t;
-        g.fillStyle = hsl(R(268, 292), R(38, 52), R(52, 70) - t * 8);
+        g.fillStyle = hsl(R(44, 52), R(80, 90), R(54, 64) - t * 6);
         g.beginPath(); g.ellipse(px, py, R(6, 9) * (1 - t * 0.3), R(7, 10), lean, 0, Math.PI * 2); g.fill();
       }
     }
@@ -380,8 +379,9 @@ export function buildPine(seed, H = 19) {
     const tp = pts[Math.min(10, Math.round(h / H * 10))];
     const base = new THREE.Vector3(tp.x, h, tp.z);
     sticks.push(tube([base, base.clone().addScaledVector(dir, len)], [0.06, 0.02], 4, 1.0, (u) => 0.5 + t * 0.3 + u * 0.3));
-    clump(base.clone().addScaledVector(dir, len), R(1.5, 2.0), t);
-    if (len > 2.2) clump(base.clone().addScaledVector(dir, len * 0.55), R(1.2, 1.6), t);
+    // broad, flattish pads (a Japanese black pine's), big enough to close the gaps between the branches
+    clump(base.clone().addScaledVector(dir, len), R(2.0, 2.6), t, 0.35);
+    if (len > 2.2) clump(base.clone().addScaledVector(dir, len * 0.55), R(1.6, 2.0), t, 0.35);
   }
   const top = pts[10];
   clump(new THREE.Vector3(top.x, H - 0.8, top.z), 1.9, 1, 0.3);

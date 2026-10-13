@@ -431,6 +431,53 @@ void main() {
   gl_FragColor = vec4(s, 1.0);
 }`;
 
+// Paint (the concept-art look): a Kuwahara filter on the display-space picture. Round each pixel 8 sectors; each
+// sector's mean colour is weighted by how flat it is, so a pixel takes the colour of the calmest side round it: grain
+// and speckle melt into flat colour masses with soft, brush-like edges, while real edges (a crown against the sky)
+// stay. The brush grows with distance (uRad.x near, uRad.y far, full-res px), so the far land, where detail turns to
+// noise, is painted broadest; the truck close by keeps its lines. Fast form: a half-res picture of colour and
+// luminance squared (PAINT_STATS_FRAG) with mipmaps, so one lookup at the right level is a sector's mean and variance
+// (9 lookups a pixel instead of a hundred taps).
+const PAINT_STATS_FRAG = /* glsl */`
+uniform sampler2D tSrc;
+uniform vec2 uTexel;
+varying vec2 vUv;
+void main() {
+  vec3 a = texture2D(tSrc, vUv + uTexel * vec2(-0.5, -0.5)).rgb, b = texture2D(tSrc, vUv + uTexel * vec2(0.5, -0.5)).rgb;
+  vec3 c = texture2D(tSrc, vUv + uTexel * vec2(-0.5, 0.5)).rgb, d = texture2D(tSrc, vUv + uTexel * vec2(0.5, 0.5)).rgb;
+  vec4 L = vec4(dot(a, vec3(0.299, 0.587, 0.114)), dot(b, vec3(0.299, 0.587, 0.114)), dot(c, vec3(0.299, 0.587, 0.114)), dot(d, vec3(0.299, 0.587, 0.114)));
+  gl_FragColor = vec4((a + b + c + d) * 0.25, dot(L, L) * 0.25);
+}`;
+const PAINT_FRAG = /* glsl */`
+uniform sampler2D tSrc, tStats, tDepth;
+uniform vec2 uTexel, uNearFar;
+uniform vec3 uRad;    // x: radius near (px), y: radius far (px), z: distance (m) where it is halfway
+uniform float uSharp, uLodBias;
+varying vec2 vUv;
+float linZ(float d) { float n = uNearFar.x, f = uNearFar.y; return n * f / (f - d * (f - n)); }
+void main() {
+  float d = texture2D(tDepth, vUv).r;
+  float z = d >= 0.99999 ? 1e5 : linZ(d);
+  float R = mix(uRad.x, uRad.y, z / (z + uRad.z));
+  vec3 c0 = texture2D(tSrc, vUv).rgb;
+  // a sector: the box of side ~R centred R/2 out (stats are half res: R/2 stats texels -> level log2(R/2))
+  float lod = max(log2(R * 0.5) + uLodBias, 0.0);
+  vec3 o = vec3(0.0); float ws = 0.0;
+  for (int k = 0; k < 8; k++) {
+    float a = float(k) * 0.78539816;
+    vec4 st = textureLod(tStats, vUv + vec2(cos(a), sin(a)) * R * 0.5 * uTexel, lod);
+    float l = dot(st.rgb, vec3(0.299, 0.587, 0.114));
+    float v = max(st.a - l * l, 0.0);
+    float w = 1.0 / (1.0 + pow(v * 400.0, uSharp));
+    o += st.rgb * w; ws += w;
+  }
+  // the pixel's own neighbourhood counts too (a lone detail on a calm field survives softly)
+  vec4 st = textureLod(tStats, vUv, max(lod - 1.0, 0.0));
+  float l = dot(st.rgb, vec3(0.299, 0.587, 0.114)), w = 1.0 / (1.0 + pow(max(st.a - l * l, 0.0) * 400.0, uSharp));
+  o += mix(st.rgb, c0, 0.5) * w * 1.5; ws += w * 1.5;
+  gl_FragColor = vec4(o / ws, 1.0);
+}`;
+
 const COPY_FRAG = /* glsl */`
 uniform sampler2D tSrc;
 varying vec2 vUv;
@@ -462,6 +509,9 @@ export class RenderPipeline {
       // depth of field (far field): strength (0: off; 1 = a blur radius of 0.6 % of the picture's height far away),
       // where it starts (m), how slowly it grows with distance (m)
       dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10, dofMiniSlope: 4,
+      // paint (PAINT_FRAG): brush radius near and far (px at 1080 lines; 0: off), the distance (m) halfway between,
+      // how strongly the calm sectors win (sharpness), tap spacing (px)
+      paint: 0, paintNear: 0.8, paintFar: 3.2, paintHalf: 150, paintSharp: 4, paintLod: 0,
     };
     this.time = 0;
     this.resetExposure = true;
@@ -521,6 +571,9 @@ export class RenderPipeline {
     Object.assign(this.compMat.uniforms, { tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uFogOn: { value: 0 } });
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
+    this.paintStats = new THREE.WebGLRenderTarget(1, 1, { ...hf, minFilter: THREE.LinearMipmapLinearFilter, generateMipmaps: true });
+    this.paintStatsMat = mat(PAINT_STATS_FRAG, { tSrc: { value: this.ldr.texture }, uTexel: { value: new THREE.Vector2() } });
+    this.paintMat = mat(PAINT_FRAG, { tSrc: { value: this.ldr.texture }, tStats: { value: this.paintStats.texture }, tDepth: { value: this.hdr.depthTexture }, uTexel: { value: new THREE.Vector2() }, uNearFar: { value: new THREE.Vector2() }, uRad: { value: new THREE.Vector3() }, uSharp: { value: 2 }, uLodBias: { value: 0 } });
     const dofU = { value: new THREE.Vector4() }, dofMiniU = { value: new THREE.Vector3() };
     this.dofPreMat = mat(DOF_PRE_FRAG, {
       tScene: { value: this.hdr.texture }, tDepth: { value: this.hdr.depthTexture }, tAO: { value: this.ao[1].texture }, uAOOn: { value: 0 },
@@ -559,6 +612,7 @@ export class RenderPipeline {
     for (const t of this.ao) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     for (const t of this.shafts) t.setSize(Math.ceil(w / 4), Math.ceil(h / 4));
     for (const t of this.dofRT) t.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+    this.paintStats.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
     this.clouds?.setSize(w, h);
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this.compMat.uniforms.uRes.value.set(w, h);
@@ -741,7 +795,17 @@ export class RenderPipeline {
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;
-    if (this.fxaa) {
+    if (P.paint > 0) {
+      this.pass(this.compMat, this.ldr);
+      const pm = this.paintMat.uniforms, k = P.paint * this.height / 1080;
+      pm.uTexel.value.set(1 / this.width, 1 / this.height);
+      pm.uNearFar.value.set(this.camera.near, this.camera.far);
+      pm.uRad.value.set(P.paintNear * k, P.paintFar * k, P.paintHalf);
+      pm.uSharp.value = P.paintSharp; pm.uLodBias.value = P.paintLod;
+      this.paintStatsMat.uniforms.uTexel.value.set(1 / this.width, 1 / this.height);
+      this.pass(this.paintStatsMat, this.paintStats);
+      this.pass(this.paintMat, null);
+    } else if (this.fxaa) {
       this.pass(this.compMat, this.ldr);
       this.fxaaMat.uniforms.tDiffuse.value = this.ldr.texture;
       this.pass(this.fxaaMat, null);

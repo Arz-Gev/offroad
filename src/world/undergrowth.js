@@ -19,8 +19,10 @@ const TILES = 6;
 const FIELD_RADIUS = 80;
 export const FIELDS = {
   far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
-  lavender: { value: new THREE.Vector4(0.95, pp(260), 0.6, 0.17) },   // weight, patch size (m), threshold, seed
-  poppy: { value: new THREE.Vector4(0.9, pp(190), 0.62, 0.61) },
+  lavender: { value: new THREE.Vector4(0.95, pp(420), 0.65, 0.17) },   // weight, patch size (m), threshold, seed
+  poppy: { value: new THREE.Vector4(0.9, pp(330), 0.64, 0.61) },
+  // silver grass (susuki, Ghost of Tsushima's pale fields): drifts of the grass itself, taller, with cream plumes (grass.js)
+  pampas: { value: new THREE.Vector4(1, pp(380), 0.655, 0.39) },
 };
 
 const PARS = /* glsl */`
@@ -65,7 +67,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uField: { value: new THREE.Vector4(...field) },
       uRock: { value: rock },
     };
-    const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
+    const mat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });   // matte, like the crowns
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uniforms);
       sh.vertexShader = sh.vertexShader
@@ -169,7 +171,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1], undefined, 0.55),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
     makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
-    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
+    makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0, 0, 0], FIELDS.poppy.value.toArray()),
   ];
 
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3();

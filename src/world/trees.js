@@ -220,7 +220,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const near = variants.map((v, i) => {
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
-    const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
+    const crownMat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, color: v.kind === 'birch' ? 0xfff2e0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
     patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
@@ -249,7 +249,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   // ---- impostors (all trees; the shader hides the ones the near meshes cover)
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  const impMat = new THREE.MeshLambertMaterial({ map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });   // Lambert: far crowns are matte; the GGX and specular IBL cost and showed nothing
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
   const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current

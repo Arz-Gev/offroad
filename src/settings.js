@@ -45,6 +45,7 @@ export const DEFAULTS = {
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..3
   gTreeShadows: true,       // distant (impostor) trees cast shadows
+  gPaint: true,             // the paint filter (render/pipeline.js PAINT_FRAG)
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
