@@ -624,6 +624,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     float bare = clamp(wSand + wSoil + wForest * 0.6 + wMud, 0.0, 1.0);
     c *= 0.9 + 0.2 * stroke + bare * (sBig - 0.5) * 0.16;
     c *= mix(vec3(1.0), mix(vec3(0.94, 0.97, 1.05), vec3(1.06, 1.0, 0.92), sBig), bare * 0.5);
+    // sand and gravel (quarry floors, lake shores) a warm ochre: their photo average was a cool grey (a concrete lot)
+    c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.8), 0.8 * wSand / max(1e-3, wGrass + wDirt + wMud + wSand + wForest + wSoil));
     #endif
   }
   // rock: blended in by height (it stands proud of the soil around it)
