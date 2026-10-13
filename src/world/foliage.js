@@ -90,7 +90,7 @@ export function makeFoliageAtlas() {
     for (let k = 3; k < 34; k++) {
       const t = k / 34, y = -len * t, pl = 150 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - t * 0.3) + 8;
       for (const sd of [-1, 1]) {
-        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(92, 118), R(40, 56), R(29, 41));
+        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(96, 106), R(34, 42), R(26, 33));
         g.beginPath(); g.moveTo(0, -3); for (let s = 0; s <= 8; s++) { const u = s / 8; g.lineTo(u * pl, -3 - Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) + (s % 2) * 3); }
         for (let s = 8; s >= 0; s--) { const u = s / 8; g.lineTo(u * pl, 3 + Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) - (s % 2) * 3); }
         g.closePath(); g.fill(); g.restore();
