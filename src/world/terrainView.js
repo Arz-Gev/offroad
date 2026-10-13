@@ -617,8 +617,13 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     c *= (1.0 - 0.16 * rut) * (1.0 + 0.08 * verge * wTrail);
     vec2 ct = normalize(vec2(-nG.z, nG.x) + vec2(1e-4, 0.0));
     vec2 sq = vec2(dot(p.xz, ct), dot(p.xz, vec2(-ct.y, ct.x)) * 3.0);
-    float stroke = texture2D(tNoise, sq / ${ppf(9)} + 0.37).g * 0.6 + texture2D(tNoise, sq / ${ppf(3.1)} + 0.11).b * 0.4;
-    c *= 0.9 + 0.2 * stroke;
+    float sBig = texture2D(tNoise, sq / ${ppf(9)} + 0.37).g;
+    float stroke = sBig * 0.6 + texture2D(tNoise, sq / ${ppf(3.1)} + 0.11).b * 0.4;
+    // bare ground (sand, gravel, soil, forest floor: no grass over it) takes the strokes more strongly, with a slight
+    // warm / cool shift between them, as a painter would break up a flat floor
+    float bare = clamp(wSand + wSoil + wForest * 0.6 + wMud, 0.0, 1.0);
+    c *= 0.9 + 0.2 * stroke + bare * (sBig - 0.5) * 0.16;
+    c *= mix(vec3(1.0), mix(vec3(0.94, 0.97, 1.05), vec3(1.06, 1.0, 0.92), sBig), bare * 0.5);
     #endif
   }
   // rock: blended in by height (it stands proud of the soil around it)
