@@ -86,7 +86,7 @@ const KEYS = [
   { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.26, vmist: 0.0015, vfog: 0.0014 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
-    haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
+    haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.2,
     vignette: 0.4, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.05, 0.99, 0.92], vigCol: [0.55, 0.5, 0.62], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.3, vmist: 0.0005, vfog: 0.0018 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
