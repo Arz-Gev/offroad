@@ -7,6 +7,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 
 | Task | Notes |
 |---|---|
+| ⏳ Concept-art look (PR #46): the player's verdict | Painted ground, autumn-gold palette, silver grass and gold drifts, blue distance, paint filter. Needs the player's eye in a real window (FPS too: only headless numbers so far). Open ideas: impostor shading cost (~1 ms in forests), the first window's 5.8 s bake (road routing 1.35 s). |
 | ⏳ Tuning: the player's favourite setup | A setup the player likes in the Tab panel goes through Export into the car's file (`src/cars/<id>.js`) and becomes the stock. |
 
 ## To do
