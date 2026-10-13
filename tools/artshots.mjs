@@ -93,6 +93,7 @@ for (const name of names) {
       else g.placeVehicle(s.x + 14, s.z + 10, 0.6);
     }
     g.grass.shared.uWind.value.z = ${+(args.wind ?? 0)};
+    if (g.pipeline.clouds) { g.pipeline.clouds.wind.x = 0; g.pipeline.clouds.wind.y = 0; }   // the same clouds (and cloud shadows) every run
     const o = ${JSON.stringify(v.orbit || null)}, dist = (window.__dist0 ??= g.rig.dist);
     g.input.mouse.lastMove = o ? 1e15 : 0;
     const c = ${JSON.stringify(v.cam || null)};
