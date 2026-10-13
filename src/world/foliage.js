@@ -379,8 +379,9 @@ export function buildPine(seed, H = 19) {
     const tp = pts[Math.min(10, Math.round(h / H * 10))];
     const base = new THREE.Vector3(tp.x, h, tp.z);
     sticks.push(tube([base, base.clone().addScaledVector(dir, len)], [0.06, 0.02], 4, 1.0, (u) => 0.5 + t * 0.3 + u * 0.3));
-    clump(base.clone().addScaledVector(dir, len), R(1.5, 2.0), t);
-    if (len > 2.2) clump(base.clone().addScaledVector(dir, len * 0.55), R(1.2, 1.6), t);
+    // broad, flattish pads (a Japanese black pine's), big enough to close the gaps between the branches
+    clump(base.clone().addScaledVector(dir, len), R(2.0, 2.6), t, 0.35);
+    if (len > 2.2) clump(base.clone().addScaledVector(dir, len * 0.55), R(1.6, 2.0), t, 0.35);
   }
   const top = pts[10];
   clump(new THREE.Vector3(top.x, H - 0.8, top.z), 1.9, 1, 0.3);
