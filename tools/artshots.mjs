@@ -16,7 +16,10 @@ const VIEWS = {
   wide: { at: 'start', hour: 13, orbit: [0.5, 0.35, 45] },
   back: { at: 'start', hour: 11, orbit: [3.0, 0.05, 9] },
   golden: { at: 'start', hour: 18.3, orbit: [2.5, 0.1, 12] },
-  morning: { at: 'start', hour: 7.4, orbit: [-1.2, 0.08, 10] },
+  morning: { at: 'lookout', hour: 7.4, orbit: [-1.2, 0.12, 12] },
+  dusk: { at: 'lookout', hour: 19.4, orbit: [2.2, 0.1, 12] },
+  night: { at: 'start', hour: 23, orbit: [3.0, 0.1, 9], lights: 1 },
+  rain: { at: 'lookout', hour: 13, orbit: [0.8, 0.15, 14], storm: 1 },
   lake: { at: 'lake', hour: 10.5, orbit: [0.2, 0.15, 14] },
   lookout: { at: 'lookout', hour: 15.5, orbit: [0.8, 0.3, 30] },
   hut: { at: 'hut', hour: 17, orbit: [1.6, 0.12, 12] },
@@ -60,10 +63,10 @@ for (const name of names) {
   const ok = await evaluate(`(async () => {
     const g = game, frame = g.frame || g.tick;
     g.holdLoop = true; g.setPaused(false); g.autopilot = null;
-    g.weather?.set?.({ s: 0, wet: 0, bow: 0 });
+    g.weather?.set?.({ s: ${v.storm ?? 0}, wet: ${v.storm ?? 0}, bow: 0 });
     g.settings.set('time', ${v.hour}, { silent: true });
     g.settings.set('camera', 'chase', { silent: true });
-    g.view.lights.head = 0;
+    g.view.lights.head = ${v.lights ?? 0};
     const at = ${JSON.stringify(v.at)};
     if (at === 'start') { const t = g.teleports[0]; g.placeVehicle(t.ax - g.ORIGIN.x, t.az - g.ORIGIN.z, t.yaw); }
     else {
@@ -91,6 +94,22 @@ for (const name of names) {
     return 'ok';
   })()`);
   if (ok !== 'ok') { console.log('skip', name, ok); continue; }
+  if (args.bench) {
+    // frame cost: batches of 10 frames, each batch waited for with a 1-pixel read (CPU + GPU, whichever is slower)
+    const ms = await evaluate(`(() => {
+      const g = game, gl = g.renderer.getContext(), px = new Uint8Array(4), out = [];
+      for (let b = 0; b < ${+args.bench}; b++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 10; i++) g.frame(1 / 60);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        out.push((performance.now() - t0) / 10);
+      }
+      out.sort((a, b) => a - b);
+      return out[Math.floor(out.length / 2)].toFixed(2) + ' ms (p90 ' + out[Math.floor(out.length * 0.9)].toFixed(2) + ')';
+    })()`);
+    console.log('bench', name, ms);
+    if (args.noshot) continue;
+  }
   const jpg = args.jpg !== '0';
   const r = await send('Page.captureScreenshot', jpg ? { format: 'jpeg', quality: 88 } : { format: 'png' });
   fs.writeFileSync(path.join(out, name + (jpg ? '.jpg' : '.png')), Buffer.from(r.result.data, 'base64'));
