@@ -38,7 +38,7 @@ export function makeFoliageAtlas() {
         const t = k / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
         for (const sd of [-1, 1]) {
           const a = ang + sd * R(0.75, 1.15), l = R(11, 17) * (1 - t * 0.35);
-          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(124, 134), R(34, 40), R(25, 32)));
+          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(138, 148), R(24, 30), R(21, 28)));
         }
       }
       if (depth > 0) for (let k = 1; k < 6; k++) {
