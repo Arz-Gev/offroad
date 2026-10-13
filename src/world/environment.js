@@ -37,7 +37,7 @@ const DAY = {
   exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.22, vmist: 0, vfog: 0.0006,
   sat: 1.12, contrast: 0.04, vignette: 0.35, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.0, 1.0, 0.98], vigCol: [0.62, 0.7, 0.85],
-  fill: 0.13, fillCol: [0.55, 0.62, 1.0], blue: 0.75, blueL: 0.92,
+  fill: 0.13, fillCol: [0.55, 0.62, 1.0], blue: 1.0, blueL: 0.86,
 };
 const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
