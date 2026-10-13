@@ -13,6 +13,8 @@ fs.mkdirSync(out, { recursive: true });
 // at: 'start' or a site type; orbit: [yaw, pitch, distance] round the truck; hour
 const VIEWS = {
   start: { at: 'start', hour: 13 },
+  cockpit: { at: 'start', hour: 13, camMode: 'cockpit' },
+  hood: { at: 'lookout', hour: 15, camMode: 'hood' },
   wide: { at: 'start', hour: 13, orbit: [0.5, 0.35, 45] },
   back: { at: 'start', hour: 11, orbit: [3.0, 0.05, 9] },
   golden: { at: 'start', hour: 18.3, orbit: [2.5, 0.1, 12] },
@@ -66,7 +68,7 @@ for (const name of names) {
     g.holdLoop = true; g.setPaused(false); g.autopilot = null;
     g.weather?.set?.({ s: ${v.storm ?? 0}, wet: ${v.storm ?? 0}, bow: 0 });
     g.settings.set('time', ${v.hour}, { silent: true });
-    g.settings.set('camera', 'chase', { silent: true });
+    g.settings.set('camera', ${JSON.stringify(v.camMode || 'chase')}, { silent: true });
     g.view.lights.head = ${v.lights ?? 0};
     const at = ${JSON.stringify(v.at)};
     if (at === 'start') { const t = g.teleports[0]; g.placeVehicle(t.ax - g.ORIGIN.x, t.az - g.ORIGIN.z, t.yaw); }
