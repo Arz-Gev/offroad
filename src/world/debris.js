@@ -134,7 +134,7 @@ vec3 dS = aB.xyz * dFade;
 
 function makeMaterial(kind, uniforms, depth = false) {
   const mat = depth ? new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
-    : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });
+    : new THREE.MeshLambertMaterial({ color: 0xffffff, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });   // matte
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_PARS);
