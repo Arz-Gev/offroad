@@ -77,20 +77,19 @@ for (const name of names) {
     g.settings.set('camera', ${JSON.stringify(v.camMode || 'chase')}, { silent: true });
     g.view.lights.head = ${v.lights ?? 0};
     const at = ${JSON.stringify(v.at)};
-    if (at === 'start') { const t = g.teleports[0]; g.placeVehicle(t.ax - g.ORIGIN.x, t.az - g.ORIGIN.z, t.yaw); }
+    // every place is found from the start in world coordinates, so a view is the same whichever views ran before it
+    // (the window moves when a view travels, and the nearest site in the window was then another one)
+    const t0 = g.teleports[0];
+    if (at === 'start') { if (!(await g.placeWorld(t0.ax, t0.az, t0.yaw))) return 'travel failed'; }
     else {
-      let s = g.terrain.sites.filter(s => s.type === at).sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0];
-      if (!s) {
-        // not in this window: the nearest one in the world (absolute coordinates), travel there
-        const W = new (await import('/src/world/worldgen.js')).World(window.__seed ?? 7), ox = g.ORIGIN.x, oz = g.ORIGIN.z, R = 4000;
-        const all = W.regionsIn(ox - R, oz - R, ox + R, oz + R).flatMap(r => r.sites || []).filter(q => q.type === at);
-        all.sort((a, b) => Math.hypot(a.x - ox, a.z - oz) - Math.hypot(b.x - ox, b.z - oz));
-        if (!all[0]) return 'no ' + at;
-        if (!(await g.placeWorld(all[0].x + 40, all[0].z, 0))) return 'travel failed';
-        for (let i = 0; i < 30; i++) frame(1 / 60);
-        s = g.terrain.sites.filter(q => q.type === at).sort((a, b) => Math.hypot(a.x - g.vehicle.pos.x, a.z - g.vehicle.pos.z) - Math.hypot(b.x - g.vehicle.pos.x, b.z - g.vehicle.pos.z))[0];
-        if (!s) return 'no ' + at + ' after travel';
-      }
+      const W = (window.__W ??= new (await import('/src/world/worldgen.js')).World(window.__seed ?? 7)), R = 4000;
+      const all = W.regionsIn(t0.ax - R, t0.az - R, t0.ax + R, t0.az + R).flatMap(r => r.sites || []).filter(q => q.type === at);
+      all.sort((a, b) => Math.hypot(a.x - t0.ax, a.z - t0.az) - Math.hypot(b.x - t0.ax, b.z - t0.az));
+      if (!all[0]) return 'no ' + at;
+      if (!(await g.placeWorld(all[0].x + 40, all[0].z, 0))) return 'travel failed';
+      for (let i = 0; i < 30; i++) frame(1 / 60);
+      const s = g.terrain.sites.filter(q => q.type === at).sort((a, b) => Math.hypot(a.x + g.ORIGIN.x - all[0].x, a.z + g.ORIGIN.z - all[0].z) - Math.hypot(b.x + g.ORIGIN.x - all[0].x, b.z + g.ORIGIN.z - all[0].z))[0];
+      if (!s) return 'no ' + at + ' after travel';
       if (at === 'lake') { const lk = s.lake; g.placeVehicle(lk.x + lk.rx * 1.35, lk.z, Math.PI / 2); }
       else if (at === 'lookout') g.placeVehicle(s.x, s.z, 0.6);
       else g.placeVehicle(s.x + 14, s.z + 10, 0.6);
