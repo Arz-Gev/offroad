@@ -265,14 +265,15 @@ void main() {
   float t = fract(uTime / period + aSeed.y) * period;
   vec3 p = lWrap(aSeed.xyz, uBox, vec3(0.0));
   vec4 gd = lData(p.xz);
-  float forest = smoothstep(0.35, 0.7, gd.g);
-  p.y = lGround(p.xz) + 9.0 + aSeed.z * 6.0 - t * 1.4;
-  p.xz += vec2(sin(t * 0.9 + aSeed.w * 9.0), cos(t * 0.8 + aSeed.x * 9.0)) * 0.8 + vec2(uWind.x, uWind.y) * t * 0.3;
+  // in the woods, and (fewer) carried out over the open land by the wind: Ghost of Tsushima's drifting gold leaves
+  float forest = max(smoothstep(0.35, 0.7, gd.g), step(aSeed.z, 0.4) * 0.8);
+  p.y = lGround(p.xz) + 4.0 + aSeed.z * 9.0 - t * 1.0;
+  p.xz += vec2(sin(t * 0.9 + aSeed.w * 9.0), cos(t * 0.8 + aSeed.x * 9.0)) * 0.8 + vec2(uWind.x, uWind.y) * t * 1.1;
   float gy = lGround(p.xz) + 0.03;
   p.y = max(p.y, gy);
   vec3 wp = tumble(p, 0.05, t, fract(aSeed.w * 11.3));
   float c = fract(aSeed.w * 23.1);
-  vCol = c < 0.4 ? vec3(0.85, 0.62, 0.15) : c < 0.7 ? vec3(0.78, 0.38, 0.1) : vec3(0.5, 0.62, 0.15);
+  vCol = c < 0.55 ? vec3(0.88, 0.64, 0.14) : c < 0.85 ? vec3(0.8, 0.4, 0.1) : vec3(0.5, 0.62, 0.15);
   float fade = smoothstep(0.5 * uBox, 0.38 * uBox, length(p.xz - uCam.xz));
   vA = forest * fade * smoothstep(0.0, 0.8, t) * (1.0 - smoothstep(period * 0.8, period, t)) * (0.3 + 0.7 * uDay);
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -385,7 +386,7 @@ export function buildLife(terrainView, env, trees) {
   };
   const treeSlots = Array.from({ length: 8 }, () => new THREE.Vector4());
   const petals = quads(900, PETAL_VERT, { uTrees: { value: treeSlots } });
-  const leaves = quads(500, LEAF_VERT, { uBox: { value: 34 } });
+  const leaves = quads(900, LEAF_VERT, { uBox: { value: 40 } });
   // the trees in blossom (trees.js variants of kind 'blossom'), nearest first every half second
   let blossoms = [], treesVersion = -1;
   let slotT = 0;
