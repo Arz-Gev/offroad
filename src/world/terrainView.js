@@ -612,6 +612,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     #ifdef PAINTED
     // the ruts darker and smoother, a lighter verge; broad strokes of value (a few metres, stretched along the slope's
     // contour, as a brush would follow the form)
+    // a road is a clear warm earth (painted roads lead the eye), the grass strip between the ruts stays green
+    c = mix(c, vec3(0.3, 0.2, 0.11) * (0.9 + 0.2 * mac), wTrail * (1.0 - 0.85 * crown) * (1.0 - 0.5 * verge) * 0.6);
     c *= (1.0 - 0.16 * rut) * (1.0 + 0.08 * verge * wTrail);
     vec2 ct = normalize(vec2(-nG.z, nG.x) + vec2(1e-4, 0.0));
     vec2 sq = vec2(dot(p.xz, ct), dot(p.xz, vec2(-ct.y, ct.x)) * 3.0);
