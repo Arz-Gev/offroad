@@ -27,6 +27,10 @@ export const ATMO = {
   // the land beyond the window fades away: x haze density (1/m) along the part of a view ray outside the window's
   // square, y the window's half size (m), z the vista's half size (m: it is all haze before its edge)
   atmoVista: { x: 0, y: 512, z: 4096, w: 0 },
+  // aerial perspective's own colour: rgb the sky some degrees above the horizon (bluer than the horizon itself), w how
+  // much a thin haze takes it. Thin haze is blue, a thick one the horizon's pale colour: hills a few km away go blue
+  // against a pale sky behind them, the painters' blue distance
+  atmoBlue: { x: 0.4, y: 0.5, z: 0.8, w: 0 },
 };
 
 // uniforms to add to custom ShaderMaterials that use fog
@@ -67,6 +71,8 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 		uniform vec4 atmoGlow;
 		uniform vec4 atmoMist;
 		uniform vec4 atmoVista;
+		uniform vec4 atmoBlue;
+		float atmoLastFactor = 0.0;  // the last atmoFogFactor (thin haze is bluer: atmoFogColor)
 		float atmoMistShare = 0.0;   // the valley mist's part of the last atmoFogFactor (whitens atmoFogColor)
 		// fog opacity and colour for a camera-relative world offset d
 		float atmoFogFactor( vec3 d ) {
@@ -97,7 +103,8 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 				// from high ground the world sinks into the haze instead of stopping
 				if ( atmoVista.z > 0.0 ) edgeF = smoothstep( atmoVista.z * 0.6, atmoVista.z * 0.78, length( d.xz ) );
 			}
-			return mix( min( 1.0 - exp( - od ), atmoToward.w ), 1.0, edgeF );
+			atmoLastFactor = mix( min( 1.0 - exp( - od ), atmoToward.w ), 1.0, edgeF );
+			return atmoLastFactor;
 		}
 		vec3 atmoFogColor( vec3 v ) {
 			vec2 hz = normalize( v.xz + vec2( 1e-5 ) );
@@ -107,6 +114,7 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 			float g = atmoGlow.w;
 			float mu = dot( v, atmoSun.xyz );
 			float hg = ( 1.0 - g * g ) / pow( max( 1.0 + g * g - 2.0 * g * mu, 1e-4 ), 1.5 );
+			col = mix( col, atmoBlue.rgb, atmoBlue.w * ( 1.0 - atmoLastFactor ) * ( 1.0 - atmoLastFactor ) * clamp( 1.0 - 0.7 * a, 0.0, 1.0 ) );
 			col += atmoGlow.rgb * hg * 0.0795775;
 			// mist is pale: the horizon's colour, mostly washed to white, glowing a little more towards the sun
 			float l = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );

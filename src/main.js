@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { installShaderPatches } from './render/shaderPatches.js';
+import { installShaderPatches, ATMO } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 
 import { Terrain } from './world/terrain.js';
@@ -173,7 +173,7 @@ async function main() {
     RAPIER, world, terrain, vehicle, trees, props, streamer, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { ATMO, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -550,6 +550,7 @@ async function main() {
       view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
+      if (game.camPose) game.camPose(camera);   // tools (artshots.mjs): a free camera
       pipeline.params.dofFocus = camera.position.distanceTo(rPos);   // the miniature depth of field focuses on the truck
       mp.updateTags(camera);
       env.update(dt, rPos, camera);

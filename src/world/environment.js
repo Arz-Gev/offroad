@@ -33,19 +33,19 @@ const MOON_TINT = [0.62, 0.74, 1.0];
 // (glow), light shafts (shafts), a faint cool fill from above so shade is blue rather than olive (fill).
 const DAY = {
   sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
-  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00017, vista: 0.0005, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
-  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0, vfog: 0.0006,
-  sat: 1.12, contrast: 0.04, vignette: 0.45, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
-  vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.04, 1.0, 0.94], vigCol: [0.55, 0.46, 0.5],
-  fill: 0.13, fillCol: [0.55, 0.62, 1.0],
+  cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00045, vista: 0.0005, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
+  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.22, vmist: 0, vfog: 0.0006,
+  sat: 1.12, contrast: 0.04, vignette: 0.35, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
+  vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.0, 1.0, 0.98], vigCol: [0.62, 0.7, 0.85],
+  fill: 0.13, fillCol: [0.55, 0.62, 1.0], blue: 0.75, blueL: 0.92,
 };
 const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
   cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.0002, vista: 0.0006, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
   exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002, vfog: 0.0028,
   sat: 1.1, contrast: 0.05, vignette: 0.48, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
-  vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.06, 0.97, 0.9], vigCol: [0.5, 0.38, 0.45],
-  fill: 0.34, fillCol: [0.5, 0.45, 1.0],
+  vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.05, 0.98, 0.92], vigCol: [0.48, 0.42, 0.58],
+  fill: 0.34, fillCol: [0.5, 0.45, 1.0], blue: 0.35, blueL: 0.9,
 };
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
@@ -53,7 +53,7 @@ const NIGHT = {
   exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004, vfog: 0.0016,
   sat: 0.96, contrast: 0.05, vignette: 0.54, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
   vibrance: 0.15, shadowCol: [0.003, 0.005, 0.012], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
-  fill: 0.01, fillCol: [0.4, 0.5, 1.0],
+  fill: 0.01, fillCol: [0.4, 0.5, 1.0], blue: 0.3, blueL: 0.9,
 };
 
 // Sun and moon arcs: latitude, declination (deg), hour of upper transit (south), azimuth of south in the game's
@@ -83,11 +83,11 @@ const KEYS = [
     tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02, vmist: 0.009, vfog: 0.0035 },
   { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
     highCol: [1.05, 0.99, 0.93], fill: 0.3, vmist: 0.008, vfog: 0.0024 },                                                                           //   a little cooler and mistier
-  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4, vmist: 0.0015, vfog: 0.0014 },   // morning
+  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.26, vmist: 0.0015, vfog: 0.0014 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
     haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
-    vignette: 0.48, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005, vfog: 0.0018 },
+    vignette: 0.4, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.05, 0.99, 0.92], vigCol: [0.55, 0.5, 0.62], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.3, vmist: 0.0005, vfog: 0.0018 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
     fogD: 0.0009, haze: 0.00014, fogMax: 0.96, exposure: 2.9, key: 0.13, bloomThr: 1.2, sat: 1.02,
@@ -105,7 +105,7 @@ for (const k of KEYS) {
 const FOG_AMOUNT = { off: 0, light: 0.45, normal: 0.8, thick: 1.4 };
 
 const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'vista', 'fogMax', 'env',
-  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
+  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA', 'blue', 'blueL'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
 const NK = KEYS.length;
@@ -255,6 +255,7 @@ export class Environment {
     c.sunElev = se + c.sunDE; c.sunAzim = sa + c.sunDA;
     [c.moonElev, c.moonAzim] = arcPos(MOON_ARC, hour);
     this.weatherLook(c);
+    if (this.lookOverride) for (const k in this.lookOverride) { const v = this.lookOverride[k]; if (Array.isArray(v)) for (let j = 0; j < 3; j++) c[k][j] = v[j]; else c[k] = v; }   // tools: try a look
     return c;
   }
 
@@ -303,13 +304,14 @@ export class Environment {
     const wTwi = sstep(c.sunElev, -14, -2);
     if (wTwi > 0) parts.push({ L: sd, lE: c.sunE * S, tint: [1, 1, 1], w: wTwi });
     if (c.moonE * moonUp > 1e-6) parts.push({ L: md, lE: c.moonE * S * 0.5, tint: moonTint, w: moonUp });
-    const side = [0, 0, 0], away = [0, 0, 0], toward = [0, 0, 0], zen = [0, 0, 0], Lf = new THREE.Vector3();
+    const side = [0, 0, 0], away = [0, 0, 0], toward = [0, 0, 0], zen = [0, 0, 0], blue = [0, 0, 0], Lf = new THREE.Vector3();
     for (const { L, lE, tint, w } of parts) {
       const az = Math.atan2(L[0], L[2]);
       const hz = (da, el = 0.03) => { const q = az + da; return [Math.cos(el) * Math.sin(q), Math.sin(el), Math.cos(el) * Math.cos(q)]; };
       const col = da => scatter(hz(da), L, 16).map((v, i) => v * lE * tint[i] * w);
       const sd_ = col(Math.PI / 2), aw = col(Math.PI), tw = col(0), zn = scatter([0, 1, 0], L, 12);
-      for (let i = 0; i < 3; i++) { side[i] += sd_[i]; away[i] += aw[i]; toward[i] += tw[i]; zen[i] += zn[i] * lE * tint[i] * w; }
+      const bl = scatter(hz(Math.PI * 0.75, 0.2), L, 12);
+      for (let i = 0; i < 3; i++) { side[i] += sd_[i]; away[i] += aw[i]; toward[i] += tw[i]; zen[i] += zn[i] * lE * tint[i] * w; blue[i] += bl[i] * lE * tint[i] * w; }
       Lf.x += L[0] * Math.max(...sd_); Lf.y += L[1] * Math.max(...sd_); Lf.z += L[2] * Math.max(...sd_);
     }
     for (let i = 0; i < 3; i++) { side[i] += c.nightBase[i] * 0.9; away[i] += c.nightBase[i] * 0.9; toward[i] += c.nightBase[i] * 0.9; zen[i] += c.nightBase[i]; }
@@ -332,6 +334,12 @@ export class Environment {
     setVec4(ATMO.atmoAway, away[0] * k, away[1] * k, away[2] * k, 0);
     setVec4(ATMO.atmoSide, side[0] * k, side[1] * k, side[2] * k, c.haze);
     setVec4(ATMO.atmoToward, toward[0] * k, toward[1] * k, toward[2] * k, c.fogMax);
+    // the thin haze's blue: the sky ~11 degrees up, as bright as the horizon (only its hue is taken)
+    {
+      const lb = 0.2126 * blue[0] + 0.7152 * blue[1] + 0.0722 * blue[2] + 1e-9, ls = 0.2126 * side[0] + 0.7152 * side[1] + 0.0722 * side[2];
+      const q = ls / lb * k * (c.blueL ?? 0.92);
+      setVec4(ATMO.atmoBlue, blue[0] * q, blue[1] * q, blue[2] * q, (c.blue ?? 0) * (1 - c.storm));
+    }
     // a soft glow around the sun in the haze (Mie), coloured by the light that reaches us
     const gk = c.glow * sunUp * 0.004;
     setVec4(ATMO.atmoGlow, sunRGB[0] * gk, sunRGB[1] * gk, sunRGB[2] * gk, 0.75);

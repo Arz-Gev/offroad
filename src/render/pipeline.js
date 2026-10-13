@@ -431,6 +431,66 @@ void main() {
   gl_FragColor = vec4(s, 1.0);
 }`;
 
+// Paint (the concept-art look): a generalized Kuwahara filter (Kyprianidis et al., polynomial sector weights) on the
+// display-space picture. Round each pixel, 8 overlapping sectors of a disc; each sector's mean colour is weighted by
+// how flat it is, so a pixel takes the colour of the calmest side round it: photo grain and speckle melt into flat
+// colour masses with soft, brush-like edges, while real edges (a crown against the sky) stay. The brush grows with
+// distance (uRad.x near, uRad.y far, full-res px), so the far land, where the detail turned to noise, is painted
+// broadest; the truck close by keeps its lines. Taps on a grid uStep px apart (bilinear between them).
+const PAINT_FRAG = /* glsl */`
+uniform sampler2D tSrc, tDepth;
+uniform vec2 uTexel, uNearFar;
+uniform vec3 uRad;    // x: radius near (px), y: radius far (px), z: distance (m) where it is halfway
+uniform float uSharp, uStep;
+varying vec2 vUv;
+float linZ(float d) { float n = uNearFar.x, f = uNearFar.y; return n * f / (f - d * (f - n)); }
+void main() {
+  float d = texture2D(tDepth, vUv).r;
+  float z = d >= 0.99999 ? 1e5 : linZ(d);
+  float R = mix(uRad.x, uRad.y, z / (z + uRad.z));
+  vec3 c0 = texture2D(tSrc, vUv).rgb;
+  if (R < 1.0) { gl_FragColor = vec4(c0, 1.0); return; }
+  vec4 m[8]; vec3 s[8];
+  for (int k = 0; k < 8; k++) { m[k] = vec4(0.0); s[k] = vec3(0.0); }
+  const float zeta = 0.33, eta = 0.84;
+  int n = int(min(ceil(R / uStep), 6.0));
+  float st = R / float(n);
+  for (int j = -6; j <= 6; j++) {
+    if (j < -n || j > n) continue;
+    for (int i = -6; i <= 6; i++) {
+      if (i < -n || i > n) continue;
+      vec2 v = vec2(float(i), float(j)) / float(n);
+      float rr = dot(v, v);
+      if (rr > 1.0) continue;
+      vec3 c = texture2D(tSrc, vUv + vec2(float(i), float(j)) * st * uTexel).rgb;
+      float w[8], sum = 0.0, zz;
+      float vxx = zeta - eta * v.x * v.x, vyy = zeta - eta * v.y * v.y;
+      zz = max(0.0, v.y + vxx); w[0] = zz * zz;
+      zz = max(0.0, -v.x + vyy); w[2] = zz * zz;
+      zz = max(0.0, -v.y + vxx); w[4] = zz * zz;
+      zz = max(0.0, v.x + vyy); w[6] = zz * zz;
+      vec2 u = 0.70710678 * vec2(v.x - v.y, v.x + v.y);
+      vxx = zeta - eta * u.x * u.x; vyy = zeta - eta * u.y * u.y;
+      zz = max(0.0, u.y + vxx); w[1] = zz * zz;
+      zz = max(0.0, -u.x + vyy); w[3] = zz * zz;
+      zz = max(0.0, -u.y + vxx); w[5] = zz * zz;
+      zz = max(0.0, u.x + vyy); w[7] = zz * zz;
+      for (int k = 0; k < 8; k++) sum += w[k];
+      float g = exp(-3.125 * rr) / max(sum, 1e-5);
+      for (int k = 0; k < 8; k++) { float wk = w[k] * g; m[k] += vec4(c * wk, wk); s[k] += c * c * wk; }
+    }
+  }
+  vec4 o = vec4(0.0);
+  for (int k = 0; k < 8; k++) {
+    if (m[k].w <= 0.0) continue;
+    vec3 mu = m[k].rgb / m[k].w;
+    vec3 sg = abs(s[k] / m[k].w - mu * mu);
+    float wk = 1.0 / (1.0 + pow(255.0 * (sg.r + sg.g + sg.b), 0.5 * uSharp));
+    o += vec4(mu * wk, wk);
+  }
+  gl_FragColor = vec4(o.w > 0.0 ? o.rgb / o.w : c0, 1.0);
+}`;
+
 const COPY_FRAG = /* glsl */`
 uniform sampler2D tSrc;
 varying vec2 vUv;
@@ -462,6 +522,9 @@ export class RenderPipeline {
       // depth of field (far field): strength (0: off; 1 = a blur radius of 0.6 % of the picture's height far away),
       // where it starts (m), how slowly it grows with distance (m)
       dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10, dofMiniSlope: 4,
+      // paint (PAINT_FRAG): brush radius near and far (px at 1080 lines; 0: off), the distance (m) halfway between,
+      // how strongly the calm sectors win (sharpness), tap spacing (px)
+      paint: 0, paintNear: 2.5, paintFar: 6, paintHalf: 60, paintSharp: 8, paintStep: 1.25,
     };
     this.time = 0;
     this.resetExposure = true;
@@ -521,6 +584,7 @@ export class RenderPipeline {
     Object.assign(this.compMat.uniforms, { tFog: { value: this.blackTex }, uFogSize: { value: new THREE.Vector2(1, 1) }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uFogOn: { value: 0 } });
     this.fxaaMat = new THREE.ShaderMaterial({ ...FXAAShader, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), depthTest: false, depthWrite: false });
     this.copyMat = mat(COPY_FRAG, { tSrc: { value: null } });
+    this.paintMat = mat(PAINT_FRAG, { tSrc: { value: this.ldr.texture }, tDepth: { value: this.hdr.depthTexture }, uTexel: { value: new THREE.Vector2() }, uNearFar: { value: new THREE.Vector2() }, uRad: { value: new THREE.Vector3() }, uSharp: { value: 8 }, uStep: { value: 1 } });
     const dofU = { value: new THREE.Vector4() }, dofMiniU = { value: new THREE.Vector3() };
     this.dofPreMat = mat(DOF_PRE_FRAG, {
       tScene: { value: this.hdr.texture }, tDepth: { value: this.hdr.depthTexture }, tAO: { value: this.ao[1].texture }, uAOOn: { value: 0 },
@@ -741,7 +805,15 @@ export class RenderPipeline {
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;
-    if (this.fxaa) {
+    if (P.paint > 0) {
+      this.pass(this.compMat, this.ldr);
+      const pm = this.paintMat.uniforms, k = P.paint * this.height / 1080;
+      pm.uTexel.value.set(1 / this.width, 1 / this.height);
+      pm.uNearFar.value.set(this.camera.near, this.camera.far);
+      pm.uRad.value.set(P.paintNear * k, P.paintFar * k, P.paintHalf);
+      pm.uSharp.value = P.paintSharp; pm.uStep.value = P.paintStep * Math.max(1, this.height / 1080);
+      this.pass(this.paintMat, null);
+    } else if (this.fxaa) {
       this.pass(this.compMat, this.ldr);
       this.fxaaMat.uniforms.tDiffuse.value = this.ldr.texture;
       this.pass(this.fxaaMat, null);
