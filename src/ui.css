@@ -55,7 +55,7 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 }
 
 .hud-tl {
-  position: absolute; top: max(var(--gap), env(safe-area-inset-top)); left: max(var(--gap), env(safe-area-inset-left));
+  position: absolute; top: max(var(--gap), env(safe-area-inset-top)); left: max(var(--gap), env(safe-area-inset-left)); transition: left 0.18s ease;
   display: flex; flex-direction: column; align-items: flex-start; gap: calc(8 * var(--u));
 }
 .tl-row { display: flex; align-items: center; gap: calc(6 * var(--u)); }
@@ -139,7 +139,7 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 .hud-panel { position: absolute; border: 1px solid var(--line); border-radius: calc(10 * var(--u)); background: var(--glass); }
 .panel-h { display: flex; align-items: center; justify-content: space-between; gap: calc(8 * var(--u)); margin-bottom: calc(2 * var(--u)); font: 650 calc(10.5 * var(--u))/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .panel-h .kc { font-size: calc(12 * var(--u)); letter-spacing: 0; text-transform: none; }
-.susp { left: max(var(--gap), env(safe-area-inset-left)); bottom: max(var(--gap), env(safe-area-inset-bottom)); padding: calc(9 * var(--u)) calc(10 * var(--u)) calc(6 * var(--u)); }
+.susp { left: max(var(--gap), env(safe-area-inset-left)); bottom: max(var(--gap), env(safe-area-inset-bottom)); transition: left 0.18s ease; padding: calc(9 * var(--u)) calc(10 * var(--u)) calc(6 * var(--u)); }
 .susp canvas { display: block; width: calc(216 * var(--u)); height: calc(255.6 * var(--u)); }
 
 .tele {
@@ -265,14 +265,20 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 .cluster.compact .dt-m { flex-direction: row; }
 .cluster.compact #h-surf { display: none; }
 
-/* the panel open on the right: the cluster moves left of it */
-body.panel-open #hud .cluster, body.panel-open #hud .hud-fps { right: calc(440px + 26px); }
-body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hud .tip { left: calc((100vw - 452px) / 2); }
-@media (max-width: 940px) { body.panel-open #hud .cluster { visibility: hidden; } }
+/* the panel opens on the left, where the menu button is: the instruments (bottom right) stay put. What it
+   would cover (the top-left row with telemetry, the chassis panel) slides to its right; toasts, the tip and
+   the gun panel centre on the space left over. Small windows: what the panel covers hides (the glass would
+   show it through). */
+body.panel-open #hud .hud-tl, body.panel-open #hud .susp { left: calc(440px + 26px); }
+body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hud .tip { left: calc(50vw + 226px); }
+body.panel-open #hud .hud-top { width: min(calc(100vw - 452px - 2 * var(--gap)), calc(600 * var(--u))); }
+@media (max-width: 1100px) { body.panel-open #hud .hud-tl, body.panel-open #hud .susp { left: max(var(--gap), env(safe-area-inset-left)); visibility: hidden; } }
+body.touch-ui.panel-open #hud .hud-fps { visibility: hidden; }
+@media (max-width: 860px) { body.panel-open #hud .cluster { visibility: hidden; } }
 
 /* ------------------------------------------------------------------ side panel (menu.js) */
 .pn {
-  position: fixed; z-index: 10; top: 12px; right: 12px; bottom: 12px; width: 440px; max-width: calc(100vw - 24px);
+  position: fixed; z-index: 10; top: 12px; left: 12px; bottom: 12px; width: 440px; max-width: calc(100vw - 24px);
   box-sizing: border-box; display: grid; grid-template-columns: 52px minmax(0, 1fr);
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
   background: rgba(9, 10, 12, 0.82); box-shadow: 0 12px 44px rgba(0, 0, 0, 0.35);
@@ -449,7 +455,7 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hu
 }
 /* landscape phones */
 @media (max-height: 500px) {
-  .pn { top: 8px; bottom: 8px; right: 8px; width: min(440px, 64vw); grid-template-columns: 46px minmax(0, 1fr); }
+  .pn { top: 8px; bottom: 8px; left: 8px; width: min(440px, 64vw); grid-template-columns: 46px minmax(0, 1fr); }
   .pn-tab { width: 36px; height: 34px; }
   .pn-sep { margin: 3px 0; }
   .pn-head { height: 44px; }
@@ -459,7 +465,7 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hu
   .pn { zoom: 1.2; }
 }
 
-@keyframes pn-in { from { opacity: 0; transform: translateX(10px); } }
+@keyframes pn-in { from { opacity: 0; transform: translateX(-10px); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(calc(-6 * var(--u))); } }
 @keyframes blink { 50% { opacity: 0.25; } }
 @keyframes breathe { 50% { opacity: 0.6; } }
@@ -578,7 +584,8 @@ body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inse
   body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
   body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
 }
-body.touch-ui.panel-open .tc-right { right: calc(440px + 24px); }
+body.touch-ui.panel-open .tc-steer { left: calc(440px + 24px); }
+body.touch-ui.panel-open .tc-tilt { left: calc(50vw + 226px); }
 @media (max-width: 940px) { body.touch-ui.panel-open .tc-layer { visibility: hidden; } }
 
 /* panel on a touch screen: no key caps, bigger targets */

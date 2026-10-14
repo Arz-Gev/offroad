@@ -204,7 +204,7 @@ export class Menu {
     el.setAttribute('aria-label', 'Menu');
     el.innerHTML = `
       <nav class="pn-rail" role="tablist" aria-orientation="vertical">${SECTIONS.map(s => s.sep ? '<i class="pn-sep"></i>'
-        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}"${s.text ? '' : ` data-tip="${s.title}" data-tip-pos="left"`} aria-label="${s.title}">${s.text ? `<span class="pn-tx">${s.text}</span>` : icon(s.icon)}</button>`).join('')}</nav>
+        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}"${s.text ? '' : ` data-tip="${s.title}" data-tip-pos="right"`} aria-label="${s.title}">${s.text ? `<span class="pn-tx">${s.text}</span>` : icon(s.icon)}</button>`).join('')}</nav>
       <div class="pn-main">
         <header class="pn-head">
           <h2><span class="pn-title"></span><span class="kc pn-hot"></span></h2>

@@ -9,8 +9,8 @@
 //           edge (a "safe triangle": a diagonal move into the tooltip doesn't close it). A pointer resting
 //           in the triangle closes it after a moment.
 //   click   on an (i), or a tap: pins it open until a press anywhere else.
-// data-tip-pos="left" puts it to the left of the trigger (the panel's rail); default below, or above when
-// there is no room.
+// data-tip-pos="right" / "left" puts it beside the trigger (the panel's rail); default below, or above when
+// there is no room. Either way it flips when the window edge is in the way.
 
 let el, bodyEl, arrowEl;
 let cur = null, pinned = false, side = 'below';
@@ -70,10 +70,11 @@ function show(t) {
   el.style.left = '0px'; el.style.top = '0px';
   const r = t.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, W = window.innerWidth, H = window.innerHeight, gap = 9;
   let x, y;
-  side = t.dataset.tipPos === 'left' ? 'left' : 'below';
-  if (side === 'left') {
-    x = r.left - gap - w;
-    if (x < 8) { side = 'right'; x = r.right + gap; }
+  side = t.dataset.tipPos === 'left' || t.dataset.tipPos === 'right' ? t.dataset.tipPos : 'below';
+  if (side !== 'below') {
+    x = side === 'left' ? r.left - gap - w : r.right + gap;
+    if (side === 'left' && x < 8) { side = 'right'; x = r.right + gap; }
+    else if (side === 'right' && x + w > W - 8) { side = 'left'; x = r.left - gap - w; }
     y = Math.max(8, Math.min(H - h - 8, r.top + r.height / 2 - h / 2));
     arrowEl.style.left = ''; arrowEl.style.top = `${Math.max(10, Math.min(h - 10, r.top + r.height / 2 - y))}px`;
   } else {
