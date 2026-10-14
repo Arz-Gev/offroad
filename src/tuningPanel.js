@@ -6,10 +6,12 @@ import { getCar, carDef } from './cars/index.js';
 import { storage } from './settings.js';
 import { escapeHTML, fmtPressure } from './hud.js';
 import { hasControl } from './input.js';
+import { icon } from './icons.js';
 import './tuning.css';
 
-// In-game tuning panel (Tab). The game keeps running; every change goes straight into the physics
-// (Vehicle.retune). Setup, saved setups and panel state live in localStorage (offroad.tuning.v1).
+// Tuning (Tab): the Tuning section of the side panel (menu.js). The game keeps running; every change goes
+// straight into the physics (Vehicle.retune). Setup, saved setups and section state live in localStorage
+// (offroad.tuning.v1).
 
 const KEY_BASE = 'offroad.tuning.v1';
 // per car; saveKey keeps the key of setups saved before per-car storage
@@ -25,6 +27,7 @@ const kN = x => `${(x / 1000).toFixed(1)} k`;
 const AXLES = [['front', 'F'], ['rear', 'R']];
 const GEAR_NAMES = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 
+const infoBtn = hint => hint ? `<button type="button" class="tn-i" data-info aria-label="What is this?">${icon('info')}</button>` : '';
 // slider rows: [path, label, range key, format, hint]
 const sl = (path, label, range, fmt, hint, extra = {}) => ({ type: 'slider', path, label, range, fmt, hint, ...extra });
 
@@ -66,19 +69,10 @@ export class TuningPanel {
   }
 
   // ------------------------------------------------------------------ DOM
-  build() {
-    const el = document.createElement('aside');
-    el.className = 'tune';
-    el.id = 'tuning';
-    el.hidden = true;
-    el.setAttribute('aria-label', 'Tuning');
-    document.body.appendChild(el);
+  // el: the panel's Tuning section
+  attach(el) {
     this.el = el;
     el.innerHTML = `
-      <header class="tn-head">
-        <div class="tn-title"><b>Tuning</b><span class="tn-sub">changes apply while you drive · <kbd class="cap">Tab</kbd> closes</span></div>
-        <button type="button" class="tn-x" data-act="close" aria-label="Close">×</button>
-      </header>
       <div class="tn-bar">
         <select class="tn-setups" aria-label="Saved setups"></select>
         <button type="button" class="tn-b" data-act="saveas">Save as…</button>
@@ -103,12 +97,6 @@ export class TuningPanel {
       const r = e.target.closest('input[type=range][data-path]');
       if (r) this.setValue(r.dataset.path, get(STOCK, r.dataset.path));
     });
-    // buttons and sliders give the focus back after a mouse use, so the driving keys keep working
-    el.addEventListener('pointerup', () => setTimeout(() => {
-      const a = document.activeElement;
-      if (a && el.contains(a) && !a.matches('input[type=text], textarea, select')) a.blur();
-    }, 0));
-    el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
   }
 
   // section definitions: rows + a readout function
@@ -187,12 +175,12 @@ export class TuningPanel {
       const stock = get(STOCK, r.path);
       const tick = stock != null ? ((stock - min) / (max - min)) * 100 : -10;
       return `<div class="tn-row" data-row="${r.path}">
-        <div class="tn-l"><span>${r.label}</span><output></output></div>
+        <div class="tn-l"><span>${r.label}</span>${infoBtn(r.hint)}<output></output></div>
         <div class="tn-rng"><input type="range" min="${min}" max="${max}" step="${step}" data-path="${r.path}" aria-label="${escapeHTML(r.label)}" title="Double-click: stock"><i style="left:${tick}%"></i></div>
-        ${r.hint ? `<div class="tn-h">${r.hint}</div>` : ''}</div>`;
+        ${r.hint ? `<div class="tn-h tn-info">${r.hint}</div>` : ''}</div>`;
     }
-    if (r.type === 'chips') return `<div class="tn-row" data-row="${r.path}"><div class="tn-l"><span>${r.label}</span><output></output></div>
-      <div class="tn-chips">${r.options.map(([v, l]) => `<button type="button" data-chip="${r.path}" data-v="${v}">${l}</button>`).join('')}</div>${r.hint ? `<div class="tn-h">${r.hint}</div>` : ''}</div>`;
+    if (r.type === 'chips') return `<div class="tn-row" data-row="${r.path}"><div class="tn-l"><span>${r.label}</span>${infoBtn(r.hint)}<output></output></div>
+      <div class="tn-chips">${r.options.map(([v, l]) => `<button type="button" data-chip="${r.path}" data-v="${v}">${l}</button>`).join('')}</div>${r.hint ? `<div class="tn-h tn-info">${r.hint}</div>` : ''}</div>`;
     if (r.type === 'engines') return `<div class="tn-row"><div class="tn-chips tn-eng">${ENGINE_ORDER.map(k => `<button type="button" data-engine="${k}" title="${escapeHTML(ENGINES[k].name)}">${ENGINES[k].label}</button>`).join('')}</div><div class="tn-h tn-engnote"></div></div>`;
     if (r.type === 'curve') return `<div class="tn-row"><canvas class="tn-curve" width="720" height="220"></canvas><div class="tn-h"><span class="tn-k tq">torque</span> <span class="tn-k pw">power</span> <span class="tn-k st">stock</span> · net, at the flywheel</div></div>`;
     if (r.type === 'gearbox') {
@@ -210,8 +198,8 @@ export class TuningPanel {
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
     }
     if (r.type === 'colliders') return `<div class="tn-row">
-        <div class="tn-l"><span>Show physics</span><button type="button" class="switch" data-act="overlay" role="switch" aria-label="Show physics"><span class="knob"></span></button></div>
-        <div class="tn-h">Collision boxes (red where they touch), wheel side cylinders, tyres against the arch tops, suspension travel (orange: bump stop) and the tyre contact patches (size: load, colour: slip).</div>
+        <div class="tn-l"><span>Show physics</span>${infoBtn(true)}<button type="button" class="switch" data-act="overlay" role="switch" aria-label="Show physics"><span class="knob"></span></button></div>
+        <div class="tn-h tn-info">Collision boxes (red where they touch), wheel side cylinders, tyres against the arch tops, suspension travel (orange: bump stop) and the tyre contact patches (size: load, colour: slip).</div>
         <div class="tn-touch"></div>
       </div>
       <div class="tn-row"><div class="tn-l"><span>Collision boxes</span></div><div class="tn-chips tn-boxes"></div></div>
@@ -298,7 +286,7 @@ export class TuningPanel {
     const t = e.target.closest('button');
     if (!t || !this.el.contains(t)) return;
     const d = t.dataset, s = this.setup;
-    if (d.act === 'close') return this.toggle(false);
+    if (d.info !== undefined) { t.closest('.tn-row').classList.toggle('open'); return; }
     if (d.act === 'toggle') {
       const sec = t.closest('[data-sec]'), id = sec.dataset.sec;
       this.state.ui.sections[id] = !this.state.ui.sections[id];
@@ -420,13 +408,12 @@ export class TuningPanel {
     this.io.querySelector('textarea').focus();
   }
 
-  toggle(force) {
-    if (!this.el) this.build();
-    this.open = force ?? !this.open;
-    this.el.hidden = !this.open;
-    document.body.classList.toggle('tune-open', this.open);
-    if (this.open) { this.renderSetups(); this.refresh(true); }
-    else if (this.el.contains(document.activeElement)) document.activeElement.blur();
+  // the panel shows or hides the Tuning section
+  setOpen(open) {
+    if (open === this.open) return;
+    this.open = open;
+    if (open) { this.renderSetups(); this.refresh(true); }
+    else if (this.el?.contains(document.activeElement)) document.activeElement.blur();
   }
 
   // ------------------------------------------------------------------ readouts
@@ -442,6 +429,7 @@ export class TuningPanel {
     for (const r of el.querySelectorAll('input[type=range][data-path]')) {
       const val = get(s, r.dataset.path);
       if (+r.value !== val) r.value = val;
+      r.style.setProperty('--f', ((val - +r.min) / (+r.max - +r.min)).toFixed(3));
       const row = r.closest('.tn-row'), def = this.rowDef(r.dataset.path);
       row.querySelector('output').textContent = def ? def.fmt(val) : val;
       row.classList.toggle('mod', Math.abs(val - get(STOCK, r.dataset.path)) > 1e-9);
@@ -525,6 +513,7 @@ export class TuningPanel {
     if (box) for (const r of el.querySelectorAll('input[data-box-k]')) {
       const j = +r.dataset.boxK, full = j >= 3 && j <= 5, val = full ? box[j] * 2 : box[j];
       if (Math.abs(+r.value - val) > 1e-6) r.value = val;
+      r.style.setProperty('--f', ((val - +r.min) / (+r.max - +r.min)).toFixed(3));
       r.closest('.tn-row').querySelector('output').textContent = `${Math.round(val * 1000) / 10} cm`;
     }
     ss('measure', this.runs.length && this.runs[0].t100 ? `${f2(this.runs[0].t100)} s` : '');

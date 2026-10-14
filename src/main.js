@@ -315,18 +315,21 @@ async function main() {
       const q = QUICK_ORDER.find(n => QUICK_HOURS[n] > h + 0.01) || QUICK_ORDER[0];
       settings.set('time', QUICK_HOURS[q], { animate: true });
     },
-    menu: () => menu.open(),
-    locations: () => menu.open('locations'),
-    controls: () => menu.open('controls'),
+    menu: () => menu.toggle(),
+    locations: () => menu.toggle('places'),
+    controls: () => menu.toggle('controls'),
     mute: () => toggle('muted'),
     suspension: () => toggle('suspension'),
     telemetry: () => toggle('telemetry'),
-    tuning: () => tuning.toggle(),
+    tuning: () => menu.toggle('tuning'),
   };
   input.onAction = id => { if (ACTIONS[id] && hasControl(id)) ACTIONS[id](); };
   game.action = id => input.onAction(id);
 
-  // ---------------------------------------------------------------- pause menu
+  // ---------------------------------------------------------------- pause and the side panel
+  // The panel (menu.js) doesn't pause: the game runs behind it. Pausing is its own state: the panel's pause
+  // button, or the window losing focus (setting autoPause). Driving input, a click on the view or the HUD's
+  // Paused badge resumes.
   function setPaused(p) {
     if (game.paused === p) return;
     game.paused = p;
@@ -334,15 +337,22 @@ async function main() {
     audio.setPaused(p);
     input.reset();
     touch.release();
-    input.uiHandler = p ? ev => menu.handle(ev) : null;
+    hud.setPaused(p);
     game.redraw = 3;
   }
+  const LOCKERS = ['off', 'rear', 'all'];
+  const lockersState = () => d.locks.every(Boolean) ? 'all' : d.rearLock ? 'rear' : 'off';
+  Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   const menu = new Menu({
     locations: teleports,
+    tuning,
     device: () => input.device,
+    paused: () => game.paused,
+    setPaused,
     get(key) {
       switch (key) {
         case 'gearbox': return d.gearboxSetting;
+        case 'boxMode': return d.mode === 'auto' ? 'auto' : d.autoShift ? 'autoshift' : 'manual';
         case 'autoClutch': return d.clutchAssist;
         case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
@@ -352,6 +362,13 @@ async function main() {
         case 'headlights': return view.lights.head;
         case 'auxLights': return view.lights.aux;
         case 'hazards': return view.lights.hazard;
+        case 'engine': return d.running || d.cranking;
+        case 'range': return d.range;
+        case 'drive': return d.rwd ? '2wd' : '4wd';
+        case 'centreLock': return d.centreLocked;
+        case 'lockers': return lockersState();
+        case 'traction': return vehicle.tc;
+        case 'abs': return vehicle.abs;
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;
         case 'name': return mp.name;
@@ -359,12 +376,21 @@ async function main() {
         default: return settings.get(key);
       }
     },
+    // the live switches go through the same calls as their keys, so a refused change (range on the move)
+    // says why in a toast
     set(key, v) {
       const silent = { silent: true };
       if (key === 'sound') settings.set('muted', !v, silent);
       else if (key === 'headlights') setHeadlights(v, true);
       else if (key === 'auxLights') view.lights.aux = !!v && model.lights.aux.length > 0;
       else if (key === 'hazards') view.lights.hazard = !!v;
+      else if (key === 'engine') { if (v && !d.running && !d.cranking) d.startEngine(); else if (!v && (d.running || d.cranking)) d.stopEngine(); }
+      else if (key === 'range') { if (v !== d.range) d.toggleRange(vehicle.speed); }
+      else if (key === 'drive') { if ((v === '2wd') !== d.rwd) d.toggleRwd(vehicle.speed); }
+      else if (key === 'centreLock') { if (!!v !== d.centreLocked) d.toggleCenterLock(); }
+      else if (key === 'lockers') { for (let i = 0; i < LOCKERS.length && lockersState() !== v; i++) d.cycleAxleLockers(); }
+      else if (key === 'traction') vehicle.tc = !!v;
+      else if (key === 'abs') vehicle.abs = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
       else settings.set(key, v, silent);
@@ -381,16 +407,17 @@ async function main() {
     teleport,
     recover,
     applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
-    onPause: setPaused,
+    onOpen(open) { input.uiHandler = open ? ev => menu.handle(ev) : null; game.redraw = 3; },
   });
   game.menu = menu;
-  Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
   game.setPaused = setPaused;
-  hud.onMenu = () => menu.open();
+  hud.onMenu = () => menu.toggle();
   hud.onFullscreen = () => menu.runAction('fullscreen');
+  hud.onResume = () => setPaused(false);
+  canvas.addEventListener('pointerdown', () => { if (game.paused) setPaused(false); });
 
-  const autoPause = () => { if (started && settings.get('autoPause') && !menu.blocking) menu.open(); };
+  const autoPause = () => { if (started && settings.get('autoPause')) setPaused(true); };
   window.addEventListener('blur', autoPause);
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
 
@@ -449,6 +476,7 @@ async function main() {
     input.gunner = gunnerView;
     input.turret = !!vehicle.turret;
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
+    if (game.paused && (raw.throttle > 0.15 || raw.brake > 0.15 || Math.abs(raw.steer) > 0.15)) setPaused(false);   // driving resumes
     const paused = game.paused;
     const now = performance.now() / 1000;
     // in the sight the mouse turns the turret (px -> rad by the field of view)
@@ -515,9 +543,11 @@ async function main() {
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
       gun: gunnery ? { gunnery, sight: gunnerView, fov: rig.gunnerFov, locked: !!document.pointerLockElement } : null,
+      mp: mp.room ? { n: mp.count, solid: !!settings.get('solidTrucks') } : null,
       telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${vehicle.pos.x.toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${vehicle.pos.z.toFixed(1)}`,
     });
     tuning.update(dt, vehicle, raw);
+    menu.update(dt);
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');

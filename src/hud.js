@@ -1,24 +1,33 @@
-import { capsHTML } from './input.js';
+import { capsHTML, hasControl } from './input.js';
 import { storage } from './settings.js';
 import { wheelName } from './vehicle/suspension.js';
+import { icon } from './icons.js';
 
 const FULL_SEEN_KEY = 'offroad.fullscreenUsed.v1';
 
 // In-game HUD. Cost rules: no layout reads per frame; DOM is written only when a value changes; bars
-// move with transforms; the rpm dial redraws per 20 rpm over a cached static layer; the suspension
-// panel redraws at 20 Hz and telemetry at 10 Hz, only while shown.
+// move with transforms; the rpm dial redraws per 20 rpm over a cached static layer; the chassis panel
+// redraws at 20 Hz and telemetry at 10 Hz, only while shown.
+//
+// The instrument cluster shows everything that changes how the truck drives. Its warning lights are always
+// there: dim when idle, lit when on, struck through when switched off, flashing amber while an assist works
+// (traction control, ABS, steering assist, arcade reverse). Colour only where a dashboard uses it: amber
+// caution, red warning, green lamps on, blue high beam.
 
 const SPEED_UNITS = { kmh: { k: 3.6, label: 'km/h' }, mph: { k: 2.236936, label: 'mph' } };
 export const fmtPressure = (psi, unit) => unit === 'bar' ? `${(psi * 0.0689476).toFixed(2)} bar` : `${psi.toFixed(0)} psi`;
+const fmtPressureNum = (psi, unit) => unit === 'bar' ? (psi * 0.0689476).toFixed(2) : psi.toFixed(0);
 export const speedUnit = u => SPEED_UNITS[u] || SPEED_UNITS.kmh;
 
 const AUTO_STRIP = ['P', 'R', 'N', 'D'];
-const DIAL = 156;          // css px at scale 1
-const SUSP = 216;
+const DIAL = 148;          // css px at scale 1
+const SUSP_W = 240, SUSP_H = 284;   // chassis panel canvas, logical px
+const DEG = 180 / Math.PI;
 // rpm scale: the limiter rounded up to a whole thousand
 const dialMax = E => Math.max(3000, Math.ceil(E.limiterRpm / 1000) * 1000);
 const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const RED = '#ff4d3d', AMBER = '#ffb020';
 
 // Drivetrain diagram in a fixed 64 x 72 box; more than two axles get smaller wheels down the same box.
 function diffSvg(nA) {
@@ -45,28 +54,23 @@ function diffSvg(nA) {
   return `<path class="shaft" d="${path}"/>${wheels}${diffs}`;
 }
 
-const ICON_SOUND = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path d="M11 5.5c1 .8 1 4.2 0 5M12.8 4c1.9 1.6 1.9 6.4 0 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
-const ICON_FULL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const ICON_FULL_EXIT = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const ICON_MUTED = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><path d="M11 6l4 4M15 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
-
 export class HUD {
   constructor(root = document.getElementById('hud')) {
     this.root = root;
+    const tt = (id, name, label) => `<i class="tt" id="${id}" title="${label}">${icon(name)}</i>`;
     root.innerHTML = `
       <div class="hud-tl">
         <div class="tl-row">
-          <button class="menu-btn" id="h-menubtn" tabindex="-1" type="button" aria-label="Open menu">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <span>Menu</span><span class="kc" id="h-menukey"></span>
-          </button>
-          <button class="menu-btn icon" id="h-full" tabindex="-1" type="button" aria-label="Fullscreen" title="Fullscreen"></button>
+          <button class="hb" id="h-menubtn" tabindex="-1" type="button" aria-label="Menu">${icon('menu')}<span class="kc" id="h-menukey"></span></button>
+          <button class="hb" id="h-full" tabindex="-1" type="button" aria-label="Fullscreen"></button>
           <div class="hints" id="h-hints"></div>
+          <span class="hb-st" id="h-mute" hidden></span>
         </div>
         <div class="sound-pill" id="h-sound" hidden></div>
-        <pre class="hud-panel telemetry" id="h-tele" hidden></pre>
+        <div class="hud-panel tele" id="h-tele" hidden></div>
       </div>
       <div class="hud-top">
+        <button class="paused-b" id="h-paused" type="button" tabindex="-1" hidden>${icon('play')}<span>Paused</span></button>
         <div class="toasts" id="h-toasts" aria-live="polite"></div>
         <div class="tip" id="h-tip" hidden></div>
       </div>
@@ -83,39 +87,25 @@ export class HUD {
         </div>
       </div>
       <div class="hud-panel susp" id="h-susp" hidden>
-        <div class="panel-h"><span>Suspension &amp; tyres</span><span id="h-suspkey"></span></div>
+        <div class="panel-h"><span>Chassis</span><span class="kc" id="h-suspkey"></span></div>
         <canvas id="h-suspcv"></canvas>
-        <div class="panel-f"><span>load</span><span>tyre squash</span><span class="lg-travel">travel</span><span class="lg-slip">slip</span></div>
       </div>
       <div class="cluster" id="h-cluster">
-        <div class="tells" aria-live="polite">
-          <span class="tt red" id="t-eng" hidden>ENGINE OFF</span>
-          <span class="tt red" id="t-hb" hidden>HANDBRAKE</span>
-          <span class="tt amber" id="t-abs" hidden>ABS</span>
-          <span class="tt amber" id="t-tc" hidden>TC</span>
-          <span class="tt blue" id="t-rwd" hidden>2WD</span>
-          <span class="tt green" id="t-head" hidden>LOW BEAM</span>
-          <span class="tt amber" id="t-aux" hidden>EXTRA LAMPS</span>
-          <span class="tt amber blink" id="t-haz" hidden>HAZARDS</span>
+        <div class="tells" aria-label="Warning lights">
+          ${tt('t-eng', 'engine', 'Engine')}${tt('t-hb', 'handbrake', 'Handbrake')}${tt('t-gbx', 'arcade', 'Gearbox assist')}
+          <i class="tt lvl" id="t-steer" title="Steering assist">${icon('steerAssist')}<b></b></i>${tt('t-tc', 'traction', 'Traction control')}${tt('t-abs', 'abs', 'ABS')}
+          <i class="tsep"></i>
+          ${tt('t-head', 'lowBeam', 'Headlights')}${tt('t-aux', 'aux', 'Extra lamps')}${tt('t-haz', 'hazard', 'Hazard lights')}
+          <i class="tt mp" id="t-mp" title="Friends" hidden></i>
         </div>
         <div class="cl-body">
-          <div class="cl-side">
-            <div class="cl-mode"><b id="h-mode">AUTO</b><span id="h-modesub"></span></div>
-            <div class="strip" id="h-strip"></div>
-            <div class="cl-kv" id="h-rangerow"><span class="k">Range</span><span class="seg2" id="h-range"><i data-v="high">HI</i><i data-v="low">LO</i></span></div>
-            <div class="cl-diffs">
-              <svg id="h-diffs" viewBox="0 0 64 72" aria-hidden="true">
-                <path class="shaft" d="M14 13H50M14 59H50M32 13V59"/>
-                <rect class="w" x="3" y="4" width="11" height="18" rx="2.5"/>
-                <rect class="w" x="50" y="4" width="11" height="18" rx="2.5"/>
-                <rect class="w" x="3" y="50" width="11" height="18" rx="2.5"/>
-                <rect class="w" x="50" y="50" width="11" height="18" rx="2.5"/>
-                <circle class="df" cx="32" cy="13" r="5.5"/>
-                <circle class="df" cx="32" cy="36" r="5.5"/>
-                <circle class="df" cx="32" cy="59" r="5.5"/>
-              </svg>
-              <div class="diff-txt"><span class="k">Diffs</span><b id="h-difftxt">Open</b></div>
+          <div class="cl-l">
+            <div class="dt">
+              <svg id="h-diffs" viewBox="0 0 64 72" aria-hidden="true">${diffSvg(2)}</svg>
+              <div class="dt-m"><span class="chip" id="h-range">HI</span><span class="chip" id="h-drive">4WD</span></div>
             </div>
+            <div class="kv" id="h-tyre">${icon('tyre')}<span id="h-psi"></span><small id="h-psiu"></small></div>
+            <div class="kv"><span id="h-surf"></span><span class="grip" id="h-grip" title="Grip"><i></i><i></i><i></i><i></i><i></i></span></div>
           </div>
           <div class="dial" id="h-dialwrap">
             <canvas id="h-dial"></canvas>
@@ -126,27 +116,28 @@ export class HUD {
             <div class="gear" id="h-gear">N</div>
             <div class="rpmbar"><i id="h-rpmbar"></i></div>
           </div>
-          <div class="pedals" title="Throttle · brake · clutch">
-            <div class="pedal"><div class="pd thr"><i id="p-thr"></i></div><b>T</b></div>
-            <div class="pedal"><div class="pd brk"><i id="p-brk"></i></div><b>B</b></div>
-            <div class="pedal" id="p-cluwrap"><div class="pd clu"><i id="p-clu"></i></div><b>C</b></div>
+          <div class="cl-r">
+            <div class="gbx"><b id="h-mode" title="Gearbox">A</b><span class="strip" id="h-strip"></span></div>
+            <div class="pedals" title="Clutch · brake · throttle">
+              <div class="pd clu" id="p-cluwrap"><i id="p-clu"></i></div>
+              <div class="pd brk"><i id="p-brk"></i></div>
+              <div class="pd thr"><i id="p-thr"></i></div>
+            </div>
           </div>
-        </div>
-        <div class="cl-foot">
-          <span id="h-psi"></span><span class="sep"></span><span id="h-surf"></span>
         </div>
       </div>`;
     const $ = id => root.querySelector('#' + id);
     this.$ = $;
     this.e = {
-      menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'),
-      toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
-      cluster: $('h-cluster'), mode: $('h-mode'), modeSub: $('h-modesub'), strip: $('h-strip'), range: $('h-range'), rangeRow: $('h-rangerow'),
-      diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')], diffTxt: $('h-difftxt'),
+      menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'), mute: $('h-mute'),
+      paused: $('h-paused'), toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
+      cluster: $('h-cluster'), mode: $('h-mode'), strip: $('h-strip'), range: $('h-range'), drive: $('h-drive'),
+      diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')],
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
       thr: $('p-thr'), brk: $('p-brk'), clu: $('p-clu'), cluWrap: $('p-cluwrap'),
-      psi: $('h-psi'), surf: $('h-surf'),
-      tEng: $('t-eng'), tHb: $('t-hb'), tAbs: $('t-abs'), tTc: $('t-tc'), tRwd: $('t-rwd'), tHead: $('t-head'), tAux: $('t-aux'), tHaz: $('t-haz'),
+      psi: $('h-psi'), psiU: $('h-psiu'), surf: $('h-surf'), grip: [...root.querySelectorAll('#h-grip i')], gripWrap: $('h-grip'),
+      tEng: $('t-eng'), tHb: $('t-hb'), tGbx: $('t-gbx'), tSteer: $('t-steer'), tTc: $('t-tc'), tAbs: $('t-abs'),
+      tHead: $('t-head'), tAux: $('t-aux'), tHaz: $('t-haz'), tMp: $('t-mp'),
     };
     this.dctx = this.e.dial.getContext('2d');
     Object.assign(this.e, { sight: $('h-sight'), gun: $('h-gun'), gunRot: $('h-gunrot'), gunRows: $('h-gunrows'), gunElev: $('h-gunelev') });
@@ -161,8 +152,10 @@ export class HUD {
     this.soundState = 'locked';
     this.onMenu = null;
     this.onFullscreen = null;
-    for (const b of [this.e.menuBtn, this.e.fullBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
+    this.onResume = null;
+    for (const b of [this.e.menuBtn, this.e.fullBtn, this.e.paused]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
+    this.e.paused.addEventListener('click', () => this.onResume && this.onResume());
     this.e.fullBtn.addEventListener('click', () => {
       if (!storage.get(FULL_SEEN_KEY)) { storage.set(FULL_SEEN_KEY, '1'); this.e.fullBtn.classList.remove('attn'); }
       if (!document.fullscreenEnabled) { this.toast('Full screen on iPhone: Share → Add to Home Screen, then start the game from there', { kind: 'warn', key: 'full', t: 5 }); return; }
@@ -203,8 +196,8 @@ export class HUD {
     const dp = Math.max(32, Math.round(DIAL * s * dpr));
     this.e.dial.width = this.e.dial.height = dp;
     this.dialStatic = null; this.c.rpmQ = undefined;
-    const sp = Math.max(32, Math.round(SUSP * s * dpr));
-    const scv = this.sctx.canvas; scv.width = scv.height = sp;
+    const scv = this.sctx.canvas;
+    scv.width = Math.max(32, Math.round(SUSP_W * 0.9 * s * dpr)); scv.height = Math.round(scv.width * SUSP_H / SUSP_W);
     this.suspAcc = 1; if (this.suspPrev) this.suspPrev.fill(-1);
     this.c.compact = undefined;
   }
@@ -213,19 +206,21 @@ export class HUD {
     if (d === this.device && !force) return;
     this.device = d;
     const k = id => capsHTML(id, d);
+    const hint = (name, id, label) => `<span title="${label}">${icon(name)}${k(id)}</span>`;
     this.e.menuKey.innerHTML = d === 'touch' ? '' : k('menu');
     this.e.hints.innerHTML = d === 'touch' ? '' : d === 'pad'
-      ? `<span>${k('camera')} Camera</span><span>${k('recover')} Recover</span><span>${k('shiftUp')}${k('shiftDown')} Shift</span>`
-      : `<span>${k('controls')} Controls</span><span>${k('locations')} Locations</span><span>${k('camera')} Camera</span><span>${k('tuning')} Tuning</span><span>${k('recover')} Recover</span>`;
-    this.e.suspKey.innerHTML = capsHTML('suspension', 'kb');
+      ? hint('camera', 'camera', 'Camera') + hint('recover', 'recover', 'Recover') + `<span title="Shift">${icon('autoShift')}${k('shiftUp')}${k('shiftDown')}</span>`
+      : hint('keyboard', 'controls', 'Controls') + hint('pin', 'locations', 'Places') + hint('camera', 'camera', 'Camera') + hint('wrench', 'tuning', 'Tuning') + hint('recover', 'recover', 'Recover');
+    this.e.suspKey.innerHTML = d === 'touch' ? '' : capsHTML('suspension', 'kb');
     this.tipState.key = null;
+    this.c.steer = undefined;
     this.setSound(this.soundState, true);
   }
 
   // always shown (where pages can't go fullscreen, e.g. iPhone Safari, it says how instead)
   refreshFullscreen() {
     const on = !!document.fullscreenElement, b = this.e.fullBtn;
-    b.innerHTML = on ? ICON_FULL_EXIT : ICON_FULL;
+    b.innerHTML = icon(on ? 'fullscreenExit' : 'fullscreen');
     b.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
     b.title = on ? 'Exit fullscreen' : 'Fullscreen';
   }
@@ -240,15 +235,16 @@ export class HUD {
   setSound(state, force) {
     if (state === this.soundState && !force) return;
     this.soundState = state;
-    const el = this.e.sound;
-    el.className = 'sound-pill ' + state;
-    if (state === 'on') { el.hidden = true; return; }
-    el.hidden = false;
-    const touch = this.device === 'touch';
-    el.innerHTML = state === 'locked' ? `${ICON_SOUND}<span>${touch ? 'Tap the screen to turn on sound' : 'Click or press a key to turn on sound'}</span>`
-      : state === 'muted' ? `${ICON_MUTED}<span>Sound off</span>${touch ? '' : capsHTML('mute', 'kb')}`
-        : `${ICON_MUTED}<span>Sound unavailable</span>`;
+    const pill = this.e.sound, mute = this.e.mute;
+    pill.hidden = state !== 'locked';
+    if (state === 'locked') pill.innerHTML = `${icon('sound')}<span>${this.device === 'touch' ? 'Tap for sound' : 'Click or press a key for sound'}</span>`;
+    mute.hidden = state !== 'muted' && state !== 'error';
+    mute.className = 'hb-st' + (state === 'error' ? ' err' : '');
+    mute.title = state === 'error' ? 'Sound unavailable' : 'Sound off';
+    if (!mute.hidden) mute.innerHTML = icon('muted') + (state === 'muted' && this.device !== 'touch' ? capsHTML('mute', 'kb') : '');
   }
+
+  setPaused(p) { this.e.paused.hidden = !p; }
 
   // ------------------------------------------------------------------ toasts
   // kind: '' | 'good' | 'warn'. key: a toast with the same key is updated in place. At most 3 on screen.
@@ -258,7 +254,7 @@ export class HUD {
       same.t = t;
       if (same.html !== html) { same.html = html; same.el.innerHTML = html; }
       same.el.className = 'toast' + (kind ? ' ' + kind : '');
-      same.el.animate?.([{ transform: 'scale(1.04)' }, { transform: 'none' }], { duration: 220, easing: 'ease-out' });
+      same.el.animate?.([{ transform: 'scale(1.03)' }, { transform: 'none' }], { duration: 200, easing: 'ease-out' });
       return;
     }
     const el = document.createElement('div');
@@ -298,7 +294,7 @@ export class HUD {
   }
 
   // ------------------------------------------------------------------ per frame
-  // ctx: { cam, paused, raw, telemetry: () => string }
+  // ctx: { cam, paused, raw, gun, mp: { n, solid } | null, telemetry: () => string }
   update(dt, v, view, ctx = {}) {
     const d = v.drivetrain, e = this.e, c = this.c, o = this.opts;
     this.tickToasts(dt);
@@ -308,17 +304,21 @@ export class HUD {
     const compact = o.cluster === 'compact' || (o.cluster === 'auto' && (ctx.cam === 'cockpit' || this.small || this.touchUI));
     if (compact !== c.compact) { c.compact = compact; e.cluster.classList.toggle('compact', compact); c.rpmQ = undefined; }
 
+    this.updateTells(v, view, ctx);
+
+    // gearbox: A or M, the gate, the gear
     const manual = d.mode === 'manual';
-    const modeKey = manual ? (d.autoShift ? 'as' : d.clutchAssist ? 'mac' : 'm') : 'a';
+    const modeKey = manual ? (d.autoShift ? 'as' : 'm') : 'a';
     if (modeKey !== c.mode) {
       c.mode = modeKey; c.stripIdx = undefined;
       // a manual-only car (BTR-80) in "automatic": its box picks the gears itself
-      e.mode.textContent = manual && !d.autoShift ? 'MANUAL' : 'AUTO';
-      e.modeSub.textContent = manual ? (d.autoShift ? 'auto-shift' : d.clutchAssist ? 'auto-clutch' : 'clutch pedal') : `${v.P.auto.ratios.length}-speed`;
+      e.mode.textContent = manual && !d.autoShift ? 'M' : 'A';
+      e.mode.title = manual ? (d.autoShift ? `Manual ${v.P.manual.ratios.length}-speed, shifts itself` : `Manual ${v.P.manual.ratios.length}-speed`) : `Automatic ${v.P.auto.ratios.length}-speed`;
       const strip = manual ? ['R', 'N', ...v.P.manual.ratios.map((r, i) => String(i + 1))] : AUTO_STRIP;
       e.strip.innerHTML = strip.map(g => `<i>${g}</i>`).join('');
-      e.cluWrap.classList.toggle('off', !(manual && !d.clutchAssist && !d.autoShift));
     }
+    const pedal = manual && !d.clutchAssist && !d.autoShift;
+    if (pedal !== c.pedal) { c.pedal = pedal; e.cluWrap.hidden = !pedal; }
     const stripIdx = manual ? d.manualGear + 1 : AUTO_STRIP.indexOf(d.selector);
     if (stripIdx !== c.stripIdx) {
       if (c.stripIdx !== undefined && e.strip.children[c.stripIdx]) e.strip.children[c.stripIdx].className = '';
@@ -330,12 +330,97 @@ export class HUD {
     const shifting = !!d.shift || d.grind > 0;
     if (shifting !== c.shifting) { c.shifting = shifting; e.gear.classList.toggle('shifting', shifting); }
 
-    if (d.range !== c.range) { c.range = d.range; e.range.dataset.v = d.range; }
-    const low = !!v.P.transfer?.low;   // no HI / LO row without low range
-    if (low !== c.low) { c.low = low; e.rangeRow.hidden = !low; }
+    // 4x4: range, 2WD / 4WD, the diagram
+    const low = !!v.P.transfer?.low;   // no HI / LO without low range
+    if (low !== c.low) { c.low = low; e.range.hidden = !low; }
+    if (d.range !== c.range) { c.range = d.range; e.range.textContent = d.range === 'low' ? 'LO' : 'HI'; e.range.classList.toggle('on', d.range === 'low'); }
+    const canRwd = d.layout.rwd.length > 0;
+    if (canRwd !== c.canRwd) { c.canRwd = canRwd; e.drive.hidden = !canRwd; }
+    if (d.rwd !== c.rwd) { c.rwd = d.rwd; e.drive.textContent = d.rwd ? '2WD' : '4WD'; e.drive.classList.toggle('on', d.rwd); }
+    this.updateDiffs(v);
+
+    const su = speedUnit(o.speedUnit);
+    const spd = Math.round(Math.abs(v.speed) * su.k);
+    if (spd !== c.spd) { c.spd = spd; e.spd.textContent = spd; }
+    if (!compact) this.drawDial(Math.max(0, d.rpm), v.P.engine);
+    else this.rpmBar(Math.max(0, d.rpm), v.P.engine);
+
+    this.updateGun(v, ctx.gun || null);
+    this.bar(e.thr, 'thr', v.ctl.throttle);
+    this.bar(e.brk, 'brk', Math.max(v.ctl.brake, v.ctl.handbrake));
+    this.bar(e.clu, 'clu', manual ? clamp(d.clutchPedal / 0.8, 0, 1) : 0);
+
+    // tyres and ground
+    const pf = v.pressures[0], pr = v.pressures[1], u = o.pressureUnit;
+    const psi = Math.abs(pf - pr) < 0.5 ? fmtPressureNum((pf + pr) / 2, u) : `${fmtPressureNum(pf, u)}·${fmtPressureNum(pr, u)}`;
+    if (psi !== c.psi || u !== c.psiUnit) { c.psi = psi; c.psiUnit = u; e.psi.textContent = psi; e.psiU.textContent = u; }
+    let surf = 'Air', contact = false;
+    for (const w of v.wheels) if (w.contact) { surf = w.surf?.name || 'Ground'; contact = true; break; }
+    if (surf !== c.surf) { c.surf = surf; e.surf.textContent = surf; }
+    // grip: the tyres' friction on the ground under them now (Vehicle.gripG = 0.8 x mean mu), in five steps
+    const mu = (v.gripG || 0) / 0.8, g = !contact ? 0 : mu >= 0.9 ? 5 : mu >= 0.75 ? 4 : mu >= 0.6 ? 3 : mu >= 0.48 ? 2 : 1;
+    if (g !== c.grip) {
+      c.grip = g;
+      e.grip.forEach((el, i) => el.classList.toggle('on', i < g));
+      e.gripWrap.classList.toggle('low', g === 1);
+    }
+
+    if (ctx.paused) this.setTip(null);
+    else if ((this.tipState.acc += dt) > 0.25) { this.updateTips(this.tipState.acc, v, ctx.raw || v.ctl); this.tipState.acc = 0; }
+
+    if (o.suspension && (this.suspAcc += dt) > 0.05) { this.suspAcc = 0; this.drawSuspension(v); }
+    if (o.telemetry && (this.teleAcc += dt) > 0.1) { this.teleAcc = 0; this.updateTelemetry(v, ctx.telemetry ? ctx.telemetry() : ''); }
+    this.fpsAcc += dt; this.fpsN++;
+    if (this.fpsAcc > 0.5) { if (o.fps) e.fps.textContent = (this.fpsN / this.fpsAcc).toFixed(0) + ' fps'; this.fpsAcc = 0; this.fpsN = 0; }
+  }
+
+  // one warning light: state class '' (idle) | on | off | act | warn | alert | green | blue | haz | na
+  tell(el, k, st) { if (this.c[k] !== st) { this.c[k] = st; el.className = 'tt' + (st ? ' ' + st : '') + (el.classList.contains('lvl') ? ' lvl' : ''); } }
+  tellIcon(el, k, name) { if (this.c[k] !== name) { this.c[k] = name; el.querySelector('svg').outerHTML = icon(name); } }
+
+  updateTells(v, view, ctx) {
+    const d = v.drivetrain, e = this.e, c = this.c;
+    this.tell(e.tEng, 'tEng', d.running ? '' : d.cranking ? 'warn' : 'alert');
+    e.tEng.title = d.running ? 'Engine running' : d.cranking ? 'Engine starting' : d.stalled ? 'Engine stalled' : 'Engine off';
+    this.tell(e.tHb, 'tHb', v.ctl.handbrake > 0.5 ? 'alert' : '');
+    // the gearbox's assist: arcade reverse (automatic) or the auto-clutch (manual)
+    if (d.mode === 'auto') {
+      this.tellIcon(e.tGbx, 'gbxIcon', 'arcade');
+      this.tell(e.tGbx, 'tGbx', !v.arcadeAuto ? 'off' : v.revTimer > 0 ? 'act' : 'on');
+      e.tGbx.title = v.arcadeAuto ? 'Arcade reverse: brake at a stop reverses' : 'Arcade reverse off: select R';
+    } else {
+      this.tellIcon(e.tGbx, 'gbxIcon', 'clutch');
+      this.tell(e.tGbx, 'tGbx', d.clutchAssist || d.autoShift ? 'on' : 'off');
+      e.tGbx.title = d.clutchAssist || d.autoShift ? 'Auto-clutch' : 'Auto-clutch off: the clutch is yours';
+    }
+    // steering assist: keyboard only (a pad or touch steers with its own curve)
+    const sa = v.steerAssist, analog = this.device === 'pad' || this.device === 'touch';
+    this.tell(e.tSteer, 'tSteer', analog ? 'na' : sa === 'off' ? 'off' : v.steerLimited > 0 ? 'act' : 'on');
+    const lvl = sa === 'strong' ? 2 : sa === 'light' ? 1 : 0;
+    if (lvl !== c.steerLvl) { c.steerLvl = lvl; e.tSteer.dataset.lvl = lvl; e.tSteer.title = `Steering assist: ${sa}`; }
+    this.tell(e.tTc, 'tTc', !v.tc ? 'off' : v.tcActive > 0 ? 'act' : 'on');
+    this.tell(e.tAbs, 'tAbs', !v.abs ? 'off' : v.absActive > 0 ? 'act' : 'on');
+    const head = view.lights.head;
+    this.tellIcon(e.tHead, 'headIcon', head === 2 ? 'highBeam' : 'lowBeam');
+    this.tell(e.tHead, 'tHead', head === 2 ? 'blue' : head === 1 ? 'green' : '');
+    const hasAux = hasControl('auxLights');
+    if (hasAux !== c.hasAux) { c.hasAux = hasAux; e.tAux.hidden = !hasAux; }
+    this.tell(e.tAux, 'tAux', view.lights.aux ? 'green' : '');
+    this.tell(e.tHaz, 'tHaz', view.lights.hazard ? 'haz' : '');
+    // friends: only in a room; a ghost while trucks pass through each other
+    const mp = ctx.mp, mpKey = mp ? `${mp.solid ? 's' : 'g'}${mp.n}` : '';
+    if (mpKey !== c.mp) {
+      c.mp = mpKey;
+      e.tMp.hidden = !mp;
+      if (mp) { e.tMp.innerHTML = icon(mp.solid ? 'people' : 'ghost') + `<b>${mp.n}</b>`; e.tMp.className = 'tt mp' + (mp.n ? ' on' : ''); e.tMp.title = `${mp.n} friend${mp.n === 1 ? '' : 's'} · ${mp.solid ? 'solid trucks' : 'ghost trucks'}`; }
+    }
+  }
+
+  updateDiffs(v) {
+    const d = v.drivetrain, e = this.e, c = this.c;
     const nA = v.axles.length;
     if (nA !== c.nA) {
-      c.nA = nA; c.locks = undefined;
+      c.nA = nA; c.locks = undefined; c.driven = undefined;
       const svg = this.root.querySelector('#h-diffs');
       svg.innerHTML = diffSvg(nA);
       e.diffs = [...svg.querySelectorAll('.df')];
@@ -353,76 +438,18 @@ export class HUD {
       d.layout.axles.forEach((ax, a) => e.axleDf(a).classList.toggle('off', !d.isDriven(a)));
       e.centreDf.classList.toggle('off', !(driven >> 16));
     }
-    if (nA === 2) {
-      const locks = (d.frontLock ? 1 : 0) | (d.centreLocked ? 2 : 0) | (d.rearLock ? 4 : 0);
-      if (locks !== c.locks) {
-        c.locks = locks;
-        e.diffs[0].classList.toggle('locked', d.frontLock);
-        e.diffs[1].classList.toggle('locked', d.centreLocked);
-        e.diffs[2].classList.toggle('locked', d.rearLock);
-        const names = [d.centreLocked && 'Centre', d.frontLock && 'Front', d.rearLock && 'Rear'].filter(Boolean);
-        const self = !d.canLockCentre || d.layout.axles.some(a => a.diff === 'lsd');
-        e.diffTxt.textContent = names.length === 3 ? 'All locked' : names.length === 2 ? names.join(' + ').replace('Centre', 'Ctr').replace('+ Rear', '+ rear').replace('+ Front', '+ front') : names[0] || (self ? 'Self-lock' : 'Open');
-        e.diffTxt.classList.toggle('locked', names.length > 0);
-      }
-    } else {
-      let locks = d.centreLocked ? 1 : 0;
-      d.locks.forEach((l, a) => { if (l) locks |= 2 << a; });
-      if (locks !== c.locks) {
-        c.locks = locks;
-        d.locks.forEach((l, a) => e.diffs[a].classList.toggle('locked', l));
-        e.diffs[nA].classList.toggle('locked', d.centreLocked);
-        const nl = d.locks.filter(Boolean).length, lsd = d.layout.axles.some(a => a.diff === 'lsd');
-        e.diffTxt.textContent = d.centreLocked && nl === nA ? 'All locked' : d.centreLocked ? (nl ? 'Ctr + axles' : 'Centre') : nl ? (nl === nA ? 'Axles' : 'Rear axles') : lsd ? 'Self-lock' : 'Open';
-        e.diffTxt.classList.toggle('locked', !!locks);
-      }
+    let locks = d.centreLocked ? 1 : 0;
+    d.locks.forEach((l, a) => { if (l) locks |= 2 << a; });
+    if (locks !== c.locks) {
+      c.locks = locks;
+      d.locks.forEach((l, a) => e.axleDf(a).classList.toggle('locked', l));
+      e.centreDf.classList.toggle('locked', d.centreLocked);
     }
     for (let i = 0; i < e.wheels.length; i++) {
       const w = v.wheels[i];
       const st = !w.contact ? 'w air' : (w.slipNorm || 0) > 0.95 ? 'w slip' : (w.slipNorm || 0) > 0.7 ? 'w warn' : 'w';
       if (st !== c['w' + i]) { c['w' + i] = st; e.wheels[i].setAttribute('class', st); }
     }
-
-    const su = speedUnit(o.speedUnit);
-    const spd = Math.round(Math.abs(v.speed) * su.k);
-    if (spd !== c.spd) { c.spd = spd; e.spd.textContent = spd; }
-    if (!compact) this.drawDial(Math.max(0, d.rpm), v.P.engine);
-    else this.rpmBar(Math.max(0, d.rpm), v.P.engine);
-
-    this.updateGun(v, ctx.gun || null);
-    this.bar(e.thr, 'thr', v.ctl.throttle);
-    this.bar(e.brk, 'brk', Math.max(v.ctl.brake, v.ctl.handbrake));
-    this.bar(e.clu, 'clu', manual ? clamp(d.clutchPedal / 0.8, 0, 1) : 0);
-
-    const psi = fmtPressure(v.pressure, o.pressureUnit);
-    if (psi !== c.psi) { c.psi = psi; e.psi.textContent = 'Tyres ' + psi; }
-    let surf = 'Airborne';
-    for (const w of v.wheels) if (w.contact) { surf = w.surf?.name || 'Ground'; break; }
-    if (surf !== c.surf) { c.surf = surf; e.surf.textContent = surf; }
-    const eng = d.running ? '' : d.cranking ? 'CRANKING' : d.stalled ? 'STALLED' : 'ENGINE OFF';
-    if (eng !== c.eng) { c.eng = eng; e.tEng.hidden = !eng; if (eng) { e.tEng.textContent = eng; e.tEng.className = 'tt ' + (d.cranking ? 'amber' : 'red'); } }
-    this.lamp(e.tHb, 'hb', v.ctl.handbrake > 0.5);
-    const abs = !v.abs ? 'ABS OFF' : v.absActive > 0 ? 'ABS' : '';
-    if (abs !== c.abs) { c.abs = abs; e.tAbs.hidden = !abs; if (abs) e.tAbs.textContent = abs; }
-    this.lamp(e.tRwd, 'rwd', d.rwd);
-    const tc = !v.tc ? 'TC OFF' : v.tcActive > 0 ? 'TC' : '';
-    if (tc !== c.tc) { c.tc = tc; e.tTc.hidden = !tc; if (tc) e.tTc.textContent = tc; }
-    const head = view.lights.head;
-    if (head !== c.head) {
-      c.head = head; e.tHead.hidden = !head;
-      e.tHead.textContent = head === 2 ? 'HIGH BEAM' : 'LOW BEAM';
-      e.tHead.className = 'tt ' + (head === 2 ? 'blue' : 'green');
-    }
-    this.lamp(e.tAux, 'aux', view.lights.aux);
-    this.lamp(e.tHaz, 'haz', view.lights.hazard);
-
-    if (ctx.paused) this.setTip(null);
-    else if ((this.tipState.acc += dt) > 0.25) { this.updateTips(this.tipState.acc, v, ctx.raw || v.ctl); this.tipState.acc = 0; }
-
-    if (o.suspension && (this.suspAcc += dt) > 0.05) { this.suspAcc = 0; this.drawSuspension(v); }
-    if (o.telemetry && (this.teleAcc += dt) > 0.1) { this.teleAcc = 0; e.tele.textContent = this.telemetryText(v, ctx.telemetry ? ctx.telemetry() : ''); }
-    this.fpsAcc += dt; this.fpsN++;
-    if (this.fpsAcc > 0.5) { if (o.fps) e.fps.textContent = (this.fpsN / this.fpsAcc).toFixed(0) + ' fps'; this.fpsAcc = 0; this.fpsN = 0; }
   }
 
   bar(el, k, val) {
@@ -437,7 +464,6 @@ export class HUD {
     const zone = rpm >= E.redlineRpm ? 'red' : rpm >= E.redlineRpm - 700 ? 'amber' : '';
     if (zone !== this.c.rpmZone) { this.c.rpmZone = zone; this.e.rpmBar.className = zone; }
   }
-  lamp(el, k, on) { if (on !== this.c[k]) { this.c[k] = on; el.hidden = !on; } }
 
   // ------------------------------------------------------------------ tips
   updateTips(dt, v, raw) {
@@ -451,9 +477,9 @@ export class HUD {
     const neutral = grow('neutral', d.running && !inGear && thr > 0.5 && (d.mode === 'manual' || sp > 0.8));
     const stuck = grow('stuck', d.running && inGear && thr > 0.6 && sp < 0.6 && v.up.y > 0.35);
     let key = null, html = '';
-    if (rolled > 1.0) { key = 'rolled'; html = `Rolled over. Press ${k('recover')} to put the truck back on its wheels.`; }
-    else if (engine > 0.6) { key = 'engine'; html = `Engine ${d.stalled ? 'stalled' : 'off'}. Press ${k('engineStart')} to start it.`; }
-    else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Gearbox in neutral. Press ${k('shiftUp')} for 1st, ${k('shiftDown')} for reverse.` : `Selector in ${d.selector}. Press ${k('shiftUp')} for Drive${d.selector === 'P' ? ` (reverse: ${k('shiftUp')} once)` : ''}.`; }
+    if (rolled > 1.0) { key = 'rolled'; html = `Rolled over · ${k('recover')} puts the truck back on its wheels`; }
+    else if (engine > 0.6) { key = 'engine'; html = `Engine ${d.stalled ? 'stalled' : 'off'} · ${k('engineStart')} starts it`; }
+    else if (neutral > 1.2) { key = 'neutral'; html = d.mode === 'manual' ? `Neutral · ${k('shiftUp')} 1st, ${k('shiftDown')} reverse` : `Selector in ${d.selector} · ${k('shiftUp')} for Drive${d.selector === 'P' ? ` (reverse: ${k('shiftUp')} once)` : ''}`; }
     else if (stuck > 3) {
       const s = [];
       if (d.rwd) s.push(`${k('rwd')} 4WD`);
@@ -461,7 +487,7 @@ export class HUD {
       if (!d.centerLock && d.canLockCentre) s.push(`${k('centreLock')} centre lock`);
       if (d.canLock && !(d.rearLock && d.frontLock)) s.push(`${k('lockers')} lockers`);
       key = 'stuck:' + s.length;
-      html = `Stuck? ${s.length ? 'Try ' + s.join(', ') + ', or' : 'Pick another line, or'} ${k('recover')} to recover.`;
+      html = `Stuck? ${s.length ? s.join(' · ') + ' · or' : 'Another line, or'} ${k('recover')} recover`;
     }
     if (!key && ts.key) { if ((ts.clear += dt) < 0.75) return; }   // hysteresis: don't flicker
     ts.clear = 0;
@@ -476,30 +502,30 @@ export class HUD {
     if (q === this.c.rpmQ) return;
     this.c.rpmQ = q;
     const g = this.dctx, px = this.e.dial.width, k = px / DIAL;
-    const cx = DIAL / 2, cy = DIAL / 2, r = DIAL / 2 - 9;
+    const cx = DIAL / 2, cy = DIAL / 2, r = DIAL / 2 - 6;
     const ang = x => A0 + (A1 - A0) * clamp(x, 0, max) / max;
     if (!this.dialStatic) {
       const s = document.createElement('canvas');
       s.width = s.height = px;
       const h = s.getContext('2d');
       h.scale(k, k);
-      h.lineWidth = 7;
-      h.strokeStyle = 'rgba(255,255,255,0.11)';
+      h.lineWidth = 3;
+      h.strokeStyle = 'rgba(255,255,255,0.12)';
       h.beginPath(); h.arc(cx, cy, r, A0, A1); h.stroke();
-      h.strokeStyle = 'rgba(255,90,69,0.6)';
+      h.strokeStyle = 'rgba(255,77,61,0.75)';
       h.beginPath(); h.arc(cx, cy, r, ang(E.redlineRpm), A1); h.stroke();
       h.lineCap = 'round';
       for (let x = 0; x <= max; x += 500) {
         const a = ang(x), major = x % 1000 === 0;
-        const r0 = r - (major ? 15 : 11), r1 = r - 7;
-        h.strokeStyle = x >= E.redlineRpm ? 'rgba(255,110,90,0.9)' : major ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-        h.lineWidth = major ? 1.8 : 1.2;
+        const r0 = r - (major ? 10 : 7), r1 = r - 4;
+        h.strokeStyle = x >= E.redlineRpm ? 'rgba(255,77,61,0.9)' : major ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.3)';
+        h.lineWidth = major ? 1.6 : 1.1;
         h.beginPath(); h.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); h.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); h.stroke();
         if (major) {
-          h.fillStyle = x >= E.redlineRpm ? 'rgba(255,120,100,0.95)' : 'rgba(255,255,255,0.62)';
-          h.font = '600 10.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+          h.fillStyle = x >= E.redlineRpm ? 'rgba(255,90,75,0.95)' : 'rgba(255,255,255,0.55)';
+          h.font = '600 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
           h.textAlign = 'center'; h.textBaseline = 'middle';
-          h.fillText(String(x / 1000), cx + Math.cos(a) * (r - 25), cy + Math.sin(a) * (r - 25));
+          h.fillText(String(x / 1000), cx + Math.cos(a) * (r - 19), cy + Math.sin(a) * (r - 19));
         }
       }
       this.dialStatic = s;
@@ -508,9 +534,9 @@ export class HUD {
     g.clearRect(0, 0, px, px);
     g.drawImage(this.dialStatic, 0, 0);
     g.setTransform(k, 0, 0, k, 0, 0);
-    g.lineWidth = 7;
+    g.lineWidth = 4;
     g.lineCap = 'butt';
-    g.strokeStyle = rpm >= E.redlineRpm ? '#ff5a45' : rpm >= E.redlineRpm - 700 ? '#ffb347' : '#f4f6f8';
+    g.strokeStyle = rpm >= E.redlineRpm ? RED : rpm >= E.redlineRpm - 700 ? AMBER : '#ffffff';
     g.beginPath(); g.arc(cx, cy, r, A0, ang(rpm)); g.stroke();
   }
 
@@ -598,104 +624,155 @@ export class HUD {
     g.fillText(`${w.name} · ${Math.round(fovDeg)}° · range × 100 m`, cx - r * 0.6, cy + r * 0.82);
   }
 
-  // ------------------------------------------------------------------ suspension panel
+  // ------------------------------------------------------------------ chassis panel
+  // Top-down: each tyre filled by its load and outlined by its slip (amber near the limit, red sliding,
+  // dashed in the air), the suspension travel beside it (red at the bump stop or full droop), load in kg
+  // and tyre squash in cm. Below: axle twist, and the lean (roll, pitch) as a truck from behind and the side.
   drawSuspension(v) {
-    // quantised to what the panel shows (kg, mm, % travel, slip colour, steer, 0.1 deg twist)
-    const nW = v.wheels.length, nA = v.axles.length, nq = nW * 6 + nA;
+    // quantised to what the panel shows (kg, mm, % travel, slip colour, steer, load shade, twist, lean)
+    const nW = v.wheels.length, nA = v.axles.length, nq = nW * 6 + nA + 2;
     if (!this.suspKey || this.suspKey.length !== nq) { this.suspKey = new Int32Array(nq); this.suspPrev = new Int32Array(nq).fill(-1); }
     const q = this.suspKey, prev = this.suspPrev;
     // beam axle: heave and roll at the spring; independent: the corner's own
     const compOf = w => w.axle.ind ? w.c : w.axle.c + w.side * (w.axle.p.springTrack / 2) * Math.sin(w.axle.phi);
     for (let i = 0; i < nW; i++) {
       const w = v.wheels[i], ax = w.axle;
-      const comp = compOf(w);
       const slip = w.slipNorm || 0;
       q[i * 6] = Math.round((w.FnAvg || 0) / 9.81);
       q[i * 6 + 1] = Math.round(Math.max(0, w.pen) * 1000);
-      q[i * 6 + 2] = Math.round(clamp(comp / ax.p.travel, 0, 1) * 100);
+      q[i * 6 + 2] = Math.round(clamp(compOf(w) / ax.p.travel, 0, 1) * 100);
       q[i * 6 + 3] = !w.contact ? 3 : slip > 0.95 ? 2 : slip > 0.7 ? 1 : 0;
       q[i * 6 + 4] = Math.round(w.steer * 100);
       q[i * 6 + 5] = Math.round(Math.min(1, (w.FnAvg || 0) / 12000) * 20);
     }
     for (let a = 0; a < nA; a++) q[nW * 6 + a] = Math.round(v.axles[a].phi * 573);
+    const roll = Math.asin(clamp(v.right.y, -1, 1)) * DEG, pitch = Math.asin(clamp(v.fwd.y, -1, 1)) * DEG;
+    q[nW * 6 + nA] = Math.round(roll); q[nW * 6 + nA + 1] = Math.round(pitch);
     if (q.every((x, i) => x === prev[i])) return;
     prev.set(q);
-    const g = this.sctx, px = g.canvas.width, k = px / 240;
+    const g = this.sctx, cw = g.canvas.width, k = cw / SUSP_W;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, px, px);
+    g.clearRect(0, 0, cw, g.canvas.height);
     g.setTransform(k, 0, 0, k, 0, 0);
-    const ys = Array.from({ length: nA }, (_, a) => nA === 2 ? (a ? 172 : 70) : 40 + a * (162 / (nA - 1)));
+    const FONT = '600 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    const ys = Array.from({ length: nA }, (_, a) => nA === 2 ? (a ? 168 : 62) : 36 + a * (164 / (nA - 1)));
     const sc = nA === 2 ? 1 : Math.min(1, (ys[1] - ys[0]) / 76);
-    const pos = Array.from({ length: nW }, (_, i) => [i % 2 ? 178 : 62, ys[i >> 1]]);
-    g.strokeStyle = 'rgba(255,255,255,0.22)';
-    g.lineWidth = 2.5;
+    const pos = Array.from({ length: nW }, (_, i) => [i % 2 ? 176 : 64, ys[i >> 1]]);
+    g.strokeStyle = 'rgba(255,255,255,0.16)';
+    g.lineWidth = 2;
     g.beginPath();
-    for (const y of ys) { g.moveTo(62, y); g.lineTo(178, y); }
+    for (const y of ys) { g.moveTo(64, y); g.lineTo(176, y); }
     g.moveTo(120, ys[0]); g.lineTo(120, ys[nA - 1]); g.stroke();
-    g.font = `600 ${nA === 2 ? 12 : 10}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = nA === 2 ? FONT : FONT.replace('11px', '9.5px');
     for (let i = 0; i < nW; i++) {
       const w = v.wheels[i], ax = w.axle, p = ax.p;
-      const comp = compOf(w);
-      const f = clamp(comp / p.travel, 0, 1);
+      const f = clamp(compOf(w) / p.travel, 0, 1);
       const [x, y] = pos[i];
-      const slip = Math.min(1, w.slipNorm || 0);
+      const slip = w.slipNorm || 0;
       const load = Math.min(1, (w.FnAvg || 0) / 12000);
-      const col = !w.contact ? 'rgba(140,140,140,0.55)' : slip > 0.95 ? '#ff5a45' : slip > 0.7 ? '#ffb347' : '#6fdc8c';
       g.save();
       g.translate(x, y);
       g.scale(sc, sc);
       g.rotate(w.steer);
-      g.fillStyle = 'rgba(0,0,0,0.4)';
-      g.fillRect(-12, -22, 24, 44);
-      g.fillStyle = col;
-      g.globalAlpha = 0.35 + 0.65 * load;
-      g.fillRect(-10, -20, 20, 40);
-      g.globalAlpha = 1;
+      if (w.contact) {
+        g.fillStyle = `rgba(255,255,255,${(0.12 + 0.7 * load).toFixed(3)})`;
+        g.beginPath(); g.roundRect(-10, -20, 20, 40, 4); g.fill();
+      }
+      g.lineWidth = 2;
+      g.setLineDash(w.contact ? [] : [3, 3]);
+      g.strokeStyle = !w.contact ? 'rgba(255,255,255,0.45)' : slip > 0.95 ? RED : slip > 0.7 ? AMBER : 'rgba(255,255,255,0.55)';
+      g.beginPath(); g.roundRect(-10, -20, 20, 40, 4); g.stroke();
+      g.setLineDash([]);
       g.restore();
-      const bx = x + (w.side < 0 ? -28 : 21) * sc, bh = 44 * sc;
-      g.fillStyle = 'rgba(255,255,255,0.14)';
-      g.fillRect(bx, y - bh / 2, 7 * sc, bh);
-      g.fillStyle = f > 0.9 || f < 0.05 ? '#ff6a4a' : '#8cc8ff';
-      g.fillRect(bx, y + bh / 2 - bh * f, 7 * sc, bh * f);
+      // travel: 0 = full droop, 1 = bump stop
+      const bx = x + (w.side < 0 ? -25 : 20) * sc, bh = 40 * sc;
+      g.fillStyle = 'rgba(255,255,255,0.12)';
+      g.fillRect(bx, y - bh / 2, 5 * sc, bh);
+      g.fillStyle = f > 0.9 || f < 0.05 ? RED : 'rgba(255,255,255,0.8)';
+      g.fillRect(bx, y + bh / 2 - bh * f, 5 * sc, bh * f);
+      const kg = ((w.FnAvg || 0) / 9.81).toFixed(0), sq = Math.max(0, w.pen * 100).toFixed(1);
       if (nA === 2) {
-        const ty = i < 2 ? y - 46 : y + 36;
-        g.fillStyle = 'rgba(255,255,255,0.92)';
-        g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)} kg`, x, ty);
-        g.fillStyle = 'rgba(255,255,255,0.55)';
-        g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)} cm`, x, ty + 14);
+        const ty = i < 2 ? y - 38 : y + 34;
+        g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(`${kg} kg`, x, ty);
+        g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText(`${sq} cm`, x, ty + 13);
       } else {
-        const tx = x + (w.side < 0 ? -52 : 52);
-        g.fillStyle = 'rgba(255,255,255,0.92)';
-        g.fillText(`${((w.FnAvg || 0) / 9.81).toFixed(0)}`, tx, y - 6);
-        g.fillStyle = 'rgba(255,255,255,0.55)';
-        g.fillText(`${Math.max(0, w.pen * 100).toFixed(1)}`, tx, y + 7);
+        const tx = x + (w.side < 0 ? -48 : 48);
+        g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(kg, tx, y - 6);
+        g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillText(sq, tx, y + 7);
       }
     }
-    g.fillStyle = 'rgba(255,255,255,0.6)';
-    g.font = '600 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-    if (nA === 2) g.fillText(`axle twist  F ${(v.axles[0].phi * 57.3).toFixed(1)}°  R ${(v.axles[1].phi * 57.3).toFixed(1)}°`, 120, 121);
-    else g.fillText('kg · cm', 120, 12);
+    g.font = FONT;
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    if (nA === 2) {
+      const tw = a => v.axles[a].ind ? '' : `${(v.axles[a].phi * DEG).toFixed(1)}°`;
+      const t = [tw(0) && `F ${tw(0)}`, tw(1) && `R ${tw(1)}`].filter(Boolean).join('   ');
+      if (t) g.fillText(`twist  ${t}`, 120, 115);
+    } else g.fillText('kg · cm', 120, 10);
+    // lean: the truck from behind (roll) and from the side (pitch); amber from 25°, red from 35°
+    g.strokeStyle = 'rgba(255,255,255,0.1)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(16, 224); g.lineTo(224, 224); g.stroke();
+    const lean = (cx, deg, drawBody, label) => {
+      const a = Math.abs(deg), col = a >= 35 ? RED : a >= 25 ? AMBER : 'rgba(255,255,255,0.9)';
+      g.strokeStyle = 'rgba(255,255,255,0.2)'; g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(cx - 44, 266); g.lineTo(cx - 8, 266); g.stroke();
+      g.save(); g.translate(cx - 26, 262); g.rotate(-deg / DEG);
+      g.strokeStyle = col; g.lineWidth = 1.8; g.lineJoin = 'round';
+      g.beginPath(); drawBody(); g.stroke();
+      g.restore();
+      g.textAlign = 'left';
+      g.fillStyle = col; g.font = '700 15px ui-sans-serif, system-ui, sans-serif';
+      g.fillText(`${Math.round(deg) || 0}°`, cx + 2, 252);
+      g.fillStyle = 'rgba(255,255,255,0.45)'; g.font = FONT;
+      g.fillText(label, cx + 2, 270);
+      g.textAlign = 'center';
+    };
+    // from behind: body, wheels; positive roll = right side up
+    lean(70, roll, () => {
+      g.rect(-12, -22, 24, 13); g.moveTo(-15, -9); g.lineTo(15, -9);
+      g.rect(-15, -7, 5, 7); g.rect(10, -7, 5, 7);
+    }, 'roll');
+    // from the side, nose to the right: positive pitch = nose up
+    lean(178, -pitch, () => {
+      g.moveTo(-20, -6); g.lineTo(-20, -19); g.lineTo(6, -19); g.lineTo(11, -12); g.lineTo(20, -12); g.lineTo(20, -6); g.closePath();
+      g.moveTo(-9.5, -3); g.arc(-12.5, -3, 3, 0, Math.PI * 2); g.moveTo(15.5, -3); g.arc(12.5, -3, 3, 0, Math.PI * 2);
+    }, 'pitch');
   }
 
-  telemetryText(v, extra) {
-    const d = v.drivetrain;
-    const f = (x, n = 2) => (x >= 0 ? ' ' : '') + x.toFixed(n);
-    let s = '';
-    s += `rpm ${d.rpm.toFixed(0)}  thr ${d.thr.toFixed(2)}  Tcomb ${d.Tcomb.toFixed(0)}Nm  load ${d.load.toFixed(2)}  clutch ${d.clutchPedal.toFixed(2)} slip ${d.clutchSlip.toFixed(1)}  lockup ${d.lockup.toFixed(2)}\n`;
-    const nA = v.axles.length;
-    s += `ratio ${d.currentRatio().toFixed(2)}  prop ${d.propTorque.map(t => t.toFixed(0)).join(' / ')} Nm  speed ${(v.speed * 3.6).toFixed(1)} km/h\n`;
-    s += `wheel  ω(rad/s)  Fn(N)   Fx     Fy    slip  pen(cm)  surf\n`;
+  // ------------------------------------------------------------------ telemetry
+  // A fixed grid, built once per wheel count; cells are written only when their text changes.
+  updateTelemetry(v, extra) {
+    const d = v.drivetrain, nA = v.axles.length, nW = v.wheels.length;
+    if (this.teleN !== nW) {
+      this.teleN = nW;
+      const cells = n => Array.from({ length: n }, () => '<span></span>').join('');
+      this.e.tele.innerHTML = `
+        <div class="tl-g eng"><b>Engine</b>${cells(8)}</div>
+        <div class="tl-g drv"><b>Drive</b>${cells(4)}</div>
+        <div class="tl-t w"><b></b><b>ω</b><b>Fn</b><b>Fx</b><b>Fy</b><b>slip</b><b>pen</b><b>surface</b>
+          ${v.wheels.map((w, i) => `<b>${wheelName(i, nA)}</b>${cells(7)}`).join('')}</div>
+        <div class="tl-t ax">${v.axles.map((a, i) => `<b>${nA === 2 ? (i ? 'R' : 'F') : i + 1}</b>${cells(3)}`).join('')}</div>
+        <div class="tl-x"></div>`;
+      const g = sel => [...this.e.tele.querySelectorAll(sel + ' span')];
+      this.teleCells = { eng: g('.eng'), drv: g('.drv'), w: g('.w'), ax: g('.ax'), x: this.e.tele.querySelector('.tl-x') };
+    }
+    const C = this.teleCells;
+    const set = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+    const f = (x, n = 2) => x.toFixed(n);
+    [`rpm ${d.rpm.toFixed(0)}`, `thr ${f(d.thr)}`, `T ${d.Tcomb.toFixed(0)} Nm`, `load ${f(d.load)}`,
+      `clutch ${f(d.clutchPedal)}`, `slip ${f(d.clutchSlip, 1)}`, `lockup ${f(d.lockup)}`, `ratio ${f(d.currentRatio())}`].forEach((t, i) => set(C.eng[i], t));
+    [`prop ${d.propTorque.map(t => t.toFixed(0)).join(' / ')} Nm`, `${f(v.speed * 3.6, 1)} km/h`, `range ${d.range}`, d.rwd ? '2WD' : '4WD'].forEach((t, i) => set(C.drv[i], t));
     v.wheels.forEach((w, i) => {
-      s += `${wheelName(i, nA)}   ${f(d.w[2 + i], 1).padStart(7)} ${w.FnAvg.toFixed(0).padStart(6)} ${w.Fx.toFixed(0).padStart(6)} ${w.Fy.toFixed(0).padStart(6)}  ${(w.slipNorm || 0).toFixed(2)}  ${(w.pen * 100).toFixed(1).padStart(5)}  ${w.surf.name}\n`;
+      const r = [f(d.w[2 + i], 1), w.FnAvg.toFixed(0), w.Fx.toFixed(0), w.Fy.toFixed(0), f(w.slipNorm || 0), f(w.pen * 100, 1), w.surf.name];
+      r.forEach((t, j) => set(C.w[i * 7 + j], t));
     });
     v.axles.forEach((a, i) => {
-      const name = nA === 2 ? (i ? 'R' : 'F') : String(i + 1);
-      if (a.ind) { const wl = v.wheels[2 * i], wr = v.wheels[2 * i + 1]; s += `axle ${name} c L ${wl.c.toFixed(3)} R ${wr.c.toFixed(3)}  camber ${(wl.camber * 57.3).toFixed(1)}° / ${(wr.camber * 57.3).toFixed(1)}°\n`; }
-      else s += `axle ${name} c ${a.c.toFixed(3)}  φ ${(a.phi * 57.3).toFixed(1)}°  springs ${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)} N\n`;
+      let r;
+      if (a.ind) { const wl = v.wheels[2 * i], wr = v.wheels[2 * i + 1]; r = [`c ${f(wl.c, 3)} / ${f(wr.c, 3)}`, `camber ${(wl.camber * DEG).toFixed(1)}° / ${(wr.camber * DEG).toFixed(1)}°`, '']; }
+      else r = [`c ${f(a.c, 3)}`, `φ ${(a.phi * DEG).toFixed(1)}°`, `springs ${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)} N`];
+      r.forEach((t, j) => set(C.ax[i * 3 + j], t));
     });
-    if (extra) s += extra;
-    return s;
+    set(C.x, extra || '');
   }
 }
 
