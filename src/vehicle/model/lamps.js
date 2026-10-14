@@ -16,9 +16,9 @@ import * as THREE from 'three';
 // Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a tree
 // trunk 8-10 m ahead ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3); at a fixed exposure it blows out
 // and blooms over the windscreen on a slope. This emulates the eye's local adaptation with a soft cap on each
-// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.6-4.5 (scene units), so the
+// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.1-0.9 (scene units), so the
 // far throw is barely touched.
-export const LAMP_KNEE = 2.4;
+export const LAMP_KNEE = 0.6;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
@@ -73,7 +73,7 @@ function makeCookie(fn, angle, N = 512, soft = 0.32) {
 // kick-up on the right, hot zone right under the cut-off, wide soft foreground. The cut-off stays level
 // but fades over a band that widens to the sides: ahead it lies on the far road (a narrow band keeps the
 // throw), to the sides it lands on banks and trunks a few metres away, where a narrow band reads as a line.
-// Tall, not a slot: the hot band falls off slowly downwards and a real lamp's spill (~9 % of the peak) lights the
+// Tall, not a slot: the hot band falls off slowly downwards and a real lamp's spill (~7 % of the peak) lights the
 // trees and banks above the cut-off; the player found a thin strip of light with black above it unreal.
 function lowBeam(el, az) {
   const d = -el; // depression below the horizon
@@ -84,10 +84,10 @@ function lowBeam(el, az) {
   const below = smooth(cut - 0.5 * band, cut + band, d);
   const dd = Math.max(0, d - base);
   const v = 1 / (1 + Math.pow(dd / 0.05, 2.0));
-  const w = 0.28 + 0.45 * Math.min(1, dd / 0.18);
-  const h = 0.25 * Math.exp(-((az / 0.1) ** 2)) + 0.55 * Math.exp(-((az / w) ** 2)) + 0.2 * Math.exp(-((az / 0.8) ** 2));
+  const w = 0.24 + 0.45 * Math.min(1, dd / 0.22);
+  const h = 0.3 * Math.exp(-((az / 0.09) ** 2)) + 0.7 * Math.exp(-((az / w) ** 2));
   const near = 1 - smooth(0.5, 0.8, d);               // the bumper hides the steepest rays anyway
-  const stray = 0.09 * Math.exp(-((Math.max(0, el) / 0.25) ** 2)) * Math.exp(-((az / 0.7) ** 2));
+  const stray = 0.07 * Math.exp(-((Math.max(0, el) / 0.25) ** 2)) * Math.exp(-((az / 0.5) ** 2));
   return below * v * h * near + (1 - below) * stray;
 }
 
@@ -111,10 +111,10 @@ export const BEAM = {
   // peak intensities (candela in scene units; not photometric: tuned against the night preset so the road stays
   // readable to ~60 m on low beam and ~150 m on high beam). The aux flood puts out a little more than the high
   // beam, spread wider.
-  low: 20000,
+  low: 7000,
   highGain: 0.68, // high beam peak = low peak * cookie max ratio * highGain
-  aux: 55000,
-  searchlight: 100000,   // a narrow cone, no cookie
+  aux: 18000,
+  searchlight: 35000,   // a narrow cone, no cookie
 };
 
 export function buildLightRig(root, at) {
