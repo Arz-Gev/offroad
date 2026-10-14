@@ -348,6 +348,25 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hu
 .pn .btn.primary { background: #fff; border-color: #fff; color: #000; }
 .btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
+/* diff locks: the drivetrain drawing, each diff a button (menu.js locksHTML) */
+.pr.locks { padding: 8px 0; }
+.dl { position: relative; width: 92px; }
+.dl svg { display: block; }
+.dl .w { fill: rgba(255, 255, 255, 0.22); }
+.dl .sh { fill: none; stroke: rgba(255, 255, 255, 0.35); stroke-width: 2; }
+.dlb { position: absolute; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%; background: #0b0c0e; color: #000; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.dlb .ic { width: 13px; height: 13px; opacity: 0; transition: opacity 0.12s; }
+.dlb.sm { width: 18px; height: 18px; border-width: 1.5px; }
+.dlb.sm .ic { width: 10px; height: 10px; }
+.dlb:hover { border-color: #fff; background: #2a2d32; }
+.dlb.on { background: #fff; border-color: #fff; }
+.dlb.on .ic { opacity: 1; }
+.dlb.lsd { background: linear-gradient(90deg, rgba(255, 255, 255, 0.55) 50%, #0b0c0e 50%); }
+.dlb.fixed { cursor: default; border-color: rgba(255, 255, 255, 0.4); }
+.dlb.fixed:hover { background: #0b0c0e; }
+.dlb.fixed.lsd:hover { background: linear-gradient(90deg, rgba(255, 255, 255, 0.55) 50%, #0b0c0e 50%); }
+.dlb.undriven { opacity: 0.35; }
+
 /* car picker */
 .car-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .car-t { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.04); color: var(--ink); text-align: left; cursor: pointer; }

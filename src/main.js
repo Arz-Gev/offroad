@@ -340,8 +340,6 @@ async function main() {
     hud.setPaused(p);
     game.redraw = 3;
   }
-  const LOCKERS = ['off', 'rear', 'all'];
-  const lockersState = () => d.locks.every(Boolean) ? 'all' : d.rearLock ? 'rear' : 'off';
   Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   const menu = new Menu({
     locations: teleports,
@@ -365,8 +363,8 @@ async function main() {
         case 'engine': return d.running || d.cranking;
         case 'range': return d.range;
         case 'drive': return d.rwd ? '2wd' : '4wd';
-        case 'centreLock': return d.centreLocked;
-        case 'lockers': return lockersState();
+        case 'diffLayout': return { nA: d.nA, centre: d.layout.centre, axles: d.layout.axles.map(ax => ({ driven: ax.driven, lsd: ax.diff === 'lsd', lockable: !!d.layout.lockers && ax.driven && ax.diff !== 'lsd' })) };
+        case 'lockState': return { c: d.centreLocked, a: [...d.locks], driven: d.layout.axles.map((ax, a) => d.isDriven(a)) };
         case 'traction': return vehicle.tc;
         case 'abs': return vehicle.abs;
         case 'here': return nearestLocation();
@@ -387,8 +385,7 @@ async function main() {
       else if (key === 'engine') { if (v && !d.running && !d.cranking) d.startEngine(); else if (!v && (d.running || d.cranking)) d.stopEngine(); }
       else if (key === 'range') { if (v !== d.range) d.toggleRange(vehicle.speed); }
       else if (key === 'drive') { if ((v === '2wd') !== d.rwd) d.toggleRwd(vehicle.speed); }
-      else if (key === 'centreLock') { if (!!v !== d.centreLocked) d.toggleCenterLock(); }
-      else if (key === 'lockers') { for (let i = 0; i < LOCKERS.length && lockersState() !== v; i++) d.cycleAxleLockers(); }
+      else if (key === 'lock') { if (v === 'c') d.toggleCenterLock(); else d.locks[+v] = !d.locks[+v]; }
       else if (key === 'traction') vehicle.tc = !!v;
       else if (key === 'abs') vehicle.abs = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);

@@ -47,8 +47,7 @@ export const SECTIONS = [
     group('4×4'),
     seg('range', 'Range', [['high', 'High'], ['low', 'Low']], { hot: ['range'], show: () => hasControl('range'), info: 'Low range gears everything down: slow crawling, steep climbs and strong engine braking. Stop the truck to change it.' }),
     seg('drive', 'Drive', [['4wd', '4WD'], ['2wd', '2WD']], { hot: ['rwd'], show: () => hasControl('rwd'), info: '2WD drives the rear wheels only: lighter on the road, much less grip off it. High range only, below 30 km/h.' }),
-    sw('centreLock', 'Centre diff lock', { hot: ['centreLock'], show: () => hasControl('centreLock'), info: 'Locks the front and rear axles together, so one slipping axle can\'t take all the power. Unlock it on grippy ground: the truck scrubs in turns.' }),
-    seg('lockers', 'Axle lockers', [['off', 'Off'], ['rear', 'Rear'], ['all', 'All']], { hot: ['lockers'], show: () => hasControl('lockers'), info: 'Locks both wheels of an axle together, so a lifted or spinning wheel doesn\'t stop the truck. They make it hard to turn: unlock once you\'re through.' }),
+    { type: 'locks', key: 'locks', label: 'Diff locks', hot: ['centreLock', 'lockers'], show: () => hasControl('centreLock') || hasControl('lockers'), info: 'Click a diff in the drawing to lock it. Centre: front and rear turn together, so one slipping axle can\'t take all the power. Front or rear: both wheels of that axle turn together, so a lifted or spinning wheel doesn\'t stop the truck. Locked diffs fight you in turns: unlock them on grippy ground. Half-filled ones lock by themselves.' },
     group('Assists'),
     seg('steerAssist', 'Steering assist', [['strong', 'Strong'], ['light', 'Light'], ['off', 'Off']], { info: 'Keyboard steering. A held key at speed turns the wheels only as far as the grip under the truck allows. Strong: just past the limit. Light: well past it, dose it by tapping. Off: full lock at any speed. A gamepad or touch steers with its own speed curve.' }),
     sw('traction', 'Traction control', { hot: ['traction'], info: 'Brakes a spinning wheel so the power goes to the wheels that grip. Off: open diffs spin the lightest wheel.' }),
@@ -133,6 +132,41 @@ function stuckSteps(k) {
   if (hasControl('lockers')) s.push(`lockers ${k('lockers')}`);
   s.push(`air down ${k('pressureDown')}`);
   return s.join(' · ');
+}
+
+// Diff locks: the drivetrain from above, front axle at the top (like the HUD's diagram); each diff a button.
+// L: { nA, axles: [{ driven, lsd, lockable }], centre: 'open' | 'viscous' | 'locked' | 'none' }
+// More than two axles: a taller drawing, the centre diff beside the shaft between the middle axles.
+const DL_W = 92, DL_X = 46;
+function dlGeometry(nA) {
+  const ys = nA === 2 ? [20, 80] : Array.from({ length: nA }, (_, a) => 14 + a * 34);
+  const mid = (ys[0] + ys[nA - 1]) / 2, cx = nA === 2 ? DL_X : DL_X + 18;
+  return { ys, mid, cx, h: ys[nA - 1] + (nA === 2 ? 20 : 14), wh: nA === 2 ? 26 : 20 };
+}
+function locksHTML(L) {
+  const { ys, mid, cx, h, wh } = dlGeometry(L.nA);
+  let svg = '';
+  for (const y of ys) svg += `<rect class="w" x="3" y="${y - wh / 2}" width="12" height="${wh}" rx="2.5"/><rect class="w" x="77" y="${y - wh / 2}" width="12" height="${wh}" rx="2.5"/><path class="sh" d="M15 ${y}H77"/>`;
+  svg += `<path class="sh" d="M${DL_X} ${ys[0]}V${ys[L.nA - 1]}${cx !== DL_X ? `M${DL_X} ${mid}H${cx}` : ''}"/>`;
+  // a diff you can switch is a bigger button than one that locks by itself or has no locker
+  const btn = (k, x, y, big) => { const r = big ? 12 : 9; return `<button type="button" class="dlb${big ? '' : ' sm'}" data-lock="${k}" style="left:${x - r}px;top:${y - r}px">${icon('lock')}</button>`; };
+  return `<div class="dl" style="height:${h}px"><svg viewBox="0 0 ${DL_W} ${h}" width="${DL_W}" height="${h}" aria-hidden="true">${svg}</svg>`
+    + ys.map((y, a) => btn(a, DL_X, y, L.axles[a].lockable)).join('') + (L.centre !== 'none' ? btn('c', cx, mid, L.centre === 'open') : '') + '</div>';
+}
+function paintLocks(row, L, st) {
+  const name = a => a === 'c' ? 'Centre diff' : L.nA === 2 ? (+a === 0 ? 'Front diff' : 'Rear diff') : `Axle ${+a + 1} diff`;
+  for (const b of row.querySelectorAll('[data-lock]')) {
+    const k = b.dataset.lock, c = k === 'c', ax = c ? null : L.axles[+k];
+    const lockable = c ? L.centre === 'open' : ax.lockable;
+    const fixed = c ? L.centre === 'viscous' : ax.lsd;
+    const on = c ? st.c : st.a[+k];
+    const state = on ? (c && L.centre === 'locked' ? 'part-time 4WD: always locked' : 'locked') : fixed ? (c ? 'viscous: locks by itself' : 'self-locking') : lockable ? 'open' : 'no locker';
+    b.className = 'dlb' + (b.classList.contains('sm') ? ' sm' : '') + (on ? ' on' : '') + (fixed ? ' lsd' : '') + (!lockable ? ' fixed' : '') + (!c && !st.driven[+k] ? ' undriven' : '');
+    b.setAttribute('aria-pressed', on);
+    b.setAttribute('aria-disabled', !lockable);
+    b.dataset.tip = `${name(k)} · ${state}${lockable ? (on ? ' · click to unlock' : ' · click to lock') : ''}`;
+    b.setAttribute('aria-label', b.dataset.tip);
+  }
 }
 
 // what each HUD icon means (Controls section)
@@ -234,6 +268,7 @@ export class Menu {
         <div class="pr pl" data-place="${i}"><button type="button" class="pl-go" data-loc="${i}"><span class="pl-n">${i + 1}</span><span class="pl-b"><b>${escapeHTML(l.title)}</b><small>${escapeHTML(l.tag)}</small></span><span class="pl-here" aria-label="You are here">${icon('here')}</span></button>
         <button type="button" class="pr-i" data-info aria-label="About this place">${icon('info')}</button><div class="pr-n">${escapeHTML(l.desc)}</div></div>`).join('')}</div>`;
       case 'legend': return `<h3 class="pr-g">HUD icons</h3><div class="legend">${LEGEND.filter(([n]) => n !== 'aux' || hasControl('auxLights')).map(([n, t, d]) => `<div><span class="lg-i">${icon(n)}</span><b>${t}</b>${d ? `<small>${d}</small>` : ''}</div>`).join('')}</div>`;
+      case 'locks': return `<div class="pr locks" data-key="locks">${head}<div class="dl-slot"></div>${note}</div>`;
       case 'bindings': return '<div class="binds"></div>';
       default: return '';
     }
@@ -320,6 +355,10 @@ export class Menu {
         const txt = def.fmt ? def.fmt(v) : v + def.unit;
         if (rowEl._v !== txt) { rowEl._v = txt; rowEl.querySelector('output').textContent = txt; }
         inp.style.setProperty('--f', ((+inp.value - def.min) / (def.max - def.min)).toFixed(3));
+      } else if (def.type === 'locks') {
+        if (!rowEl._built) { rowEl._built = true; rowEl.querySelector('.dl-slot').innerHTML = locksHTML(api.get('diffLayout')); }
+        const st = api.get('lockState'), k = JSON.stringify(st);
+        if (rowEl._v !== k) { rowEl._v = k; paintLocks(rowEl, api.get('diffLayout'), st); }
       } else if (def.type === 'stepper') {
         const t = api.get('pressureText');
         if (rowEl._v !== t) { rowEl._v = t; rowEl.querySelector('output').textContent = t; }
@@ -373,6 +412,7 @@ export class Menu {
     if (d.info !== undefined) return;                     // tooltip.js
     if (d.loc !== undefined) { this.api.teleport(+d.loc); this.refresh(); return; }
     if (d.seg !== undefined) return this.setValue(t.closest('[data-key]').dataset.key, d.seg);
+    if (d.lock !== undefined) { if (t.getAttribute('aria-disabled') !== 'true') { this.api.set('lock', d.lock); this.refresh(); } return; }
     if (t.classList.contains('switch')) { const k = t.closest('[data-key]').dataset.key; return this.setValue(k, k === 'fullscreen' || !this.api.get(k)); }
     if (d.action) this.runAction(d.action);
   }

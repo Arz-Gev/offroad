@@ -31,6 +31,11 @@ const P = {
   reset: '<path d="M4.8 12a7.2 7.2 0 1 0 2.2-5.2"/><path d="M5.6 3.4v4.2h4.2"/>',
   link: '<path d="M10 14a4.2 4.2 0 0 0 6 0l3-3a4.2 4.2 0 0 0-6-6l-1 1"/><path d="M14 10a4.2 4.2 0 0 0-6 0l-3 3a4.2 4.2 0 0 0 6 6l1-1"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  chevron: '<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>',
+  save: '<path d="M5 4.5h10.6l3.4 3.4V19.5H5z"/><path d="M8.2 4.5v4.6h6.6V4.5M8.2 19.5v-5.6h7.6v5.6"/>',
+  export: '<path d="M12 14.6V3.8M7.8 8 12 3.8 16.2 8"/><path d="M5 12.6v7h14v-7"/>',
+  import: '<path d="M12 3.8v10.8M7.8 10.4 12 14.6l4.2-4.2"/><path d="M5 12.6v7h14v-7"/>',
+  lock: '<rect x="5.6" y="10.6" width="12.8" height="9.2" rx="1.6"/><path d="M8.6 10.6V8.2a3.4 3.4 0 0 1 6.8 0v2.4"/>',
   here: '<circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="7.4"/>',
 
   // world

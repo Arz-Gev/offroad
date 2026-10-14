@@ -74,11 +74,13 @@ export class TuningPanel {
     this.el = el;
     el.innerHTML = `
       <div class="tn-bar">
-        <select class="tn-setups" aria-label="Saved setups"></select>
-        <button type="button" class="tn-b" data-act="saveas">Save as…</button>
-        <button type="button" class="tn-b" data-act="stock" data-tip="Everything back to the stock truck · double-click a slider for its stock value">Stock</button>
-        <button type="button" class="tn-b" data-act="export">Export</button>
-        <button type="button" class="tn-b" data-act="import">Import</button>
+        <div class="tn-pick">
+          <button type="button" class="tn-cur" data-act="pick" aria-haspopup="listbox" aria-expanded="false" data-tip="Setups · double-click a slider for its stock value"><span></span>${icon('chevron')}</button>
+          <div class="tn-list" role="listbox" aria-label="Setups" hidden></div>
+        </div>
+        <button type="button" class="tn-ib" data-act="saveas" data-tip="Save this setup" aria-label="Save this setup">${icon('save')}</button>
+        <button type="button" class="tn-ib" data-act="export" data-tip="Export: copy it as text" aria-label="Export">${icon('export')}</button>
+        <button type="button" class="tn-ib" data-act="import" data-tip="Import: paste a setup" aria-label="Import">${icon('import')}</button>
       </div>
       <div class="tn-io" hidden></div>
       <div class="tn-sum"></div>
@@ -86,12 +88,14 @@ export class TuningPanel {
     this.scroll = el.querySelector('.tn-scroll');
     this.sum = el.querySelector('.tn-sum');
     this.io = el.querySelector('.tn-io');
-    this.sel = el.querySelector('.tn-setups');
+    this.pick = el.querySelector('.tn-pick');
+    this.list = el.querySelector('.tn-list');
+    // the setups list closes on a press anywhere else
+    document.addEventListener('pointerdown', e => { if (!this.list.hidden && !this.pick.contains(e.target)) this.showList(false); }, true);
     this.buildSections();
     this.renderSetups();
 
     el.addEventListener('input', e => this.onInput(e));
-    el.addEventListener('change', e => this.onChange(e));
     el.addEventListener('click', e => this.onClick(e));
     el.addEventListener('dblclick', e => {
       const r = e.target.closest('input[type=range][data-path]');
@@ -230,9 +234,23 @@ export class TuningPanel {
     }).join('') + `<div class="tn-btns"><button type="button" class="tn-b" data-act="boxdup">Duplicate</button><button type="button" class="tn-b" data-act="boxdel">Delete</button><button type="button" class="tn-b" data-act="boxone" data-tip="This box back to its stock size">Stock box</button></div>`;
   }
 
+  // the setups picker: the current one by name (Stock, a saved name, or Custom when it matches none)
   renderSetups() {
-    const names = Object.keys(this.state.setups);
-    this.sel.innerHTML = `<option value="">${this.matchName() ? escapeHTML(this.matchName()) : 'Current setup'}</option>` + names.map(n => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('');
+    const name = this.matchName() || 'Custom · not saved';
+    const span = this.pick.querySelector('.tn-cur span');
+    if (span.textContent !== name) span.textContent = name;
+    if (!this.list.hidden) this.renderList();
+  }
+  renderList() {
+    const cur = this.matchName(), opt = (load, label, sub = '') => `<button type="button" role="option" class="tn-opt" data-load="${escapeHTML(load)}" aria-selected="${cur === (load || 'Stock')}">${icon('check')}<span>${escapeHTML(label)}</span>${sub ? `<small>${sub}</small>` : ''}</button>`;
+    this.list.innerHTML = (cur ? '' : `<div class="tn-opt now" aria-selected="true">${icon('check')}<span>Custom</span><small>not saved</small></div>`)
+      + opt('', 'Stock', 'as it comes')
+      + Object.keys(this.state.setups).map(n => `<div class="tn-optrow">${opt(n, n)}<button type="button" class="tn-del" data-del="${escapeHTML(n)}" aria-label="Delete ${escapeHTML(n)}">${icon('close')}</button></div>`).join('');
+  }
+  showList(open) {
+    this.list.hidden = !open;
+    this.pick.querySelector('.tn-cur').setAttribute('aria-expanded', open);
+    if (open) this.renderList();
   }
   matchName() {
     const cur = JSON.stringify(this.setup);
@@ -268,18 +286,6 @@ export class TuningPanel {
     }
   }
 
-  onChange(e) {
-    const t = e.target;
-    if (t === this.sel && t.value) {
-      this.state.setup = sanitize(this.state.setups[t.value]);
-      this.apply();
-      this.save();
-      this.api.toast(`Setup loaded: ${escapeHTML(t.value)}`, 'good', 'tune');
-      t.blur();
-      this.rebuild();
-    }
-  }
-
   rebuild() { const y = this.scroll.scrollTop; this.buildSections(); this.renderSetups(); this.scroll.scrollTop = y; this.refresh(true); }
 
   onClick(e) {
@@ -303,7 +309,21 @@ export class TuningPanel {
       this.rebuild();
       return;
     }
-    if (d.act === 'stock') { this.state.setup = clone(STOCK); this.state.ui.sel = -1; this.changed('*'); this.rebuild(); this.api.toast('Stock truck', 'good', 'tune'); return; }
+    if (d.act === 'pick') { this.showList(this.list.hidden); return; }
+    if (d.load !== undefined) {
+      this.showList(false);
+      if (d.load === '') { this.state.setup = clone(STOCK); this.state.ui.sel = -1; this.api.toast('Stock truck', 'good', 'tune'); }
+      else if (this.state.setups[d.load]) { this.state.setup = sanitize(this.state.setups[d.load]); this.api.toast(`Setup loaded: ${escapeHTML(d.load)}`, 'good', 'tune'); }
+      this.changed('*'); this.rebuild();
+      return;
+    }
+    if (d.del !== undefined) {
+      // a second click deletes (the first turns the x into a red Delete)
+      const row = t.closest('.tn-optrow');
+      if (!row.classList.contains('confirm')) { for (const r of this.list.querySelectorAll('.confirm')) r.classList.remove('confirm'); row.classList.add('confirm'); t.textContent = 'Delete'; return; }
+      delete this.state.setups[d.del]; this.save(); this.renderSetups();
+      return;
+    }
     if (d.act === 'saveas') return this.showSave();
     if (d.act === 'export') return this.showExport();
     if (d.act === 'import') return this.showImport();
@@ -314,11 +334,6 @@ export class TuningPanel {
       this.state.setups[name] = clone(s);
       this.save(); this.renderSetups(); this.io.hidden = true;
       this.api.toast(`Saved: ${escapeHTML(name)}`, 'good', 'tune');
-      return;
-    }
-    if (d.act === 'iodel') {
-      const n = d.name;
-      delete this.state.setups[n]; this.save(); this.renderSetups(); this.showSave();
       return;
     }
     if (d.act === 'iocopy') {
@@ -383,16 +398,16 @@ export class TuningPanel {
   }
 
   showSave() {
-    const names = Object.keys(this.state.setups);
+    this.showList(false);
     this.io.hidden = false;
     this.io.innerHTML = `<div class="tn-l"><span>Save the current setup</span></div>
-      <div class="tn-inrow"><input type="text" maxlength="40" placeholder="Name, e.g. Td5 on 35s" value="${escapeHTML(this.matchName() && this.matchName() !== 'Stock' ? this.matchName() : '')}"><button type="button" class="tn-b primary" data-act="iosave">Save</button><button type="button" class="tn-b" data-act="iocancel">Cancel</button></div>
-      ${names.length ? `<div class="tn-h">Saved: ${names.map(n => `<span class="tn-saved">${escapeHTML(n)} <button type="button" data-act="iodel" data-name="${escapeHTML(n)}" data-tip="Delete">×</button></span>`).join(' ')}</div>` : ''}`;
+      <div class="tn-inrow"><input type="text" maxlength="40" placeholder="Name, e.g. Td5 on 35s" value="${escapeHTML(this.matchName() && this.matchName() !== 'Stock' ? this.matchName() : '')}"><button type="button" class="tn-b primary" data-act="iosave">Save</button><button type="button" class="tn-b" data-act="iocancel">Cancel</button></div>`;
     const inp = this.io.querySelector('input');
     inp.focus();
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') this.io.querySelector('[data-act=iosave]').click(); if (e.key === 'Escape') { e.stopPropagation(); this.io.hidden = true; } });
   }
   showExport() {
+    this.showList(false);
     this.io.hidden = false;
     this.io.innerHTML = `<div class="tn-l"><span>Export</span></div>
       <div class="tn-h">The whole setup as JSON. Send it to someone (they use Import), or put its numbers into the car's file (<code>src/cars/</code>) to make them the new stock.</div>
@@ -400,6 +415,7 @@ export class TuningPanel {
       <div class="tn-inrow"><button type="button" class="tn-b primary" data-act="iocopy">Copy</button><button type="button" class="tn-b" data-act="iocancel">Close</button></div>`;
   }
   showImport() {
+    this.showList(false);
     this.io.hidden = false;
     this.io.innerHTML = `<div class="tn-l"><span>Import</span></div>
       <div class="tn-h">Paste an exported setup. Missing parts stay stock, out-of-range numbers are clamped.</div>
