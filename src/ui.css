@@ -88,8 +88,8 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 .hb-st.err { color: var(--ink-4); }
 .sound-pill {
   display: inline-flex; align-items: center; gap: calc(7 * var(--u));
-  padding: calc(7 * var(--u)) calc(12 * var(--u)) calc(7 * var(--u)) calc(10 * var(--u));
-  border-radius: 999px; border: 1px solid var(--line-2); background: var(--glass);
+  height: calc(32 * var(--u)); padding: 0 calc(12 * var(--u)) 0 calc(10 * var(--u)); box-sizing: border-box; white-space: nowrap;
+  border-radius: calc(8 * var(--u)); border: 1px solid var(--line-2); background: var(--glass);
   font: 600 calc(12 * var(--u))/1.2 var(--sans); color: var(--ink); animation: breathe 2.6s ease-in-out infinite;
 }
 .sound-pill .ic { width: calc(16 * var(--u)); height: calc(16 * var(--u)); }
@@ -98,8 +98,10 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
   position: absolute; top: calc(max(var(--gap), env(safe-area-inset-top)) + 46 * var(--u)); left: 50%; transform: translateX(-50%);
   width: min(calc(100vw - 2 * var(--gap)), calc(600 * var(--u)));
   display: flex; flex-direction: column; align-items: center; gap: calc(6 * var(--u));
+  transition: left 0.18s ease;
 }
 .paused-b {
+  position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 1;
   pointer-events: auto; cursor: pointer;
   display: inline-flex; align-items: center; gap: calc(8 * var(--u)); height: calc(36 * var(--u)); padding: 0 calc(16 * var(--u)) 0 calc(13 * var(--u));
   border: 0; border-radius: 999px; background: #fff; color: #000; font: 650 calc(13 * var(--u))/1 var(--sans);
@@ -113,21 +115,25 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
   border: 1px solid var(--line); background: var(--glass-hi);
   font: 550 calc(13.5 * var(--u))/1.35 var(--sans); text-align: center;
   animation: toast-in 0.2s ease-out;
-  transition: opacity 0.25s, transform 0.25s;
 }
 .toast.good::before { content: ''; width: calc(6 * var(--u)); height: calc(6 * var(--u)); border-radius: 50%; background: #fff; margin-right: 0.25em; }
 .toast.warn { border-color: rgba(255, 176, 32, 0.55); }
 .toast.warn::before { content: '!'; display: inline-grid; place-items: center; width: 1.25em; height: 1.25em; border-radius: 50%; background: var(--amber); color: #000; font-weight: 800; font-size: 0.78em; margin-right: 0.25em; }
-.toast.out { opacity: 0; transform: translateY(calc(-6 * var(--u))); }
+.toast { box-sizing: border-box; overflow: hidden; }
+/* the tip (stuck, rolled over, engine off) has its own place, bottom centre like a subtitle, so it and the
+   toasts never push each other */
 .tip {
+  position: absolute; left: 50%; bottom: calc(max(var(--gap), env(safe-area-inset-bottom)) + 80 * var(--u)); transform: translateX(-50%);
+  width: max-content; max-width: min(calc(100vw - 2 * var(--gap)), calc(560 * var(--u))); box-sizing: border-box;
+  transition: left 0.18s ease;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 0.35em;
   padding: calc(7 * var(--u)) calc(14 * var(--u)); border-radius: calc(8 * var(--u));
   border: 1px dashed rgba(255, 255, 255, 0.32); background: var(--glass);
   font: 550 calc(13 * var(--u))/1.5 var(--sans); text-align: center;
-  animation: toast-in 0.25s ease-out;
+  animation: tip-in 0.25s ease-out;
 }
 
-.hud-fps { position: absolute; top: max(var(--gap), env(safe-area-inset-top)); right: max(var(--gap), env(safe-area-inset-right)); font: 600 calc(12 * var(--u))/1 var(--mono); color: var(--ink-2); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+.hud-fps { position: absolute; top: max(var(--gap), env(safe-area-inset-top)); right: max(var(--gap), env(safe-area-inset-right)); min-width: 7ch; text-align: right; transition: right 0.18s ease; font: 600 calc(12 * var(--u))/1 var(--mono); color: var(--ink-2); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
 
 /* ------------------------------------------------------------------ HUD panels: chassis, telemetry */
 .hud-panel { position: absolute; border: 1px solid var(--line); border-radius: calc(10 * var(--u)); background: var(--glass); }
@@ -163,6 +169,7 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
   position: absolute; right: max(var(--gap), env(safe-area-inset-right)); bottom: max(var(--gap), env(safe-area-inset-bottom));
   padding: calc(9 * var(--u)) calc(14 * var(--u)) calc(12 * var(--u));
   border: 1px solid var(--line); border-radius: calc(12 * var(--u)); background: var(--glass);
+  transition: right 0.18s ease;
 }
 /* warning lights: always there; see the header of hud.js for the states */
 .tells { display: flex; align-items: center; gap: calc(3 * var(--u)); padding-bottom: calc(8 * var(--u)); margin-bottom: calc(10 * var(--u)); border-bottom: 1px solid var(--line); }
@@ -260,7 +267,7 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 
 /* the panel open on the right: the cluster moves left of it */
 body.panel-open #hud .cluster, body.panel-open #hud .hud-fps { right: calc(440px + 26px); }
-body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw - 452px) / 2); }
+body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hud .tip { left: calc((100vw - 452px) / 2); }
 @media (max-width: 940px) { body.panel-open #hud .cluster { visibility: hidden; } }
 
 /* ------------------------------------------------------------------ side panel (menu.js) */
@@ -289,7 +296,7 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw 
 .pn-ib .ic { width: 18px; height: 18px; }
 .pn-ib:hover { background: var(--hover); color: var(--ink); }
 .pn-ib.on { background: #fff; color: #000; }
-.pn-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 18px 20px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+.pn-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 18px 20px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; scrollbar-gutter: stable; }
 .pn-body.pn-tuning { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 
 /* rows: label (key caps, an (i) that opens the description) and the control */
@@ -300,10 +307,12 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw 
 .pr-l .kc { font-size: 11px; opacity: 0.5; }
 .pr-i { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-4); cursor: pointer; }
 .pr-i .ic { width: 15px; height: 15px; }
-.pr-i:hover, .pr.open > .pr-i, .pr.open .pr-l .pr-i { color: var(--ink); }
-.pr-n { grid-column: 1 / -1; display: none; margin: 1px 0 3px; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
-.pr.open .pr-n { display: block; }
-.pr-st { grid-column: 1 / -1; margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.pr-i:hover, .pr-i.tip-on { color: var(--ink); }
+.pr-n { display: none; }   /* the (i)'s text, shown by tooltip.js */
+.pr-st { grid-column: 1 / -1; min-height: 2.9em; margin-top: 4px; font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+/* a row that only works with another setting: greyed out in place, so nothing under it moves */
+.pr.off .pr-t, .pr.off .seg, .pr.off .switch, .pr.off input { opacity: 0.32; }
+.pr.off button:disabled, .pr.off input:disabled { cursor: default; }
 .pr.rng output { margin-left: auto; font: 600 12px/1 var(--mono); color: var(--ink); }
 .pr-g { display: flex; justify-content: space-between; margin: 20px 0 2px; font: 650 10.5px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .pr-g:first-child { margin-top: 12px; }
@@ -333,7 +342,7 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw 
 .stepper button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 7px; background: rgba(255, 255, 255, 0.08); color: var(--ink); cursor: pointer; }
 .stepper button:hover { background: rgba(255, 255, 255, 0.16); }
 .stepper .ic { width: 14px; height: 14px; }
-.stepper output { min-width: 62px; text-align: center; font: 600 13px/1 var(--mono); }
+.stepper output { width: 72px; text-align: center; font: 600 13px/1 var(--mono); }
 .pn .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 7px; background: none; color: var(--ink); font: 550 12.5px/1 var(--sans); white-space: nowrap; cursor: pointer; }
 .pn .btn:hover { background: var(--hover); }
 .pn .btn.primary { background: #fff; border-color: #fff; color: #000; }
@@ -348,6 +357,8 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw 
 .car-t[aria-checked="true"] { background: #fff; border-color: #fff; color: #000; }
 .car-t[aria-checked="true"] small { color: rgba(0, 0, 0, 0.55); }
 .car-apply { width: 100%; height: 34px !important; }
+.pn .btn.car-apply:disabled { border-color: var(--line); color: var(--ink-3); cursor: default; }
+.pn .btn.car-apply:disabled:hover { background: none; }
 
 /* places */
 .pl-list { padding-top: 6px; }
@@ -378,6 +389,18 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox { left: calc((100vw 
 .bind-p { display: flex; justify-content: center; font-size: 13px; }
 .tip-box { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0 4px; padding: 10px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); font-size: 12.5px; line-height: 1.75; color: var(--ink-2); }
 .tip-box .ic { width: 18px; height: 18px; margin-top: 3px; color: var(--ink); }
+
+/* the one tooltip (tooltip.js): over everything, never moving the layout */
+.tipop { position: fixed; z-index: 40; left: 0; top: 0; max-width: 290px; box-sizing: border-box; pointer-events: auto; animation: tip-in 0.12s ease-out; }
+.tipop.label { max-width: 240px; pointer-events: none; }
+.tipop-b { padding: 9px 12px; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px; background: #111316; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); color: #fff; font: 500 12.5px/1.5 var(--sans); }
+.tipop.label .tipop-b { padding: 6px 9px; font: 600 12px/1.2 var(--sans); white-space: nowrap; }
+.tipop-a { position: absolute; width: 9px; height: 9px; box-sizing: border-box; border: 0 solid rgba(255, 255, 255, 0.22); background: #111316; transform: rotate(45deg); }
+.tipop[data-side="below"] .tipop-a { top: -4px; margin-left: -4.5px; border-width: 1px 0 0 1px; }
+.tipop[data-side="above"] .tipop-a { bottom: -4px; margin-left: -4.5px; border-width: 0 1px 1px 0; }
+.tipop[data-side="left"] .tipop-a { right: -4px; margin-top: -4.5px; border-width: 1px 1px 0 0; }
+.tipop[data-side="right"] .tipop-a { left: -4px; margin-top: -4.5px; border-width: 0 0 1px 1px; }
+@keyframes tip-in { from { opacity: 0; } }
 
 /* gamepad focus ring only (the mouse and touch never show one) */
 .pn :focus { outline: none; }

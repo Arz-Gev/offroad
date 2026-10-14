@@ -76,7 +76,7 @@ export class TuningPanel {
       <div class="tn-bar">
         <select class="tn-setups" aria-label="Saved setups"></select>
         <button type="button" class="tn-b" data-act="saveas">Save as…</button>
-        <button type="button" class="tn-b" data-act="stock" title="Everything back to the stock truck">Stock</button>
+        <button type="button" class="tn-b" data-act="stock" data-tip="Everything back to the stock truck · double-click a slider for its stock value">Stock</button>
         <button type="button" class="tn-b" data-act="export">Export</button>
         <button type="button" class="tn-b" data-act="import">Import</button>
       </div>
@@ -160,7 +160,7 @@ export class TuningPanel {
     this.scroll.innerHTML = this.sections().map(s => `
       <section class="tn-sec${ui.sections[s.id] ? ' open' : ''}" data-sec="${s.id}">
         <header class="tn-sh"><button type="button" class="tn-st" data-act="toggle">${s.title}<span class="tn-ss"></span></button>
-          ${s.id !== 'measure' ? `<button type="button" class="tn-reset" data-act="reset" title="This section back to stock">stock</button>` : ''}</header>
+          ${s.id !== 'measure' ? `<button type="button" class="tn-reset" data-act="reset" data-tip="This section back to stock">stock</button>` : ''}</header>
         <div class="tn-sb">
           <div class="tn-ro" data-ro="${s.id}"></div>
           ${s.rows.map(r => this.rowHTML(r)).join('')}
@@ -176,12 +176,12 @@ export class TuningPanel {
       const tick = stock != null ? ((stock - min) / (max - min)) * 100 : -10;
       return `<div class="tn-row" data-row="${r.path}">
         <div class="tn-l"><span>${r.label}</span>${infoBtn(r.hint)}<output></output></div>
-        <div class="tn-rng"><input type="range" min="${min}" max="${max}" step="${step}" data-path="${r.path}" aria-label="${escapeHTML(r.label)}" title="Double-click: stock"><i style="left:${tick}%"></i></div>
+        <div class="tn-rng"><input type="range" min="${min}" max="${max}" step="${step}" data-path="${r.path}" aria-label="${escapeHTML(r.label)}"><i style="left:${tick}%"></i></div>
         ${r.hint ? `<div class="tn-h tn-info">${r.hint}</div>` : ''}</div>`;
     }
     if (r.type === 'chips') return `<div class="tn-row" data-row="${r.path}"><div class="tn-l"><span>${r.label}</span>${infoBtn(r.hint)}<output></output></div>
       <div class="tn-chips">${r.options.map(([v, l]) => `<button type="button" data-chip="${r.path}" data-v="${v}">${l}</button>`).join('')}</div>${r.hint ? `<div class="tn-h tn-info">${r.hint}</div>` : ''}</div>`;
-    if (r.type === 'engines') return `<div class="tn-row"><div class="tn-chips tn-eng">${ENGINE_ORDER.map(k => `<button type="button" data-engine="${k}" title="${escapeHTML(ENGINES[k].name)}">${ENGINES[k].label}</button>`).join('')}</div><div class="tn-h tn-engnote"></div></div>`;
+    if (r.type === 'engines') return `<div class="tn-row"><div class="tn-chips tn-eng">${ENGINE_ORDER.map(k => `<button type="button" data-engine="${k}" data-tip="${escapeHTML(ENGINES[k].name)}">${ENGINES[k].label}</button>`).join('')}</div><div class="tn-h tn-engnote"></div></div>`;
     if (r.type === 'curve') return `<div class="tn-row"><canvas class="tn-curve" width="720" height="220"></canvas><div class="tn-h"><span class="tn-k tq">torque</span> <span class="tn-k pw">power</span> <span class="tn-k st">stock</span> · net, at the flywheel</div></div>`;
     if (r.type === 'gearbox') {
       const P = this.v.P, nm = P.manual.ratios.length;
@@ -227,7 +227,7 @@ export class TuningPanel {
       const full = j >= 3 && j <= 5;
       return `<div class="tn-row" data-row="box:${j}"><div class="tn-l"><span>${l}</span><output></output></div>
         <div class="tn-rng"><input type="range" min="${full ? min * 2 : min}" max="${full ? max * 2 : max}" step="${full ? step * 2 : step}" data-box-k="${j}" aria-label="${l}"></div></div>`;
-    }).join('') + `<div class="tn-btns"><button type="button" class="tn-b" data-act="boxdup">Duplicate</button><button type="button" class="tn-b" data-act="boxdel">Delete</button><button type="button" class="tn-b" data-act="boxone" title="This box back to its stock size">Stock box</button></div>`;
+    }).join('') + `<div class="tn-btns"><button type="button" class="tn-b" data-act="boxdup">Duplicate</button><button type="button" class="tn-b" data-act="boxdel">Delete</button><button type="button" class="tn-b" data-act="boxone" data-tip="This box back to its stock size">Stock box</button></div>`;
   }
 
   renderSetups() {
@@ -286,7 +286,7 @@ export class TuningPanel {
     const t = e.target.closest('button');
     if (!t || !this.el.contains(t)) return;
     const d = t.dataset, s = this.setup;
-    if (d.info !== undefined) { t.closest('.tn-row').classList.toggle('open'); return; }
+    if (d.info !== undefined) return;                     // tooltip.js
     if (d.act === 'toggle') {
       const sec = t.closest('[data-sec]'), id = sec.dataset.sec;
       this.state.ui.sections[id] = !this.state.ui.sections[id];
@@ -387,7 +387,7 @@ export class TuningPanel {
     this.io.hidden = false;
     this.io.innerHTML = `<div class="tn-l"><span>Save the current setup</span></div>
       <div class="tn-inrow"><input type="text" maxlength="40" placeholder="Name, e.g. Td5 on 35s" value="${escapeHTML(this.matchName() && this.matchName() !== 'Stock' ? this.matchName() : '')}"><button type="button" class="tn-b primary" data-act="iosave">Save</button><button type="button" class="tn-b" data-act="iocancel">Cancel</button></div>
-      ${names.length ? `<div class="tn-h">Saved: ${names.map(n => `<span class="tn-saved">${escapeHTML(n)} <button type="button" data-act="iodel" data-name="${escapeHTML(n)}" title="Delete">×</button></span>`).join(' ')}</div>` : ''}`;
+      ${names.length ? `<div class="tn-h">Saved: ${names.map(n => `<span class="tn-saved">${escapeHTML(n)} <button type="button" data-act="iodel" data-name="${escapeHTML(n)}" data-tip="Delete">×</button></span>`).join(' ')}</div>` : ''}`;
     const inp = this.io.querySelector('input');
     inp.focus();
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') this.io.querySelector('[data-act=iosave]').click(); if (e.key === 'Escape') { e.stopPropagation(); this.io.hidden = true; } });
@@ -452,8 +452,8 @@ export class TuningPanel {
     const vs = (a, b, d = 1, better = 1) => { const x = a - b; if (Math.abs(x) < Math.pow(10, -d) / 2) return ''; return ` <em class="${x * better > 0 ? 'up' : 'dn'}">${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(d)}</em>`; };
     ss('engine', `${ENGINES[s.engine.preset].label} · ${f0(A.engine.hp)} hp`);
     ro('engine', kv([
-      ['Peak power', `${f0(A.engine.kw)} kW · ${f0(A.engine.hp)} hp @ ${A.engine.kwAt}`],
-      ['Peak torque', `${f0(A.engine.nm)} Nm @ ${A.engine.nmAt}`],
+      [`Peak power @ ${A.engine.kwAt}`, `${f0(A.engine.hp)} hp · ${f0(A.engine.kw)} kW`],
+      [`Peak torque @ ${A.engine.nmAt}`, `${f0(A.engine.nm)} Nm`],
       ['0–100 estimate', t100 ? `${f1(t100)} s${vs(t100, S.accel.t100, 1, -1)}` : 'does not reach 100'],
       ['Weight / power', `${f1(A.engine.kgPerHp)} kg/hp`],
     ]));
@@ -468,7 +468,7 @@ export class TuningPanel {
     if (gt) gt.innerHTML = `<table><tr><th></th><th>ratio</th><th>high</th>${lo ? '<th>low</th>' : ''}</tr>${A.gears.map((g, i) => `<tr><td>${GEAR_NAMES[i]}</td><td>${f2(g.ratio)}</td><td>${f0(g.high)}</td>${lo ? `<td>${f0(g.low)}</td>` : ''}</tr>`).join('')}</table><div class="tn-h">km/h at the rev limiter in each gear (${f0(P.engine.limiterRpm)} rpm, ${s.tyres.size}″ tyres).</div>`;
     this.refreshLive();
     const geo = A.geo, arch = geo.arch;
-    const archTxt = a => !a ? '—' : a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs when twisted (${cm(-a.twist)})</span>` : `<span class="bad">rubs at full bump (${cm(-a.bump)})</span>`;
+    const archTxt = a => !a ? '—' : a.twist >= 0.005 ? `${cm(a.bump)} · ${cm(a.twist)} twisted` : a.bump >= 0.005 ? `<span class="warn">rubs twisted · ${cm(-a.twist)}</span>` : `<span class="bad">rubs at bump · ${cm(-a.bump)}</span>`;
     ss('tyres', `${s.tyres.size}×${s.tyres.width} · ${fmtPressure(v.pressure, this.api.settings.get('pressureUnit'))}`);
     ro('tyres', kv([
       ['Axle clearance', `${cm(geo.diffClear)}${vs(geo.diffClear * 100, S.geo.diffClear * 100, 0)}`],
@@ -476,7 +476,7 @@ export class TuningPanel {
       ['Arch room F', archTxt(arch[0])], ['Arch room R', archTxt(arch[arch.length - 1])],
     ]));
     const rA = A.susp.length - 1;   // the rear: the last axle
-    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' lift · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[rA].f)} Hz`);
+    ss('susp', `${s.suspension.lift ? '+' + cm(s.suspension.lift) + ' · ' : ''}${f2(A.susp[0].f)} / ${f2(A.susp[rA].f)} Hz`);
     const freq = i => `${f2(A.susp[i].f)} Hz <em class="${A.susp[i].f > S.susp[i].f + 0.005 ? 'up' : A.susp[i].f < S.susp[i].f - 0.005 ? 'dn' : ''}">${A.susp[i].f > S.susp[i].f + 0.005 ? 'stiffer' : A.susp[i].f < S.susp[i].f - 0.005 ? 'softer' : 'stock'}</em>`;
     const zeta = z => `${f2(z)} ${z < 0.25 ? '<span class="bad">bouncy</span>' : z < 0.4 ? '<span class="warn">soft</span>' : z > 0.9 ? '<span class="warn">harsh</span>' : ''}`;
     ro('susp', kv([
@@ -495,8 +495,8 @@ export class TuningPanel {
     ss('mass', `${f0(A.mass)} kg`);
     ro('mass', kv([
       ['Total', `${f0(A.mass)} kg${vs(A.mass, S.mass, 0, -1)}`], ['Axle loads F / R', `${f0(A.front * 100)} / ${f0(100 - A.front * 100)} %`],
-      ['Centre of mass', `${cm(A.comH)} above ground${vs(A.comH * 100, S.comH * 100, 0, -1)}`],
-      ['Tips over at', `${f2(A.ssf)} g · ${f0(A.tiltDeg)}° side slope`],
+      ['Centre of mass height', `${cm(A.comH)}${vs(A.comH * 100, S.comH * 100, 0, -1)}`],
+      ['Tips over at · side slope', `${f2(A.ssf)} g · ${f0(A.tiltDeg)}°`],
     ]) + `<div class="tn-h">Rollover limit of a rigid truck (half track / centre of mass height). Body roll on the springs makes the real limit a few degrees lower.</div>`);
     ss('steer', `${f1(s.steering.lock)}° · ${f1(s.steering.ratio)}:1`);
     ro('steer', kv([

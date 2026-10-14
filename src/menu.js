@@ -4,6 +4,7 @@ import { CAR_LIST } from './cars/index.js';
 import { ENGINES } from './vehicle/engines.js';
 import { storage } from './settings.js';
 import { icon } from './icons.js';
+import { installTooltips, hideTip } from './tooltip.js';
 
 // The side panel (Esc): every setting, the places, multiplayer, the controls list and the tuning (Tab), in
 // sections picked from an icon rail. The game keeps running behind it, like a car's own menu. Mouse and
@@ -15,7 +16,9 @@ const LAST_KEY = 'offroad.panel.v1';
 const MODEL_CREDITS = CAR_LIST.filter(c => c.look.author).map(c => `${c.label} by ${c.look.author}`).join(', ');
 const fmtClock = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
-// row builders. extra: { info, hot (binding ids for the key caps), show(api) }
+// row builders. extra: { info, hot (binding ids for the key caps), show(api), enable(api) }
+// A row's description (info) opens in a tooltip from its (i) (tooltip.js), over the rows: nothing moves.
+// Rows that come and go with another setting (enable) stay in place, greyed out, so the rows under them don't jump.
 const seg = (key, label, options, extra) => ({ type: 'seg', key, label, options, ...extra });
 const sw = (key, label, extra) => ({ type: 'switch', key, label, ...extra });
 const range = (key, label, extra) => ({ type: 'range', key, label, ...extra });
@@ -59,7 +62,7 @@ export const SECTIONS = [
     seg('camera', 'Camera', [['chase', 'Chase'], ['cockpit', 'Cockpit'], ['hood', 'Hood'], ['wheel', 'Wheel'], ['orbit', 'Orbit']], { hot: ['camera'] }),
     range('fov', 'Field of view', { min: 45, max: 110, step: 1, scale: 1, unit: '°', info: 'The camera\'s vertical angle. Wider shows more and feels faster; narrower looks flatter and closer. Default 62°.' }),
     seg('dof', 'Depth of field', [['off', 'Off'], ['soft', 'Soft'], ['strong', 'Strong'], ['miniature', 'Miniature']], { info: 'Softens the distance like a camera lens. Miniature focuses on the truck and blurs everything nearer and farther: from high up with a narrow view the world looks like a toy. Not on Low and Mobile graphics.' }),
-    seg('miniBlur', 'Miniature blur', [[1, 'Light'], [2, 'Medium'], [3, 'Strong'], [4, 'Extreme']], { show: api => api.get('dof') === 'miniature' }),
+    seg('miniBlur', 'Miniature blur', [[1, 'Light'], [2, 'Medium'], [3, 'Strong'], [4, 'Extreme']], { enable: api => api.get('dof') === 'miniature', info: 'How strongly Miniature blurs everything nearer and farther than the truck. Pick Miniature in Depth of field to use it.' }),
     range('brightness', 'Brightness', { min: 60, max: 200, step: 5, scale: 100, unit: '%', info: 'Lifts or deepens the mid-tones; black stays black and white stays white. Default 100%.' }),
   ] },
   { id: 'world', title: 'World', icon: 'world', rows: [
@@ -167,14 +170,14 @@ export class Menu {
     el.setAttribute('aria-label', 'Menu');
     el.innerHTML = `
       <nav class="pn-rail" role="tablist" aria-orientation="vertical">${SECTIONS.map(s => s.sep ? '<i class="pn-sep"></i>'
-        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}" title="${s.title}" aria-label="${s.title}">${icon(s.icon)}</button>`).join('')}</nav>
+        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}" data-tip="${s.title}" data-tip-pos="left" aria-label="${s.title}">${icon(s.icon)}</button>`).join('')}</nav>
       <div class="pn-main">
         <header class="pn-head">
           <h2><span class="pn-title"></span><span class="kc pn-hot"></span></h2>
           <div class="pn-acts">
-            <button type="button" class="pn-ib" data-act="pause" title="Pause"></button>
-            <button type="button" class="pn-ib" data-act="recover" title="Recover: back on the wheels">${icon('recover')}</button>
-            <button type="button" class="pn-ib" data-act="close" title="Close">${icon('close')}</button>
+            <button type="button" class="pn-ib" data-act="pause" data-tip="Pause" aria-label="Pause"></button>
+            <button type="button" class="pn-ib" data-act="recover" data-tip="Recover: back on the wheels" aria-label="Recover">${icon('recover')}</button>
+            <button type="button" class="pn-ib" data-act="close" data-tip="Close" aria-label="Close">${icon('close')}</button>
           </div>
         </header>
         ${SECS.map(s => `<section class="pn-body${s.id === 'tuning' ? ' pn-tuning' : ''}" role="tabpanel" data-pane="${s.id}" hidden></section>`).join('')}
@@ -200,6 +203,7 @@ export class Menu {
       if (a && el.contains(a) && !a.matches('input[type=text], textarea, select')) a.blur();
     }, 0));
     el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
+    installTooltips();
   }
 
   rowHTML(r) {
@@ -212,7 +216,7 @@ export class Menu {
       case 'seg': {
         const opts = r.options.map(([v, o]) => {
           const face = typeof o === 'string' ? o : icon(o.icon);
-          const tip = typeof o === 'string' ? '' : ` title="${o.text}" aria-label="${o.text}"`;
+          const tip = typeof o === 'string' ? '' : ` data-tip="${o.text}" aria-label="${o.text}"`;
           return `<button type="button" role="radio" data-seg="${v}"${tip}>${face}</button>`;
         }).join('');
         const iconSeg = r.options.some(([, o]) => typeof o !== 'string');
@@ -225,9 +229,9 @@ export class Menu {
       case 'buttons': return `<div class="pr" data-key="${r.key}">${head}<div class="btns">${r.buttons.map(([a, l]) => `<button type="button" class="btn" data-action="${a}">${l}</button>`).join('')}</div>${r.status ? '<div class="pr-st"></div>' : ''}${note}</div>`;
       case 'cars': return `<div class="pr wide cars" data-key="car"><div class="pr-l"><span class="pr-t">Vehicle</span>${info}</div>
         <div class="car-grid" role="radiogroup" aria-label="Vehicle">${CAR_LIST.map(c => `<button type="button" role="radio" class="car-t" data-seg="${c.id}"><b>${escapeHTML(c.label)}</b><small>${escapeHTML(ENGINES[c.physics.engine.preset]?.label || '')}</small></button>`).join('')}</div>
-        <button type="button" class="btn primary car-apply" data-action="carApply" hidden>Restart with this car</button>${note}</div>`;
+        <button type="button" class="btn car-apply" data-action="carApply" disabled></button>${note}</div>`;
       case 'places': return `<div class="pl-list">${this.api.locations.map((l, i) => `
-        <div class="pr pl" data-place="${i}"><button type="button" class="pl-go" data-loc="${i}"><span class="pl-n">${i + 1}</span><span class="pl-b"><b>${escapeHTML(l.title)}</b><small>${escapeHTML(l.tag)}</small></span><span class="pl-here" title="You are here">${icon('here')}</span></button>
+        <div class="pr pl" data-place="${i}"><button type="button" class="pl-go" data-loc="${i}"><span class="pl-n">${i + 1}</span><span class="pl-b"><b>${escapeHTML(l.title)}</b><small>${escapeHTML(l.tag)}</small></span><span class="pl-here" aria-label="You are here">${icon('here')}</span></button>
         <button type="button" class="pr-i" data-info aria-label="About this place">${icon('info')}</button><div class="pr-n">${escapeHTML(l.desc)}</div></div>`).join('')}</div>`;
       case 'legend': return `<h3 class="pr-g">HUD icons</h3><div class="legend">${LEGEND.filter(([n]) => n !== 'aux' || hasControl('auxLights')).map(([n, t, d]) => `<div><span class="lg-i">${icon(n)}</span><b>${t}</b>${d ? `<small>${d}</small>` : ''}</div>`).join('')}</div>`;
       case 'bindings': return '<div class="binds"></div>';
@@ -266,7 +270,8 @@ export class Menu {
     if (p === this._paused) return;
     this._paused = p;
     b.innerHTML = icon(p ? 'play' : 'pause');
-    b.title = p ? 'Resume' : 'Pause';
+    b.dataset.tip = p ? 'Resume' : 'Pause';
+    b.setAttribute('aria-label', b.dataset.tip);
     b.classList.toggle('on', p);
   }
 
@@ -287,12 +292,16 @@ export class Menu {
       const hide = def.show ? !def.show(api) : false;
       if (rowEl.hidden !== hide) rowEl.hidden = hide;
       if (hide) continue;
+      if (def.enable) {
+        const off = !def.enable(api);
+        if (rowEl.classList.contains('off') !== off) { rowEl.classList.toggle('off', off); for (const b of rowEl.querySelectorAll('[data-seg], .switch, input')) b.disabled = off; }
+      }
       if (def.type === 'seg' || def.type === 'cars') {
         const cur = String(def.type === 'cars' && this.pending.car !== undefined ? this.pending.car : api.get(key));
         if (def.type === 'cars') {
-          const changed = cur !== String(api.get('car'));
-          rowEl.querySelector('.car-apply').hidden = !changed;
-          rowEl.classList.toggle('pending', changed);
+          const changed = cur !== String(api.get('car')), b = rowEl.querySelector('.car-apply');
+          const label = changed ? `Restart with the ${CAR_LIST.find(c => c.id === cur)?.label}` : `Driving the ${CAR_LIST.find(c => c.id === cur)?.label}`;
+          if (b.textContent !== label) { b.textContent = label; b.disabled = !changed; b.classList.toggle('primary', changed); }
         }
         if (rowEl._v === cur) continue;
         rowEl._v = cur;
@@ -319,7 +328,7 @@ export class Menu {
         const t = api.get(def.status) || '', n = rowEl.querySelector('.pr-st');
         if (n.textContent !== t) n.textContent = t;
       }
-      if (def.infoKey && rowEl.classList.contains('open')) {
+      if (def.infoKey) {
         const t = api.get(def.infoKey) || '', n = rowEl.querySelector('.pr-n');
         if (n.textContent !== t) n.textContent = t;
       }
@@ -361,7 +370,7 @@ export class Menu {
     if (d.act === 'close') return this.close();
     if (d.act === 'pause') { this.api.setPaused(!this.api.paused()); this.renderPause(); return; }
     if (d.act === 'recover') return this.api.recover();
-    if (d.info !== undefined) { t.closest('.pr').classList.toggle('open'); this.refresh(); return; }
+    if (d.info !== undefined) return;                     // tooltip.js
     if (d.loc !== undefined) { this.api.teleport(+d.loc); this.refresh(); return; }
     if (d.seg !== undefined) return this.setValue(t.closest('[data-key]').dataset.key, d.seg);
     if (t.classList.contains('switch')) { const k = t.closest('[data-key]').dataset.key; return this.setValue(k, k === 'fullscreen' || !this.api.get(k)); }
@@ -383,6 +392,7 @@ export class Menu {
 
   close() {
     if (!this.isOpen) return;
+    hideTip();
     this.isOpen = false;
     this.el.hidden = true;
     this.pending = {};
@@ -401,6 +411,7 @@ export class Menu {
 
   show(id, focus) {
     if (!SECS.some(s => s.id === id)) return;
+    hideTip();
     this.sec = id;
     storage.set(LAST_KEY, id);
     for (const b of this.el.querySelectorAll('.pn-tab')) {
@@ -436,6 +447,7 @@ export class Menu {
   }
 
   moveFocus(dir) {
+    hideTip();
     const list = this.focusables();
     let i = list.indexOf(document.activeElement);
     if (i < 0) { (list.find(el => this.panes[this.sec].contains(el)) || list[0])?.focus(); return; }

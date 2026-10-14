@@ -61,19 +61,19 @@ export class HUD {
     root.innerHTML = `
       <div class="hud-tl">
         <div class="tl-row">
-          <button class="hb" id="h-menubtn" tabindex="-1" type="button" aria-label="Menu">${icon('menu')}<span class="kc" id="h-menukey"></span></button>
+          <button class="hb" id="h-menubtn" tabindex="-1" type="button" aria-label="Menu" data-tip="Menu">${icon('menu')}<span class="kc" id="h-menukey"></span></button>
           <button class="hb" id="h-full" tabindex="-1" type="button" aria-label="Fullscreen"></button>
           <div class="hints" id="h-hints"></div>
           <span class="hb-st" id="h-mute" hidden></span>
+          <div class="sound-pill" id="h-sound" hidden></div>
         </div>
-        <div class="sound-pill" id="h-sound" hidden></div>
         <div class="hud-panel tele" id="h-tele" hidden></div>
       </div>
       <div class="hud-top">
-        <button class="paused-b" id="h-paused" type="button" tabindex="-1" hidden>${icon('play')}<span>Paused</span></button>
         <div class="toasts" id="h-toasts" aria-live="polite"></div>
-        <div class="tip" id="h-tip" hidden></div>
       </div>
+      <div class="tip" id="h-tip" hidden></div>
+      <button class="paused-b" id="h-paused" type="button" tabindex="-1" hidden>${icon('play')}<span>Paused</span></button>
       <div class="hud-fps" id="h-fps" hidden></div>
       <canvas class="sight" id="h-sight" hidden></canvas>
       <div class="gunbox" id="h-gun" hidden>
@@ -222,7 +222,7 @@ export class HUD {
     const on = !!document.fullscreenElement, b = this.e.fullBtn;
     b.innerHTML = icon(on ? 'fullscreenExit' : 'fullscreen');
     b.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
-    b.title = on ? 'Exit fullscreen' : 'Fullscreen';
+    b.dataset.tip = on ? 'Exit fullscreen' : 'Fullscreen';
   }
 
   setTouch(on) {
@@ -276,11 +276,18 @@ export class HUD {
     }
     this.toast(escapeHTML(text));
   }
+  // a toast that goes folds away (height and the gap after it), so the ones below slide up instead of jumping
   dropToast(x) {
     if (x.leaving) return;
     x.leaving = true;
-    x.el.classList.add('out');
-    setTimeout(() => { x.el.remove(); this.toastList = this.toastList.filter(y => y !== x); }, 260);
+    const el = x.el, done = () => { el.remove(); this.toastList = this.toastList.filter(y => y !== x); };
+    if (!el.animate) { done(); return; }
+    const h = el.offsetHeight, gap = parseFloat(getComputedStyle(this.e.toasts).rowGap) || 0;
+    el.animate([
+      { opacity: 1, height: `${h}px`, marginBottom: '0px' },
+      { opacity: 0, offset: 0.45 },
+      { opacity: 0, height: '0px', paddingTop: '0px', paddingBottom: '0px', borderWidth: '0px', marginBottom: `${-gap}px` },
+    ], { duration: 320, easing: 'ease-in-out', fill: 'forwards' }).onfinish = done;
   }
   tickToasts(dt) {
     for (const x of this.toastList) if (!x.leaving && (x.t -= dt) <= 0) this.dropToast(x);
