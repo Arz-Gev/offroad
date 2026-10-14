@@ -284,6 +284,7 @@ body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hu
 .pn-rail::-webkit-scrollbar { display: none; }
 .pn-tab { flex: none; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
 .pn-tab .ic { width: 20px; height: 20px; }
+.pn-tx { font: 750 10.5px/1 var(--sans); letter-spacing: 0.06em; }
 .pn-tab:hover { color: var(--ink); background: var(--hover); }
 .pn-tab[aria-selected="true"] { background: #fff; color: #000; }
 .pn-sep { flex: none; width: 20px; height: 1px; margin: 6px 0; background: var(--line); }

@@ -88,7 +88,7 @@ export const SECTIONS = [
     sw('gTreeShadows', 'Far tree shadows', { info: 'Distant trees cast shadows too.' }),
     sw('dust', 'Dust and splashes', { info: 'Dust, mud and water thrown up by the tyres. Not part of the presets.' }),
   ] },
-  { id: 'hud', title: 'HUD', icon: 'gauge', rows: [
+  { id: 'hud', title: 'HUD', text: 'HUD', rows: [   // no icon says HUD better than the word
     seg('cluster', 'Instruments', [['auto', 'Auto'], ['full', 'Full'], ['compact', 'Compact']], { info: 'Auto: compact in the cockpit view, on touch screens and in small windows.' }),
     range('hudScale', 'HUD size', { min: 70, max: 150, step: 5, scale: 100, unit: '%' }),
     sw('hints', 'Key hints', { info: 'The key icons next to the menu button.' }),
@@ -204,7 +204,7 @@ export class Menu {
     el.setAttribute('aria-label', 'Menu');
     el.innerHTML = `
       <nav class="pn-rail" role="tablist" aria-orientation="vertical">${SECTIONS.map(s => s.sep ? '<i class="pn-sep"></i>'
-        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}" data-tip="${s.title}" data-tip-pos="left" aria-label="${s.title}">${icon(s.icon)}</button>`).join('')}</nav>
+        : `<button type="button" role="tab" class="pn-tab" data-sec="${s.id}"${s.text ? '' : ` data-tip="${s.title}" data-tip-pos="left"`} aria-label="${s.title}">${s.text ? `<span class="pn-tx">${s.text}</span>` : icon(s.icon)}</button>`).join('')}</nav>
       <div class="pn-main">
         <header class="pn-head">
           <h2><span class="pn-title"></span><span class="kc pn-hot"></span></h2>
