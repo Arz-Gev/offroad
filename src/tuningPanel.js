@@ -36,7 +36,7 @@ export class TuningPanel {
   constructor(api) {
     this.api = api;
     this.open = false;
-    this.state = { setup: clone(STOCK), setups: {}, ui: { sections: { engine: true }, overlay: false, sel: -1 } };
+    this.state = { setup: clone(STOCK), setups: {}, ui: { sections: { engine: true }, overlay: false, suspView: false, sel: -1 } };
     try {
       const s = JSON.parse(storage.get(carKey()) || 'null');
       if (s) {
@@ -135,6 +135,7 @@ export class TuningPanel {
         sl('tyres.grip', 'Compound grip', 'tyres.grip', v => `×${f2(v)}`, 'Grip on every surface. Mud terrain = 1.'),
       ] },
       { id: 'susp', title: 'Suspension', rows: [
+        { type: 'suspview' },
         sl('suspension.lift', 'Lift', 'suspension.lift', v => (v ? '+' : '') + cm(v), 'Longer springs: more ground clearance and room in the arches, higher centre of mass.'),
         ...['k', 'bump', 'rebound', 'arb', 'travel'].flatMap(k => AX.map(([ax, n]) => sl(`suspension.${ax}.${k}`, `${{ k: 'Spring', bump: 'Bump damping', rebound: 'Rebound damping', arb: 'Anti-roll bar', travel: 'Bump travel' }[k]} ${n}`, 'suspension.' + k,
           v => (k === 'travel' ? cm(v) : `${kN(v)}${k === 'k' ? 'N/m' : k === 'arb' ? 'N·m/rad' : 'N·s/m'}`) + ` · ${pct(v, STOCK.suspension[ax][k])}`,
@@ -201,9 +202,13 @@ export class TuningPanel {
       ${sw.map(([a, l]) => `<button type="button" data-live="${a}">${l}</button>`).join('')}</div>
       <div class="tn-h">The same switches as the keys. Low range and 2WD need a stop.</div></div>`;
     }
+    if (r.type === 'suspview') return `<div class="tn-row">
+        <div class="tn-l"><span>Show suspension</span><button type="button" class="switch" data-act="suspview" role="switch" aria-label="Show suspension"><span class="knob"></span></button></div>
+        <div class="tn-h">The tyres against the arch tops (red where they rub), the beam axles and the travel on each wheel (orange: bump stop).</div>
+      </div>`;
     if (r.type === 'colliders') return `<div class="tn-row">
         <div class="tn-l"><span>Show physics</span>${infoBtn(true)}<button type="button" class="switch" data-act="overlay" role="switch" aria-label="Show physics"><span class="knob"></span></button></div>
-        <div class="tn-h tn-info">Collision boxes (red where they touch), wheel side cylinders, tyres against the arch tops, suspension travel (orange: bump stop) and the tyre contact patches (size: load, colour: slip).</div>
+        <div class="tn-h tn-info">Collision boxes (red where they touch), wheel side cylinders, tyres against the arch tops, beam axles, suspension travel (orange: bump stop) and the tyre contact patches (size: load, colour: slip).</div>
         <div class="tn-touch"></div>
       </div>
       <div class="tn-row"><div class="tn-l"><span>Collision boxes</span></div><div class="tn-chips tn-boxes"></div></div>
@@ -370,6 +375,12 @@ export class TuningPanel {
       this.save(); this.dirty = true;
       return;
     }
+    if (d.act === 'suspview') {
+      this.state.ui.suspView = !this.state.ui.suspView;
+      this.api.colliderView.setSuspension(this.state.ui.suspView);
+      this.save(); this.dirty = true;
+      return;
+    }
     if (d.box !== undefined) {
       const i = +d.box;
       this.state.ui.sel = this.state.ui.sel === i ? -1 : i;
@@ -524,6 +535,8 @@ export class TuningPanel {
     ]));
     const ov = el.querySelector('[data-act=overlay]');
     if (ov) ov.setAttribute('aria-checked', !!this.state.ui.overlay);
+    const sv = el.querySelector('[data-act=suspview]');
+    if (sv) sv.setAttribute('aria-checked', !!this.state.ui.suspView);
     if (el.querySelector('.tn-boxes') && !el.querySelector('.tn-boxes').childElementCount) this.renderBoxEditor();
     const i = this.state.ui.sel, box = s.colliders[i]?.box;
     if (box) for (const r of el.querySelectorAll('input[data-box-k]')) {

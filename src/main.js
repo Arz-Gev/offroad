@@ -408,6 +408,7 @@ async function main() {
   });
   game.menu = menu;
   colliderView.setEnabled(!!tuning.state.ui.overlay);
+  colliderView.setSuspension(!!tuning.state.ui.suspView);
   game.setPaused = setPaused;
   hud.onMenu = () => menu.toggle();
   hud.onFullscreen = () => menu.runAction('fullscreen');

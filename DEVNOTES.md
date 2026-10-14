@@ -149,7 +149,7 @@ How to add one: `src/cars/README.md`. Every car is a file in `src/cars/`, listed
 
 ## Vehicle tuning
 
-- **Files**: `vehicle/tuning.js` (schema, `STOCK` built from the car's file, `applySetup`, `analyze`, `RANGES`), `tuningPanel.js`, `colliderView.js` (Show physics), `dyno.js` + `dyno.worker.js`. A new stock setup goes into the car's file (`src/cars/<id>.js`).
+- **Files**: `vehicle/tuning.js` (schema, `STOCK` built from the car's file, `applySetup`, `analyze`, `RANGES`), `tuningPanel.js`, `colliderView.js` (Show physics; Show suspension draws only its suspension parts), `dyno.js` + `dyno.worker.js`. A new stock setup goes into the car's file (`src/cars/<id>.js`).
 - `applySetup(P, setup)` writes into the existing params, so Vehicle, Drivetrain and the view see changes on the next step:
   - *Live*: engine, gears, dampers, bars, travel, brakes, steering, grip, pressures (per axle: `vehicle.pressures`; `[ ]` keep the split).
   - *Eased*: tyre radius and lift (`morphGeometry`); spring rates and mass blend over ~0.5 s. Step changes launched the body at 1 g.
@@ -158,7 +158,7 @@ How to add one: `src/cars/README.md`. Every car is a file in `src/cars/`, listed
 - **Lift** lowers `droopY`, so body, colliders and COM rise together and arch room grows. Rubbing is drawn (red tyre outline), not simulated.
 - **Defender colliders** are fitted to the visible body (comments in `src/cars/defender.js`); an invisible low nose box was why it couldn't climb steep ramps. Left out on purpose: D-ring shackles and the exhaust (they bend). The spare-wheel box doesn't scale with tyre size.
 - **Measure 0–100**: a worker builds its own Rapier world (flat dirt strip) and a `Vehicle` from a copy of the live params; no steering (a lane-keeping correction scrubbed the tyres and doubled the time).
-- Closed panel and Show physics off cost nothing per frame.
+- Closed panel and both overlay switches off cost nothing per frame; Show suspension alone skips the contact queries.
 
 ## World and rendering
 

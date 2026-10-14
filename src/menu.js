@@ -413,7 +413,12 @@ export class Menu {
     if (d.loc !== undefined) { this.api.teleport(+d.loc); this.refresh(); return; }
     if (d.seg !== undefined) return this.setValue(t.closest('[data-key]').dataset.key, d.seg);
     if (d.lock !== undefined) { if (t.getAttribute('aria-disabled') !== 'true') { this.api.set('lock', d.lock); this.refresh(); } return; }
-    if (t.classList.contains('switch')) { const k = t.closest('[data-key]').dataset.key; return this.setValue(k, k === 'fullscreen' || !this.api.get(k)); }
+    if (t.classList.contains('switch')) {
+      const row = t.closest('[data-key]');
+      if (!row) return;                                   // the tuning panel's own switches (tuningPanel.js)
+      const k = row.dataset.key;
+      return this.setValue(k, k === 'fullscreen' || !this.api.get(k));
+    }
     if (d.action) this.runAction(d.action);
   }
 
