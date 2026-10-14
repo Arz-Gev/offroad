@@ -2,8 +2,8 @@
 // BINDINGS is the single source of truth: main.js dispatches the actions; the HUD hints and the menu's
 // controls page are generated from it. A car without some controls (vehicle/controls.js) sets them aside
 // with setCarControls: they don't run and aren't shown.
-// Discrete actions fire from the key/pad event (onAction), not the game loop. While a menu is open,
-// uiHandler gets the keys / pad buttons instead of the game.
+// Discrete actions fire from the key/pad event (onAction), not the game loop. While the side panel is open,
+// uiHandler sees each key first (it may keep one) and gets the pad's buttons; the sticks and triggers still drive.
 
 // standard-mapping gamepad buttons
 export const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, LS: 10, RS: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
@@ -48,13 +48,13 @@ export const BINDINGS = [
   { id: 'aim', group: 'Turret', label: 'Turn the turret and the gun: arrows (W A S D drive), the numpad, or the mouse in the sight', keys: ['↑ ↓ ← →', 'Mouse'], alt: ['Num 8 2 4 6'], pad: 'R stick (in the sight)', touch: 'Drag' },
   { id: 'weapon', group: 'Turret', label: 'Gun: KPVT 14.5 mm ⇄ coaxial PKT 7.62 mm', codes: ['Digit1'], keys: ['1'], touch: 'Gun' },
 
-  { id: 'menu', group: 'Game', label: 'Menu (pauses the game)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
-  { id: 'locations', group: 'Game', label: 'Locations: teleport to the proving ground lanes', codes: ['KeyP'], keys: ['P'] },
+  { id: 'menu', group: 'Game', label: 'Menu (the game keeps running)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
+  { id: 'locations', group: 'Game', label: 'Places: teleport anywhere on the map', codes: ['KeyP'], keys: ['P'] },
   { id: 'controls', group: 'Game', label: 'Controls (this list)', codes: ['KeyH'], keys: ['H'] },
   { id: 'mute', group: 'Game', label: 'Sound on / off', codes: ['KeyV'], keys: ['V'] },
-  { id: 'suspension', group: 'Game', label: 'Suspension and tyre load panel', codes: ['KeyU'], keys: ['U'] },
+  { id: 'suspension', group: 'Game', label: 'Chassis panel: wheel loads, travel, slip, lean', codes: ['KeyU'], keys: ['U'] },
   { id: 'telemetry', group: 'Game', label: 'Telemetry readout', codes: ['F3', 'Backquote'], keys: ['F3', '`'] },
-  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders (the game keeps running)', codes: ['Tab'], keys: ['Tab'], touch: 'Tuning' },
+  { id: 'tuning', group: 'Game', label: 'Tuning: engine, gearing, tyres, suspension, colliders', codes: ['Tab'], keys: ['Tab'], touch: 'Tuning' },
 ];
 
 export const BINDING = Object.fromEntries(BINDINGS.map(b => [b.id, b]));
@@ -118,7 +118,7 @@ export class Input {
       // let browser / OS shortcuts through. macOS sends no keyup for keys held while Cmd is down: drop held keys (stuck pedals)
       if (e.metaKey || e.ctrlKey || e.altKey) { if (e.key === 'Meta') this.keys.clear(); return; }
       this.setDevice('kb');
-      if (this.uiHandler) { if (this.uiHandler({ type: 'key', e })) e.preventDefault(); return; }
+      if (this.uiHandler && !e.repeat && this.uiHandler({ type: 'key', e })) { e.preventDefault(); return; }
       const action = KEY_ACTION[e.code];
       if (action || !BROWSER_KEY.test(e.code)) e.preventDefault();
       if (e.repeat) return;
@@ -205,7 +205,7 @@ export class Input {
       if (active) this.setDevice('pad');
       const edge = i => { const p = !!gp.buttons[i]?.pressed; const e = p && !this.padPrev[i]; this.padPrev[i] = p; return e; };
       if (this.uiHandler) {
-        // menu navigation: d-pad / left stick with key-repeat, A accept, B back, LB/RB tabs
+        // panel navigation: d-pad with key-repeat, A accept, B back, LB/RB sections
         const now = performance.now();
         const dir = (name, held) => {
           const st = this.padRepeat[name] || (this.padRepeat[name] = { on: false, next: 0 });
@@ -214,10 +214,10 @@ export class Input {
           else if (now >= st.next) { st.next = now + 110; this.uiHandler({ type: 'pad', btn: name }); }
         };
         const b = i => !!gp.buttons[i]?.pressed;
-        dir('up', b(PAD.UP) || (gp.axes[1] || 0) < -0.6);
-        dir('down', b(PAD.DOWN) || (gp.axes[1] || 0) > 0.6);
-        dir('left', b(PAD.LEFT) || ax < -0.6);
-        dir('right', b(PAD.RIGHT) || ax > 0.6);
+        dir('up', b(PAD.UP));
+        dir('down', b(PAD.DOWN));
+        dir('left', b(PAD.LEFT));
+        dir('right', b(PAD.RIGHT));
         for (const i of [PAD.UP, PAD.DOWN, PAD.LEFT, PAD.RIGHT]) this.padPrev[i] = b(i);
         if (edge(PAD.A)) this.uiHandler({ type: 'pad', btn: 'accept' });
         if (edge(PAD.B)) this.uiHandler({ type: 'pad', btn: 'back' });
@@ -225,14 +225,17 @@ export class Input {
         if (edge(PAD.LB)) this.uiHandler({ type: 'pad', btn: 'prevTab' });
         if (edge(PAD.RB)) this.uiHandler({ type: 'pad', btn: 'nextTab' });
         for (const i of Object.keys(PAD_ACTION)) this.padPrev[i] = !!gp.buttons[i]?.pressed;
-      } else if (this.device === 'pad') {
+      }
+      if (this.device === 'pad') {
         const dz = v => Math.abs(v) < 0.08 ? 0 : (v - Math.sign(v) * 0.08) / 0.92;
         steer = Math.sign(dz(ax)) * Math.pow(Math.abs(dz(ax)), 1.4);
         thr = Math.max(thr, rtA); brk = Math.max(brk, ltA);
         r.analogSteer = true;
-        if (gp.buttons[PAD.A]?.pressed) hb = 1;
-        if (gp.buttons[PAD.LB]?.pressed) clutch = 1;
-        for (const i in PAD_ACTION) if (edge(+i) && this.onAction) this.onAction(PAD_ACTION[i], 'pad');
+        if (!this.uiHandler) {
+          if (gp.buttons[PAD.A]?.pressed) hb = 1;
+          if (gp.buttons[PAD.LB]?.pressed) clutch = 1;
+          for (const i in PAD_ACTION) if (edge(+i) && this.onAction) this.onAction(PAD_ACTION[i], 'pad');
+        }
         // right stick looks around, or in the gunner's sight turns the turret (R3 held fires)
         if (this.gunner) {
           const rs = v => Math.abs(v) < 0.12 ? 0 : Math.sign(v) * Math.pow((Math.abs(v) - 0.12) / 0.88, 1.6);
@@ -242,7 +245,7 @@ export class Input {
           if (Math.abs(gp.axes[2] || 0) > 0.2 || Math.abs(gp.axes[3] || 0) > 0.2) this.mouse.lastMove = performance.now();
         }
         if (gp.buttons[PAD.RS]?.pressed) fire = 1;
-      } else {
+      } else if (!this.uiHandler) {
         for (const i in PAD_ACTION) this.padPrev[i] = !!gp.buttons[i]?.pressed;
       }
     }
