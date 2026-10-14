@@ -18,11 +18,12 @@ import * as THREE from 'three';
 // and blooms over the windscreen on a slope. This emulates the eye's local adaptation with a soft cap on each
 // lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.3-2 (scene units), so the
 // far throw is barely touched.
-export const LAMP_KNEE = 3.0;
-// Thin foliage (grass blades, undergrowth cards; materials with the TK_THIN define) is lit by the lamps from
-// whichever side faces them, the far side at THIN_BACK (light through the leaf). The blades' lighting normals are
+export const LAMP_KNEE = 2.0;
+// Thin foliage (grass blades, undergrowth cards; materials with the TK_THIN define) is lit by the
+// lamps from whichever side faces them, the far side at THIN_BACK (light through the leaf), all at THIN_GAIN: a field
+// of blades faces the lamp everywhere, and at full gain it glowed pale and drowned the stones on the road. The blades' lighting normals are
 // turned towards the sun/moon, so with plain N.L every blade facing away from the truck stood black in the beam.
-const THIN_BACK = 0.75;
+const THIN_BACK = 0.6, THIN_GAIN = 0.55;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
@@ -32,7 +33,7 @@ function installLampShoulder() {
   // (the RE_Direct line stays as it is: shaderPatches.js matches it). A thin surface lit from behind gets the light
   // direction mirrored through its plane, so N.L is positive
   const glsl = `#ifdef TK_THIN
-\t\t{\n\t\t\tfloat tkD = dot( geometryNormal, directLight.direction );\n\t\t\tif ( tkD < 0.0 ) { directLight.direction -= 2.0 * tkD * geometryNormal; directLight.color *= ${THIN_BACK.toFixed(2)}; }\n\t\t}
+\t\tdirectLight.color *= ${THIN_GAIN.toFixed(2)};\n\t\t{\n\t\t\tfloat tkD = dot( geometryNormal, directLight.direction );\n\t\t\tif ( tkD < 0.0 ) { directLight.direction -= 2.0 * tkD * geometryNormal; directLight.color *= ${THIN_BACK.toFixed(2)}; }\n\t\t}
 #endif
 \t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n`;
   C.lights_fragment_begin = C.lights_fragment_begin.replace(spotRE, (m, a, body, re) => `${a}${body}${glsl}${re}`);
