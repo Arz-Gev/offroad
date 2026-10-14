@@ -16,16 +16,26 @@ import * as THREE from 'three';
 // Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a tree
 // trunk 8-10 m ahead ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3); at a fixed exposure it blows out
 // and blooms over the windscreen on a slope. This emulates the eye's local adaptation with a soft cap on each
-// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.6-4.5 (scene units), so the
+// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.3-2 (scene units), so the
 // far throw is barely touched.
-export const LAMP_KNEE = 6.0;
+export const LAMP_KNEE = 2.0;
+// Thin foliage (grass blades, undergrowth cards; materials with the TK_THIN define) is lit by the
+// lamps from whichever side faces them, the far side at THIN_BACK (light through the leaf), all at THIN_GAIN: a field
+// of blades faces the lamp everywhere, and at full gain it glowed pale and drowned the stones on the road. The blades' lighting normals are
+// turned towards the sun/moon, so with plain N.L every blade facing away from the truck stood black in the beam.
+const THIN_BACK = 0.6, THIN_GAIN = 0.55;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
   const spotRE = /(\t\tgetSpotLightInfo\( spotLight, geometryPosition, directLight \);\n)([\s\S]*?)(\t\tRE_Direct\( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight \);\n)/;
   if (!spotRE.test(C.lights_fragment_begin)) { console.warn('lamps: lights_fragment_begin layout changed, lamp shoulder disabled'); return; }
   const k = (1 / (LAMP_KNEE * LAMP_KNEE)).toFixed(6);
-  const glsl = `\t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n`;
+  // (the RE_Direct line stays as it is: shaderPatches.js matches it). A thin surface lit from behind gets the light
+  // direction mirrored through its plane, so N.L is positive
+  const glsl = `#ifdef TK_THIN
+\t\tdirectLight.color *= ${THIN_GAIN.toFixed(2)};\n\t\t{\n\t\t\tfloat tkD = dot( geometryNormal, directLight.direction );\n\t\t\tif ( tkD < 0.0 ) { directLight.direction -= 2.0 * tkD * geometryNormal; directLight.color *= ${THIN_BACK.toFixed(2)}; }\n\t\t}
+#endif
+\t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n`;
   C.lights_fragment_begin = C.lights_fragment_begin.replace(spotRE, (m, a, body, re) => `${a}${body}${glsl}${re}`);
 }
 installLampShoulder();
@@ -73,19 +83,21 @@ function makeCookie(fn, angle, N = 512, soft = 0.32) {
 // kick-up on the right, hot zone right under the cut-off, wide soft foreground. The cut-off stays level
 // but fades over a band that widens to the sides: ahead it lies on the far road (a narrow band keeps the
 // throw), to the sides it lands on banks and trunks a few metres away, where a narrow band reads as a line.
+// Tall, not a slot: the hot band falls off slowly downwards and a real lamp's spill (~7 % of the peak) lights the
+// trees and banks above the cut-off; the player found a thin strip of light with black above it unreal.
 function lowBeam(el, az) {
   const d = -el; // depression below the horizon
   const base = 0.009;
   const kick = az > 0.02 ? Math.min((az - 0.02) * 0.27, 0.026) : 0;
   const cut = base - kick;                            // the kick-up only raises the edge
-  const band = 0.016 + 0.11 * Math.min(1, Math.abs(az) / 0.6);
-  const below = smooth(cut - 0.3 * band, cut + band, d);
+  const band = 0.04 + 0.11 * Math.min(1, Math.abs(az) / 0.6);
+  const below = smooth(cut - 0.5 * band, cut + band, d);
   const dd = Math.max(0, d - base);
-  const v = 1 / (1 + Math.pow(dd / 0.026, 2.6));
+  const v = 1 / (1 + Math.pow(dd / 0.032, 2.6));      // ~d^-3 below the hot band: the road lit evenly, no blown pool at the bumper
   const w = 0.24 + 0.45 * Math.min(1, dd / 0.22);
   const h = 0.3 * Math.exp(-((az / 0.09) ** 2)) + 0.7 * Math.exp(-((az / w) ** 2));
   const near = 1 - smooth(0.32, 0.5, d);              // the bumper hides the steepest rays anyway
-  const stray = 0.014 * Math.exp(-((el / 0.3) ** 2)) * Math.exp(-((az / 0.5) ** 2));
+  const stray = 0.07 * Math.exp(-((Math.max(0, el) / 0.25) ** 2)) * Math.exp(-((az / 0.5) ** 2));
   return below * v * h * near + (1 - below) * stray;
 }
 
@@ -109,10 +121,10 @@ export const BEAM = {
   // peak intensities (candela in scene units; not photometric: tuned against the night preset so the road stays
   // readable to ~60 m on low beam and ~150 m on high beam). The aux flood puts out a little more than the high
   // beam, spread wider.
-  low: 36000,
-  highGain: 0.68, // high beam peak = low peak * cookie max ratio * highGain
-  aux: 55000,
-  searchlight: 100000,   // a narrow cone, no cookie
+  low: 18000,
+  highGain: 0.9,  // high beam peak = low peak * cookie max ratio * highGain
+  aux: 30000,
+  searchlight: 55000,   // a narrow cone, no cookie
 };
 
 export function buildLightRig(root, at) {

@@ -62,6 +62,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uRock: { value: rock },
     };
     const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
+    mat.defines = { TK_THIN: '' };   // lamps light both faces (lamps.js)
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uniforms);
       sh.vertexShader = sh.vertexShader
