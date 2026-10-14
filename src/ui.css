@@ -142,16 +142,20 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
   font: calc(11 * var(--u))/1.55 var(--mono); color: rgba(255, 255, 255, 0.86); white-space: nowrap;
 }
 .tele b { font-weight: 600; color: var(--ink-3); }
-.tl-g { display: grid; grid-template-columns: calc(54 * var(--u)) repeat(4, auto); justify-content: start; column-gap: calc(16 * var(--u)); }
-.tl-g > b { grid-row: span 2; font: 650 calc(10 * var(--u))/1.9 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
+.tele i { font-style: normal; color: var(--ink-3); }
+.tele span { text-align: right; }
+/* fixed columns (hud.js updateTelemetry): the panel keeps its size while the numbers change */
+.tl-g { display: grid; justify-content: start; column-gap: calc(7 * var(--u)); }
+.tl-g > i { padding-left: calc(6 * var(--u)); }
+.tl-g > b { font: 650 calc(10 * var(--u))/1.9 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
+.tl-g.eng > b { grid-row: span 2; }
 .tl-g.drv { margin-top: calc(4 * var(--u)); }
-.tl-g.drv > b { grid-row: auto; }
-.tl-t { display: grid; column-gap: calc(12 * var(--u)); margin-top: calc(7 * var(--u)); padding-top: calc(7 * var(--u)); border-top: 1px solid var(--line); }
-.tl-t.w { grid-template-columns: calc(28 * var(--u)) repeat(6, auto) 1fr; }
-.tl-t.w > span:not(:nth-child(8n)) { text-align: right; }
+.tl-t { display: grid; justify-content: start; column-gap: calc(12 * var(--u)); margin-top: calc(7 * var(--u)); padding-top: calc(7 * var(--u)); border-top: 1px solid var(--line); }
+.tl-t.w { grid-template-columns: 3ch repeat(6, 6ch) 9ch; }
 .tl-t.w > b { text-align: right; }
-.tl-t.w > b:nth-child(8n + 1), .tl-t.w > b:nth-child(8) { text-align: left; }
-.tl-t.ax { grid-template-columns: calc(28 * var(--u)) repeat(3, auto); justify-content: start; column-gap: calc(16 * var(--u)); }
+.tl-t.w > :nth-child(8n + 1), .tl-t.w > :nth-child(8n) { text-align: left; }
+.tl-t.ax { grid-template-columns: 3ch auto 13ch auto 13ch auto 13ch; column-gap: calc(7 * var(--u)); }
+.tl-t.ax > i { padding-left: calc(6 * var(--u)); }
 .tl-x { margin-top: calc(7 * var(--u)); white-space: pre; color: var(--ink-3); }
 
 /* ------------------------------------------------------------------ instrument cluster */
@@ -240,14 +244,15 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 .cluster.compact .cl-r { display: none; }
 .cluster.compact .dial { order: -1; width: auto; height: auto; display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: calc(10 * var(--u)); row-gap: calc(7 * var(--u)); }
 .cluster.compact .dial canvas { display: none; }
-.cluster.compact .dial-c { position: static; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: calc(4 * var(--u)); padding: 0; }
-.cluster.compact .gear { position: static; transform: none; grid-row: 1; grid-column: 1; font-size: calc(26 * var(--u)); min-width: calc(28 * var(--u)); }
+.cluster.compact .dial-c { position: static; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: calc(4 * var(--u)); padding: 0; width: calc(96 * var(--u)); }
+.cluster.compact .spd { min-width: 3ch; text-align: right; }
+.cluster.compact .gear { position: static; transform: none; grid-row: 1; grid-column: 1; font-size: calc(26 * var(--u)); width: calc(40 * var(--u)); }
 .cluster.compact .spd { font-size: calc(30 * var(--u)); }
 .cluster.compact .rpmbar { display: block; grid-column: 1 / -1; height: calc(4 * var(--u)); border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.14); }
 .rpmbar i { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: #fff; }
 .rpmbar i.amber { background: var(--amber); }
 .rpmbar i.red { background: var(--red); }
-.cluster.compact .cl-l { width: auto; gap: calc(7 * var(--u)); }
+.cluster.compact .cl-l { width: calc(112 * var(--u)); gap: calc(7 * var(--u)); }
 .cluster.compact .dt { gap: calc(6 * var(--u)); }
 .cluster.compact #h-diffs { width: calc(22 * var(--u)); height: calc(25 * var(--u)); }
 .cluster.compact .dt-m { flex-direction: row; }

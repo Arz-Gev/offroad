@@ -740,18 +740,21 @@ export class HUD {
   }
 
   // ------------------------------------------------------------------ telemetry
-  // A fixed grid, built once per wheel count; cells are written only when their text changes.
+  // A fixed grid, built once per car layout: every value has a column of fixed width (ch), right-aligned, so
+  // the panel never changes size as numbers change length. Cells are written only when their text changes.
   updateTelemetry(v, extra) {
     const d = v.drivetrain, nA = v.axles.length, nW = v.wheels.length;
     if (this.teleN !== nW) {
       this.teleN = nW;
-      const cells = n => Array.from({ length: n }, () => '<span></span>').join('');
+      const kv = keys => keys.map(k => `<i>${k}</i><span></span>`).join('');
+      const vals = n => '<span></span>'.repeat(n);
+      const propW = nA * 5 + nA - 1;   // "-1234/-1234…"
       this.e.tele.innerHTML = `
-        <div class="tl-g eng"><b>Engine</b>${cells(8)}</div>
-        <div class="tl-g drv"><b>Drive</b>${cells(4)}</div>
+        <div class="tl-g eng" style="grid-template-columns: calc(54 * var(--u)) repeat(4, auto 7ch)"><b>Engine</b>${kv(['rpm', 'thr', 'T Nm', 'load', 'clutch', 'slip', 'lockup', 'ratio'])}</div>
+        <div class="tl-g drv" style="grid-template-columns: calc(54 * var(--u)) auto ${propW}ch auto 7ch auto 5ch auto 4ch"><b>Drive</b>${kv(['prop Nm', 'km/h', 'range', 'drive'])}</div>
         <div class="tl-t w"><b></b><b>ω</b><b>Fn</b><b>Fx</b><b>Fy</b><b>slip</b><b>pen</b><b>surface</b>
-          ${v.wheels.map((w, i) => `<b>${wheelName(i, nA)}</b>${cells(7)}`).join('')}</div>
-        <div class="tl-t ax">${v.axles.map((a, i) => `<b>${nA === 2 ? (i ? 'R' : 'F') : i + 1}</b>${cells(3)}`).join('')}</div>
+          ${v.wheels.map((w, i) => `<b>${wheelName(i, nA)}</b>${vals(7)}`).join('')}</div>
+        <div class="tl-t ax">${v.axles.map((a, i) => `<b>${nA === 2 ? (i ? 'R' : 'F') : i + 1}</b>${a.ind ? kv(['c', 'camber', '']) : kv(['c', 'φ', 'springs N'])}`).join('')}</div>
         <div class="tl-x"></div>`;
       const g = sel => [...this.e.tele.querySelectorAll(sel + ' span')];
       this.teleCells = { eng: g('.eng'), drv: g('.drv'), w: g('.w'), ax: g('.ax'), x: this.e.tele.querySelector('.tl-x') };
@@ -759,17 +762,16 @@ export class HUD {
     const C = this.teleCells;
     const set = (el, t) => { if (el.textContent !== t) el.textContent = t; };
     const f = (x, n = 2) => x.toFixed(n);
-    [`rpm ${d.rpm.toFixed(0)}`, `thr ${f(d.thr)}`, `T ${d.Tcomb.toFixed(0)} Nm`, `load ${f(d.load)}`,
-      `clutch ${f(d.clutchPedal)}`, `slip ${f(d.clutchSlip, 1)}`, `lockup ${f(d.lockup)}`, `ratio ${f(d.currentRatio())}`].forEach((t, i) => set(C.eng[i], t));
-    [`prop ${d.propTorque.map(t => t.toFixed(0)).join(' / ')} Nm`, `${f(v.speed * 3.6, 1)} km/h`, `range ${d.range}`, d.rwd ? '2WD' : '4WD'].forEach((t, i) => set(C.drv[i], t));
+    [d.rpm.toFixed(0), f(d.thr), d.Tcomb.toFixed(0), f(d.load), f(d.clutchPedal), f(d.clutchSlip, 1), f(d.lockup), f(d.currentRatio())].forEach((t, i) => set(C.eng[i], t));
+    [d.propTorque.map(t => t.toFixed(0)).join('/'), f(v.speed * 3.6, 1), d.range, d.rwd ? '2WD' : '4WD'].forEach((t, i) => set(C.drv[i], t));
     v.wheels.forEach((w, i) => {
       const r = [f(d.w[2 + i], 1), w.FnAvg.toFixed(0), w.Fx.toFixed(0), w.Fy.toFixed(0), f(w.slipNorm || 0), f(w.pen * 100, 1), w.surf.name];
       r.forEach((t, j) => set(C.w[i * 7 + j], t));
     });
     v.axles.forEach((a, i) => {
       let r;
-      if (a.ind) { const wl = v.wheels[2 * i], wr = v.wheels[2 * i + 1]; r = [`c ${f(wl.c, 3)} / ${f(wr.c, 3)}`, `camber ${(wl.camber * DEG).toFixed(1)}° / ${(wr.camber * DEG).toFixed(1)}°`, '']; }
-      else r = [`c ${f(a.c, 3)}`, `φ ${(a.phi * DEG).toFixed(1)}°`, `springs ${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)} N`];
+      if (a.ind) { const wl = v.wheels[2 * i], wr = v.wheels[2 * i + 1]; r = [`${f(wl.c, 3)} / ${f(wr.c, 3)}`, `${(wl.camber * DEG).toFixed(1)}° / ${(wr.camber * DEG).toFixed(1)}°`, '']; }
+      else r = [f(a.c, 3), `${(a.phi * DEG).toFixed(1)}°`, `${a.S[0].toFixed(0)} / ${a.S[1].toFixed(0)}`];
       r.forEach((t, j) => set(C.ax[i * 3 + j], t));
     });
     set(C.x, extra || '');
