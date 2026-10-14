@@ -16,9 +16,9 @@ import * as THREE from 'three';
 // Irradiance shoulder for spot lights (only the truck has spot lights). Inverse-square makes a bank or a tree
 // trunk 8-10 m ahead ~100x brighter than the road at 30-60 m (I/d^2 vs I*h/r^3); at a fixed exposure it blows out
 // and blooms over the windscreen on a slope. This emulates the eye's local adaptation with a soft cap on each
-// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.15-1.1 (scene units), so the
+// lamp's irradiance: E -> E/sqrt(1+(E/K)^2). Road irradiance from the beams is ~0.3-2 (scene units), so the
 // far throw is barely touched.
-export const LAMP_KNEE = 1.5;
+export const LAMP_KNEE = 3.0;
 // Thin foliage (grass blades, undergrowth cards; materials with the TK_THIN define) is lit by the lamps from
 // whichever side faces them, the far side at THIN_BACK (light through the leaf). The blades' lighting normals are
 // turned towards the sun/moon, so with plain N.L every blade facing away from the truck stood black in the beam.
@@ -89,24 +89,21 @@ function lowBeam(el, az) {
   const base = 0.009;
   const kick = az > 0.02 ? Math.min((az - 0.02) * 0.27, 0.026) : 0;
   const cut = base - kick;                            // the kick-up only raises the edge
-  const band = 0.05 + 0.1 * Math.min(1, Math.abs(az) / 0.6);
+  const band = 0.04 + 0.11 * Math.min(1, Math.abs(az) / 0.6);
   const below = smooth(cut - 0.5 * band, cut + band, d);
   const dd = Math.max(0, d - base);
   const v = 1 / (1 + Math.pow(dd / 0.032, 2.6));      // ~d^-3 below the hot band: the road lit evenly, no blown pool at the bumper
   const w = 0.24 + 0.45 * Math.min(1, dd / 0.22);
   const h = 0.3 * Math.exp(-((az / 0.09) ** 2)) + 0.7 * Math.exp(-((az / w) ** 2));
-  const near = 1 - smooth(0.35, 0.9, d);              // the bumper hides the steepest rays anyway
+  const near = 1 - smooth(0.32, 0.5, d);              // the bumper hides the steepest rays anyway
   const stray = 0.07 * Math.exp(-((Math.max(0, el) / 0.25) ** 2)) * Math.exp(-((az / 0.5) ** 2));
-  // wide angles land on the ground right beside the nose, a metre or two from the lamp, where I*h/r^3 makes even a
-  // faint edge of the beam glare and then end in a hard line: fade them out early
-  const sideFade = Math.exp(-((az / 0.75) ** 4));
-  return below * v * h * near * sideFade + (1 - below) * stray;
+  return below * v * h * near + (1 - below) * stray;
 }
 
 function highBeam(el, az) {
   const hot = 1.5 * Math.exp(-(((el - 0.004) / 0.035) ** 2)) * Math.exp(-((az / 0.14) ** 2));
-  const fill = 0.45 * Math.exp(-((el / 0.09) ** 2)) * Math.exp(-((az / 0.55) ** 2));
-  return lowBeam(el, az) + hot + fill * smooth(-0.24, -0.1, el);   // the fill starts ~5 m out: nearer, a narrow wedge read as a hard edge
+  const fill = 0.45 * Math.exp(-((el / 0.09) ** 2)) * Math.exp(-((az / 0.34) ** 2));
+  return lowBeam(el, az) + hot + fill * smooth(-0.42, -0.2, el);
 }
 
 // Extra lamps (a roof bar's two spot + two flood, driving lamps): wide, long throw, little light straight down.
@@ -123,17 +120,17 @@ export const BEAM = {
   // peak intensities (candela in scene units; not photometric: tuned against the night preset so the road stays
   // readable to ~60 m on low beam and ~150 m on high beam). The aux flood puts out a little more than the high
   // beam, spread wider.
-  low: 14000,
-  highGain: 1.5,  // high beam peak = low peak * cookie max ratio * highGain
-  aux: 18000,
-  searchlight: 35000,   // a narrow cone, no cookie
+  low: 18000,
+  highGain: 0.9,  // high beam peak = low peak * cookie max ratio * highGain
+  aux: 30000,
+  searchlight: 55000,   // a narrow cone, no cookie
 };
 
 export function buildLightRig(root, at) {
-  const ANG = 0.78, HEAD_ANG = 1.25;
+  const ANG = 0.78;
   const cookies = {
-    low: makeCookie(lowBeam, HEAD_ANG),
-    high: makeCookie(highBeam, HEAD_ANG),
+    low: makeCookie(lowBeam, ANG),
+    high: makeCookie(highBeam, ANG),
     aux: makeCookie(auxBeam, ANG, 256),
   };
   const rig = { cookies };
@@ -147,7 +144,7 @@ export function buildLightRig(root, at) {
     return L;
   };
   // head: in front of the bumper hoop so no part of the truck is inside its frustum
-  rig.head = spot(0xfff0da, at.head, [0, 0, -1], HEAD_ANG, 0.08, 150);
+  rig.head = spot(0xfff0da, at.head, [0, 0, -1], ANG, 0.08, 150);
   rig.head.map = cookies.low;
   rig.head.castShadow = true;
   rig.head.shadow.mapSize.set(1024, 1024);
