@@ -74,7 +74,6 @@ export class HUD {
         <div class="toasts" id="h-toasts" aria-live="polite"></div>
       </div>
       <div class="tip" id="h-tip" hidden></div>
-      <button class="paused-b" id="h-paused" type="button" tabindex="-1" hidden>${icon('play')}<span>Paused</span></button>
       <div class="hud-fps" id="h-fps" hidden></div>
       <canvas class="sight" id="h-sight" hidden></canvas>
       <div class="gunbox" id="h-gun" hidden>
@@ -131,7 +130,7 @@ export class HUD {
     this.$ = $;
     this.e = {
       menuBtn: $('h-menubtn'), fullBtn: $('h-full'), pauseBtn: $('h-pausebtn'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'), mute: $('h-mute'),
-      paused: $('h-paused'), toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
+      toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
       cluster: $('h-cluster'), mode: $('h-mode'), strip: $('h-strip'), range: $('h-range'), drive: $('h-drive'),
       diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')],
       dial: $('h-dial'), spd: $('h-spd'), unit: $('h-unit'), gear: $('h-gear'), rpmBar: $('h-rpmbar'),
@@ -155,9 +154,8 @@ export class HUD {
     this.onFullscreen = null;
     this.onResume = null;
     this.onPause = null;
-    for (const b of [this.e.menuBtn, this.e.fullBtn, this.e.pauseBtn, this.e.paused]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
+    for (const b of [this.e.menuBtn, this.e.fullBtn, this.e.pauseBtn]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
-    this.e.paused.addEventListener('click', () => this.onResume && this.onResume());
     this.e.pauseBtn.addEventListener('click', () => this.e.pauseBtn.classList.contains('on') ? this.onResume?.() : this.onPause?.());
     this.e.fullBtn.addEventListener('click', () => {
       if (!storage.get(FULL_SEEN_KEY)) { storage.set(FULL_SEEN_KEY, '1'); this.e.fullBtn.classList.remove('attn'); }
@@ -248,10 +246,9 @@ export class HUD {
     if (!mute.hidden) mute.innerHTML = icon('muted') + (state === 'muted' && this.device !== 'touch' ? capsHTML('mute', 'kb') : '');
   }
 
-  // the badge in the view while paused; the button next to fullscreen is always there
+  // the button next to fullscreen: always there, white while paused
   setPaused(p) {
     const b = this.e.pauseBtn;
-    this.e.paused.hidden = !p;
     b.innerHTML = icon(p ? 'play' : 'pause');
     b.setAttribute('aria-label', p ? 'Resume' : 'Pause');
     b.dataset.tip = p ? 'Resume' : 'Pause';

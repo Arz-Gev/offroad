@@ -328,8 +328,8 @@ async function main() {
 
   // ---------------------------------------------------------------- pause and the side panel
   // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the pause button
-  // (HUD and panel), or the window losing focus (setting autoPause). Driving input, a click (not a drag) on the view or the HUD's
-  // Paused badge resumes. With menuPause off the game runs behind the panel.
+  // (HUD and panel), or the window losing focus (setting autoPause). Driving input or a click (not a drag) on the view
+  // resumes. With menuPause off the game runs behind the panel.
   let menuHold = false;           // the pause came from opening the panel: closing it resumes
   function setPaused(p) {
     menuHold = false;
