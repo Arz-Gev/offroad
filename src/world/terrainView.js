@@ -545,12 +545,15 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   vec4 bed = bedOf(kind);
   vec3 w = pow(abs(n0), vec3(8.0)); w /= w.x + w.y + w.z;
   // weathering: large blotches of lighter and darker rock (Ultra: the 30 m cliff photo, its shapes and colour too)
+  // (the photo at half strength: at full it took over the rock's own colour and beds)
+  vec4 blot = textureGrad(tNoise, (p.xz + p.y * 0.7) / 19.0, gDx / 19.0, gDy / 19.0);
   #ifdef GROUND_ULTRA
   vec4 ma, mm; vec3 cN;
   triAt(${LAYER.cliff}.0, uTile[${LAYER.cliff}], p, n0, w, nk, ma, mm, cN);
-  float photo = clamp(lum(ma.rgb) / lum(uAvg[${LAYER.cliff}]), 0.25, 2.5);
+  float photo = mix(1.0, clamp(lum(ma.rgb) / lum(uAvg[${LAYER.cliff}]), 0.25, 2.5), 0.5) * (0.82 + 0.36 * blot.g);
+  cN = normalize(mix(n0, cN, 0.5)); mm.a = mix(1.0, mm.a, 0.5); ma.a = mix(blot.a, ma.a, 0.5);
   #else
-  vec4 ma = textureGrad(tNoise, (p.xz + p.y * 0.7) / 19.0, gDx / 19.0, gDy / 19.0), mm = vec4(0.5, 0.5, 0.85, 1.0);
+  vec4 ma = blot, mm = vec4(0.5, 0.5, 0.85, 1.0);
   float photo = 0.65 + 0.7 * ma.g;
   vec3 cN = n0;
   #endif
@@ -592,6 +595,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   #else
   rough = mix(sm.b, 0.92, 0.5);
   #endif
+  float cav0 = cav;
   // close up, the rock-face photo's grain and cracks (~0.2-0.5 ms where there is rock near; the 30 m cliff photo under
   // it cost three times that for colour blotches the land already gives)
   float det = uDetail > 0.5 ? 1.0 - smoothstep(20.0, 50.0, dist) : 0.0;
@@ -602,19 +606,18 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
     nW = normalize(mix(nW, dn, det * 0.6));
     h = mix(h, h * 0.5 + da.a * 0.5, det); cav = mix(cav, cav * dm.a, det);
   }
-  // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain
+  // moss: where it stays damp: ledges and flat tops, the shady side, crevices, damp ground (lushness), rain. Bright
+  // green patches (the player preferred them to darker cushions and lichen on the sunny tops). undergrowth.js grows
+  // the rock grass in it from the same terms.
   float north = clamp(-dot(hn.xz, SUN_SIDE), 0.0, 1.0) * steep;
   vec4 mn = textureGrad(tNoise, p.xz / 5.3 + p.y * 0.07, gDx / 5.3, gDy / 5.3);
-  // (sunny tops get lichen, not moss)
-  float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.35 + (1.0 - cav) * 0.25 + sa.g * 0.3 + uWet * 0.2
-    + smoothstep(0.75, 1.0, kind) * 0.25 - clamp(dot(n0.xz, SUN_SIDE) * 2.0, 0.0, 1.0) * 0.25 - 0.62;
-  moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (ma.a - 0.5) * 0.3);
-  // cushions: darker in the gaps between them, olive to deep green, a little brighter when wet
-  float cush = textureGrad(tNoise, p.xz / 0.9 + p.y * 0.37, gDx / 0.9, gDy / 0.9).a;
-  vec3 mossCol = mix(vec3(0.03, 0.06, 0.014), vec3(0.085, 0.11, 0.028), mn.g) * (0.55 + 0.75 * cush) * (1.0 + 0.3 * uWet);
+  float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav0) * 0.25 + sa.g * 0.3 + uWet * 0.2
+    + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
+  moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (blot.a - 0.5) * 0.3);
+  vec3 mossCol = mix(vec3(0.045, 0.09, 0.018), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
-  nW = normalize(mix(nW, n0, moss * 0.25));
+  nW = normalize(mix(nW, n0, moss * 0.5));
 }`)
       .replace('#include <map_fragment>', `
 {
