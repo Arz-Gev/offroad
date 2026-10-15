@@ -145,6 +145,7 @@ How to add one: `src/cars/README.md`. Every car is a file in `src/cars/`, listed
   - One head spot (ahead of the bumper, so no truck geometry is in its frustum) is the only shadow caster, updated only while the head lamps are on. No point lights: every light is evaluated per pixel on all terrain even at zero intensity.
   - Lamp output is scaled by the scene's ambient level so daytime headlights paint no pool.
   - Vertical surfaces 10–20 m ahead get ~100× the ground irradiance: `lamps.js` patches the spot loop of `lights_fragment_begin` with a soft shoulder `E/√(1+(E/K)²)`, `K = LAMP_KNEE`. It coexists with the world's `if (directLight.visible)` wrap of the same loop. Retune K if night exposure changes a lot.
+  - **Lamp pairs**: a beam is one spot for two lamps, but wet ground and paint mirror the source, so one spot put the glint between the lamps. `lamps.js` (`lampPairs`, `writeLampPairs`) finds each beam's two lamps from its lens meshes (split at x = 0, only at the spot's end of the car) and the spot loop lights each pixel half from each (`tkLampPair`, world space, the spot recognised by its position); cone, cookie, falloff and shadow stay the spot's. Thin foliage keeps the plain spot. The rear spot is aimed nearly level and wide: aimed at the ground, its own hot spot made the glint ~3 m behind the car.
 - **Testing beams**: hide the terrain and props, add a flat 400 m plane with posts at the truck's pose, shoot top-down and cockpit views.
 
 ## Vehicle tuning

@@ -3,7 +3,7 @@ import { carDef } from '../../cars/index.js';
 import { paramsFromDef } from '../carParams.js';
 import { staticRide } from '../tuning.js';
 import { createMaterials } from './materials.js';
-import { buildLightRig, modelLenses } from './lamps.js';
+import { buildLightRig, lampPairs, modelLenses } from './lamps.js';
 import { loadShell, placeShell, take } from './shell.js';
 import { steelWheel, modelWheels } from './wheels.js';
 import { beamAxle } from './beamAxle.js';
@@ -107,6 +107,7 @@ export async function buildModel(car) {
   }
   lamps.aux = aux;
   model.lights = buildLightRig(root, lamps);
+  model.lights.pairs = lampPairs(root, model.lights, model.lenses);
 
   // ---------------- cockpit and cameras
   model.driverEye = new THREE.Vector3(...(look.eye || src.eye.toArray()));
