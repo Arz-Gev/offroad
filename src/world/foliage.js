@@ -276,7 +276,10 @@ function tube(points, radii, sides, vScale, windAt) {
   }
   for (let i = 0; i < points.length - 1; i++) for (let s = 0; s < sides; s++) {
     const a = i * (sides + 1) + s, b2 = a + sides + 1;
-    idx.push(a, b2, a + 1, a + 1, b2, b2 + 1);
+    // counter-clockwise seen from outside, so the front faces are the outside (the other way round the near
+    // trunks drew their far, inner half, its normals turned away: black up close, while the impostor bake is
+    // double-sided and looked right)
+    idx.push(a, a + 1, b2, a + 1, b2 + 1, b2);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
