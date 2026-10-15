@@ -184,8 +184,8 @@ float gDH = 0.5;`)
   // soil at the foot, where it sits in the ground, in a ragged line
   float foot = smoothstep(0.32, 0.02, vDH + (nz.r - 0.5) * 0.25);
   col = mix(col, vec3(0.2, 0.14, 0.09) * (0.8 + 0.4 * nz.g), foot * 0.7);
-  // (a touch less red and blue: lit by the warm ground and the blue sky, grey stones read violet)
-  diffuseColor.rgb *= col * vec3(0.97, 1.03, 0.92) * (1.0 - 0.35 * uWet);
+  // (a touch less blue: lit by the warm ground and the blue sky, grey stones read violet; more than this, green)
+  diffuseColor.rgb *= col * vec3(1.0, 1.01, 0.95) * (1.0 - 0.35 * uWet);
 }` : `
 {
   vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);

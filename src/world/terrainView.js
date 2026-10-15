@@ -662,17 +662,21 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   vec2 gr = dv / max(dot(dv, dv), 1e-6) * e;
   float aa = abs(dot(gr, gDx)) + abs(dot(gr, gDy)) + 0.04;
   float k = (1.0 - smoothstep(1.0 - aa, 1.0 + aa, e)) * fade;
-  // a low dome: the normal leans out towards the edge
-  vec3 n = normalize(n0 * 1.3 * sqrt(max(1.0 - e * e, 0.03)) + vec3(dv.x, 0.0, dv.y) / r);
+  // a low, flat-topped stone: the normal leans out only near the edge (a rounder dome showed its far, unlit half and
+  // read darker than the 3D stones)
+  vec3 n = normalize(n0 * 2.4 * sqrt(max(1.0 - e * e, 0.03)) + vec3(dv.x, 0.0, dv.y) / r * 0.8);
   // the rock's colour with a little dust (as debris.js), each stone its own
-  vec3 col = mix(rockTone(kind, 0.1 + 0.6 * h2.z), vec3(0.24, 0.16, 0.1), 0.14 + 0.18 * h2.w) * (0.75 + 0.3 * fract(h2.z * 7.31)) * vec3(0.97, 1.03, 0.92);
+  vec3 col = mix(rockTone(kind, 0.1 + 0.6 * h2.z), vec3(0.24, 0.16, 0.1), 0.14 + 0.18 * h2.w) * (0.75 + 0.3 * fract(h2.z * 7.31)) * vec3(1.0, 1.01, 0.95);
   scol = mix(scol, col, k); sn = normalize(mix(sn, n, k)); cov = max(cov, k);
-  cav *= 1.0 - 0.45 * smoothstep(1.7, 1.0, e) * (1.0 - k) * fade;
+  // a narrow contact shade and its shadow, only while the stone is a few pixels across: smaller, the stone fades into
+  // its edge's softening but a hard shade and shadow stayed, dark pits where the stones had gone
+  float res = 1.0 - smoothstep(0.12, 0.35, aa);
+  cav *= 1.0 - 0.25 * smoothstep(1.35, 1.0, e) * (1.0 - k) * fade * res;
   // its shadow on the ground, away from the sun (a stone about half as high as it is wide)
   vec2 so = o - sunW.xz / max(sunW.y, 0.35) * 0.45 * r;
   vec2 ds = xz - so;
   float es = length(vec2(dot(ds, ax), dot(ds, vec2(-ax.y, ax.x)) / asp)) / r;
-  sh *= 1.0 - 0.85 * (1.0 - smoothstep(0.85, 1.15, es)) * (1.0 - k) * fade * step(0.05, sunW.y);
+  sh *= 1.0 - 0.6 * (1.0 - smoothstep(1.0 - aa, 1.0 + aa, es)) * (1.0 - k) * fade * res * step(0.05, sunW.y);
 }`)
       .replace('#include <map_fragment>', `
 {
@@ -821,15 +825,14 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
       if (kS > 0.0) stoneCell(p.xz, 0.4, vec2(0.03, 0.11), 0.0, kS, nG, kind, sunW, cov, sn, scol, cavS, shS);
       if (kB > 0.0) stoneCell(p.xz, 1.25, vec2(0.11, 0.28), 1.0, kB, nG, kind, sunW, cov, sn, scol, cavS, shS);
       c = mix(c, scol, cov); nW = normalize(mix(nW, sn, cov));
-      nn.a *= cavS; nn.b = mix(nn.b, 0.8, cov); hgt = mix(hgt, 0.9, cov);
+      c *= cavS; nn.b = mix(nn.b, 0.8, cov); hgt = mix(hgt, 0.9, cov);
       gPomSh *= shS;
       // the rest: too small to draw, their average (the area they cover, their colour, a little shade)
       float bigP, rqP;
       float dP = stoneDensOf(nt, sp, gd, ld, bigP, rqP) * (1.0 - rqP);
       float fS = dP * (1.0 - bigP) * 0.0093 * inS * (1.0 - kS / max(inS, 1e-3)), fB = dP * bigP * 0.083 * inB * (1.0 - kB / max(inB, 1e-3));
       float f = min(0.6, fS + fB);
-      c = mix(c, mix(rockTone(kind, 0.4), vec3(0.24, 0.16, 0.1), 0.2) * 0.85, f);
-      nn.a *= 1.0 - 0.5 * f;
+      c = mix(c, mix(rockTone(kind, 0.4), vec3(0.24, 0.16, 0.1), 0.2) * vec3(1.0, 1.01, 0.95), f);
     }
   } else {
     // far away: the layers' average colours (their last mip)
