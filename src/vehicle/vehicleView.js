@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { shared } from './model/materials.js';
 import { setTireContact } from './model/tireMaterial.js';
+import { writeLampPairs } from './model/lamps.js';
 
 // Drives a car model (model/index.js) from the physics state: body pose (interpolated), wheels (steer, roll,
 // tuned size, independent hub and camber), every part's motion (model.kits), tyre deformation (per ray,
@@ -86,6 +87,7 @@ export class VehicleView {
     // at night they stay in the scene with zero intensity, so switching lamps never recompiles shaders
     const live = env.night || head > 0 || ls.aux;
     for (const l of [L.head, ...L.aux, L.rear]) l.visible = live;
+    if (live) writeLampPairs(L, m.root);   // their glints under the lamps, not between them
     const amb = this.ambientLevel();
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
