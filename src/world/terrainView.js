@@ -324,7 +324,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
-    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
+    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uEdge: { value: new THREE.Vector2(0.35, 0) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uStoneR: { value: new THREE.Vector2(1e5, 1e5) }, uStoneK: { value: new THREE.Vector4(0.9, 1.5, 0.8, 1.2) },
     uSnow: { value: 330 },
@@ -380,6 +380,7 @@ uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
+uniform vec2 uEdge;   // the edges between layers: height-blend width, how far they wander (setGround)
 uniform vec3 uAvg[${LAYER_COUNT}];   // each layer's average colour
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
@@ -766,6 +767,9 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   TOP2(wDirt, 1.0) TOP2(wMud, 3.0) TOP2(wSand, 4.0) TOP2(wForest, 5.0) TOP2(wSoil, 6.0)
   // detail normals fade out far away (mips average them anyway; this keeps them from sparkling)
   float nk = 1.0 - smoothstep(90.0, 320.0, dist);
+  // the edges between layers wander by a few metres of noise: the land data is 1 m texels, and the height blend drew
+  // its edges straight along them
+  float wob = (textureGrad(tNoise, p.xz / 9.0, gDx / 9.0, gDy / 9.0).b - 0.5) * uEdge.y;
   vec3 c; vec4 nn; float hgt = 0.5;
   vec3 nW = nG;
   if (dist < 600.0) {
@@ -795,7 +799,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     if (w2 > 0.02) {
       layerAt(l2, pxz, two, a2, n2);
       a2.rgb *= TINT(l2);
-      float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2, hm = max(h1, h2) - 0.35;
+      float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2 + wob, hm = max(h1, h2) - uEdge.x;
       float b1 = max(h1 - hm, 0.0) * w1, b2 = max(h2 - hm, 0.0) * w2;
       float k = b2 / max(b1 + b2, 1e-4);
       c = mix(a1.rgb, a2.rgb, k); nn = mix(n1, n2, k); hgt = mix(a1.a, a2.a, k);
@@ -877,7 +881,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
       rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
       rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
     }
-    float hR = rh + wRock * 1.3, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - 0.3;
+    float hR = rh + wRock * 1.3 + wob, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - uEdge.x * 0.86;
     float bR = max(hR - hm, 0.0) * wRock, bB = max(hB - hm, 0.0) * (1.0 - wRock);
     kRock = bR / max(bR + bB, 1e-4);
     c = mix(c, rc, kRock); nW = normalize(mix(nW, rn, kRock));
@@ -1091,6 +1095,15 @@ reflectedLight.indirectSpecular *= gAO;
       });
     },
     groundDataChanged() { dataTex.needsUpdate = true; landTex.needsUpdate = true; },
+    // the photos' size (times their real size: grass, road (track and soil), gravel) and the edges between layers
+    // (soft, wander 0..1)
+    setGround({ grass, road, gravel, soft, wander }) {
+      const t = uniforms.uTile.value;
+      t[LAYER.grass] = 1 / (LAYER_TILE[LAYER.grass] * grass);
+      t[LAYER.dirt] = 1 / (LAYER_TILE[LAYER.dirt] * road); t[LAYER.soil] = 1 / (LAYER_TILE[LAYER.soil] * road);
+      t[LAYER.sand] = 1 / (LAYER_TILE[LAYER.sand] * gravel);
+      uniforms.uEdge.value.set(0.15 + soft, wander * 1.6);
+    },
   };
   return view;
 }

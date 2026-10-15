@@ -47,6 +47,9 @@ export const DEFAULTS = {
   gTerrain: 2,              // terrain shading detail 0..3
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
+  // ground photos' size (times their real size) and the edges between the ground's layers (terrainView setGround);
+  // tuning sliders while the player picks the look
+  groundGrass: 2, groundRoad: 2, groundGravel: 2, groundSoft: 0.4, groundWander: 0.4,
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
@@ -81,6 +84,7 @@ const CHOICES = {
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1], brightness: [0.6, 2],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
+  groundGrass: [1, 8], groundRoad: [1, 8], groundGravel: [1, 8], groundSoft: [0, 1], groundWander: [0, 1],
 };
 
 export const storage = {

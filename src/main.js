@@ -245,6 +245,10 @@ async function main() {
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     renderScale: () => applyGraphics(),
+    ...Object.fromEntries(['groundGrass', 'groundRoad', 'groundGravel', 'groundSoft', 'groundWander'].map(key => [key, () => terrainView.setGround({
+      grass: settings.get('groundGrass'), road: settings.get('groundRoad'), gravel: settings.get('groundGravel'),
+      soft: settings.get('groundSoft'), wander: settings.get('groundWander'),
+    })])),
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),
