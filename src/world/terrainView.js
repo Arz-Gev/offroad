@@ -528,9 +528,10 @@ vec3 rockTone(float k, float t) { vec4 w = kindW(k); return mix(ROCK_D * w, ROCK
 const mat4 BEDS = mat4(2.2, 0.55, 0.45, 2.6, 4.5, 0.25, 0.25, 3.5, 0.9, 0.9, 0.75, 1.8, 0.55, 0.5, 0.35, 0.9);
 vec4 bedOf(float k) { return BEDS * kindW(k); }
 // the rock's structure (textures.js layers 8, 9), triplanar: on the faces the rows of blocks follow the beds (v: the
-// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile), from above the slabs'
-// fine cracks only (12 m tile; not their wavy joints, tilts and tones: those wound about the rock like snakes).
-// alb: tone, joint, streak, height; mat: normal xy, roughness, cavity; nW: the normal on n0
+// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile). From above nothing:
+// the slabs' wavy joints wound about like snakes and their fine cracks drew a net of polygons (the player wanted all
+// those lines gone); the photos give that rock its grain. alb: tone, joint, streak, height; mat: normal xy,
+// roughness, cavity; nW: the normal on n0
 void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, out vec4 alb, out vec4 mat, out vec3 nW) {
   vec3 sg = vec3(n0.x < 0.0 ? -1.0 : 1.0, n0.y < 0.0 ? -1.0 : 1.0, n0.z < 0.0 ? -1.0 : 1.0);
   alb = vec4(0.0); mat = vec4(0.0); vec3 acc = vec3(0.0); float ws = 0.0;
@@ -543,10 +544,7 @@ void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, o
     acc += vec3(tz * n0.x, tn.y + n0.y, tn.x + n0.z) * w.x; alb += a * w.x; mat += m * w.x; ws += w.x;
   }
   if (w.y > 0.03) {
-    vec2 uv = vec2(p.x * sg.y, p.z) / 12.0, dx = vec2(gDpx.x * sg.y, gDpx.z) / 12.0, dy = vec2(gDpy.x * sg.y, gDpy.z) / 12.0;
-    vec4 a = textureGrad(tAlb, vec3(uv, ${LAYER.slabs}.0), dx, dy);
-    a = vec4(0.5, a.b, 0.0, 0.5 - a.b * 0.3);
-    acc += n0 * w.y; alb += a * w.y; mat += vec4(0.5, 0.5, 0.8, 1.0 - a.g * 0.5) * w.y; ws += w.y;
+    acc += n0 * w.y; alb += vec4(0.5, 0.0, 0.0, 0.5) * w.y; mat += vec4(0.5, 0.5, 0.8, 1.0) * w.y; ws += w.y;
   }
   if (w.z > 0.03) {
     vec2 uv = vec2(-p.x * sg.z * su, sY * 0.125), dx = vec2(-gDpx.x * sg.z * su, sYd.x * 0.125), dy = vec2(-gDpy.x * sg.z * su, sYd.y * 0.125);
@@ -577,10 +575,9 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float photo = 0.65 + 0.7 * ma.g;
   vec3 cN = n0;
   #endif
-  // the structure: blocks and joints on the faces, slabs from above. The beds (the rows of blocks, their ledges and
-  // tones) only on real faces: they follow the height, so on gentler rock seen from above they wound about like the
-  // contour lines of a map
-  float steep = smoothstep(0.92, 0.6, n0.y), face = smoothstep(0.8, 0.55, n0.y);
+  // the structure: blocks and joints on the faces. The beds (the rows of blocks, their ledges and tones) only on
+  // near-vertical faces: they follow the height, so on rounder rock they wound about like the contour lines of a map
+  float steep = smoothstep(0.92, 0.6, n0.y), face = smoothstep(0.6, 0.35, n0.y);
   vec3 wS = w * vec3(face, 1.0, face) + vec3(0.0, 1e-3, 0.0); wS /= wS.x + wS.y + wS.z;
   vec4 sa, sm;
   structAt(p, cN, wS, sY, sYd, bed.w, nk, sa, sm, nW);
@@ -879,7 +876,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     #endif
     {
       // far: the kind's colour by the coarse beds, a little moss on the gentler, damper parts
-      rc = rockTone(kind, mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), smoothstep(0.8, 0.55, nG.y)) * 0.6 + 0.2);
+      rc = rockTone(kind, mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), smoothstep(0.6, 0.35, nG.y)) * 0.6 + 0.2);
       rMoss = smoothstep(0.55, 0.9, lush + nG.y * 0.4 - 0.25) * 0.6;
       rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
       rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
