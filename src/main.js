@@ -249,6 +249,9 @@ async function main() {
       grass: settings.get('groundGrass'), road: settings.get('groundRoad'), gravel: settings.get('groundGravel'),
       soft: settings.get('groundSoft'), wander: settings.get('groundWander'),
     })])),
+    ...Object.fromEntries(['rockJoints', 'rockCracks', 'rockBeds'].map(key => [key, () => terrainView.setRockLines({
+      joints: settings.get('rockJoints'), cracks: settings.get('rockCracks'), beds: settings.get('rockBeds'),
+    })])),
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),

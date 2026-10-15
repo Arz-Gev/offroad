@@ -146,8 +146,8 @@ float blocksAt(vec2 uv, out vec3 data) {
   return 0.3 + 0.5 * bevel + lean * bevel + (sn - 0.5) * 0.25 * bevel;
 }
 // slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped slabs), each
-// slab tilted, fine cracks: the dried mud's curled plates, small (the rock from above no longer takes them). Height
-// unit 0.3 m
+// slab tilted, fine cracks: the dried mud's curled plates, small, and the rock from above (as much as the player's
+// sliders give, terrainView setRockLines). data: tone, joint (and cracks), the fine cracks alone. Height unit 0.3 m
 float slabsAt(vec2 uv, out vec3 data) {
   vec2 p = uv * 4.0 + (vec2(pnoise(uv * 8.0, 8.0), pnoise(uv * 8.0 + 0.5, 8.0)) - 0.5) * 0.5;
   vec2 i = floor(p), f = fract(p);
@@ -165,7 +165,7 @@ float slabsAt(vec2 uv, out vec3 data) {
   float sn = pfbm(uv, 32.0, 4);
   float bevel = sqrt(smoothstep(0.0, 0.25 + 0.2 * ch.y, eo));
   float jw = 0.02 + 0.06 * pnoise(uv * 24.0, 24.0);
-  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), 0.0);
+  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), crack * 0.7);
   return 0.3 + 0.45 * bevel + dot(-c1, ch - 0.5) * 2.0 * bevel + (sn - 0.5) * 0.2 - crack * 0.2;
 }
 `;

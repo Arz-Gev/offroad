@@ -324,7 +324,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
-    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uEdge: { value: new THREE.Vector2(0.35, 0) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
+    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uEdge: { value: new THREE.Vector2(0.35, 0) }, uRockLines: { value: new THREE.Vector3(0, 0, 0) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uStoneR: { value: new THREE.Vector2(1e5, 1e5) }, uStoneK: { value: new THREE.Vector4(0.9, 1.5, 0.8, 1.2) },
     uSnow: { value: 330 },
@@ -381,6 +381,7 @@ uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
 uniform vec2 uEdge;   // the edges between layers: height-blend width, how far they wander (setGround)
+uniform vec3 uRockLines;   // the rock's lines, 0..1: the slabs' wavy joints and their fine cracks from above, the beds down gentler slopes (setRockLines)
 uniform vec3 uAvg[${LAYER_COUNT}];   // each layer's average colour
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
@@ -528,10 +529,11 @@ vec3 rockTone(float k, float t) { vec4 w = kindW(k); return mix(ROCK_D * w, ROCK
 const mat4 BEDS = mat4(2.2, 0.55, 0.45, 2.6, 4.5, 0.25, 0.25, 3.5, 0.9, 0.9, 0.75, 1.8, 0.55, 0.5, 0.35, 0.9);
 vec4 bedOf(float k) { return BEDS * kindW(k); }
 // the rock's structure (textures.js layers 8, 9), triplanar: on the faces the rows of blocks follow the beds (v: the
-// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile). From above nothing:
-// the slabs' wavy joints wound about like snakes and their fine cracks drew a net of polygons (the player wanted all
-// those lines gone); the photos give that rock its grain. alb: tone, joint, streak, height; mat: normal xy,
-// roughness, cavity; nW: the normal on n0
+// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile). From above the slabs
+// (12 m tile) only as far as uRockLines gives (x: their wavy joints, tilts and tones; y: their fine cracks alone): by
+// default none, the joints wound about like snakes and the cracks drew a net of polygons (the player wanted them
+// gone); the photos give that rock its grain. alb: tone, joint, streak, height; mat: normal xy, roughness, cavity;
+// nW: the normal on n0
 void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, out vec4 alb, out vec4 mat, out vec3 nW) {
   vec3 sg = vec3(n0.x < 0.0 ? -1.0 : 1.0, n0.y < 0.0 ? -1.0 : 1.0, n0.z < 0.0 ? -1.0 : 1.0);
   alb = vec4(0.0); mat = vec4(0.0); vec3 acc = vec3(0.0); float ws = 0.0;
@@ -544,7 +546,18 @@ void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, o
     acc += vec3(tz * n0.x, tn.y + n0.y, tn.x + n0.z) * w.x; alb += a * w.x; mat += m * w.x; ws += w.x;
   }
   if (w.y > 0.03) {
-    acc += n0 * w.y; alb += vec4(0.5, 0.0, 0.0, 0.5) * w.y; mat += vec4(0.5, 0.5, 0.8, 1.0) * w.y; ws += w.y;
+    vec4 a = vec4(0.5, 0.0, 0.0, 0.5), m = vec4(0.5, 0.5, 0.8, 1.0); vec3 nT = n0;
+    if (uRockLines.x + uRockLines.y > 0.01) {
+      vec2 uv = vec2(p.x * sg.y, p.z) / 12.0, dx = vec2(gDpx.x * sg.y, gDpx.z) / 12.0, dy = vec2(gDpy.x * sg.y, gDpy.z) / 12.0;
+      vec4 sa = textureGrad(tAlb, vec3(uv, ${LAYER.slabs}.0), dx, dy), sm = textureGrad(tLNrm, vec3(uv, ${LAYER.slabs}.0), dx, dy);
+      vec2 tn = (sm.xy * 2.0 - 1.0) * nk; tn.x *= sg.y;
+      float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
+      float ck = sa.b * uRockLines.y;
+      a = mix(vec4(0.5, ck, 0.0, 0.5 - ck * 0.3), sa, uRockLines.x);
+      m = mix(vec4(0.5, 0.5, 0.8, 1.0 - ck * 0.5), sm, uRockLines.x);
+      nT = normalize(mix(n0, vec3(tn.x + n0.x, tz * n0.y, tn.y + n0.z), uRockLines.x));
+    }
+    acc += nT * w.y; alb += a * w.y; mat += m * w.y; ws += w.y;
   }
   if (w.z > 0.03) {
     vec2 uv = vec2(-p.x * sg.z * su, sY * 0.125), dx = vec2(-gDpx.x * sg.z * su, sYd.x * 0.125), dy = vec2(-gDpy.x * sg.z * su, sYd.y * 0.125);
@@ -577,7 +590,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   #endif
   // the structure: blocks and joints on the faces. The beds (the rows of blocks, their ledges and tones) only on
   // near-vertical faces: they follow the height, so on rounder rock they wound about like the contour lines of a map
-  float steep = smoothstep(0.92, 0.6, n0.y), face = smoothstep(0.6, 0.35, n0.y);
+  // (uRockLines.z brings them back down gentler slopes, as far as everywhere)
+  float steep = smoothstep(0.92, 0.6, n0.y), face = smoothstep(mix(0.6, 1.2, uRockLines.z), mix(0.35, 0.9, uRockLines.z), n0.y);
   vec3 wS = w * vec3(face, 1.0, face) + vec3(0.0, 1e-3, 0.0); wS /= wS.x + wS.y + wS.z;
   vec4 sa, sm;
   structAt(p, cN, wS, sY, sYd, bed.w, nk, sa, sm, nW);
@@ -876,7 +890,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     #endif
     {
       // far: the kind's colour by the coarse beds, a little moss on the gentler, damper parts
-      rc = rockTone(kind, mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), smoothstep(0.6, 0.35, nG.y)) * 0.6 + 0.2);
+      rc = rockTone(kind, mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), smoothstep(mix(0.6, 1.2, uRockLines.z), mix(0.35, 0.9, uRockLines.z), nG.y)) * 0.6 + 0.2);
       rMoss = smoothstep(0.55, 0.9, lush + nG.y * 0.4 - 0.25) * 0.6;
       rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
       rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
@@ -1104,6 +1118,9 @@ reflectedLight.indirectSpecular *= gAO;
       t[LAYER.sand] = 1 / (LAYER_TILE[LAYER.sand] * gravel);
       uniforms.uEdge.value.set(0.15 + soft, wander * 1.6);
     },
+    // the rock's lines (0..1 each): the slabs' wavy joints and their fine cracks on rock seen from above, the beds
+    // (rows of blocks, ledges, tones) down gentler slopes
+    setRockLines({ joints, cracks, beds }) { uniforms.uRockLines.value.set(joints, cracks, beds); },
   };
   return view;
 }
