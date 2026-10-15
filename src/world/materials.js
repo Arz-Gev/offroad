@@ -21,7 +21,8 @@ export function makeRockMaterial(layers, opts = {}) {
   const mat = new THREE.MeshStandardMaterial({ color: opts.color ?? 0xffffff, roughness: 0.85, metalness: 0, vertexColors: !!opts.vertexColors });
   const uniforms = {
     tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
-    uRockTile: { value: 1 / (opts.tile ?? 2.2) }, uMossTile: { value: 1 / LAYER_TILE[LAYER.grass] }, uMoss: { value: opts.moss ?? 1 },
+    // (the moss: the grass photo at its real size, half the ground's stretched tile)
+    uRockTile: { value: 1 / (opts.tile ?? 2.2) }, uMossTile: { value: 2 / LAYER_TILE[LAYER.grass] }, uMoss: { value: opts.moss ?? 1 },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);

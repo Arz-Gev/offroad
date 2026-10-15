@@ -17,8 +17,11 @@ import { mulberry32 } from './noise.js';
 
 export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8, cliff: 9 };
 export const LAYER_COUNT = 10;
-// world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js)
-export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30];
+// world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js). The
+// meadow, track, gravel and soil photos are stretched to twice their real size: at their own size their stones and
+// clods went below a pixel a few metres away and the ground turned to one flat colour; the 1k photos are still
+// sharp enough close up
+export const LAYER_TILE = [4.4, 5.2, 2.6, 2.2, 4.8, 2.4, 3.6, 1, 12, 30];
 // photo layers: file name, roughness, normal strength, albedo gain and saturation
 const PHOTO = {
   0: { name: 'grass', rough: 0.92, nrm: 1.1, gain: 1.0, sat: 1.0, tint: [0.13, 0.2, 0.05], recolor: 0.85 },

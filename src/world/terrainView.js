@@ -414,37 +414,53 @@ void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
   }
 }
 // parallax occlusion near the camera: the dominant layer's height (its alpha, top 1) as relief below the surface,
-// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1)
-vec2 pomAt(float l, vec2 xz, vec3 V, float depth, out float hitD) {
+// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1).
+// The relief sinks along the ground's normal n, not straight down: on a steep slope seen from below, straight down
+// stretched each stone into a long streak
+// The relief's depth (0 top .. 1) at xz: the tile's two copies blended as layerAt blends them (b), so it runs on
+// without a seam where one region's copy gives way to the next
+vec4 gPomO; float gPomB;   // the two copies' offsets (xy, zw) and the blend
+float pomH(float l, float t, vec2 xz) {
+  vec2 uv = xz * t, dx = gDx * t, dy = gDy * t;
+  float a = gPomB < 0.999 ? textureGrad(tAlb, vec3(uv + gPomO.xy, l), dx, dy).a : 0.0;
+  if (gPomB > 0.001) a = mix(a, textureGrad(tAlb, vec3(uv + gPomO.zw, l), dx, dy).a, gPomB);
+  return 1.0 - a;
+}
+vec2 pomAt(float l, vec2 xz, vec3 V, vec3 n, float depth, out float hitD) {
   float t = uTile[int(l)];
-  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);   // the region's tile offset (layerAt)
-  vec2 dxz = V.xz / max(-V.y, 0.25) * depth / float(POM_STEPS);
+  float k = gVar * 7.0, i = floor(k);
+  gPomO = uDetail > 0.5 ? vec4(sin(vec2(3.0, 7.0) * i), sin(vec2(3.0, 7.0) * (i + 1.0))) : vec4(0.0);
+  gPomB = uDetail > 0.5 ? smoothstep(0.3, 0.7, fract(k)) : 0.0;
+  vec2 dxz = V.xz / max(-dot(V, n), 0.25) * depth / float(POM_STEPS);
   vec2 cur = xz; float d = 0.0;
-  float h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+  float h = pomH(l, t, cur);
   hitD = 0.0;
   if (h <= 0.0) return xz;
-  float ph = h, pd = 0.0;
   for (int s = 0; s < POM_STEPS; s++) {
-    ph = h; pd = d;
     cur += dxz; d += 1.0 / float(POM_STEPS);
-    h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+    h = pomH(l, t, cur);
     if (d >= h) break;
   }
-  // between the last two samples, where the ray crossed the relief
-  float f = (ph - pd) / max((ph - pd) - (h - d), 1e-4);
-  hitD = mix(pd, d, f);
-  return cur - dxz * (1.0 - f);
+  // the ray crossed the relief between the last two samples: halve that step until it is found. (Interpolating
+  // between the two samples instead cut the stones' steep sides into terraces, one per step: striped stones)
+  vec2 st = dxz; float sd = 1.0 / float(POM_STEPS);
+  for (int s = 0; s < POM_REFINE; s++) {
+    st *= 0.5; sd *= 0.5;
+    if (d - sd >= pomH(l, t, cur - st)) { cur -= st; d -= sd; }
+  }
+  hitD = d;
+  return cur;
 }
 // the relief's own shadow at the hit: does it rise above the ray towards the sun (Lw, world)?
-float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, float depth) {
-  if (Lw.y < 0.05 || hitD <= 0.0) return 1.0;
+float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, vec3 n, float depth) {
+  float ln = dot(Lw, n);
+  if (ln < 0.05 || hitD <= 0.0) return 1.0;
   float t = uTile[int(l)];
-  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);
-  vec2 dir = Lw.xz / max(Lw.y, 0.12) * depth;
+  vec2 dir = Lw.xz / max(ln, 0.12) * depth;
   float sh = 0.0;
   for (int s = 1; s <= POM_SHADOW; s++) {
     float f = float(s) / float(POM_SHADOW) * hitD;
-    float dS = 1.0 - textureGrad(tAlb, vec3((xz + dir * f) * t + oa, l), gDx * t, gDy * t).a;
+    float dS = pomH(l, t, xz + dir * f);
     sh = max(sh, (hitD - f - dS) * 6.0);
   }
   return 1.0 - clamp(sh, 0.0, 1.0) * 0.85;
@@ -763,11 +779,15 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     #else
     float pomK = (uDetail > 1.5 && l1 > 0.5 ? 1.0 - smoothstep(4.0, 8.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
     #endif
+    // (fading out where the view runs along the ground: there the relief only smears; and where the dominant layer
+    // changes, where it would jump from one layer's relief to the other's)
+    vec3 V = normalize(p - cameraPosition);
+    pomK *= smoothstep(0.05, 0.25, -dot(V, nG)) * smoothstep(0.0, 0.3, w1 - w2);
     if (pomK > 0.0) {
       float pomD;
-      pxz = mix(p.xz, pomAt(l1, p.xz, normalize(p - cameraPosition), 0.05, pomD), pomK);
+      pxz = mix(p.xz, pomAt(l1, p.xz, V, nG, 0.05, pomD), pomK);
       #if NUM_SUN_LIGHTS > 0
-      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), 0.05), pomK);
+      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), nG, 0.05), pomK);
       #endif
     }
     layerAt(l1, pxz, two, a1, n1);
@@ -931,7 +951,7 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
