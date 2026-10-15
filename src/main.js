@@ -327,8 +327,8 @@ async function main() {
   game.action = id => input.onAction(id);
 
   // ---------------------------------------------------------------- pause and the side panel
-  // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the panel's pause
-  // button, or the window losing focus (setting autoPause). Driving input, a click (not a drag) on the view or the HUD's
+  // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the pause button
+  // (HUD and panel), or the window losing focus (setting autoPause). Driving input, a click (not a drag) on the view or the HUD's
   // Paused badge resumes. With menuPause off the game runs behind the panel.
   let menuHold = false;           // the pause came from opening the panel: closing it resumes
   function setPaused(p) {
@@ -425,6 +425,7 @@ async function main() {
   hud.onMenu = () => menu.toggle();
   hud.onFullscreen = () => menu.runAction('fullscreen');
   hud.onResume = () => setPaused(false);
+  hud.onPause = () => setPaused(true);
   // a click on the view resumes; a drag only looks around (the paused view keeps drawing while the camera moves)
   let press = null;
   canvas.addEventListener('pointerdown', e => { press = game.paused ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null; });
