@@ -327,7 +327,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
-    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
+    uTile: { value: LAYER_TILE.map(t => 1 / t) }, uEdge: { value: new THREE.Vector2(0.35, 0) }, uRockLines: { value: new THREE.Vector3(0, 0, 0) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uStoneR: { value: new THREE.Vector2(1e5, 1e5) }, uStoneK: { value: new THREE.Vector4(0.9, 1.5, 0.8, 1.2) },
     uSnow: { value: 330 },
@@ -386,6 +386,8 @@ uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
+uniform vec2 uEdge;   // the edges between layers: height-blend width, how far they wander (setGround)
+uniform vec3 uRockLines;   // the rock's lines, 0..1: the slabs' wavy joints and their fine cracks from above, the beds down gentler slopes (setRockLines)
 uniform vec3 uAvg[${LAYER_COUNT}];   // each layer's average colour
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
@@ -420,37 +422,53 @@ void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
   }
 }
 // parallax occlusion near the camera: the dominant layer's height (its alpha, top 1) as relief below the surface,
-// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1)
-vec2 pomAt(float l, vec2 xz, vec3 V, float depth, out float hitD) {
+// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1).
+// The relief sinks along the ground's normal n, not straight down: on a steep slope seen from below, straight down
+// stretched each stone into a long streak
+// The relief's depth (0 top .. 1) at xz: the tile's two copies blended as layerAt blends them (b), so it runs on
+// without a seam where one region's copy gives way to the next
+vec4 gPomO; float gPomB;   // the two copies' offsets (xy, zw) and the blend
+float pomH(float l, float t, vec2 xz) {
+  vec2 uv = xz * t, dx = gDx * t, dy = gDy * t;
+  float a = gPomB < 0.999 ? textureGrad(tAlb, vec3(uv + gPomO.xy, l), dx, dy).a : 0.0;
+  if (gPomB > 0.001) a = mix(a, textureGrad(tAlb, vec3(uv + gPomO.zw, l), dx, dy).a, gPomB);
+  return 1.0 - a;
+}
+vec2 pomAt(float l, vec2 xz, vec3 V, vec3 n, float depth, out float hitD) {
   float t = uTile[int(l)];
-  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);   // the region's tile offset (layerAt)
-  vec2 dxz = V.xz / max(-V.y, 0.25) * depth / float(POM_STEPS);
+  float k = gVar * 7.0, i = floor(k);
+  gPomO = uDetail > 0.5 ? vec4(sin(vec2(3.0, 7.0) * i), sin(vec2(3.0, 7.0) * (i + 1.0))) : vec4(0.0);
+  gPomB = uDetail > 0.5 ? smoothstep(0.3, 0.7, fract(k)) : 0.0;
+  vec2 dxz = V.xz / max(-dot(V, n), 0.25) * depth / float(POM_STEPS);
   vec2 cur = xz; float d = 0.0;
-  float h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+  float h = pomH(l, t, cur);
   hitD = 0.0;
   if (h <= 0.0) return xz;
-  float ph = h, pd = 0.0;
   for (int s = 0; s < POM_STEPS; s++) {
-    ph = h; pd = d;
     cur += dxz; d += 1.0 / float(POM_STEPS);
-    h = 1.0 - textureGrad(tAlb, vec3(cur * t + oa, l), gDx * t, gDy * t).a;
+    h = pomH(l, t, cur);
     if (d >= h) break;
   }
-  // between the last two samples, where the ray crossed the relief
-  float f = (ph - pd) / max((ph - pd) - (h - d), 1e-4);
-  hitD = mix(pd, d, f);
-  return cur - dxz * (1.0 - f);
+  // the ray crossed the relief between the last two samples: halve that step until it is found. (Interpolating
+  // between the two samples instead cut the stones' steep sides into terraces, one per step: striped stones)
+  vec2 st = dxz; float sd = 1.0 / float(POM_STEPS);
+  for (int s = 0; s < POM_REFINE; s++) {
+    st *= 0.5; sd *= 0.5;
+    if (d - sd >= pomH(l, t, cur - st)) { cur -= st; d -= sd; }
+  }
+  hitD = d;
+  return cur;
 }
 // the relief's own shadow at the hit: does it rise above the ray towards the sun (Lw, world)?
-float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, float depth) {
-  if (Lw.y < 0.05 || hitD <= 0.0) return 1.0;
+float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, vec3 n, float depth) {
+  float ln = dot(Lw, n);
+  if (ln < 0.05 || hitD <= 0.0) return 1.0;
   float t = uTile[int(l)];
-  vec2 oa = uDetail > 0.5 ? sin(vec2(3.0, 7.0) * floor(gVar * 7.0)) : vec2(0.0);
-  vec2 dir = Lw.xz / max(Lw.y, 0.12) * depth;
+  vec2 dir = Lw.xz / max(ln, 0.12) * depth;
   float sh = 0.0;
   for (int s = 1; s <= POM_SHADOW; s++) {
     float f = float(s) / float(POM_SHADOW) * hitD;
-    float dS = 1.0 - textureGrad(tAlb, vec3((xz + dir * f) * t + oa, l), gDx * t, gDy * t).a;
+    float dS = pomH(l, t, xz + dir * f);
     sh = max(sh, (hitD - f - dS) * 6.0);
   }
   return 1.0 - clamp(sh, 0.0, 1.0) * 0.85;
@@ -517,8 +535,11 @@ vec3 rockTone(float k, float t) { vec4 w = kindW(k); return mix(ROCK_D * w, ROCK
 const mat4 BEDS = mat4(2.2, 0.55, 0.45, 2.6, 4.5, 0.25, 0.25, 3.5, 0.9, 0.9, 0.75, 1.8, 0.55, 0.5, 0.35, 0.9);
 vec4 bedOf(float k) { return BEDS * kindW(k); }
 // the rock's structure (textures.js layers 8, 9), triplanar: on the faces the rows of blocks follow the beds (v: the
-// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile), from above the slabs
-// (12 m tile). alb: tone, joint, streak, height; mat: normal xy, roughness, cavity; nW: the normal on n0
+// bedding coordinate sY, 8 beds to the tile; u along the face, 6 joint spacings jw to the tile). From above the slabs
+// (12 m tile) only as far as uRockLines gives (x: their wavy joints, tilts and tones; y: their fine cracks alone): by
+// default none, the joints wound about like snakes and the cracks drew a net of polygons (the player wanted them
+// gone); the photos give that rock its grain. alb: tone, joint, streak, height; mat: normal xy, roughness, cavity;
+// nW: the normal on n0
 void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, out vec4 alb, out vec4 mat, out vec3 nW) {
   vec3 sg = vec3(n0.x < 0.0 ? -1.0 : 1.0, n0.y < 0.0 ? -1.0 : 1.0, n0.z < 0.0 ? -1.0 : 1.0);
   alb = vec4(0.0); mat = vec4(0.0); vec3 acc = vec3(0.0); float ws = 0.0;
@@ -531,11 +552,18 @@ void structAt(vec3 p, vec3 n0, vec3 w, float sY, vec2 sYd, float jw, float nk, o
     acc += vec3(tz * n0.x, tn.y + n0.y, tn.x + n0.z) * w.x; alb += a * w.x; mat += m * w.x; ws += w.x;
   }
   if (w.y > 0.03) {
-    vec2 uv = vec2(p.x * sg.y, p.z) / 12.0, dx = vec2(gDpx.x * sg.y, gDpx.z) / 12.0, dy = vec2(gDpy.x * sg.y, gDpy.z) / 12.0;
-    vec4 a = textureGrad(tAlb, vec3(uv, ${LAYER.slabs}.0), dx, dy), m = textureGrad(tLNrm, vec3(uv, ${LAYER.slabs}.0), dx, dy);
-    vec2 tn = (m.xy * 2.0 - 1.0) * nk; tn.x *= sg.y;
-    float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
-    acc += vec3(tn.x + n0.x, tz * n0.y, tn.y + n0.z) * w.y; alb += a * w.y; mat += m * w.y; ws += w.y;
+    vec4 a = vec4(0.5, 0.0, 0.0, 0.5), m = vec4(0.5, 0.5, 0.8, 1.0); vec3 nT = n0;
+    if (uRockLines.x + uRockLines.y > 0.01) {
+      vec2 uv = vec2(p.x * sg.y, p.z) / 12.0, dx = vec2(gDpx.x * sg.y, gDpx.z) / 12.0, dy = vec2(gDpy.x * sg.y, gDpy.z) / 12.0;
+      vec4 sa = textureGrad(tAlb, vec3(uv, ${LAYER.slabs}.0), dx, dy), sm = textureGrad(tLNrm, vec3(uv, ${LAYER.slabs}.0), dx, dy);
+      vec2 tn = (sm.xy * 2.0 - 1.0) * nk; tn.x *= sg.y;
+      float tz = sqrt(max(1.0 - dot(tn, tn), 0.0));
+      float ck = sa.b * uRockLines.y;
+      a = mix(vec4(0.5, ck, 0.0, 0.5 - ck * 0.3), sa, uRockLines.x);
+      m = mix(vec4(0.5, 0.5, 0.8, 1.0 - ck * 0.5), sm, uRockLines.x);
+      nT = normalize(mix(n0, vec3(tn.x + n0.x, tz * n0.y, tn.y + n0.z), uRockLines.x));
+    }
+    acc += nT * w.y; alb += a * w.y; mat += m * w.y; ws += w.y;
   }
   if (w.z > 0.03) {
     vec2 uv = vec2(-p.x * sg.z * su, sY * 0.125), dx = vec2(-gDpx.x * sg.z * su, sYd.x * 0.125), dy = vec2(-gDpy.x * sg.z * su, sYd.y * 0.125);
@@ -566,25 +594,28 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float photo = 0.65 + 0.7 * ma.g;
   vec3 cN = n0;
   #endif
-  // the structure: blocks and joints on the faces, slabs from above
+  // the structure: blocks and joints on the faces. The beds (the rows of blocks, their ledges and tones) only on
+  // near-vertical faces: they follow the height, so on rounder rock they wound about like the contour lines of a map
+  // (uRockLines.z brings them back down gentler slopes, as far as everywhere)
+  float steep = smoothstep(0.92, 0.6, n0.y), face = smoothstep(mix(0.6, 1.2, uRockLines.z), mix(0.35, 0.9, uRockLines.z), n0.y);
+  vec3 wS = w * vec3(face, 1.0, face) + vec3(0.0, 1e-3, 0.0); wS /= wS.x + wS.y + wS.z;
   vec4 sa, sm;
-  structAt(p, cN, w, sY, sYd, bed.w, nk, sa, sm, nW);
-  float steep = smoothstep(0.92, 0.6, n0.y);
+  structAt(p, cN, wS, sY, sYd, bed.w, nk, sa, sm, nW);
   vec3 hn = normalize(vec3(n0.x, 0.0, n0.z) + vec3(1e-4, 0.0, 0.0));
   // beds: each one with its own tone and hardness; the harder ones stand out, so where the next bed juts out further
   // the face turns down under it (in shade), where it steps back the bed's top is a ledge (lit, mossy)
   float far = smoothstep(0.3, 0.7, sF);
   float bi = floor(sY), bf = fract(sY);
   float hb = hash11(bi), hN = hash11(bi + 1.0);
-  float tone = mix(0.5, hb, bed.z * (1.0 - far)) * 0.6 + hash11(floor(sY2) * 3.1 + 7.0) * 0.4;
+  float tone = mix(0.5, hb, bed.z * (1.0 - far) * face) * 0.6 + mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), face) * 0.4;
   float tb = smoothstep(0.8, 1.0, bf), bell = 4.0 * tb * (1.0 - tb);
   float dr = (hN - hb) * bed.y;
-  float ledge = max(-dr, 0.0) * bell * 2.5 * steep, under = max(dr, 0.0) * bell * 2.5 * steep;
-  nW = normalize(nW + vec3(0.0, 1.0, 0.0) * ((hb - 0.5) * 0.5 * bed.y + ledge * 1.6 - under * 1.6) * steep * (1.0 - far) * nk);
+  float ledge = max(-dr, 0.0) * bell * 2.5 * face, under = max(dr, 0.0) * bell * 2.5 * face;
+  nW = normalize(nW + vec3(0.0, 1.0, 0.0) * ((hb - 0.5) * 0.5 * bed.y + ledge * 1.6 - under * 1.6) * face * (1.0 - far) * nk);
   float sand = smoothstep(0.45, 0.67, kind) * smoothstep(0.9, 0.7, kind);
   col = rockTone(kind, clamp(tone + (sa.r - 0.5) * 0.35, 0.0, 1.0)) * mix(1.0, photo, 0.5 - 0.25 * sand);
   // sandstone beds run from cream to ochre to rust
-  col = mix(col, vec3(0.4, 0.33, 0.22) * (0.85 + 0.3 * hash11(bi * 2.3)), sand * step(0.68, hash11(bi + 17.0)) * (1.0 - far) * 0.8);
+  col = mix(col, vec3(0.4, 0.33, 0.22) * (0.85 + 0.3 * hash11(bi * 2.3)), sand * step(0.68, hash11(bi + 17.0)) * (1.0 - far) * face * 0.8);
   col *= (1.0 - 0.6 * sa.g) * (1.0 - 0.35 * under);
   // streaks: dark (limestone, granite, slate) or rusty (sandstone), from the lip of each ledge down the bed below
   vec3 stain = mix(vec3(0.42, 0.42, 0.44), vec3(0.8, 0.5, 0.3), sand);
@@ -756,6 +787,9 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   TOP2(wDirt, 1.0) TOP2(wMud, 3.0) TOP2(wSand, 4.0) TOP2(wForest, 5.0) TOP2(wSoil, 6.0)
   // detail normals fade out far away (mips average them anyway; this keeps them from sparkling)
   float nk = 1.0 - smoothstep(90.0, 320.0, dist);
+  // the edges between layers wander by a few metres of noise: the land data is 1 m texels, and the height blend drew
+  // its edges straight along them
+  float wob = (textureGrad(tNoise, p.xz / 9.0, gDx / 9.0, gDy / 9.0).b - 0.5) * uEdge.y;
   vec3 c; vec4 nn; float hgt = 0.5;
   vec3 nW = nG;
   if (dist < 600.0) {
@@ -769,11 +803,15 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     #else
     float pomK = (uDetail > 1.5 && l1 > 0.5 ? 1.0 - smoothstep(4.0, 8.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
     #endif
+    // (fading out where the view runs along the ground: there the relief only smears; and where the dominant layer
+    // changes, where it would jump from one layer's relief to the other's)
+    vec3 V = normalize(p - cameraPosition);
+    pomK *= smoothstep(0.05, 0.25, -dot(V, nG)) * smoothstep(0.0, 0.3, w1 - w2);
     if (pomK > 0.0) {
       float pomD;
-      pxz = mix(p.xz, pomAt(l1, p.xz, normalize(p - cameraPosition), 0.05, pomD), pomK);
+      pxz = mix(p.xz, pomAt(l1, p.xz, V, nG, 0.05, pomD), pomK);
       #if NUM_SUN_LIGHTS > 0
-      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), 0.05), pomK);
+      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), nG, 0.05), pomK);
       #endif
     }
     layerAt(l1, pxz, two, a1, n1);
@@ -781,7 +819,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     if (w2 > 0.02) {
       layerAt(l2, pxz, two, a2, n2);
       a2.rgb *= TINT(l2);
-      float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2, hm = max(h1, h2) - 0.35;
+      float h1 = a1.a + w1 * 1.2, h2 = a2.a + w2 * 1.2 + wob, hm = max(h1, h2) - uEdge.x;
       float b1 = max(h1 - hm, 0.0) * w1, b2 = max(h2 - hm, 0.0) * w2;
       float k = b2 / max(b1 + b2, 1e-4);
       c = mix(a1.rgb, a2.rgb, k); nn = mix(n1, n2, k); hgt = mix(a1.a, a2.a, k);
@@ -858,12 +896,12 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     #endif
     {
       // far: the kind's colour by the coarse beds, a little moss on the gentler, damper parts
-      rc = rockTone(kind, hash11(floor(sY2) * 3.1 + 7.0) * 0.6 + 0.2);
+      rc = rockTone(kind, mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), smoothstep(mix(0.6, 1.2, uRockLines.z), mix(0.35, 0.9, uRockLines.z), nG.y)) * 0.6 + 0.2);
       rMoss = smoothstep(0.55, 0.9, lush + nG.y * 0.4 - 0.25) * 0.6;
       rc = mix(rc, vec3(0.07, 0.11, 0.03), rMoss);
       rn = nG; rh = 0.5; rcav = 1.0; rrough = 0.85;
     }
-    float hR = rh + wRock * 1.3, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - 0.3;
+    float hR = rh + wRock * 1.3 + wob, hB = hgt + (1.0 - wRock) * 1.3, hm = max(hR, hB) - uEdge.x * 0.86;
     float bR = max(hR - hm, 0.0) * wRock, bB = max(hB - hm, 0.0) * (1.0 - wRock);
     kRock = bR / max(bR + bB, 1e-4);
     c = mix(c, rc, kRock); nW = normalize(mix(nW, rn, kRock));
@@ -937,7 +975,7 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_DFG: '', POM_STEPS: ultra ? 10 : 6, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_DFG: '', POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
@@ -1077,6 +1115,18 @@ reflectedLight.indirectSpecular *= gAO;
       });
     },
     groundDataChanged() { dataTex.needsUpdate = true; landTex.needsUpdate = true; },
+    // the photos' size (times their real size: grass, road (track and soil), gravel) and the edges between layers
+    // (soft, wander 0..1)
+    setGround({ grass, road, gravel, soft, wander }) {
+      const t = uniforms.uTile.value;
+      t[LAYER.grass] = 1 / (LAYER_TILE[LAYER.grass] * grass);
+      t[LAYER.dirt] = 1 / (LAYER_TILE[LAYER.dirt] * road); t[LAYER.soil] = 1 / (LAYER_TILE[LAYER.soil] * road);
+      t[LAYER.sand] = 1 / (LAYER_TILE[LAYER.sand] * gravel);
+      uniforms.uEdge.value.set(0.15 + soft, wander * 1.6);
+    },
+    // the rock's lines (0..1 each): the slabs' wavy joints and their fine cracks on rock seen from above, the beds
+    // (rows of blocks, ledges, tones) down gentler slopes
+    setRockLines({ joints, cracks, beds }) { uniforms.uRockLines.value.set(joints, cracks, beds); },
   };
   return view;
 }

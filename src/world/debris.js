@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 import { LAYER } from './textures.js';
 import { mulberry32 } from './noise.js';
-import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
 
 // Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the strip
 // between the ruts, never big ones in the ruts; scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
 // under broadleaves, cones and twigs under conifers, petals under blossom). They give the ground depth in motion:
-// they stand up, shade themselves, cast small shadows and slide past with parallax, which no texture does.
+// they stand up, shade themselves and slide past with parallax, which no texture does. They cast no shadows: on
+// Ultra (every piece into every cascade) that cost 0.4-3 ms, the most on scree; the player turned them off.
 // Placed from the terrain's data (trail distance, surface splat, ground and land data, terrainView.js) per 16 m
 // chunk the first time the camera comes near, a few chunks a frame, and kept in a cache. Drawn as four instanced
 // meshes (stones, pebbles, flat things, sticks) whose buffers are refilled when the camera moves to the next chunk;
@@ -18,16 +18,15 @@ const HALF = MAP_SIZE / 2, NN = N + 1;
 const CHUNK = 16;
 const PER_FRAME = 3;   // chunks generated per frame at most
 // per mesh: the radius drawn (m) and the most instances
-// blob: stones (an icosphere of 80 faces, casting shadows), pebble: pebbles, small stones and cones (20 faces),
+// blob: stones (an icosphere of 80 faces), pebble: pebbles, small stones and cones (20 faces),
 // flat: leaves and petals, stick: twigs
 const KINDS = { blob: { max: 24000 }, pebble: { max: 40000 }, flat: { max: 40000 }, stick: { max: 6000 } };
 // per level (Ultra with the Ultra grass and bushes): radii (m, before the bushes' distance scale), stone density on
 // scree, at the foot of rock, on gravel and wet gravel, stones under `small` (m) are pebbles, small pieces fade out
-// sooner (sizeFade), shadows from every stone and twig into every cascade or only from the bigger stones into the
-// nearest. Ultra costs ~0.2-1.5 ms more (the most on scree slopes).
+// sooner (sizeFade). Ultra costs ~0.2-1.5 ms more (the most on scree slopes).
 const LEVELS = {
-  normal: { r: { blob: 34, pebble: 22, flat: 24, stick: 28 }, scree: 0.9, rockFoot: 1.5, sand: 0.8, wetSand: 1.2, small: 0.12, sizeFade: 1, allShadows: false },
-  ultra: { r: { blob: 40, pebble: 26, flat: 30, stick: 34 }, scree: 2.0, rockFoot: 2.5, sand: 1.1, wetSand: 1.5, small: 0.07, sizeFade: 0, allShadows: true },
+  normal: { r: { blob: 34, pebble: 22, flat: 24, stick: 28 }, scree: 0.9, rockFoot: 1.5, sand: 0.8, wetSand: 1.2, small: 0.12, sizeFade: 1 },
+  ultra: { r: { blob: 40, pebble: 26, flat: 30, stick: 34 }, scree: 2.0, rockFoot: 2.5, sand: 1.1, wetSand: 1.5, small: 0.07, sizeFade: 0 },
 };
 const STRIDE = 12;     // floats per instance: x y z yaw | sx sy sz colour | nx nz seed sink
 
@@ -141,23 +140,20 @@ float dFade = 1.0 - smoothstep(dR * 0.72, dR, distance(aA.xyz, uCam));
 vec3 dS = aB.xyz * dFade;
 `;
 
-function makeMaterial(kind, uniforms, depth = false) {
-  const mat = depth ? new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
-    : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });
+function makeMaterial(kind, uniforms) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: kind === 'flat' ? THREE.DoubleSide : THREE.FrontSide, flatShading: kind === 'blob' || kind === 'pebble' });
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_PARS);
-    // (the depth material has no normal: the basis goes with the position there)
-    if (!depth) sh.vertexShader = sh.vertexShader.replace('#include <beginnormal_vertex>', `${VERT_BASIS}
+    sh.vertexShader = sh.vertexShader.replace('#include <beginnormal_vertex>', `${VERT_BASIS}
 vec3 objectNormal = normalize(dT * (normal.x / max(aB.x, 1e-4)) + dUp * (normal.y / max(aB.y, 1e-4)) + dB * (normal.z / max(aB.z, 1e-4)));`);
-    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `${depth ? VERT_BASIS : ''}
+    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `
 vec3 transformed = aA.xyz + dT * (position.x * dS.x) + dUp * (position.y * dS.y - aC.w * aB.y) + dB * (position.z * dS.z);
 vDPos = transformed;
 vDCol = dUnpack(aB.w);
 vDH = position.y - aC.w;   // height above the ground, in the piece's own height
 // (stones sit down among the ground's own relief: less of the sky reaches them, like the ground around)
 vDAO = ${kind === 'flat' || kind === 'stick' ? '0.8' : 'mix(0.3, 0.7, smoothstep(-0.3, 0.6, position.y))'};`);
-    if (depth) return;
     const stone = kind === 'blob' || kind === 'pebble';
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -211,7 +207,7 @@ if (normal.z < 0.0) normal = -normal;
 vec3 nonPerturbedNormal = normal;`);
     }
   };
-  mat.customProgramCacheKey = () => `debris-${kind}${depth ? '-depth' : ''}-v2`;
+  mat.customProgramCacheKey = () => `debris-${kind}-v2`;
   return mat;
 }
 
@@ -244,18 +240,8 @@ export function buildDebris(terrain, terrainView) {
     m.receiveShadow = true;
     m.castShadow = false;
     m.matrixAutoUpdate = false;
-    if (k !== 'flat') m.customDepthMaterial = makeMaterial(k, uniforms, true);   // Ultra: they cast from here
     group.add(m);
-    let twin = null;
-    if (k === 'blob') {
-      // otherwise the stones cast shadows into the nearest cascade only, from a twin that only the shadow pass draws
-      twin = new THREE.Mesh(g, m.material);
-      twin.layers.set(NEAR_SHADOW_LAYER);
-      twin.frustumCulled = false; twin.castShadow = true; twin.receiveShadow = false; twin.matrixAutoUpdate = false;
-      twin.customDepthMaterial = m.customDepthMaterial;
-      group.add(twin);
-    }
-    meshes[k] = { mesh: m, twin, data, buf, count: 0, rad: uniforms.uRad };
+    meshes[k] = { mesh: m, data, buf, count: 0, rad: uniforms.uRad };
   }
 
   // ---- placement
@@ -377,10 +363,6 @@ export function buildDebris(terrain, terrainView) {
       // pieces fade early), the big ones' radius; none without 3D stones (Mobile)
       U.uStoneR.value.set(enabled ? L.r.pebble * radiusScale * (L.sizeFade ? 0.6 : 1) : 1e5, enabled ? L.r.blob * radiusScale : 1e5);
       U.uStoneK.value.set(L.scree, L.rockFoot, L.sand, L.wetSand);
-      for (const M of Object.values(meshes)) {
-        M.mesh.castShadow = L.allShadows && !!M.mesh.customDepthMaterial;
-        if (M.twin) M.twin.visible = !L.allShadows;
-      }
       dirty = true;
     },
     update(dt, camera) {

@@ -14,7 +14,7 @@ import { CLOUD_GLSL } from '../world/clouds.js';
 //
 // three's WebGLShadowMap tests every object's layers against the *view* camera, not the shadow camera, so the
 // shadow pass sets the view camera's layers per tile (attach): world tiles see layers 0 and SHADOW_LAYER (the
-// shadow-only proxies, trees.js), the nearest also NEAR_SHADOW_LAYER (debris.js), the car tile CAR_LAYER only, the
+// shadow-only proxies, trees.js), the nearest also NEAR_SHADOW_LAYER (small things; unused since the debris stopped casting), the car tile CAR_LAYER only, the
 // lamps' shadows 0 and SHADOW_LAYER.
 //
 // The shader side comes from installCascadeShadowChunks(): MAX_CASCADES slots are always declared (the last one

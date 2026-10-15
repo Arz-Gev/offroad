@@ -17,7 +17,8 @@ import { mulberry32 } from './noise.js';
 
 export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8, cliff: 9 };
 export const LAYER_COUNT = 10;
-// world size (m) covered by one tile of each layer (blocks: 6 block widths by 8 beds, set by terrainView.js)
+// world size (m) covered by one tile of each layer at its real size (blocks: 6 block widths by 8 beds, set by
+// terrainView.js). The ground stretches the meadow, track, gravel and soil photos further (terrainView setGround)
 export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30];
 // photo layers: file name, roughness, normal strength, albedo gain and saturation
 const PHOTO = {
@@ -144,8 +145,9 @@ float blocksAt(vec2 uv, out vec3 data) {
   data = vec3(bh.y * 0.8 + sn * 0.2, 1.0 - smoothstep(0.0, 0.05, e), smoothstep(0.62, 0.9, streak) * (0.6 + 0.4 * fy));
   return 0.3 + 0.5 * bevel + lean * bevel + (sn - 0.5) * 0.25 * bevel;
 }
-// rock from above: slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped
-// slabs), each slab tilted, fine cracks. Height unit 0.3 m
+// slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped slabs), each
+// slab tilted, fine cracks: the dried mud's curled plates, small, and the rock from above (as much as the player's
+// sliders give, terrainView setRockLines). data: tone, joint (and cracks), the fine cracks alone. Height unit 0.3 m
 float slabsAt(vec2 uv, out vec3 data) {
   vec2 p = uv * 4.0 + (vec2(pnoise(uv * 8.0, 8.0), pnoise(uv * 8.0 + 0.5, 8.0)) - 0.5) * 0.5;
   vec2 i = floor(p), f = fract(p);
@@ -163,7 +165,7 @@ float slabsAt(vec2 uv, out vec3 data) {
   float sn = pfbm(uv, 32.0, 4);
   float bevel = sqrt(smoothstep(0.0, 0.25 + 0.2 * ch.y, eo));
   float jw = 0.02 + 0.06 * pnoise(uv * 24.0, 24.0);
-  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), 0.0);
+  data = vec3(ch.x * 0.8 + sn * 0.2, max(1.0 - smoothstep(0.0, jw, eo), max(crack * 0.7, (1.0 - open) * (1.0 - smoothstep(0.0, 0.02, e)) * 0.4)), crack * 0.7);
   return 0.3 + 0.45 * bevel + dot(-c1, ch - 0.5) * 2.0 * bevel + (sn - 0.5) * 0.2 - crack * 0.2;
 }
 `;
