@@ -49,8 +49,8 @@ export const DEFAULTS = {
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
   // ground photos' size (times their real size) and the edges between the ground's layers (terrainView setGround);
   // tuning sliders while the player picks the look
-  groundGrass: 2, groundRoad: 2, groundGravel: 2, groundSoft: 0.4, groundWander: 0.4,
-  rockJoints: 0, rockCracks: 0, rockBeds: 0,   // the rock's lines (terrainView setRockLines), the same kind of sliders
+  groundGrass: 3.7, groundRoad: 4.1, groundGravel: 3.2, groundSoft: 0.45, groundWander: 1,
+  rockJoints: 0.35, rockCracks: 1, rockBeds: 0.6,   // the rock's lines (terrainView setRockLines), the same kind of sliders
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
