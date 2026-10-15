@@ -63,6 +63,7 @@ export class HUD {
         <div class="tl-row">
           <button class="hb" id="h-menubtn" tabindex="-1" type="button" aria-label="Menu" data-tip="Menu">${icon('menu')}<span class="kc" id="h-menukey"></span></button>
           <button class="hb" id="h-full" tabindex="-1" type="button" aria-label="Fullscreen"></button>
+          <button class="hb" id="h-pausebtn" tabindex="-1" type="button"></button>
           <div class="hints" id="h-hints"></div>
           <span class="hb-st" id="h-mute" hidden></span>
           <div class="sound-pill" id="h-sound" hidden></div>
@@ -129,7 +130,7 @@ export class HUD {
     const $ = id => root.querySelector('#' + id);
     this.$ = $;
     this.e = {
-      menuBtn: $('h-menubtn'), fullBtn: $('h-full'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'), mute: $('h-mute'),
+      menuBtn: $('h-menubtn'), fullBtn: $('h-full'), pauseBtn: $('h-pausebtn'), menuKey: $('h-menukey'), hints: $('h-hints'), sound: $('h-sound'), mute: $('h-mute'),
       paused: $('h-paused'), toasts: $('h-toasts'), tip: $('h-tip'), fps: $('h-fps'), tele: $('h-tele'), susp: $('h-susp'), suspKey: $('h-suspkey'),
       cluster: $('h-cluster'), mode: $('h-mode'), strip: $('h-strip'), range: $('h-range'), drive: $('h-drive'),
       diffs: [...root.querySelectorAll('#h-diffs .df')], wheels: [...root.querySelectorAll('#h-diffs .w')],
@@ -153,9 +154,11 @@ export class HUD {
     this.onMenu = null;
     this.onFullscreen = null;
     this.onResume = null;
-    for (const b of [this.e.menuBtn, this.e.fullBtn, this.e.paused]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
+    this.onPause = null;
+    for (const b of [this.e.menuBtn, this.e.fullBtn, this.e.pauseBtn, this.e.paused]) b.addEventListener('mousedown', e => e.preventDefault());   // no keyboard focus
     this.e.menuBtn.addEventListener('click', () => this.onMenu && this.onMenu());
     this.e.paused.addEventListener('click', () => this.onResume && this.onResume());
+    this.e.pauseBtn.addEventListener('click', () => this.e.pauseBtn.classList.contains('on') ? this.onResume?.() : this.onPause?.());
     this.e.fullBtn.addEventListener('click', () => {
       if (!storage.get(FULL_SEEN_KEY)) { storage.set(FULL_SEEN_KEY, '1'); this.e.fullBtn.classList.remove('attn'); }
       if (!document.fullscreenEnabled) { this.toast('Full screen on iPhone: Share → Add to Home Screen, then start the game from there', { kind: 'warn', key: 'full', t: 5 }); return; }
@@ -164,6 +167,7 @@ export class HUD {
     this.e.fullBtn.classList.toggle('attn', !storage.get(FULL_SEEN_KEY));
     document.addEventListener('fullscreenchange', () => this.refreshFullscreen());
     this.refreshFullscreen();
+    this.setPaused(false);
     window.addEventListener('resize', () => this.resize());
     this.setDevice('kb', true);
     this.resize();
@@ -244,7 +248,15 @@ export class HUD {
     if (!mute.hidden) mute.innerHTML = icon('muted') + (state === 'muted' && this.device !== 'touch' ? capsHTML('mute', 'kb') : '');
   }
 
-  setPaused(p) { this.e.paused.hidden = !p; }
+  // the badge in the view while paused; the button next to fullscreen is always there
+  setPaused(p) {
+    const b = this.e.pauseBtn;
+    this.e.paused.hidden = !p;
+    b.innerHTML = icon(p ? 'play' : 'pause');
+    b.setAttribute('aria-label', p ? 'Resume' : 'Pause');
+    b.dataset.tip = p ? 'Resume' : 'Pause';
+    b.classList.toggle('on', p);
+  }
 
   // ------------------------------------------------------------------ toasts
   // kind: '' | 'good' | 'warn'. key: a toast with the same key is updated in place. At most 3 on screen.

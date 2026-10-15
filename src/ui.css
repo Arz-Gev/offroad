@@ -70,6 +70,7 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
 .hb:hover { background: var(--glass-hi); border-color: var(--line-2); }
 .hb .ic { width: calc(18 * var(--u)); height: calc(18 * var(--u)); }
 .hb .kc { font-size: calc(12 * var(--u)); }
+.hb.on { background: #fff; border-color: #fff; color: #000; }   /* the pause button while paused */
 /* the fullscreen button calls attention to itself until it has been used once (hud.js) */
 .hb.attn { border-color: #fff; animation: attn 1.6s ease-in-out infinite; }
 @keyframes attn { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); } 60% { box-shadow: 0 0 0 calc(6 * var(--u)) rgba(255, 255, 255, 0); } }
