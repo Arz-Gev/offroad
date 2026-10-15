@@ -103,6 +103,7 @@ export const SECTIONS = [
     seg('speedUnit', 'Speed', [['kmh', 'km/h'], ['mph', 'mph']]),
     seg('pressureUnit', 'Tyre pressure', [['psi', 'psi'], ['bar', 'bar']]),
     group('Game'),
+    sw('menuPause', 'Pause in the menu', { info: 'The game stops while this menu is open and goes on when you close it. Off: the truck keeps driving behind the menu.' }),
     sw('autoPause', 'Pause in the background', { info: 'The game stops when you switch to another window or tab, and goes on when you come back and click or press a key.' }),
     { type: 'buttons', key: '_reset', label: 'All settings', buttons: [['resetSettings', 'Reset']], info: 'Every setting here back to its default. Tuning setups are kept.' },
   ] },

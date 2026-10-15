@@ -31,7 +31,8 @@ export const DEFAULTS = {
   suspension: false,        // wheel load / travel panel
   telemetry: false,
   fps: true,
-  autoPause: true,          // open the menu when the window loses focus
+  autoPause: true,          // pause when the window loses focus
+  menuPause: true,          // opening the menu pauses the game; closing it resumes
   touchControls: 'auto',    // on-screen controls (touch.js): 'auto' (while you use the touch screen) | 'on' | 'off'
   touchSteer: 'stick',      // touch steering: 'stick' (left thumb slides) | 'tilt' (turn the device like a wheel)
   quality: 'auto',          // graphics preset: 'auto' | 'mobile' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
