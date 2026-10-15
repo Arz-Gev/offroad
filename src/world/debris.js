@@ -1,16 +1,18 @@
 import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
+import { LAYER } from './textures.js';
 import { mulberry32 } from './noise.js';
 import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
 
-// Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the edges of
-// the strip between the ruts, scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
+// Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the strip
+// between the ruts, never big ones in the ruts; scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
 // under broadleaves, cones and twigs under conifers, petals under blossom). They give the ground depth in motion:
 // they stand up, shade themselves, cast small shadows and slide past with parallax, which no texture does.
 // Placed from the terrain's data (trail distance, surface splat, ground and land data, terrainView.js) per 16 m
 // chunk the first time the camera comes near, a few chunks a frame, and kept in a cache. Drawn as four instanced
 // meshes (stones, pebbles, flat things, sticks) whose buffers are refilled when the camera moves to the next chunk;
-// each piece shrinks away towards the edge of its radius, so nothing pops.
+// each piece shrinks away towards the edge of its radius, so nothing pops. Beyond it terrainView.js paints the same
+// stones on the ground (stoneDensity is mirrored there; configure() passes it the radii and the level's densities).
 
 const HALF = MAP_SIZE / 2, NN = N + 1;
 const CHUNK = 16;
@@ -43,6 +45,17 @@ function rockColour(kind, t) {
   return c;
 }
 const SOIL = [0.24, 0.16, 0.1];
+// stones per m² and the share of big ones, from the ground data at a point. terrainView.js stoneDens paints the same
+// beyond the 3D ones: keep the two in step. On the tracks (td: the distance from the centre line, the ruts at ~0.8 m,
+// terrain.js) stones lie on the verges and on the strip between the ruts, big ones too; in the ruts only grit.
+const rutOf = td => Math.exp(-(((td - 0.8) / 0.3) ** 2));
+function stoneDensity(td, trail, rock, sand, mud, grass, wet, scree, L) {
+  const verge = smooth(1.05, 1.5, td) * (1 - smooth(2.4, 3.2, td));
+  const crown = trail * (1 - smooth(0.3, 0.45, td));
+  let d = verge * 2.6 + crown * 1.4 + trail * 0.2 + scree * L.scree + rock * (1 - rock) * L.rockFoot + sand * L.sand + wet * sand * L.wetSand;
+  d *= (1 - mud) * (1 - 0.6 * grass * (1 - trail) * (1 - verge));
+  return [d, Math.min(0.6, 0.015 + scree * 0.2 + rock * 0.08 + (crown + verge) * 0.16)];
+}
 const DRIFT = [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, 2], [2, -2], [-2, -2]];
 const LEAVES = [[0.2, 0.1, 0.035], [0.32, 0.2, 0.08], [0.42, 0.3, 0.07], [0.3, 0.12, 0.03], [0.11, 0.16, 0.035], [0.24, 0.16, 0.07]];
 
@@ -112,6 +125,7 @@ uniform float uRad, uSizeFade;
 varying vec3 vDCol;
 varying vec3 vDPos;
 varying float vDAO;
+varying float vDH;
 vec3 dUnpack(float c) { float r = mod(c, 256.0), g = mod(floor(c / 256.0), 256.0), b = floor(c / 65536.0); return vec3(r, g, b) / 255.0; }
 `;
 // instance -> basis: the piece lies on the ground (its up is the ground normal), turned by its yaw, shrinking away
@@ -140,23 +154,54 @@ vec3 objectNormal = normalize(dT * (normal.x / max(aB.x, 1e-4)) + dUp * (normal.
 vec3 transformed = aA.xyz + dT * (position.x * dS.x) + dUp * (position.y * dS.y - aC.w * aB.y) + dB * (position.z * dS.z);
 vDPos = transformed;
 vDCol = dUnpack(aB.w);
+vDH = position.y - aC.w;   // height above the ground, in the piece's own height
 // (stones sit down among the ground's own relief: less of the sky reaches them, like the ground around)
 vDAO = ${kind === 'flat' || kind === 'stick' ? '0.8' : 'mix(0.3, 0.7, smoothstep(-0.3, 0.6, position.y))'};`);
     if (depth) return;
+    const stone = kind === 'blob' || kind === 'pebble';
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform sampler2D tNoise;
-uniform float uWet;
+uniform sampler2DArray tAlb;
+uniform float uWet, uRockLum;
 varying vec3 vDCol;
 varying vec3 vDPos;
-varying float vDAO;`)
-      .replace('#include <map_fragment>', `
+varying float vDAO;
+varying float vDH;
+float gDH = 0.5;`)
+      .replace('#include <map_fragment>', stone ? `
+{
+  vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
+  // the rock-face photo (terrainView.js layer ${LAYER.rock}), triplanar at 0.8 m a tile: grain, cracks and pits on the
+  // stone's own colour; its height bumps the normal (normal_fragment_maps)
+  vec3 fn = normalize(cross(dFdx(vDPos), dFdy(vDPos)));
+  vec3 tw = pow(abs(fn), vec3(4.0)); tw /= tw.x + tw.y + tw.z;
+  vec3 tp = vDPos / 0.8;
+  vec4 ta = texture(tAlb, vec3(tp.zy, ${LAYER.rock}.0)) * tw.x + texture(tAlb, vec3(tp.xz, ${LAYER.rock}.0)) * tw.y + texture(tAlb, vec3(tp.xy, ${LAYER.rock}.0)) * tw.z;
+  gDH = ta.a;
+  float grain = clamp(dot(ta.rgb, vec3(0.2126, 0.7152, 0.0722)) / uRockLum, 0.45, 1.7);
+  vec3 col = vDCol * grain * (0.85 + 0.3 * nz.a);
+  // soil at the foot, where it sits in the ground, in a ragged line
+  float foot = smoothstep(0.32, 0.02, vDH + (nz.r - 0.5) * 0.25);
+  col = mix(col, vec3(0.2, 0.14, 0.09) * (0.8 + 0.4 * nz.g), foot * 0.7);
+  // (a touch less blue: lit by the warm ground and the blue sky, grey stones read violet; more than this, green)
+  diffuseColor.rgb *= col * vec3(1.0, 1.01, 0.95) * (1.0 - 0.35 * uWet);
+}` : `
 {
   vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
   diffuseColor.rgb *= vDCol * (0.78 + 0.44 * nz.a) * (1.0 - 0.35 * uWet);
 }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.9, 0.3, uWet);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vDAO; reflectedLight.indirectSpecular *= vDAO;');
+    // the photo's height as a bump (screen-space derivatives, as three's bump map), ~1.5 cm of relief, close up only
+    if (stone) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `
+{
+  vec2 dH = vec2(dFdx(gDH), dFdy(gDH)) * 0.015 * (1.0 - smoothstep(6.0, 14.0, length(vViewPosition)));
+  vec3 sX = dFdx(-vViewPosition), sY = dFdy(-vViewPosition);
+  vec3 r1 = cross(sY, normal), r2 = cross(normal, sX);
+  float det = dot(sX, r1) * faceDirection;
+  normal = normalize(abs(det) * normal - sign(det) * (dH.x * r1 + dH.y * r2));
+}`);
     if (kind === 'flat') {
       // thin things on the ground: lit like the ground they lie on (both faces up), a touch of light through them
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
@@ -166,13 +211,15 @@ if (normal.z < 0.0) normal = -normal;
 vec3 nonPerturbedNormal = normal;`);
     }
   };
-  mat.customProgramCacheKey = () => `debris-${kind}${depth ? '-depth' : ''}-v1`;
+  mat.customProgramCacheKey = () => `debris-${kind}${depth ? '-depth' : ''}-v2`;
   return mat;
 }
 
 export function buildDebris(terrain, terrainView) {
   const U = terrainView.uniforms;
-  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 } };
+  const ra = terrainView.layers.avg[LAYER.rock];
+  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 }, tAlb: U.tAlb,
+    uRockLum: { value: Math.max(0.02, 0.2126 * ra.x + 0.7152 * ra.y + 0.0722 * ra.z) } };
   let L = LEVELS.normal;
   const group = new THREE.Group();
   group.name = 'debris';
@@ -235,20 +282,22 @@ export function buildDebris(terrain, terrainView) {
       const td = terrain.trailDist[ix * NN + iz];
       let forest = gd[o + 1] / 255, litter = ld[o + 2] / 255;
       const wet = gd[o + 2] / 255, grass = gd[o + 3] / 255, scree = ld[o + 1] / 255, kind = ld[o + 3] / 255;
-      // stones: verges and the edges of the middle strip, scree, around the rock, on gravel and in stream beds; few in
-      // the ruts, none in mud
-      // (the verges by the trail distance itself: the dirt surface ends before them)
-      const verge = smooth(1.05, 1.5, td) * (1 - smooth(2.4, 3.2, td));
-      const crownEdge = smooth(0.15, 0.32, td) * (1 - smooth(0.42, 0.6, td));
-      let dStone = verge * 2.6 + trail * (crownEdge * 1.6 + 0.25) + scree * L.scree + rock * (1 - rock) * L.rockFoot + sand * L.sand + wet * sand * L.wetSand;
-      dStone *= (1 - mud) * (1 - 0.6 * grass * (1 - trail) * (1 - verge));
+      // stones: verges and the strip between the ruts, scree, around the rock, on gravel and in stream beds; none in mud
+      const [dStone, pBig] = stoneDensity(td, trail, rock, sand, mud, grass, wet, scree, L);
       let n = Math.floor(dStone + rnd());
       for (let k = 0; k < n; k++) {
-        const big = rnd() < 0.015 + scree * 0.2 + rock * 0.08, s = big ? 0.1 + rnd() * 0.16 * (1 + scree) : 0.025 + rnd() * 0.07 + rnd() * rnd() * 0.05;
-        // the rock's colour, dusted with the soil around it (warmer on the tracks), each stone a little different
-        const t = 0.1 + rnd() * 0.6, dust = (trail > 0.3 || verge > 0.3 ? 0.45 : 0.2) + rnd() * 0.3;
-        const c = rockColour(kind, t).map((e, k) => (e * (1 - dust) + SOIL[k] * dust) * (0.7 + rnd() * 0.35));
-        put(s < L.small ? out.pebble : out.blob, x + rnd() - 0.5, z + rnd() - 0.5, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), 0.15 + rnd() * 0.2);
+        const big = rnd() < pBig, s = big ? 0.1 + rnd() * (0.16 * (1 + scree) + 0.06 * trail) : 0.025 + rnd() * 0.07 + rnd() * rnd() * 0.05;
+        const sx = x + rnd() - 0.5, sz = z + rnd() - 0.5;
+        // where it lands: in a rut only grit, pressed in (the wheels pushed the rest aside)
+        const inRut = trail > 0.3 ? rutOf(terrain.trailDist[Math.round((sx + HALF) / CELL) * NN + Math.round((sz + HALF) / CELL)]) : 0;
+        if (inRut > 0.3 && s > 0.045) continue;
+        // the rock's colour, a little dust of the soil around it, each stone a little different (the dust at the
+        // foot is the shader's)
+        const t = 0.1 + rnd() * 0.6, dust = 0.14 + rnd() * 0.18;
+        const c = rockColour(kind, t).map((e, k) => (e * (1 - dust) + SOIL[k] * dust) * (0.75 + rnd() * 0.3));
+        // sunk into the ground: big ones on the tracks and scree a third or more (packed in), grit in the ruts deep
+        const sink = inRut > 0.3 ? 0.45 + rnd() * 0.15 : big && trail + scree > 0.3 ? 0.28 + rnd() * 0.15 : 0.2 + rnd() * 0.15;
+        put(s < L.small ? out.pebble : out.blob, sx, sz, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), sink);
       }
       // leaves and petals drift a few metres beyond the crowns (onto the tracks too)
       if (forest < 0.05 && wet < 0.5) for (const [ox, oz] of DRIFT) {
@@ -324,6 +373,10 @@ export function buildDebris(terrain, terrainView) {
       const level = q.veg === 'ultra' ? LEVELS.ultra : LEVELS.normal;
       if (level !== L) { L = level; cache.clear(); }
       shared.uSizeFade.value = L.sizeFade;
+      // the ground paints the stones beyond these (terrainView.js): from where the small ones go (sooner where small
+      // pieces fade early), the big ones' radius; none without 3D stones (Mobile)
+      U.uStoneR.value.set(enabled ? L.r.pebble * radiusScale * (L.sizeFade ? 0.6 : 1) : 1e5, enabled ? L.r.blob * radiusScale : 1e5);
+      U.uStoneK.value.set(L.scree, L.rockFoot, L.sand, L.wetSand);
       for (const M of Object.values(meshes)) {
         M.mesh.castShadow = L.allShadows && !!M.mesh.customDepthMaterial;
         if (M.twin) M.twin.visible = !L.allShadows;

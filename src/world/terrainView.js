@@ -326,6 +326,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
     uTile: { value: LAYER_TILE.map(t => 1 / t) }, uAvg: { value: layers.avg }, uDetail: { value: 2 },
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
+    uStoneR: { value: new THREE.Vector2(1e5, 1e5) }, uStoneK: { value: new THREE.Vector4(0.9, 1.5, 0.8, 1.2) },
     uSnow: { value: 330 },
   };
   const onBeforeCompile = (sh) => {
@@ -382,6 +383,8 @@ uniform float uTile[${LAYER_COUNT}];
 uniform vec3 uAvg[${LAYER_COUNT}];   // each layer's average colour
 uniform float uDetail, uWet, uTrackSize, uSnow;
 uniform vec2 uTrackOrigin;
+uniform vec2 uStoneR;   // the 3D stones' radii (debris.js): small, big; painted stones beyond them
+uniform vec4 uStoneK;   // the level's stone densities (debris.js LEVELS): scree, foot of rock, gravel, wet gravel
 varying vec3 vWPos;
 varying vec3 vFarN;
 float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0;
@@ -618,6 +621,62 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
   nW = normalize(mix(nW, n0, moss * 0.5));
+}
+// ---- painted stones: beyond the 3D ones (debris.js) the same stones, painted on the ground
+vec4 hash42(vec2 p) { vec4 p4 = fract(vec4(p.xyxy) * vec4(0.1031, 0.1030, 0.0973, 0.1099)); p4 += dot(p4, p4.wzxy + 33.33); return fract((p4.xxyz + p4.yzzw) * p4.zywx); }
+// stones per m² and the share of big ones from the ground data, as debris.js stoneDensity (keep the two in step);
+// rutQ: how much of a rut it is (none painted there)
+float stoneDensOf(vec4 nt, vec4 sp, vec4 gd, vec4 ld, out float big, out float rutQ) {
+  float td = nt.a * 6.0, trail = sp.r;
+  float verge = smoothstep(1.05, 1.5, td) * (1.0 - smoothstep(2.4, 3.2, td));
+  float crown = trail * (1.0 - smoothstep(0.3, 0.45, td));
+  float d = verge * 2.6 + crown * 1.4 + trail * 0.2 + ld.g * uStoneK.x + sp.b * (1.0 - sp.b) * uStoneK.y + sp.a * uStoneK.z + gd.b * sp.a * uStoneK.w;
+  d *= (1.0 - sp.g) * (1.0 - 0.6 * gd.a * (1.0 - trail) * (1.0 - verge));
+  big = min(0.6, 0.015 + ld.g * 0.2 + sp.b * 0.08 + (crown + verge) * 0.16);
+  rutQ = trail * exp(-pow((td - 0.8) / 0.3, 2.0));
+  return d;
+}
+float stoneDens(vec2 q, out float big, out float rutQ) {
+  vec2 uvN = ((q + uMap.x) / uMap.y + 0.5) / uMap.z, uvD = (q + uMap.x + 0.5) / (uMap.w + 1.0);
+  return stoneDensOf(textureLod(tNrm, uvN, 0.0), textureLod(tSplat, uvN, 0.0), textureLod(tData, uvD, 0.0), textureLod(tLand, uvD, 0.0), big, rutQ);
+}
+// one size class on a grid of cs m cells: at most one stone a cell, inside it with room for its shadow (the odds from
+// the ground data at the cell's centre, so a stone is never cut by a change in the data). cls 0: the small ones
+// (radius rr), 1: the big ones; fade: how much of it shows. Accumulates the stone's coverage, normal and colour, the
+// contact shade round it (cav) and the sun's shadow (sh)
+void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float kind, vec3 sunW,
+               inout float cov, inout vec3 sn, inout vec3 scol, inout float cav, inout float sh) {
+  vec2 cell = floor(xz / cs), cc = (cell + 0.5) * cs;
+  vec4 h = hash42(cell + cls * 71.3);
+  float big, rq;
+  float d = stoneDens(cc, big, rq);
+  if (h.x >= d * (cls > 0.5 ? big : 1.0 - big) * (1.0 - rq) * cs * cs) return;
+  vec4 h2 = hash42(cell * 1.7 + cls * 13.1 + 5.0);
+  float r = mix(rr.x, rr.y, h.y * h.y);
+  vec2 o = cc + (h.zw - 0.5) * (cs - 3.4 * r);
+  vec2 ax = vec2(cos(h2.x * 6.2832), sin(h2.x * 6.2832));
+  float asp = 0.65 + 0.35 * h2.y;
+  vec2 dv = xz - o;
+  float e = length(vec2(dot(dv, ax), dot(dv, vec2(-ax.y, ax.x)) / asp)) / r;
+  // the edge softened by the pixel's footprint across it (the ground far away is squeezed in one direction only)
+  vec2 gr = dv / max(dot(dv, dv), 1e-6) * e;
+  float aa = abs(dot(gr, gDx)) + abs(dot(gr, gDy)) + 0.04;
+  float k = (1.0 - smoothstep(1.0 - aa, 1.0 + aa, e)) * fade;
+  // a low, flat-topped stone: the normal leans out only near the edge (a rounder dome showed its far, unlit half and
+  // read darker than the 3D stones)
+  vec3 n = normalize(n0 * 2.4 * sqrt(max(1.0 - e * e, 0.03)) + vec3(dv.x, 0.0, dv.y) / r * 0.8);
+  // the rock's colour with a little dust (as debris.js), each stone its own
+  vec3 col = mix(rockTone(kind, 0.1 + 0.6 * h2.z), vec3(0.24, 0.16, 0.1), 0.14 + 0.18 * h2.w) * (0.75 + 0.3 * fract(h2.z * 7.31)) * vec3(1.0, 1.01, 0.95);
+  scol = mix(scol, col, k); sn = normalize(mix(sn, n, k)); cov = max(cov, k);
+  // a narrow contact shade and its shadow, only while the stone is a few pixels across: smaller, the stone fades into
+  // its edge's softening but a hard shade and shadow stayed, dark pits where the stones had gone
+  float res = 1.0 - smoothstep(0.12, 0.35, aa);
+  cav *= 1.0 - 0.25 * smoothstep(1.35, 1.0, e) * (1.0 - k) * fade * res;
+  // its shadow on the ground, away from the sun (a stone about half as high as it is wide)
+  vec2 so = o - sunW.xz / max(sunW.y, 0.35) * 0.45 * r;
+  vec2 ds = xz - so;
+  float es = length(vec2(dot(ds, ax), dot(ds, vec2(-ax.y, ax.x)) / asp)) / r;
+  sh *= 1.0 - 0.6 * (1.0 - smoothstep(1.0 - aa, 1.0 + aa, es)) * (1.0 - k) * fade * res * step(0.05, sunW.y);
 }`)
       .replace('#include <map_fragment>', `
 {
@@ -751,6 +810,29 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
         c *= 1.0 - 0.18 * groove * tread;
         nW = normalize(nW + vec3(dir.x, 0.0, dir.y) * dg * 1.2 * tread);
       }
+    }
+    // painted stones where the 3D ones shrink away (debris.js, between 0.72 and 1 of their radius) and beyond, drawn
+    // while they are a pixel or two across; smaller, their average: the colour and the shade they add
+    if (uDetail > 0.5 && inMap && dist > uStoneR.x * 0.72 && wTrail + sp.a + wRock + ld.g > 0.02) {
+      float fw = min(length(gDx), length(gDy));   // metres a pixel, the way the ground is not squeezed
+      vec3 sunW = vec3(0.0, 1.0, 0.0);
+      #if NUM_SUN_LIGHTS > 0
+      sunW = (vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz;
+      #endif
+      float inS = smoothstep(uStoneR.x * 0.72, uStoneR.x, dist), inB = smoothstep(uStoneR.y * 0.72, uStoneR.y, dist);
+      float kS = inS * smoothstep(0.5, 1.2, 0.06 / fw), kB = inB * smoothstep(0.5, 1.2, 0.17 / fw);
+      float cov = 0.0, cavS = 1.0, shS = 1.0; vec3 sn = nG, scol = vec3(0.0);
+      if (kS > 0.0) stoneCell(p.xz, 0.4, vec2(0.03, 0.11), 0.0, kS, nG, kind, sunW, cov, sn, scol, cavS, shS);
+      if (kB > 0.0) stoneCell(p.xz, 1.25, vec2(0.11, 0.28), 1.0, kB, nG, kind, sunW, cov, sn, scol, cavS, shS);
+      c = mix(c, scol, cov); nW = normalize(mix(nW, sn, cov));
+      c *= cavS; nn.b = mix(nn.b, 0.8, cov); hgt = mix(hgt, 0.9, cov);
+      gPomSh *= shS;
+      // the rest: too small to draw, their average (the area they cover, their colour, a little shade)
+      float bigP, rqP;
+      float dP = stoneDensOf(nt, sp, gd, ld, bigP, rqP) * (1.0 - rqP);
+      float fS = dP * (1.0 - bigP) * 0.0093 * inS * (1.0 - kS / max(inS, 1e-3)), fB = dP * bigP * 0.083 * inB * (1.0 - kB / max(inB, 1e-3));
+      float f = min(0.6, fS + fB);
+      c = mix(c, mix(rockTone(kind, 0.4), vec3(0.24, 0.16, 0.1), 0.2) * vec3(1.0, 1.01, 0.95), f);
     }
   } else {
     // far away: the layers' average colours (their last mip)
