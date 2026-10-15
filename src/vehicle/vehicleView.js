@@ -56,22 +56,25 @@ export class VehicleView {
 
   // Ambient light level of the scene (sun/moon + sky), used to scale the lamps: the scene is not
   // photometric, so a headlamp tuned for the night would paint a visible pool on the ground at noon.
-  ambientLevel() {
+  // The sun is a SunLight (no target: its position is the direction to it). The same light is the moon at night,
+  // where the lamps were tuned without it: it counts by day only (1 - darkness).
+  ambientLevel(darkness = 0) {
     const scene = this.m.root.parent;
     if (!scene) return 0.4;
     if (!this._sky) {
       this._sky = { sun: null, hemi: null };
       scene.traverse(o => {
-        if (o.isDirectionalLight && !this._sky.sun) this._sky.sun = o;
+        if ((o.isSunLight || o.isDirectionalLight) && !this._sky.sun) this._sky.sun = o;
         if (o.isHemisphereLight && !this._sky.hemi) this._sky.hemi = o;
       });
     }
     const { sun, hemi } = this._sky;
     let a = hemi ? (hemi.userData.level ?? hemi.intensity) : 0.3;
     if (sun) {
-      const dy = sun.position.y - sun.target.position.y;
-      const len = sun.position.distanceTo(sun.target.position) || 1;
-      a += sun.intensity * Math.max(0, dy / len);
+      let dy;
+      if (sun.target) { const len = sun.position.distanceTo(sun.target.position) || 1; dy = (sun.position.y - sun.target.position.y) / len; }
+      else dy = sun.position.y / (sun.position.length() || 1);
+      a += sun.intensity * Math.max(0, dy) * (1 - darkness);
     }
     return a;
   }
@@ -88,7 +91,7 @@ export class VehicleView {
     const live = env.night || head > 0 || ls.aux;
     for (const l of [L.head, ...L.aux, L.rear]) l.visible = live;
     if (live) writeLampPairs(L, m.root);   // their glints under the lamps, not between them
-    const amb = this.ambientLevel();
+    const amb = this.ambientLevel(env.darkness ?? 0);
     const k = Math.min(1, Math.max(0.12, 0.42 / Math.max(amb, 1e-3)));
 
     const hp = L.head.userData.peak;
