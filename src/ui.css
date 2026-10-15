@@ -17,6 +17,7 @@
   --hover: rgba(255, 255, 255, 0.08);
   --amber: #ffb020;
   --red: #ff4d3d;
+  --pn-r: 452px;   /* right edge of the side panel (.pn left + width, times its zoom): what the HUD moves aside for */
   --green: #3ddc84;
   --blue: #4ea8ff;
   /* older names, still used by tuning.css and the touch layer */
@@ -269,9 +270,9 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
    would cover (the top-left row with telemetry, the chassis panel) slides to its right; toasts, the tip and
    the gun panel centre on the space left over. Small windows: what the panel covers hides (the glass would
    show it through). */
-body.panel-open #hud .hud-tl, body.panel-open #hud .susp { left: calc(440px + 26px); }
-body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hud .tip { left: calc(50vw + 226px); }
-body.panel-open #hud .hud-top { width: min(calc(100vw - 452px - 2 * var(--gap)), calc(600 * var(--u))); }
+body.panel-open #hud .hud-tl, body.panel-open #hud .susp { left: calc(var(--pn-r) + 14px); }
+body.panel-open #hud .hud-top, body.panel-open #hud .gunbox, body.panel-open #hud .tip { left: calc(50vw + var(--pn-r) / 2); }
+body.panel-open #hud .hud-top { width: min(calc(100vw - var(--pn-r) - 2 * var(--gap)), calc(600 * var(--u))); }
 @media (max-width: 1100px) { body.panel-open #hud .hud-tl, body.panel-open #hud .susp { left: max(var(--gap), env(safe-area-inset-left)); visibility: hidden; } }
 body.touch-ui.panel-open #hud .hud-fps { visibility: hidden; }
 @media (max-width: 860px) { body.panel-open #hud .cluster { visibility: hidden; } }
@@ -462,6 +463,7 @@ body.touch-ui.panel-open #hud .hud-fps { visibility: hidden; }
   .pr { min-height: 40px; }
 }
 @media (min-width: 2000px) and (min-height: 1200px) {
+  :root { --pn-r: calc(452px * 1.2); }
   .pn { zoom: 1.2; }
 }
 
@@ -584,8 +586,8 @@ body.touch-ui .susp { bottom: auto; top: calc(max(var(--gap), env(safe-area-inse
   body.touch-ui .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 170 * var(--u)); }
   body.touch-ui.tc-drawer-open .hud-top { top: calc(max(var(--gap), env(safe-area-inset-top)) + 254 * var(--u)); }
 }
-body.touch-ui.panel-open .tc-steer { left: calc(440px + 24px); }
-body.touch-ui.panel-open .tc-tilt { left: calc(50vw + 226px); }
+body.touch-ui.panel-open .tc-steer { left: calc(var(--pn-r) + 12px); }
+body.touch-ui.panel-open .tc-tilt { left: calc(50vw + var(--pn-r) / 2); }
 @media (max-width: 940px) { body.touch-ui.panel-open .tc-layer { visibility: hidden; } }
 
 /* panel on a touch screen: no key caps, bigger targets */
