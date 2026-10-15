@@ -327,10 +327,12 @@ async function main() {
   game.action = id => input.onAction(id);
 
   // ---------------------------------------------------------------- pause and the side panel
-  // The panel (menu.js) doesn't pause: the game runs behind it. Pausing is its own state: the panel's pause
+  // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the panel's pause
   // button, or the window losing focus (setting autoPause). Driving input, a click on the view or the HUD's
-  // Paused badge resumes.
+  // Paused badge resumes. With menuPause off the game runs behind the panel.
+  let menuHold = false;           // the pause came from opening the panel: closing it resumes
   function setPaused(p) {
+    menuHold = false;
     if (game.paused === p) return;
     game.paused = p;
     document.body.classList.toggle('paused', p);
@@ -390,6 +392,11 @@ async function main() {
       else if (key === 'abs') vehicle.abs = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
+    else if (key === 'menuPause') {   // takes effect at once: the panel is open
+      settings.set(key, v, silent);
+      if (!v && menuHold) setPaused(false);
+      else if (v && !game.paused) { setPaused(true); menuHold = true; }
+    }
       else settings.set(key, v, silent);
       game.redraw = 3;
     },
@@ -404,7 +411,12 @@ async function main() {
     teleport,
     recover,
     applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
-    onOpen(open) { input.uiHandler = open ? ev => menu.handle(ev) : null; game.redraw = 3; },
+    onOpen(open) {
+      input.uiHandler = open ? ev => menu.handle(ev) : null;
+      if (open && started && settings.get('menuPause') && !game.paused) { setPaused(true); menuHold = true; }
+      else if (!open && menuHold) setPaused(false);
+      game.redraw = 3;
+    },
   });
   game.menu = menu;
   colliderView.setEnabled(!!tuning.state.ui.overlay);
