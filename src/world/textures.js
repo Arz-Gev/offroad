@@ -145,8 +145,9 @@ float blocksAt(vec2 uv, out vec3 data) {
   data = vec3(bh.y * 0.8 + sn * 0.2, 1.0 - smoothstep(0.0, 0.05, e), smoothstep(0.62, 0.9, streak) * (0.6 + 0.4 * fy));
   return 0.3 + 0.5 * bevel + lean * bevel + (sn - 0.5) * 0.25 * bevel;
 }
-// rock from above: slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped
-// slabs), each slab tilted, fine cracks. Height unit 0.3 m
+// slabs ~3 m across (4 to the 12 m tile) between wavy joints, some of them closed (bigger, odd-shaped slabs), each
+// slab tilted, fine cracks: the dried mud's curled plates, small (the rock from above no longer takes them). Height
+// unit 0.3 m
 float slabsAt(vec2 uv, out vec3 data) {
   vec2 p = uv * 4.0 + (vec2(pnoise(uv * 8.0, 8.0), pnoise(uv * 8.0 + 0.5, 8.0)) - 0.5) * 0.5;
   vec2 i = floor(p), f = fract(p);
