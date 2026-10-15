@@ -102,14 +102,6 @@ kbd.cap.touch { border-radius: 999px; padding: 0 0.6em; border-color: rgba(255, 
   display: flex; flex-direction: column; align-items: center; gap: calc(6 * var(--u));
   transition: left 0.18s ease;
 }
-.paused-b {
-  position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 1;
-  pointer-events: auto; cursor: pointer;
-  display: inline-flex; align-items: center; gap: calc(8 * var(--u)); height: calc(36 * var(--u)); padding: 0 calc(16 * var(--u)) 0 calc(13 * var(--u));
-  border: 0; border-radius: 999px; background: #fff; color: #000; font: 650 calc(13 * var(--u))/1 var(--sans);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-}
-.paused-b .ic { width: calc(15 * var(--u)); height: calc(15 * var(--u)); }
 .toasts { display: flex; flex-direction: column; align-items: center; gap: calc(6 * var(--u)); }
 .toast {
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 0.35em;
