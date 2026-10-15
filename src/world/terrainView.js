@@ -3,6 +3,9 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL, HILL, POI, STREAM } from './terrain.js';
 import { bakeGroundLayers, LAYER, LAYER_COUNT, LAYER_TILE } from './textures.js';
 import { makeSimplex2D, fbm } from './noise.js';
+import { cloudDFGTexture, CLOUD_DFG_GLSL, lightsFragmentBeginDFG } from './clouds.js';
+// three's DFG table (the source of its dfgLUT), for the terrain's copy of the cloud coverage (clouds.js)
+import DFG_SRC from 'three/src/renderers/shaders/DFGLUTData.js?raw';
 
 // Terrain renderer: CDLOD over the 1 km physics map and the 8 km render-only vista, drawn as one instanced grid
 // patch (32x32 quads; level k has vertex spacing 0.5 * 2^k m). The CPU walks a quadtree each frame (frustum culled,
@@ -328,6 +331,7 @@ export function buildTerrainView(terrain, renderer, opts = {}) {
     uWet: { value: 0 }, uDew: { value: 0 }, uTrack: { value: null }, uTrackOrigin: { value: new THREE.Vector2() }, uTrackSize: { value: 64 },
     uStoneR: { value: new THREE.Vector2(1e5, 1e5) }, uStoneK: { value: new THREE.Vector4(0.9, 1.5, 0.8, 1.2) },
     uSnow: { value: 330 },
+    tCloudDFG: { value: cloudDFGTexture(Uint16Array.from(DFG_SRC.slice(DFG_SRC.indexOf('DATA')).match(/0x[0-9a-f]{4}/gi).slice(0, 512), Number)) },
   };
   const onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
@@ -374,7 +378,9 @@ if (max(abs(transformed.x), abs(transformed.z)) > uMap.x - 48.0) {
   vFarN = vec3(tHgtFar(q - vec2(e, 0.0)) - tHgtFar(q + vec2(e, 0.0)), 2.0 * e, tHgtFar(q - vec2(0.0, e)) - tHgtFar(q + vec2(0.0, e)));
 }`);
     sh.fragmentShader = sh.fragmentShader
+      .replace('#include <lights_fragment_begin>', lightsFragmentBeginDFG())
       .replace('#include <common>', `#include <common>
+${CLOUD_DFG_GLSL}
 precision highp sampler2DArray;
 uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
 uniform sampler2DArray tAlb, tLNrm;
@@ -969,12 +975,12 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_TIGHT: '', POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_DFG: '', POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
-    m.defines = defines(lite);   // CLOUD_TIGHT: at the 16-texture limit with the lamps' cookies (clouds.js)
+    m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
     m.customProgramCacheKey = () => 'terrain-cdlod-v4' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '');
     return m;
   };
