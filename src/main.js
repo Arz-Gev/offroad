@@ -328,7 +328,7 @@ async function main() {
 
   // ---------------------------------------------------------------- pause and the side panel
   // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the panel's pause
-  // button, or the window losing focus (setting autoPause). Driving input, a click on the view or the HUD's
+  // button, or the window losing focus (setting autoPause). Driving input, a click (not a drag) on the view or the HUD's
   // Paused badge resumes. With menuPause off the game runs behind the panel.
   let menuHold = false;           // the pause came from opening the panel: closing it resumes
   function setPaused(p) {
@@ -425,7 +425,11 @@ async function main() {
   hud.onMenu = () => menu.toggle();
   hud.onFullscreen = () => menu.runAction('fullscreen');
   hud.onResume = () => setPaused(false);
-  canvas.addEventListener('pointerdown', () => { if (game.paused) setPaused(false); });
+  // a click on the view resumes; a drag only looks around (the paused view keeps drawing while the camera moves)
+  let press = null;
+  canvas.addEventListener('pointerdown', e => { press = game.paused ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null; });
+  canvas.addEventListener('pointermove', e => { if (press?.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) press = null; });
+  canvas.addEventListener('pointerup', e => { if (press?.id === e.pointerId && game.paused) setPaused(false); press = null; });
 
   const autoPause = () => { if (started && settings.get('autoPause')) setPaused(true); };
   window.addEventListener('blur', autoPause);
@@ -476,6 +480,7 @@ async function main() {
     settings.set('time', Math.round(env.hour * 1e4) / 1e4, { silent: true, flow: true });
   }
 
+  let lookUntil = 0;
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -522,8 +527,10 @@ async function main() {
     }
     mark('physics');
     mp.update(paused ? 0 : dt, now - acc, { night: env.night, darkness: env.darkness, shadows: true });
-    // paused: render only on change
-    const draw = !paused || game.redraw > 0 || env.active;
+    // paused: render only on change, or while the camera moves and settles back (cameraRig: idle after 1.6 s)
+    const m = input.mouse;
+    if (m.down || m.dx || m.dy || m.wheel) lookUntil = performance.now() + 5000;
+    const draw = !paused || game.redraw > 0 || env.active || performance.now() < lookUntil;
     if (game.redraw > 0) game.redraw--;
     if (draw) {
       const alpha = acc / H;
