@@ -37,7 +37,7 @@ export function buildProps(RAPIER, world, terrain, colliderSurface, rockMaterial
         next.meshes.push(rocks);
       }
       for (const h of R.hulls) next.items.push({ x: h.x, z: h.z, desc: () => { const d = RAPIER.ColliderDesc.convexHull(h.pts); return d && d.setTranslation(h.x, h.y, h.z).setFriction(0.9); }, surface: SURFACES.rock });
-      for (const s of t.sites) if (s.type === 'hut') buildHut(next, RAPIER, t, s, rockMat, beamMat, mulberry32(strHash(s.id)));
+      for (const s of t.sites) if (s.type === 'hut') buildHut(next, RAPIER, t, s, rockMat, beamMat, mulberry32(s.seed ?? strHash(s.id)));
     }] };
   };
   const apply = (next) => {

@@ -19,7 +19,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
-| 📋 Endless world | Large | Everything is built for the fixed 1 km map: the terrain collider is one heightfield, the ground data (surfaces, grass density, forest floor) are map-sized textures that grass, bushes, flowers, life and water read, and trees and props are placed at load. Endless needs a height and surface function defined everywhere (the vista's low-frequency field is a start), the collider and the ground-data textures streamed in chunks round the truck (textures re-centred as it drives), trees and props made per chunk, and places like the lake and the quarry placed by rules. |
+| 📋 Endless map: load time and swap hitch | Medium | World > Map > Endless (`DEVNOTES` → Maps). It loads in ~7-10 s (Classic ~3 s) and each window swap costs one 20-30 ms frame about every 10 s at speed. Its fps has only been measured headless, not in a visible window. Rock walls on cliffs can change pattern about every 2 km. |
 
 ## Known gaps (not asked for yet)
 

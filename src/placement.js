@@ -3,11 +3,12 @@ import { ORIGIN } from './world/origin.js';
 import { MAP_SIZE } from './world/terrain.js';
 import { rideRaise } from './vehicle/tuning.js';
 
-// Putting the vehicle somewhere: the menu's locations (the start and the places found while driving), teleports
-// (near ones at once, far ones once the window round them is built: streamer.js) and Recover (R).
-// ctx: { RAPIER, world, terrain, vehicle, trees, props, streamer, spawn (world coordinates), onPlaced(), say() }.
+// Putting the vehicle somewhere: the menu's locations, teleports and Recover (R). A map with fixed places
+// (maps/index.js places()) lists those; an endless one lists the start and the places found while driving, and
+// teleports to far ones once the window round them is built (streamer.js).
+// ctx: { RAPIER, world, terrain, vehicle, trees, props, streamer (endless maps), map, spawn (world coordinates),
+// onPlaced(), say() }.
 
-const FOUND_KEY = 'offroad.found.v1';
 const NAMES = {
   hut: { tag: 'Ruin', title: 'Ruined hut', desc: 'An old stone hut by the road. Walls to nose up to, rubble round it.' },
   lake: { tag: 'Water', title: 'Lake', desc: 'A lake in a hollow, a sandy shore, a stream running in from the hills.' },
@@ -16,7 +17,8 @@ const NAMES = {
 };
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 
-export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props, streamer, spawn, onPlaced, say }) {
+export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props, streamer, map, spawn, onPlaced, say }) {
+  const FOUND_KEY = `offroad.found.${map.id}.v1`;
   // the nearest point on a road to (x, z) (local), facing along it; back: metres back along the road
   function trailSpot(x, z, back = 0, maxD = Infinity) {
     let best = null, bd = maxD * maxD;
@@ -39,8 +41,10 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
   let found = [];
   try { found = JSON.parse(localStorage.getItem(FOUND_KEY) || '[]').filter(s => NAMES[s.type]); } catch { found = []; }
   const teleports = [];
+  const fixed = map.places ? map.places(terrain, trailSpot).map(p => ({ ...p, ax: p.x + ORIGIN.x, az: p.z + ORIGIN.z, fixed: true })) : null;
   const rebuild = () => {
     teleports.length = 0;
+    if (fixed) { teleports.push(...fixed); return; }
     teleports.push({ name: 'Start', tag: 'Road', title: 'The start', desc: 'Where the world begins: a road out into the hills, every way open.', ax: spawn.x, az: spawn.z, yaw: spawn.yaw, start: true });
     for (const s of [...found].sort((a, b) => Math.hypot(a.x - spawn.x, a.z - spawn.z) - Math.hypot(b.x - spawn.x, b.z - spawn.z))) teleports.push(describe(s));
   };
@@ -48,7 +52,7 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
   // places within ~120 m of the truck are found (checked twice a second)
   let findT = 0;
   const discover = (dt) => {
-    if ((findT -= dt) > 0) return;
+    if (fixed || (findT -= dt) > 0) return;
     findT = 0.5;
     for (const s of terrain.sites) {
       if (!NAMES[s.type] || found.some(f => f.id === s.id)) continue;
@@ -65,7 +69,7 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
   // a location's local position and heading (in the current window)
   const localSpot = (t) => {
     const x = t.ax - ORIGIN.x, z = t.az - ORIGIN.z;
-    if (t.start) return { x, z, yaw: t.yaw };
+    if (t.start || t.fixed) return { x, z, yaw: t.yaw };
     const s = t.site;
     if (s.type === 'lake') {
       // on the shore, facing the water
@@ -110,7 +114,7 @@ export function createPlacement({ RAPIER, world, terrain, vehicle, trees, props,
   // is built. spot(): the local spot once there (default: the point itself)
   const near = (ax, az) => Math.abs(ax - ORIGIN.x) < MAP_SIZE / 2 - 120 && Math.abs(az - ORIGIN.z) < MAP_SIZE / 2 - 120;
   const placeWorld = async (ax, az, yaw, spot = null) => {
-    if (!near(ax, az)) {
+    if (streamer && !near(ax, az)) {
       say?.('place', 'Travelling…', '', 6);
       const ok = await streamer.goTo(ax, az);
       if (!ok) return false;

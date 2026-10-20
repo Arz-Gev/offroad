@@ -1,6 +1,6 @@
 import { World } from './worldgen.js';
 import { Terrain } from './terrain.js';
-import { bakeWindow } from './windowBake.js';
+import { bakeWindow, windowData } from './windowBake.js';
 import { TREE_KINDS } from './treeKinds.js';
 
 // Builds windows of the world off the main thread: { type: 'init', seed } answers { type: 'spawn' }; { type: 'window',
@@ -39,19 +39,9 @@ export function buildWindow(world, dims, ox, oz) {
   const t0 = performance.now();
   const t = new Terrain(world, ox, oz);
   const b = bakeWindow(t, dims);
-  // trail distance 0..6 m in 8 bits (the terrain's normal bake reads it)
-  const trailByte = new Uint8Array(t.trailDist.length);
-  for (let i = 0; i < trailByte.length; i++) trailByte[i] = Math.round(255 * Math.min(1, t.trailDist[i] / 6));
-  const win = {
-    trailByte,
-    ox, oz,
-    heights: t.heights, surface: t.surface, trailDist: t.trailDist, far: t.far,
-    water: t.water, sites: t.sites, muds: t.muds, lakes: t.lakes,
-    roads: t.roads.map(r => ({ key: r.key, xs: r.path.xs, zs: r.path.zs, hs: Float64Array.from(r.hs), spur: r.spur })),
-    ...b,
-    times: { ...t.times, ...b.bakeTimes, total: Math.round(performance.now() - t0) },
-  };
-  const transfer = [trailByte.buffer, t.heights.buffer, t.surface.buffer, t.trailDist.buffer, t.far.heights.buffer, b.splat.buffer, b.groundData.buffer, b.landData.buffer,
+  const win = windowData(t, b);
+  win.times = { ...t.times, ...b.bakeTimes, total: Math.round(performance.now() - t0) };
+  const transfer = [win.trailByte.buffer, t.heights.buffer, t.surface.buffer, t.trailDist.buffer, t.far.heights.buffer, b.splat.buffer, b.groundData.buffer, b.landData.buffer,
     b.trees.buffer, b.farTrees.buffer, b.farLand.buffer, b.logs.buffer, b.rocks.pos.buffer, b.rocks.nrm.buffer, b.rocks.col.buffer, b.rocks.idx.buffer,
     ...b.pyramid.mins.map(a => a.buffer), ...b.pyramid.maxs.map(a => a.buffer), ...b.pyramid.rocks.map(a => a.buffer), ...b.grassDens.map(l => l.a.buffer)];
   return { win, transfer };

@@ -75,7 +75,7 @@ export function makeSplat(terrain) {
 
 // ground data at 1 m: r = ambient occlusion under the canopy (the trees; the terrain's own is the normal map's sky
 // visibility), g = forest floor, b = wetness, a = grass density. hgt: the heights at 1 m (texel x, z at z * DN + x)
-function makeGroundData(terrain, splat, hgt) {
+export function makeGroundData(terrain, splat, hgt) {
   const groundData = new Uint8Array(DN * DN * 4);
   const ox = terrain.ox, oz = terrain.oz;
   for (let i = 0; i < DN * DN; i++) groundData[i * 4] = 255;
@@ -126,7 +126,10 @@ function makeGroundData(terrain, splat, hgt) {
 //   a rock kind: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate
 // The flow is worked out inside the window only, so the upstream area of a long valley is cut off at the window's
 // edge; it only feeds a smooth "drainage line" term that saturates (sst 5.5..11 of log2 cells) well inside a window.
-function bakeLand(terrain, hgt, wet) {
+// land (a map's own, maps.js): dry: the heights (m) over which the land dries out; slate: patches of slate by noise;
+// regions: rock kinds by place ({ x, z, r0, r1, k }, local), else from the sites (quarries, lookouts)
+export function bakeLand(terrain, hgt, wet, land = {}) {
+  const dry = land.dry || [60, 160], slate = land.slate ?? true;
   const M = (DN - 1) / 2 + 1;
   const ox = terrain.ox, oz = terrain.oz;
   // ---- flow on a 2 m grid: multiple flow directions (each cell sheds to all its lower neighbours by slope), cells
@@ -178,8 +181,8 @@ function bakeLand(terrain, hgt, wet) {
   // ---- rock kinds: limestone or granite by large patches, slate in places, sandstone in the quarries, granite on
   // the lookouts
   const kn = makeSimplex2D(9137);
-  const regions = [];
-  for (const s of terrain.sites) {
+  const regions = land.regions ? [...land.regions] : [];
+  if (!land.regions) for (const s of terrain.sites) {
     if (s.type === 'quarry') regions.push({ x: s.x, z: s.z, r0: 70, r1: 110, k: 2 / 3 });
     else if (s.type === 'lookout') regions.push({ x: s.x, z: s.z, r0: 120, r1: 190, k: 1 / 3 });
   }
@@ -194,11 +197,11 @@ function bakeLand(terrain, hgt, wet) {
     const hollow = Math.max(-1, Math.min(1, (b1[i] - h) * 0.7 + (b2[i] - h) * 0.12));
     const n = fbm(kn, wx * 0.006, wz * 0.006, 3);
     const lush = 0.5 + 0.34 * drain + 0.3 * hollow - 0.2 * sunny + 0.45 * near[i] - 0.2 * sst(0.35, 0.9, slope)
-      - 0.2 * sst(60, 160, h) + 0.22 * n;
+      - 0.2 * sst(dry[0], dry[1], h) + 0.22 * n;
     out[i * 4] = Math.round(255 * Math.max(0, Math.min(1, lush)));
     out[i * 4 + 1] = Math.round(255 * Math.max(0, Math.min(1, at2(scree, x / 2, z / 2) * 1.15)));
     let kw = 1, ks = fbm(kn, wx * 0.0021 + 31, wz * 0.0021, 2) > 0.05 ? 1 / 3 : 0;
-    const sl = fbm(kn, wx * 0.0017 - 17, wz * 0.0017, 2);
+    const sl = slate ? fbm(kn, wx * 0.0017 - 17, wz * 0.0017, 2) : 0;
     if (sl > 0.25) { const w = sst(0.25, 0.4, sl) * 4; kw += w; ks += w; }
     for (const r of regions) {
       const d = Math.hypot(lx - r.x, lz - r.z);
@@ -213,7 +216,7 @@ function bakeLand(terrain, hgt, wet) {
 // min / max height per 16 m cell over the vista (8 km) and whether a cell has rock within reach; then the coarser
 // levels (2x2 merged), as terrainView's quadtree walks them
 export const PYR_LEVELS = 10;
-function makePyramid(terrain) {
+export function makePyramid(terrain) {
   const FAR_HALF = FAR_SIZE / 2, L0 = FAR_SIZE / 16, H = terrain.heights;
   const mins = [], maxs = [], rocks = [];
   const mn = new Float32Array(L0 * L0), mx = new Float32Array(L0 * L0);
@@ -398,7 +401,15 @@ function placeTrees(terrain, dims, gd, ld) {
     logs.push(x, Math.max((h0 + h1) / 2, hm) + r * 0.8, z, yaw, Math.atan2(h1 - h0, L), r, LOG_LEN.indexOf(L));
   }
 
-  // ---- ground data: forest floor under the crowns, less grass, a little darker; the litter
+  forestFloor(trees, dims, gd, ld);
+  const T = new Float32Array(trees.length * 7);
+  trees.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v, t.sub], i * 7); });
+  return { trees: T, logs: Float32Array.from(logs) };
+}
+
+// the ground data under the trees (trees: { x, z, s, v } local): forest floor under the crowns, less grass, a little
+// darker; the litter (needles, leaves or petals) into the land data
+export function forestFloor(trees, dims, gd, ld) {
   for (const t of trees) {
     const v = dims[t.v];
     const litter = v.kind === 'blossom' ? 255 : v.kind === 'spruce' || v.kind === 'pine' ? 0 : 128;
@@ -419,9 +430,6 @@ function placeTrees(terrain, dims, gd, ld) {
       gd[o] = Math.max(100, gd[o] - 50 * w * canopy - (d < 0.25 ? 30 : 0));
     }
   }
-  const T = new Float32Array(trees.length * 7);
-  trees.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v, t.sub], i * 7); });
-  return { trees: T, logs: Float32Array.from(logs) };
 }
 
 // ---------------------------------------------------------------- the far ring of trees
@@ -635,6 +643,39 @@ function placeRocks(terrain) {
   return { pos, nrm, col, idx, hulls };
 }
 
+// the grass density's max over 2^l x 2^l m blocks (grass.js skips tiles with none)
+export function grassPyramid(groundData) {
+  const grassDens = [];
+  let w = DN, cur = new Uint8Array(DN * DN);
+  for (let i = 0; i < DN * DN; i++) cur[i] = groundData[i * 4 + 3];
+  grassDens.push({ w, a: cur });
+  while (w > 1) {
+    const w2 = Math.ceil(w / 2), nxt = new Uint8Array(w2 * w2);
+    for (let z = 0; z < w2; z++) for (let x = 0; x < w2; x++) {
+      const x0 = 2 * x, z0 = 2 * z, x1 = Math.min(w - 1, x0 + 1), z1 = Math.min(w - 1, z0 + 1);
+      nxt[z * w2 + x] = Math.max(cur[z0 * w + x0], cur[z0 * w + x1], cur[z1 * w + x0], cur[z1 * w + x1]);
+    }
+    w = w2; cur = nxt;
+    grassDens.push({ w, a: cur });
+  }
+  return grassDens;
+}
+
+// a window as plain data (terrain: its terrain.js, b: its bake)
+export function windowData(t, b) {
+  // trail distance 0..6 m in 8 bits (the terrain's normal bake reads it)
+  const trailByte = new Uint8Array(t.trailDist.length);
+  for (let i = 0; i < trailByte.length; i++) trailByte[i] = Math.round(255 * Math.min(1, t.trailDist[i] / 6));
+  return {
+    trailByte,
+    ox: t.ox, oz: t.oz,
+    heights: t.heights, surface: t.surface, trailDist: t.trailDist, far: t.far,
+    water: t.water, sites: t.sites, muds: t.muds, lakes: t.lakes,
+    roads: (t.roads || []).map(r => ({ key: r.key, xs: r.path.xs, zs: r.path.zs, hs: Float64Array.from(r.hs), spur: r.spur })),
+    ...b,
+  };
+}
+
 // ---------------------------------------------------------------- the whole bake
 // dims: tree variant dims (treeKinds.js). Returns plain arrays (transferable)
 export function bakeWindow(terrain, dims) {
@@ -661,21 +702,6 @@ export function bakeWindow(terrain, dims) {
   lap('rocks');
   const pyramid = makePyramid(terrain);
   lap('pyramid');
-  // the grass density's max over 2^l x 2^l m blocks (grass.js skips tiles with none)
-  const grassDens = [];
-  {
-    let w = DN, cur = new Uint8Array(DN * DN);
-    for (let i = 0; i < DN * DN; i++) cur[i] = groundData[i * 4 + 3];
-    grassDens.push({ w, a: cur });
-    while (w > 1) {
-      const w2 = Math.ceil(w / 2), nxt = new Uint8Array(w2 * w2);
-      for (let z = 0; z < w2; z++) for (let x = 0; x < w2; x++) {
-        const x0 = 2 * x, z0 = 2 * z, x1 = Math.min(w - 1, x0 + 1), z1 = Math.min(w - 1, z0 + 1);
-        nxt[z * w2 + x] = Math.max(cur[z0 * w + x0], cur[z0 * w + x1], cur[z1 * w + x0], cur[z1 * w + x1]);
-      }
-      w = w2; cur = nxt;
-      grassDens.push({ w, a: cur });
-    }
-  }
+  const grassDens = grassPyramid(groundData);
   return { splat, groundData, landData, groundN: DN, trees, farTrees, farLand, logs, rocks, pyramid, grassDens, bakeTimes: times };
 }

@@ -46,7 +46,10 @@ export const roomFromURL = () => {
   const r = new URLSearchParams(location.search).get('room');
   return r && /^[a-z0-9-]{3,40}$/i.test(r) ? r : null;
 };
-const inviteURL = id => `${location.origin}${location.pathname}?room=${id}`;
+// the invite carries the map (maps/index.js): whoever opens it plays that map for the session
+export const mapFromURL = () => new URLSearchParams(location.search).get('map');
+const roomQuery = (id, map) => `?room=${id}${map ? `&map=${map}` : ''}`;
+const inviteURL = (id, map) => `${location.origin}${location.pathname}${roomQuery(id, map)}`;
 const newRoomId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
 // fields VehicleView reads from a Vehicle
@@ -63,7 +66,7 @@ function makeProxy(P) {
 }
 
 export class Multiplayer {
-  // api: { RAPIER, world, scene, vehicle, view, settings, say(key, html, kind), placeNear(x, z, yaw) }
+  // api: { RAPIER, world, scene, vehicle, view, settings, map (its id), say(key, html, kind), placeNear(x, z, yaw) }
   constructor(api) {
     this.api = api;
     this.room = null;
@@ -95,7 +98,8 @@ export class Multiplayer {
     this.roomId = id;
     this.follow = follow;
     const { joinRoom } = await import('trystero');
-    const room = this.room = joinRoom({ appId: APP_ID }, id);
+    // one room per map (the classic map keeps the bare id): friends on another map never meet in the wrong land
+    const room = this.room = joinRoom({ appId: APP_ID }, this.api.map === 'classic' ? id : `${id}.${this.api.map}`);
     this.hello = room.makeAction('hello');
     this.state = room.makeAction('st');
     room.onPeerJoin = peerId => { this.peer(peerId); this.hello.send(this.helloData(), { target: peerId }); };
@@ -108,10 +112,10 @@ export class Multiplayer {
   async invite() {
     if (!this.room) {
       const id = newRoomId();
-      history.replaceState(null, '', `?room=${id}`);
+      history.replaceState(null, '', roomQuery(id, this.api.map));
       await this.join(id);
     }
-    const url = inviteURL(this.roomId);
+    const url = inviteURL(this.roomId, this.api.map);
     try {
       await navigator.clipboard.writeText(url);
       this.api.say('mp', 'Invite link copied: send it to your friends', 'good');

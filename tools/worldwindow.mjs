@@ -1,13 +1,25 @@
-// For the Node tools: a window of the endless world, built as the game's worker builds it (terrain + baked data).
+// For the Node tools: a window of a map (src/world/maps/), built as the game builds it (terrain + baked data).
 //   const { world, terrain, win, spawn } = loadWindow();
-// Centred on the start; WX= / WZ= (world coordinates) for another place, SEED= for another world. Local coordinates
-// (the window's centre is 0, 0), as in the game.
+// MAP= picks the map (default: the game's default, the classic one: the baselines in DEVNOTES are on it). The endless
+// one: centred on the start; WX= / WZ= (world coordinates) for another place, SEED= for another world. Local
+// coordinates (the window's centre is 0, 0), as in the game.
 import { World } from '../src/world/worldgen.js';
 import { Terrain, WINDOW_STEP } from '../src/world/terrain.js';
 import { buildWindow } from '../src/world/windowWorker.js';
 import { TREE_KINDS } from '../src/world/treeKinds.js';
+import { MAPS } from '../src/world/maps/index.js';
+import { ClassicTerrain, SPAWN } from '../src/world/maps/classic/terrain.js';
+import { bakeClassic } from '../src/world/maps/classic/bake.js';
 
 export function loadWindow(opts = {}) {
+  const map = opts.map ?? process.env.MAP ?? MAPS[0].id;
+  if (map === 'classic') {
+    const t0 = performance.now();
+    const terrain = new ClassicTerrain(7);
+    const dims = TREE_KINDS.map(k => { const g = k.build(); return { kind: k.kind, crownR: g.crownR, trunkR: g.trunkR }; });
+    const win = bakeClassic(terrain, dims);
+    return { world: null, terrain, win, spawn: { ...SPAWN }, ms: performance.now() - t0 };
+  }
   const world = new World(+(opts.seed ?? process.env.SEED ?? 7));
   const sp = world.spawn();
   const snap = v => Math.round(v / WINDOW_STEP) * WINDOW_STEP;
@@ -21,7 +33,7 @@ export function loadWindow(opts = {}) {
   return { world, terrain, win, spawn, ms: performance.now() - t0 };
 }
 
-// the longest road of the window that keeps inside it (for laps and profiles)
+// the longest road of the window that keeps inside it (for laps and profiles; endless maps)
 export function longestRoad(terrain, margin = 40) {
   let best = null, bl = 0;
   for (const r of terrain.roads) {

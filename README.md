@@ -11,7 +11,7 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS.md** for the open work list.
 
 ## Controls
-**Esc** (gamepad **Menu**) opens the side panel; the game keeps running behind it. Its sections: **Car** (pick a car, engine, tyre pressure, lights), **Driving** (gearbox, 4×4, assists), **Tuning** (Tab), **Places** (P, teleport), **View**, **World** (time, weather, fog), **Graphics**, **HUD**, **General** (sound, units), **Friends** (multiplayer: Invite copies a link, and whoever opens it drives next to you, peer to peer, no server) and **Controls** (H, with what each HUD icon means). The ⓘ next to a setting explains it. Its pause button pauses; so does switching to another window. Settings are saved in the browser.
+**Esc** (gamepad **Menu**) opens the side panel; the game keeps running behind it. Its sections: **Car** (pick a car, engine, tyre pressure, lights), **Driving** (gearbox, 4×4, assists), **Tuning** (Tab), **Places** (P, teleport), **View**, **World** (map, time, weather, fog), **Graphics**, **HUD**, **General** (sound, units), **Friends** (multiplayer: Invite copies a link, and whoever opens it drives next to you, peer to peer, no server) and **Controls** (H, with what each HUD icon means). The ⓘ next to a setting explains it. Its pause button pauses; so does switching to another window. Settings are saved in the browser.
 
 | Keyboard | Gamepad | Touch | Action |
 |---|---|---|---|
@@ -53,7 +53,8 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 - **Drivetrain**: 4.6 V8 torque curve, idle governor, stall + starter, rev limiter, engine-braking/pumping losses. Manual 5-speed with clutch (or auto-clutch) and rev-match/grind logic; 6-speed automatic with torque converter, lock-up and shift schedule. LT230-style transfer case (high/low), lockable centre diff, front/rear lockers, transmission handbrake on the rear prop, ABS. Solved as velocity constraints (PGS). Engine torque rock and axle wrap feed back into the chassis.
 - **Audio**: procedural cross-plane V8 (AudioWorklet), gravel/skid/mud/wind, transfer whine, gear grind. No suspension or impact sounds yet.
 
-## Map
+## Maps
+World > Map picks one (the game restarts on it). **Endless**: a world with no edge, made as you drive, with roads, lakes, huts, quarries and lookouts; places you find are added to Places. **Classic** (the default):
 1 km procedural terrain inside mountain ranges that run on to the horizon. The original core: trail loop + branch with ruts and a mud hole, a big hill, and a proving ground: A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber. Around it: a 2.5 km outer trail loop past a lake, a stream with a ford, meadows with a ruined hut, an old quarry, a pine forest, and a spiral track up a lookout peak. P opens Places. Graphics quality (Auto/Low/Medium/High/Ultra) and resolution scale are in the Graphics section.
 
 ## Credits

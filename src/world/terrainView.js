@@ -587,10 +587,18 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     nG = normalize(vFarN);
     vec4 dz1 = textureGrad(tNoise, p.xz / ${ppf(41)}, gDx / ${ppf(41)}, gDy / ${ppf(41)}), dz2 = textureGrad(tNoise, p.xz / ${ppf(13)} + 0.5, gDx / ${ppf(13)}, gDy / ${ppf(13)});
     nG = normalize(nG + vec3(dz1.r - 0.5, 0.0, dz1.g - 0.5) * 0.7 + vec3(dz2.b - 0.5, 0.0, dz2.a - 0.5) * 0.35);
-    // the vista's land (windowBake.js makeFarLand): as the window's, from the coarse heights
     sp = vec4(0.0); nt.b = 1.0;
+    #ifdef FAR_LAND
+    // the vista's land (windowBake.js makeFarLand): as the window's, from the coarse heights
     gd = vec4(1.0 - 0.3 * vFarLand.y, vFarLand.y, 0.0, 1.0 - 0.55 * vFarLand.y);
     ld = vec4(vFarLand.x, 0.0, 0.0, vFarLand.z);
+    #else
+    // a map without the vista's land (maps/index.js farLand): lushness and rock kind from noise, higher is drier and
+    // stonier; forest by noise too (below)
+    gd = vec4(1.0, 0.0, 0.0, 1.0);
+    ld = vec4(clamp(0.45 + (mac2 - 0.5) * 0.8 - smoothstep(120.0, 320.0, p.y) * 0.35 - dot(nG.xz, SUN_SIDE) * 0.4, 0.0, 1.0), 0.0, 0.0,
+              smoothstep(0.4, 0.6, mac) * 0.333 + smoothstep(0.62, 0.72, wq.g) * 0.4);
+    #endif
   }
   float td = inMap ? nt.a * 6.0 : 6.0;
   float vis = nt.b;
@@ -617,6 +625,9 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   float wDirt = wTrail * (1.0 - 0.8 * verge) * (1.0 - 0.85 * crown);
   float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
+  #ifndef FAR_LAND
+  if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
+  #endif
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
   // lines, in hollows and by water, with patches of clover (blue-green) and of thin, sun-bleached grass
@@ -815,13 +826,13 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_DFG: '', POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_DFG: '', ...(opts.farLand ? { FAR_LAND: '' } : {}), POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v6' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v6' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);

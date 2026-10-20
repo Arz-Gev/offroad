@@ -3,8 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { installShaderPatches } from './render/shaderPatches.js';
 import { RenderPipeline } from './render/pipeline.js';
 
-import { Terrain } from './world/terrain.js';
-import { Streamer } from './world/streamer.js';
+import { MAPS, mapById } from './world/maps/index.js';
 import { ORIGIN, setOrigin } from './world/origin.js';
 import { buildTerrainView } from './world/terrainView.js';
 import { loadGroundPhotos } from './world/textures.js';
@@ -41,13 +40,12 @@ import { Menu } from './menu.js';
 import { Settings } from './settings.js';
 import { GameAudio } from './audio/audio.js';
 import { Dust, Tracks } from './effects.js';
-import { Multiplayer, roomFromURL } from './multiplayer.js';
+import { Multiplayer, roomFromURL, mapFromURL } from './multiplayer.js';
 import './ui.css';
 
 installShaderPatches();     // before any material compiles
 
 const H = 1 / 240;          // physics step
-const WORLD_SEED = 7;       // one world for everyone (friends in a room see the same land)
 const MAX_STEPS = 16;
 
 async function main() {
@@ -69,23 +67,23 @@ async function main() {
   const pipeline = new RenderPipeline(renderer, scene, camera);
 
   setLoading('Generating terrain…', 0.2); await frame();
+  const settings = new Settings();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = H;
-  // the endless world: windows of it are built in a worker round the truck (streamer.js); the hooks are filled in
-  // once every system exists
+  // the map (world/maps/): its first window of land; an endless one streams more in as the truck drives (the hooks
+  // are filled in once every system exists)
+  // (an invite link names its map: played for this session, the saved choice stays)
+  const map = mapById(MAPS.some(m => m.id === mapFromURL()) ? mapFromURL() : settings.get('map'));
   const hooks = {};
-  const streamer = new Streamer(WORLD_SEED, { prepare: (t, w) => hooks.prepare(t, w), apply: (t, w, dx, dz) => hooks.apply(t, w, dx, dz) });
-  const spawnW = await streamer.spawn;   // world coordinates
-  const win0 = await streamer.first(spawnW.x, spawnW.z);
-  console.info('first window', win0.times);
+  const { terrain, win: win0, spawn: spawnW, streamer, farLand, fallY } = await map.open({ hooks });
+  if (win0.times) console.info('first window', win0.times);
   setOrigin(win0.ox, win0.oz);
-  const terrain = Terrain.fromData(win0);
   terrain.createCollider(RAPIER, world, GROUP_GROUND);
   const SPAWN = { x: spawnW.x - ORIGIN.x, z: spawnW.z - ORIGIN.z, yaw: spawnW.yaw };   // local, in the first window
   const scenery = { parts: [], configure(q) { for (const p of this.parts) p.configure?.(q); }, update(dt, cam, focus) { for (const p of this.parts) p.update?.(dt, cam, focus); } };
   const env = new Environment(renderer, scene, pipeline);
   setLoading('Painting the ground…', 0.4); await frame();
-  const terrainView = buildTerrainView(terrain, renderer, win0, { noise: env.sky.noise, photos: await groundPhotos });
+  const terrainView = buildTerrainView(terrain, renderer, win0, { noise: env.sky.noise, photos: await groundPhotos, farLand });
   scene.add(terrainView.mesh);
   scenery.parts.push(terrainView);
   const grass = buildGrass(terrainView);
@@ -99,6 +97,8 @@ async function main() {
   const colliderSurface = new Map();
   const props = buildProps(RAPIER, world, terrain, colliderSurface, makeRockMaterial(terrainView.layers, { vertexColors: true }), win0);
   scene.add(props.group);
+  const extras = map.extras?.({ RAPIER, world, terrain, colliderSurface });
+  if (extras) scene.add(extras);
   setLoading('Growing the forest…', 0.58); await frame();
   const trees = buildTrees(RAPIER, world, colliderSurface, renderer, grass.shared.uWind, win0);
   scene.add(trees.group);
@@ -119,7 +119,6 @@ async function main() {
   props.stream.update(SPAWN.x, SPAWN.z);
 
   setLoading('Building the truck…', 0.68); await frame();
-  const settings = new Settings();
   const car = settings.get('car');
   useCar(car);   // before the panel is built: stock, ranges and saved setups are per car
   const tuningApi = {};
@@ -170,13 +169,14 @@ async function main() {
     game.redraw = 3;
   };
   const { teleports, nearestLocation, placeVehicle, placeWorld, teleportTo, visit, discover, recover: recoverVehicle } = createPlacement({
-    RAPIER, world, terrain, vehicle, trees, props, streamer, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
+    RAPIER, world, terrain, vehicle, trees, props, streamer, map, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { map, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
   window.game = game;
 
   const mp = new Multiplayer({
+    map: map.id,
     RAPIER, world, scene, vehicle, view, settings,
     say: (key, html, kind) => hud.toast(html, { kind, key }),
     placeNear: (x, z, yaw) => placeWorld(x, z, yaw),   // world coordinates
@@ -417,6 +417,7 @@ async function main() {
         case 'autoClutch': return d.clutchAssist;
         case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
+        case 'map': return map.id;   // (an invite link's map may differ from the saved one)
         case 'timeQuick': return quickTime(settings.get('time')) || '';
         case 'sound': return !settings.get('muted');
         case 'pressureText': return fmtPressure(vehicle.pressure, settings.get('pressureUnit'));
@@ -471,7 +472,14 @@ async function main() {
     },
     teleport,
     recover,
-    applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
+    // a car or map picked in the menu: saved, then the game starts again with it
+    restartWith(key, v) {
+      settings.set(key, v, { silent: true });
+      // a map named by an invite link (multiplayer.js) gives way to the one picked
+      const q = new URLSearchParams(location.search);
+      if (key === 'map' && q.has('map')) { q.set('map', v); history.replaceState(null, '', `?${q}`); }
+      location.reload();
+    },
     onOpen(open) {
       input.uiHandler = open ? ev => menu.handle(ev) : null;
       if (open && started && settings.get('menuPause') && !game.paused) { setPaused(true); menuHold = true; }
@@ -585,8 +593,8 @@ async function main() {
       }
       if (steps === MAX_STEPS) acc = 0;
       game.stepsPerFrame = steps;
-      if (curPos.y < -400) { teleport(0); say('place', 'Fell out of the world: back at the start', 'warn'); }
-      streamer.update(vehicle.pos.x, vehicle.pos.z);
+      if (curPos.y < fallY) { teleport(0); say('place', 'Fell out of the world: back at the start', 'warn'); }
+      streamer?.update(vehicle.pos.x, vehicle.pos.z);
       discover(dt);
     }
     mark('physics');
@@ -625,7 +633,7 @@ async function main() {
       cam: rig.mode, paused, raw,
       gun: gunnery ? { gunnery, sight: gunnerView, fov: rig.gunnerFov, locked: !!document.pointerLockElement } : null,
       mp: mp.room ? { n: mp.count, solid: !!settings.get('solidTrucks') } : null,
-      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${(vehicle.pos.x + ORIGIN.x).toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${(vehicle.pos.z + ORIGIN.z).toFixed(1)}  windows ${streamer.windows}${streamer.busy ? ' …' : ''}`,
+      telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${(vehicle.pos.x + ORIGIN.x).toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${(vehicle.pos.z + ORIGIN.z).toFixed(1)}${streamer ? `  windows ${streamer.windows}${streamer.busy ? ' …' : ''}` : ''}`,
     });
     tuning.update(dt, vehicle, raw);
     menu.update(dt);

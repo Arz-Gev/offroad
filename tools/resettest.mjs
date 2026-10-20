@@ -21,7 +21,7 @@ const roll = +(process.env.ROLL || 0) * Math.PI / 180;
 const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
 
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 }); world.timestep = H;
-const { terrain, win } = loadWindow();   // a window of the world (worldwindow.mjs: the start, or WX= / WZ=)
+const { terrain, win, spawn } = loadWindow();   // a window of the world (worldwindow.mjs: the start, or WX= / WZ=)
 terrain.createCollider(RAPIER, world);
 const colliderSurface = new Map();
 const props = buildProps(RAPIER, world, terrain, colliderSurface, null, win);
@@ -30,7 +30,7 @@ props.stream.update(0, 0); props.stream.ring = 99; props.stream.cur = -1; props.
 world.step();
 const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
 const P = carParams();
-const v = new Vehicle(RAPIER, world, P, { position: { x: 0, y: terrain.heightAt(0, 0) + 1, z: 0 }, surfaceAt });
+const v = new Vehicle(RAPIER, world, P, { position: { x: spawn.x, y: terrain.heightAt(spawn.x, spawn.z) + 1, z: spawn.z }, surfaceAt });
 const m = v.totalMass, I = P.bodyInertia;
 const energy = () => {
   const w = v.angVel.clone().applyQuaternion(v.quat.clone().invert());
