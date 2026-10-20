@@ -66,6 +66,17 @@ vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);`);
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
     if (opts.translucent) {
+      // the crown casts from its twin, 1.35x larger, which also covers the crown's own sunlit (moonlit) side: look
+      // the shadow up half a crown radius towards the light, so the outer leaves come out of it and only the inside
+      // stays shaded (the impostor goes a whole radius; without this the near crown went much darker than its
+      // impostor, nearly black by moonlight)
+      sh.uniforms.uCrownSun = { value: CLOUD.sun };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform vec4 uCrownSun;')
+        .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
+#if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
+vSunShadowWorldPosition.xyz += uCrownSun.xyz * (${(0.5 * opts.crownR).toFixed(2)} * length(instanceMatrix[0].xyz));
+#endif`);
       // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
       // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
@@ -92,7 +103,7 @@ outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
 #include <opaque_fragment>`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + '-v2';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + (opts.crownR ? '-r' + opts.crownR.toFixed(2) : '') + '-v3';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -221,7 +232,10 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT);
     const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak' });
+    // the lamps light the cards from whichever side faces them (lamps.js), as on the grass: the cards' normals point
+    // out of the crown, mostly up, so the undersides of the branches stood black in the headlamps
+    crownMat.defines = { TK_THIN: '' };
+    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak', crownR: v.geo.crownR });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
     const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
@@ -250,6 +264,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  impMat.defines = { TK_THIN: '' };   // lit by the lamps like the near crowns
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
   const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current

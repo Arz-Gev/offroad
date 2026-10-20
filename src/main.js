@@ -300,6 +300,13 @@ async function main() {
       if (settings.get('quality') !== 'custom') settings.set('quality', 'custom', { silent: true }); else applyGraphics();
     }])),
     renderScale: () => applyGraphics(),
+    ...Object.fromEntries(['groundGrass', 'groundRoad', 'groundGravel', 'groundSoft', 'groundWander'].map(key => [key, () => terrainView.setGround({
+      grass: settings.get('groundGrass'), road: settings.get('groundRoad'), gravel: settings.get('groundGravel'),
+      soft: settings.get('groundSoft'), wander: settings.get('groundWander'),
+    })])),
+    ...Object.fromEntries(['rockJoints', 'rockCracks', 'rockBeds'].map(key => [key, () => terrainView.setRockLines({
+      joints: settings.get('rockJoints'), cracks: settings.get('rockCracks'), beds: settings.get('rockBeds'),
+    })])),
     solidTrucks: () => mp.setSolid(),
     dust: v => dust.setEnabled(v),
     touchControls: v => touch.configure({ mode: v }),
@@ -369,34 +376,44 @@ async function main() {
       const q = QUICK_ORDER.find(n => QUICK_HOURS[n] > h + 0.01) || QUICK_ORDER[0];
       settings.set('time', QUICK_HOURS[q], { animate: true });
     },
-    menu: () => menu.open(),
-    locations: () => menu.open('locations'),
-    controls: () => menu.open('controls'),
+    menu: () => menu.toggle(),
+    locations: () => menu.toggle('places'),
+    controls: () => menu.toggle('controls'),
     mute: () => toggle('muted'),
     suspension: () => toggle('suspension'),
     telemetry: () => toggle('telemetry'),
-    tuning: () => tuning.toggle(),
+    tuning: () => menu.toggle('tuning'),
   };
   input.onAction = id => { if (ACTIONS[id] && hasControl(id)) ACTIONS[id](); };
   game.action = id => input.onAction(id);
 
-  // ---------------------------------------------------------------- pause menu
+  // ---------------------------------------------------------------- pause and the side panel
+  // Pausing is its own state: opening the panel (setting menuPause; closing it resumes), the pause button
+  // (HUD and panel), or the window losing focus (setting autoPause). Driving input or a click (not a drag) on the view
+  // resumes. With menuPause off the game runs behind the panel.
+  let menuHold = false;           // the pause came from opening the panel: closing it resumes
   function setPaused(p) {
+    menuHold = false;
     if (game.paused === p) return;
     game.paused = p;
     document.body.classList.toggle('paused', p);
     audio.setPaused(p);
     input.reset();
     touch.release();
-    input.uiHandler = p ? ev => menu.handle(ev) : null;
+    hud.setPaused(p);
     game.redraw = 3;
   }
+  Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   const menu = new Menu({
     locations: teleports,
+    tuning,
     device: () => input.device,
+    paused: () => game.paused,
+    setPaused,
     get(key) {
       switch (key) {
         case 'gearbox': return d.gearboxSetting;
+        case 'boxMode': return d.mode === 'auto' ? 'auto' : d.autoShift ? 'autoshift' : 'manual';
         case 'autoClutch': return d.clutchAssist;
         case 'arcadeAuto': return !!settings.get('arcadeAuto');
         case 'camera': return rig.mode;
@@ -406,6 +423,13 @@ async function main() {
         case 'headlights': return view.lights.head;
         case 'auxLights': return view.lights.aux;
         case 'hazards': return view.lights.hazard;
+        case 'engine': return d.running || d.cranking;
+        case 'range': return d.range;
+        case 'drive': return d.rwd ? '2wd' : '4wd';
+        case 'diffLayout': return { nA: d.nA, centre: d.layout.centre, axles: d.layout.axles.map(ax => ({ driven: ax.driven, lsd: ax.diff === 'lsd', lockable: !!d.layout.lockers && ax.driven && ax.diff !== 'lsd' })) };
+        case 'lockState': return { c: d.centreLocked, a: [...d.locks], driven: d.layout.axles.map((ax, a) => d.isDriven(a)) };
+        case 'traction': return vehicle.tc;
+        case 'abs': return vehicle.abs;
         case 'here': return nearestLocation();
         case 'mpNote': return mp.note;
         case 'name': return mp.name;
@@ -413,14 +437,27 @@ async function main() {
         default: return settings.get(key);
       }
     },
+    // the live switches go through the same calls as their keys, so a refused change (range on the move)
+    // says why in a toast
     set(key, v) {
       const silent = { silent: true };
       if (key === 'sound') settings.set('muted', !v, silent);
       else if (key === 'headlights') setHeadlights(v, true);
       else if (key === 'auxLights') view.lights.aux = !!v && model.lights.aux.length > 0;
       else if (key === 'hazards') view.lights.hazard = !!v;
+      else if (key === 'engine') { if (v && !d.running && !d.cranking) d.startEngine(); else if (!v && (d.running || d.cranking)) d.stopEngine(); }
+      else if (key === 'range') { if (v !== d.range) d.toggleRange(vehicle.speed); }
+      else if (key === 'drive') { if ((v === '2wd') !== d.rwd) d.toggleRwd(vehicle.speed); }
+      else if (key === 'lock') { if (v === 'c') d.toggleCenterLock(); else d.locks[+v] = !d.locks[+v]; }
+      else if (key === 'traction') vehicle.tc = !!v;
+      else if (key === 'abs') vehicle.abs = !!v;
       else if (key === 'timeQuick') settings.set('time', QUICK_HOURS[v], silent);
       else if (key === 'resetSettings') { settings.reset(); applyGraphics(); }
+    else if (key === 'menuPause') {   // takes effect at once: the panel is open
+      settings.set(key, v, silent);
+      if (!v && menuHold) setPaused(false);
+      else if (v && !game.paused) { setPaused(true); menuHold = true; }
+    }
       else settings.set(key, v, silent);
       game.redraw = 3;
     },
@@ -435,16 +472,28 @@ async function main() {
     teleport,
     recover,
     applyCar(c) { settings.set('car', c, { silent: true }); location.reload(); },
-    onPause: setPaused,
+    onOpen(open) {
+      input.uiHandler = open ? ev => menu.handle(ev) : null;
+      if (open && started && settings.get('menuPause') && !game.paused) { setPaused(true); menuHold = true; }
+      else if (!open && menuHold) setPaused(false);
+      game.redraw = 3;
+    },
   });
   game.menu = menu;
-  Object.assign(tuningApi, { vehicle, settings, colliderView, action: id => input.onAction(id), toast: (html, kind, key) => say(key, html, kind), redraw: () => { game.redraw = 3; } });
   colliderView.setEnabled(!!tuning.state.ui.overlay);
+  colliderView.setSuspension(!!tuning.state.ui.suspView);
   game.setPaused = setPaused;
-  hud.onMenu = () => menu.open();
+  hud.onMenu = () => menu.toggle();
   hud.onFullscreen = () => menu.runAction('fullscreen');
+  hud.onResume = () => setPaused(false);
+  hud.onPause = () => setPaused(true);
+  // a click on the view resumes; a drag only looks around (the paused view keeps drawing while the camera moves)
+  let press = null;
+  canvas.addEventListener('pointerdown', e => { press = game.paused ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null; });
+  canvas.addEventListener('pointermove', e => { if (press?.id === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) press = null; });
+  canvas.addEventListener('pointerup', e => { if (press?.id === e.pointerId && game.paused) setPaused(false); press = null; });
 
-  const autoPause = () => { if (started && settings.get('autoPause') && !menu.blocking) menu.open(); };
+  const autoPause = () => { if (started && settings.get('autoPause')) setPaused(true); };
   window.addEventListener('blur', autoPause);
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
 
@@ -493,6 +542,7 @@ async function main() {
     settings.set('time', Math.round(env.hour * 1e4) / 1e4, { silent: true, flow: true });
   }
 
+  let lookUntil = 0;
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -503,6 +553,7 @@ async function main() {
     input.gunner = gunnerView;
     input.turret = !!vehicle.turret;
     const raw = game.autopilot ? game.autopilot(vehicle, dt) : input.raw;
+    if (game.paused && (raw.throttle > 0.15 || raw.brake > 0.15 || Math.abs(raw.steer) > 0.15)) setPaused(false);   // driving resumes
     const paused = game.paused;
     const now = performance.now() / 1000;
     // in the sight the mouse turns the turret (px -> rad by the field of view)
@@ -540,8 +591,10 @@ async function main() {
     }
     mark('physics');
     mp.update(paused ? 0 : dt, now - acc, { night: env.night, darkness: env.darkness, shadows: true });
-    // paused: render only on change
-    const draw = !paused || game.redraw > 0 || env.active;
+    // paused: render only on change, or while the camera moves and settles back (cameraRig: idle after 1.6 s)
+    const m = input.mouse;
+    if (m.down || m.dx || m.dy || m.wheel) lookUntil = performance.now() + 5000;
+    const draw = !paused || game.redraw > 0 || env.active || performance.now() < lookUntil;
     if (game.redraw > 0) game.redraw--;
     if (draw) {
       const alpha = acc / H;
@@ -571,9 +624,11 @@ async function main() {
     hud.update(dt, vehicle, view, {
       cam: rig.mode, paused, raw,
       gun: gunnery ? { gunnery, sight: gunnerView, fov: rig.gunnerFov, locked: !!document.pointerLockElement } : null,
+      mp: mp.room ? { n: mp.count, solid: !!settings.get('solidTrucks') } : null,
       telemetry: () => `steps/frame ${game.stepsPerFrame}  cam ${rig.mode}  time ${env.hourText}\npos ${(vehicle.pos.x + ORIGIN.x).toFixed(1)} ${vehicle.pos.y.toFixed(1)} ${(vehicle.pos.z + ORIGIN.z).toFixed(1)}  windows ${streamer.windows}${streamer.busy ? ' …' : ''}`,
     });
     tuning.update(dt, vehicle, raw);
+    menu.update(dt);
     mark('hud');
     if (draw && render) pipeline.render(paused ? 1 / 60 : dt);
     mark('render');

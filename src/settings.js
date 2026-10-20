@@ -31,7 +31,8 @@ export const DEFAULTS = {
   suspension: false,        // wheel load / travel panel
   telemetry: false,
   fps: true,
-  autoPause: true,          // open the menu when the window loses focus
+  autoPause: true,          // pause when the window loses focus
+  menuPause: true,          // opening the menu pauses the game; closing it resumes
   touchControls: 'auto',    // on-screen controls (touch.js): 'auto' (while you use the touch screen) | 'on' | 'off'
   touchSteer: 'stick',      // touch steering: 'stick' (left thumb slides) | 'tilt' (turn the device like a wheel)
   quality: 'auto',          // graphics preset: 'auto' | 'mobile' | 'low' | 'medium' | 'high' | 'ultra' | 'custom'
@@ -46,6 +47,10 @@ export const DEFAULTS = {
   gTerrain: 2,              // terrain shading detail 0..3
   gTreeShadows: true,       // distant (impostor) trees cast shadows
   gVeg: 'high',             // grass and bushes preset: 'off' | 'low' | 'medium' | 'high' | 'ultra' (render/quality.js)
+  // ground photos' size (times their real size) and the edges between the ground's layers (terrainView setGround);
+  // tuning sliders while the player picks the look
+  groundGrass: 3.7, groundRoad: 4.1, groundGravel: 3.2, groundSoft: 0.45, groundWander: 1,
+  rockJoints: 0.35, rockCracks: 1, rockBeds: 0.6,   // the rock's lines (terrainView setRockLines), the same kind of sliders
   dust: true,               // dust, mud and water splashes from the tyres (Graphics; not part of the presets)
   name: '',                 // multiplayer name over the truck ('' = pick one on the first join)
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
@@ -80,6 +85,7 @@ const CHOICES = {
 const RANGES = {
   time: [0, 24], fov: [45, 110], volume: [0, 1], hudScale: [0.7, 1.5], renderScale: [0.5, 1], brightness: [0.6, 2],
   gDpr: [1, 2], gViewDist: [0.6, 1.5],
+  groundGrass: [1, 8], groundRoad: [1, 8], groundGravel: [1, 8], groundSoft: [0, 1], groundWander: [0, 1], rockJoints: [0, 1], rockCracks: [0, 1], rockBeds: [0, 1],
 };
 
 export const storage = {

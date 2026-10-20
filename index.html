@@ -26,7 +26,7 @@
     #loading .ld-box { width: min(340px, calc(100vw - 48px)); text-align: center; }
     #loading .ld-title { font: 800 32px/1.1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .01em; }
     #loading .ld-bar { height: 3px; margin: 22px 0 10px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; }
-    #loading .ld-bar i { display: block; height: 100%; background: #ffb347; transform-origin: 0 50%; transform: scaleX(var(--p, .04)); transition: transform .3s ease; }
+    #loading .ld-bar i { display: block; height: 100%; background: #fff; transform-origin: 0 50%; transform: scaleX(var(--p, .04)); transition: transform .3s ease; }
     #loading .ld-t { color: rgba(238,241,244,.6); font-size: 13px; min-height: 1.4em; }
     #loading.error .ld-bar i { background: #ff5a45; }
     #loading .ld-err { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: rgba(255,90,69,.1); border: 1px solid rgba(255,90,69,.35); color: #ffd2cb; font-size: 13px; line-height: 1.5; text-align: left; }
@@ -37,7 +37,6 @@
 <body>
   <canvas id="c" aria-label="Game view"></canvas>
   <div id="hud"></div>
-  <div id="menu" class="overlay" hidden></div>
   <div id="loading" role="status" aria-live="polite">
     <div class="ld-box">
       <div class="ld-title">Offroad</div>

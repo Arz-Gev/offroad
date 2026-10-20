@@ -11,7 +11,7 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS.md** for the open work list.
 
 ## Controls
-**Esc** (gamepad **Menu**) pauses and opens the menu (to change the car, pick it in Settings and press **Apply & restart**): **Locations** (teleport), **Settings** (gearbox, camera, time of day, sound and volume, units, HUD options) and the full **Controls** list. **Friends** is multiplayer: Invite copies a link, and whoever opens it drives next to you (peer to peer, no server). The first start shows a short controls card. Settings are saved in the browser.
+**Esc** (gamepad **Menu**) opens the side panel; the game keeps running behind it. Its sections: **Car** (pick a car, engine, tyre pressure, lights), **Driving** (gearbox, 4×4, assists), **Tuning** (Tab), **Places** (P, teleport), **View**, **World** (time, weather, fog), **Graphics**, **HUD**, **General** (sound, units), **Friends** (multiplayer: Invite copies a link, and whoever opens it drives next to you, peer to peer, no server) and **Controls** (H, with what each HUD icon means). The ⓘ next to a setting explains it. Its pause button pauses; so does switching to another window. Settings are saved in the browser.
 
 | Keyboard | Gamepad | Touch | Action |
 |---|---|---|---|
@@ -35,17 +35,17 @@ See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS
 | C | Y | Cam | Camera: chase, cockpit, hood, wheel, orbit |
 | Mouse drag · wheel | Right stick | Drag the view · pinch | Look around · zoom |
 | N |  |  | Time of day: day, dusk, night |
-| P |  |  | Locations (teleport picker; 1–7 in the picker) |
-| H |  |  | Controls list |
+| P |  |  | Places (teleport; number keys pick one) |
+| H |  |  | Controls list and HUD icons |
 | V |  |  | Sound on / off |
-| U |  |  | Suspension and tyre-load panel |
+| U |  |  | Chassis panel: wheel loads, travel, slip, lean |
 | F3 or ` |  |  | Telemetry |
 
 **BTR-80 turret** (Turret group in the Controls list): **right mouse** (touch **Sight**) toggles the gunner's sight; click in it and the mouse turns the turret and the gun at the hand-wheel speeds; mouse wheel zooms. The **arrows** (or numpad 8 2 4 6) turn the turret and the gun in any camera, so on the BTR you drive with **W A S D**; gamepad: right stick in the sight. **Left mouse** or **Enter** (gamepad right stick click, touch **Fire**) fires, **1** switches between the 14.5 mm KPVT and the coaxial 7.62 mm PKT. Every round is a tracer. Belts and reloads are shown in the gun panel.
 
 Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 
-**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Settings → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **Vehicle** button next to the menu holds range, diff locks, 2WD / 4WD, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones and tablets get the **Mobile** graphics preset: no anti-aliasing, shadows, ambient occlusion or grass, medium ground shading, and a pixel density that sets itself between 100 and 150 % to hold 45–60 fps. Best in landscape. The fullscreen button next to Menu (it pulses until you first use it) goes full screen on Android, tablets and desktop; on iPhone it explains Share → Add to Home Screen, which then starts full screen.
+**Phones and tablets**: on-screen controls appear as soon as you touch the screen (Menu → Controls → Touch screen: auto / on / off, thumb or tilt steering). Left thumb steers, right thumb works the pedals (analog: higher up the pedal is more), ▲ ▼ shift, the **Vehicle** button next to the menu holds range, diff locks, 2WD / 4WD, engine, lights, tyres and tuning. Drag the view to look around, pinch to zoom. Phones and tablets get the **Mobile** graphics preset: no anti-aliasing, shadows, ambient occlusion or grass, medium ground shading, and a pixel density that sets itself between 100 and 150 % to hold 45–60 fps. Best in landscape. The fullscreen button next to Menu (it pulses until you first use it) goes full screen on Android, tablets and desktop; on iPhone it explains Share → Add to Home Screen, which then starts full screen.
 
 ## What is simulated
 - **Chassis**: Rapier rigid body. **Solid beam axles** (front + rear) with heave + roll DOF, own mass and inertia, coil springs, digressive dampers, bump stops, droop limits, anti-roll bars → real articulation and wheel hop.
@@ -54,7 +54,7 @@ Browser shortcuts (Cmd/Ctrl/Alt combinations, F5, F11, F12) are never captured.
 - **Audio**: procedural cross-plane V8 (AudioWorklet), gravel/skid/mud/wind, transfer whine, gear grind. No suspension or impact sounds yet.
 
 ## Map
-1 km procedural terrain inside mountain ranges that run on to the horizon. The original core: trail loop + branch with ruts and a mud hole, a big hill, and a proving ground: A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber. Around it: a 2.5 km outer trail loop past a lake, a stream with a ford, meadows with a ruined hut, an old quarry, a pine forest, and a spiral track up a lookout peak. P opens the location picker. Graphics quality (Auto/Low/Medium/High/Ultra) and resolution scale are in Settings.
+1 km procedural terrain inside mountain ranges that run on to the horizon. The original core: trail loop + branch with ruts and a mud hole, a big hill, and a proving ground: A axle twister + whoops, B steps 15–45 cm + logs, C rock garden, D ramps 20°/30°/35°, E mud + off-camber. Around it: a 2.5 km outer trail loop past a lake, a stream with a ford, meadows with a ruined hut, an old quarry, a pine forest, and a spiral track up a lookout peak. P opens Places. Graphics quality (Auto/Low/Medium/High/Ultra) and resolution scale are in the Graphics section.
 
 ## Credits
 - Multiplayer: [Trystero](https://github.com/dmotz/trystero) (MIT).

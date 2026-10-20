@@ -19,7 +19,8 @@ export const BASE = 1200, TOP = 3000;
 // call (~0.5 ms of cloud shadows at 2592x1362 on an M1 Pro, and most of the march). A DataTexture: the clone
 // each material gets of it shares the source, so one GPU texture.
 const NOISE_CELLS = 64, CELL = 900;   // cells of the coarsest octave across the texture, metres a cell
-function makeCoverNoise(N = 1024) {
+const NOISE_N = 1024;                 // texels across
+function makeCoverNoise(N = NOISE_N) {
   let seed = 4242;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const sum = new Float32Array(N * N);
@@ -59,15 +60,15 @@ export const CLOUD_GLSL = /* glsl */`
 uniform vec4 uCloudMap;
 uniform vec4 uCloudSun;
 float cHash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-#if defined( CLOUD_TIGHT ) && NUM_SPOT_LIGHT_MAPS > 0
-// a material at the 16-texture limit (the terrain with the headlamps' cookies, i.e. at night, when there are no
-// cloud shadows anyway) does without
-float cloudShadow(vec3 p) { return 1.0; }
+#ifdef CLOUD_DFG
+#define tCloudCover tCloudDFG   // the terrain: its own copy (CLOUD_DFG_GLSL)
 #else
 uniform sampler2D tCloudNoise;
+#define tCloudCover tCloudNoise
+#endif
 // cloud coverage over a world xz (m): 0 clear sky .. 1 a thick cloud
 float cloudCover(vec2 xz) {
-  float n = textureLod(tCloudNoise, (xz + uCloudMap.xy) / ${(CELL * NOISE_CELLS).toFixed(1)}, 0.0).r;
+  float n = textureLod(tCloudCover, (xz + uCloudMap.xy) / ${(CELL * NOISE_CELLS).toFixed(1)}, 0.0).r;
   return smoothstep(1.0 - uCloudMap.z, 1.0 - uCloudMap.z + 0.22, n);
 }
 // sunlight left after the clouds above a world point (soft: the shadow of the coverage, not of every puff)
@@ -76,11 +77,51 @@ float cloudShadow(vec3 p) {
   vec2 q = p.xz + uCloudSun.xz / max(uCloudSun.y, 0.12) * max(uCloudSun.w - p.y, 0.0);
   return 1.0 - uCloudMap.w * smoothstep(0.02, 0.5, cloudCover(q));
 }
-#endif
 `;
 
 export function cloudUniforms() {
   return { uCloudMap: { value: CLOUD.map }, uCloudSun: { value: CLOUD.sun }, tCloudNoise: { value: CLOUD.noise } };
+}
+
+// The terrain is at the 16-texture limit with the lamps' two cookies. It reads the coverage and three's DFG table
+// (dfgLUT: the split-sum scale and bias, 16 x 16) from one texture of its own: R the coverage, G the table's scale
+// and bias side by side. A variant of the terrain without the cloud lookup (to fit the cookies) lit the whole ground
+// as if the clouds had gone the moment a lamp was switched on. Define CLOUD_DFG, add CLOUD_DFG_GLSL and read the DFG
+// through dfgOf (lightsFragmentBeginDFG).
+const DFG_X = 8, DFG_Y = 8, DFG_BIAS = 32;   // texel of the scale table's corner; the bias table this far across
+let coverDFG = null;
+// dfg: three's table as half floats, scale and bias interleaved, a row per dotNV, roughness across
+export function cloudDFGTexture(dfg) {
+  if (coverDFG) return coverDFG;
+  if (dfg.length !== 512) console.warn('clouds: three\'s DFG table is not 16 x 16 any more');
+  const N = NOISE_N, src = CLOUD.noise.image.data, data = new Uint16Array(N * N * 2);
+  for (let i = 0; i < N * N; i++) data[i * 2] = src[i];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const o = (DFG_Y + y) * N + DFG_X + x, i = (y * 16 + x) * 2;
+    data[o * 2 + 1] = dfg[i];
+    data[(o + DFG_BIAS) * 2 + 1] = dfg[i + 1];
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGFormat, THREE.HalfFloatType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return coverDFG = t;
+}
+
+export const CLOUD_DFG_GLSL = /* glsl */`
+uniform sampler2D tCloudDFG;
+// three's DFG table, filtered as three filters its own (linear, clamped to the edge)
+vec2 dfgOf(float roughness, float dotNV) {
+  vec2 t = (clamp(vec2(roughness, dotNV) * 16.0 - 0.5, 0.0, 15.0) + vec2(${DFG_X + 0.5}, ${DFG_Y + 0.5})) / ${NOISE_N.toFixed(1)};
+  return vec2(textureLod(tCloudDFG, t, 0.0).g, textureLod(tCloudDFG, t + vec2(${(DFG_BIAS / NOISE_N).toFixed(6)}, 0.0), 0.0).g);
+}`;
+
+// three's lights_fragment_begin with its DFG lookup through dfgOf (dfgLUT then goes unused and takes no texture unit)
+export function lightsFragmentBeginDFG() {
+  const c = THREE.ShaderChunk.lights_fragment_begin, from = 'texture2D( dfgLUT, vec2( material.roughness, dotNVms ) )';
+  if (!c.includes(from)) console.warn('clouds: lights_fragment_begin layout changed, the terrain still binds dfgLUT (17 texture units with the lamps)');
+  return c.replace(from, 'dfgOf( material.roughness, dotNVms )');
 }
 
 // ---- 3D noise, made on the GPU slice by slice: r Perlin-Worley (shape), g / b / a Worley at 3 scales (detail)

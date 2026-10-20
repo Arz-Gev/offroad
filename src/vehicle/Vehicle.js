@@ -127,6 +127,7 @@ export class Vehicle {
     this.absActive = 0;
     this.tc = true;          // electronic traction control (brakes a spinning wheel)
     this.tcActive = 0;
+    this.steerLimited = 0;   // > 0 while the keyboard steering assist cuts the angle a key asks for (HUD)
     this.tcT = new Float64Array(this.nW);
     this.time = 0;
     this.stepNo = 0;
@@ -272,6 +273,7 @@ export class Vehicle {
       if (a) lim = Math.min(1, (Math.atan(this.steerL * a.k * this.gripG * G / Math.max(v * v, 1e-3)) + a.c * this.gripSlip) / maxA);
     }
     const target = raw.steer * maxA * lim;
+    this.steerLimited = !raw.analogSteer && lim < 0.995 && Math.abs(raw.steer) > lim + 0.02 ? 0.25 : Math.max(0, this.steerLimited - h);
     // rad/s at the road wheel (hydraulic rack; stock 17:1), or the car's own (a heavy truck's power steering)
     const rate = this.P.steer.rate ?? 1.35 * 17 / this.P.steer.ratio;
     this.steerAngle += Math.max(-rate * h, Math.min(rate * h, target - this.steerAngle));

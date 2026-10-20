@@ -1,5 +1,6 @@
 import { BINDING, hasControl } from './input.js';
 import { fmtPressure } from './hud.js';
+import { icon } from './icons.js';
 
 // On-screen controls for phones and tablets.
 //   left thumb   steering: slide sideways in the lower left (stick under the finger), or tilt the device
@@ -32,10 +33,7 @@ const CHIP_ON = {
   range: d => d.range === 'low', centreLock: d => d.centreLocked, lockers: d => d.frontLock || d.rearLock,
   rwd: d => d.rwd, headlights: (d, view) => view.lights.head > 0,
 };
-const ICON_VEHICLE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6" cy="4" r="1.7" fill="currentColor"/><circle cx="10.5" cy="8" r="1.7" fill="currentColor"/><circle cx="5" cy="12" r="1.7" fill="currentColor"/></svg>';
 
-const ICON_CAM = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.5h2.6l1.2-1.8h4.4l1.2 1.8H14v7H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
-const ICON_RECOVER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4.4 1.8v3h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 export class TouchControls {
   // api: { input, canvas, hud, action(id), mode: 'auto' | 'on' | 'off', steer: 'stick' | 'tilt' }
@@ -100,9 +98,9 @@ export class TouchControls {
     tools.className = 'tc-tools';
     tools.hidden = true;
     tools.innerHTML = `
-      ${btn('camera', 'tc-icon', ICON_CAM, 'Next camera')}
-      ${btn('recover', 'tc-icon', ICON_RECOVER, 'Recover')}
-      <button type="button" class="tc-btn tc-icon tc-veh" data-drawer aria-expanded="false" aria-haspopup="true" aria-label="Vehicle controls: 4×4, engine, lights, tyres">${ICON_VEHICLE}<span>Vehicle</span><i class="tc-caret"></i></button>`;
+      ${btn('camera', 'tc-icon', icon('camera'), 'Next camera')}
+      ${btn('recover', 'tc-icon', icon('recover'), 'Recover')}
+      <button type="button" class="tc-btn tc-icon tc-veh" data-drawer aria-expanded="false" aria-haspopup="true" aria-label="Vehicle controls: 4×4, engine, lights, tyres">${icon('car')}<span>Vehicle</span><i class="tc-caret"></i></button>`;
     hud.$('h-menubtn').after(tools);
     const drawer = document.createElement('div');
     drawer.className = 'tc-drawer';

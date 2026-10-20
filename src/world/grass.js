@@ -141,7 +141,7 @@ export function buildGrass(terrainView, opts = {}) {
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
   };
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
-  if (terrainView.floatLinear) mat.defines = { FLOAT_LINEAR: '' };
+  mat.defines = { TK_THIN: '', ...(terrainView.floatLinear ? { FLOAT_LINEAR: '' } : {}) };   // TK_THIN: lamps light both faces (lamps.js)
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
