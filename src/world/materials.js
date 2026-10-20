@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LAYER, LAYER_TILE } from './textures.js';
+import { PAT, PAT_GLSL, pp } from './origin.js';
 
 // Shared world materials built on the GPU-baked ground layers (textures.js):
 // rock: triplanar rock albedo + normal at two scales, moss / lichen on the up-facing parts, darker in the
@@ -8,7 +9,8 @@ import { LAYER, LAYER_TILE } from './textures.js';
 const ROCK_PARS = /* glsl */`
 precision highp sampler2DArray;
 uniform sampler2DArray tAlb, tLNrm;
-uniform float uRockTile, uMossTile, uMoss;
+uniform float uRockTile, uRockTile2, uMossTile, uMoss;
+${PAT_GLSL}
 varying vec3 vRWPos;
 varying vec3 vRWNrm;
 vec3 rN; float rAO, rMoss;
@@ -21,7 +23,8 @@ export function makeRockMaterial(layers, opts = {}) {
   const mat = new THREE.MeshStandardMaterial({ color: opts.color ?? 0xffffff, roughness: 0.85, metalness: 0, vertexColors: !!opts.vertexColors });
   const uniforms = {
     tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
-    uRockTile: { value: 1 / (opts.tile ?? 2.2) }, uMossTile: { value: 1 / LAYER_TILE[LAYER.grass] }, uMoss: { value: opts.moss ?? 1 },
+    uRockTile: { value: 1 / pp(opts.tile ?? 2.2) }, uRockTile2: { value: 1 / pp((opts.tile ?? 2.2) / 0.29) }, uMossTile: { value: 1 / LAYER_TILE[LAYER.grass] }, uMoss: { value: opts.moss ?? 1 },
+    uPat: PAT,
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
@@ -46,9 +49,9 @@ export function makeRockMaterial(layers, opts = {}) {
 {
   vec3 n = normalize(vRWNrm);
   vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z);
-  vec3 p = vRWPos;
+  vec3 p = vRWPos + vec3(uPat.x, 0.0, uPat.y);   // the pattern frame (origin.js)
   vec4 a1 = triTex(tAlb, p, w, ${LAYER.rock}.0, uRockTile);
-  vec4 a2 = triTex(tAlb, p, w, ${LAYER.rock}.0, uRockTile * 0.29);
+  vec4 a2 = triTex(tAlb, p, w, ${LAYER.rock}.0, uRockTile2);
   vec4 n1 = triTex(tLNrm, p, w, ${LAYER.rock}.0, uRockTile);
   vec3 c = mix(a1.rgb, a2.rgb, 0.4);
   // moss / grass on top, broken up by the large-scale rock height
@@ -69,6 +72,6 @@ export function makeRockMaterial(layers, opts = {}) {
       .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(rN, 0.0)).xyz);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= rAO; reflectedLight.indirectSpecular *= rAO;');
   };
-  mat.customProgramCacheKey = () => 'rock-tri-v2' + (opts.vertexColors ? '-vc' : '');
+  mat.customProgramCacheKey = () => 'rock-tri-v3' + (opts.vertexColors ? '-vc' : '');
   return mat;
 }

@@ -1,6 +1,7 @@
 import { carBindings, hasControl, capsHTML, padCapHTML, touchCapHTML } from './input.js';
 import { escapeHTML } from './hud.js';
 import { CAR_LIST } from './cars/index.js';
+import { MAPS } from './world/maps/index.js';
 import { ENGINES } from './vehicle/engines.js';
 import { storage } from './settings.js';
 import { icon } from './icons.js';
@@ -31,7 +32,9 @@ const boxIs = m => api => api.get('boxMode') === m;
 
 export const SECTIONS = [
   { id: 'car', title: 'Car', icon: 'car', rows: [
-    { type: 'cars', key: 'car', info: `Each car has its own engine, weight, gearbox, tyres and suspension, and its own setups in Tuning. Picking another car restarts the game. Models from Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` },
+    { type: 'pick', key: 'car', label: 'Vehicle', items: () => CAR_LIST.map(c => ({ id: c.id, label: c.label, note: ENGINES[c.physics.engine.preset]?.label || '' })),
+      now: l => `Driving the ${l}`, restart: l => `Restart with the ${l}`,
+      info: `Each car has its own engine, weight, gearbox, tyres and suspension, and its own setups in Tuning. Picking another car restarts the game. Models from Sketchfab (CC BY 4.0): ${MODEL_CREDITS}.` },
     sw('engine', 'Engine', { hot: ['engineStart', 'engineStop'] }),
     { type: 'stepper', key: 'pressure', label: 'Tyre pressure', hot: ['pressureDown', 'pressureUp'], info: 'Lower pressure makes a bigger footprint: more grip on loose ground and rocks, a softer ride, slower on the road. The two keys change both axles.' },
     group('Lights'),
@@ -65,6 +68,9 @@ export const SECTIONS = [
     range('brightness', 'Brightness', { min: 60, max: 200, step: 5, scale: 100, unit: '%', info: 'Lifts or deepens the mid-tones; black stays black and white stays white. Default 100%.' }),
   ] },
   { id: 'world', title: 'World', icon: 'world', rows: [
+    { type: 'pick', key: 'map', label: 'Map', items: () => MAPS.map(m => ({ id: m.id, label: m.label, note: m.note })),
+      now: l => `On the ${l} map`, restart: l => `Restart on the ${l} map`,
+      info: `${MAPS.map(m => m.info).join(' ')} Picking another map restarts the game.` },
     range('time', 'Time of day', { hot: ['time'], min: 0, max: 1435, step: 5, scale: 60, fmt: fmtClock }),
     seg('timeQuick', '', [['day', ic('sun', 'Day')], ['dusk', ic('dusk', 'Dusk')], ['night', ic('moon', 'Night')]], { quick: true }),
     seg('timeFlow', 'Time passes', [['off', 'Off'], ['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']], { info: 'How fast the day goes by: a whole day in 48, 24 or 8 minutes. Off keeps the hour you set.' }),
@@ -199,7 +205,7 @@ export class Menu {
   constructor(api) {
     this.api = api;
     this.isOpen = false;
-    this.pending = {};             // the car picked, waiting for Apply
+    this.pending = {};             // a car or map picked, waiting for its restart button
     this.sec = storage.get(LAST_KEY) || 'car';
     if (!SECS.some(s => s.id === this.sec)) this.sec = 'car';
     this.refreshT = 0;
@@ -231,6 +237,7 @@ export class Menu {
     this.el = el;
     this.panes = Object.fromEntries([...el.querySelectorAll('[data-pane]')].map(p => [p.dataset.pane, p]));
     for (const s of SECS) if (s.id !== 'tuning') this.panes[s.id].innerHTML = s.rows.map(r => this.rowHTML(r)).join('');
+    this.locCount = this.api.locations.length;
     this.api.tuning.attach(this.panes.tuning);
     this.renderDevice();
 
@@ -272,9 +279,10 @@ export class Menu {
       case 'range': return `<div class="pr rng" data-key="${r.key}"><div class="pr-l"><span class="pr-t">${r.label}</span>${caps}${info}<output></output></div><input type="range" min="${r.min}" max="${r.max}" step="${r.step}" aria-label="${escapeHTML(r.label)}">${note}</div>`;
       case 'stepper': return `<div class="pr" data-key="${r.key}">${head}<div class="stepper"><button type="button" data-action="pressureDown" aria-label="Lower">${icon('minus')}</button><output></output><button type="button" data-action="pressureUp" aria-label="Raise">${icon('plus')}</button></div>${note}</div>`;
       case 'buttons': return `<div class="pr" data-key="${r.key}">${head}<div class="btns">${r.buttons.map(([a, l]) => `<button type="button" class="btn" data-action="${a}">${l}</button>`).join('')}</div>${r.status ? '<div class="pr-st"></div>' : ''}${note}</div>`;
-      case 'cars': return `<div class="pr wide cars" data-key="car"><div class="pr-l"><span class="pr-t">Vehicle</span>${info}</div>
-        <div class="car-grid" role="radiogroup" aria-label="Vehicle">${CAR_LIST.map(c => `<button type="button" role="radio" class="car-t" data-seg="${c.id}"><b>${escapeHTML(c.label)}</b><small>${escapeHTML(ENGINES[c.physics.engine.preset]?.label || '')}</small></button>`).join('')}</div>
-        <button type="button" class="btn car-apply" data-action="carApply" disabled></button>${note}</div>`;
+      // a choice that restarts the game (car, map): picking one only selects it, its button below restarts
+      case 'pick': return `<div class="pr wide pick" data-key="${r.key}"><div class="pr-l"><span class="pr-t">${r.label}</span>${info}</div>
+        <div class="pick-grid" role="radiogroup" aria-label="${escapeHTML(r.label)}">${r.items().map(c => `<button type="button" role="radio" class="pick-t" data-seg="${c.id}"><b>${escapeHTML(c.label)}</b><small>${escapeHTML(c.note)}</small></button>`).join('')}</div>
+        <button type="button" class="btn pick-apply" data-action="pickApply" disabled></button>${note}</div>`;
       case 'places': return `<div class="pl-list">${this.api.locations.map((l, i) => `
         <div class="pr pl" data-place="${i}"><button type="button" class="pl-go" data-loc="${i}"><span class="pl-n">${i + 1}</span><span class="pl-b"><b>${escapeHTML(l.title)}</b><small>${escapeHTML(l.tag)}</small></span><span class="pl-here" aria-label="You are here">${icon('here')}</span></button>
         <button type="button" class="pr-i" data-info aria-label="About this place">${icon('info')}</button><div class="pr-n">${escapeHTML(l.desc)}</div></div>`).join('')}</div>`;
@@ -342,11 +350,11 @@ export class Menu {
         const off = !def.enable(api);
         if (rowEl.classList.contains('off') !== off) { rowEl.classList.toggle('off', off); for (const b of rowEl.querySelectorAll('[data-seg], .switch, input')) b.disabled = off; }
       }
-      if (def.type === 'seg' || def.type === 'cars') {
-        const cur = String(def.type === 'cars' && this.pending.car !== undefined ? this.pending.car : api.get(key));
-        if (def.type === 'cars') {
-          const changed = cur !== String(api.get('car')), b = rowEl.querySelector('.car-apply');
-          const label = changed ? `Restart with the ${CAR_LIST.find(c => c.id === cur)?.label}` : `Driving the ${CAR_LIST.find(c => c.id === cur)?.label}`;
+      if (def.type === 'seg' || def.type === 'pick') {
+        const cur = String(def.type === 'pick' && this.pending[key] !== undefined ? this.pending[key] : api.get(key));
+        if (def.type === 'pick') {
+          const changed = cur !== String(api.get(key)), b = rowEl.querySelector('.pick-apply'), name = def.items().find(c => c.id === cur)?.label;
+          const label = changed ? def.restart(name) : def.now(name);
           if (b.textContent !== label) { b.textContent = label; b.disabled = !changed; b.classList.toggle('primary', changed); }
         }
         if (rowEl._v === cur) continue;
@@ -389,7 +397,7 @@ export class Menu {
     if (key === 'fullscreen') { this.runAction('fullscreen'); return; }
     const def = ROWS[key];
     if (def?.type === 'seg' && typeof def.options[0][0] === 'number') v = +v;
-    if (def?.type === 'cars') { this.pending.car = v; this.refresh(); return; }      // applied by its button
+    if (def?.type === 'pick') { this.pending[key] = v; this.refresh(); return; }      // applied by its button
     this.api.set(key, v);
     this.refresh();
   }
@@ -404,7 +412,7 @@ export class Menu {
         .catch(() => {}).then(done);
       return;
     }
-    if (a === 'carApply') { if (this.pending.car !== undefined) this.api.applyCar(this.pending.car); return; }
+    if (a.startsWith('pickApply:')) { const k = a.slice(10); if (this.pending[k] !== undefined) this.api.restartWith(k, this.pending[k]); return; }
     if (a === 'resetSettings') { this.api.set('resetSettings', true); this.invalidate(); }
     else this.api.action(a);
     this.refresh();
@@ -430,13 +438,18 @@ export class Menu {
       const k = row.dataset.key;
       return this.setValue(k, k === 'fullscreen' || !this.api.get(k));
     }
-    if (d.action) this.runAction(d.action);
+    if (d.action) this.runAction(d.action === 'pickApply' ? 'pickApply:' + t.closest('[data-key]').dataset.key : d.action);
   }
 
   // ------------------------------------------------------------------ open / close
   get section() { return this.sec; }
 
   open(sec) {
+    // places found since (the endless world adds them as you drive near)
+    if (this.api.locations.length !== this.locCount) {
+      this.locCount = this.api.locations.length;
+      this.panes.places.innerHTML = SECS.find(s => s.id === 'places').rows.map(r => this.rowHTML(r)).join('');
+    }
     if (sec) this.show(sec, false);
     if (this.isOpen) return;
     this.isOpen = true;

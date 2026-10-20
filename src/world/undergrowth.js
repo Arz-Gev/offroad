@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAP_SIZE } from './terrain.js';
 import { buildPlant } from './foliage.js';
 import { NO_FLIP_NORMAL } from './trees.js';
+import { PAT, PAT_GLSL, PAT_PERIOD, pp, ppf } from './origin.js';
 
 // Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
@@ -18,8 +19,8 @@ const TILES = 6;
 const FIELD_RADIUS = 80;
 export const FIELDS = {
   far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
-  lavender: { value: new THREE.Vector4(0.95, 260, 0.6, 0.17) },   // weight, patch size (m), threshold, seed
-  poppy: { value: new THREE.Vector4(0.9, 190, 0.62, 0.61) },
+  lavender: { value: new THREE.Vector4(0.95, pp(260), 0.6, 0.17) },   // weight, patch size (m), threshold, seed
+  poppy: { value: new THREE.Vector4(0.9, pp(190), 0.62, 0.61) },
 };
 
 const PARS = /* glsl */`
@@ -28,6 +29,8 @@ uniform sampler2D tSplat, tData, tNoise, tNrm, tLand;
 uniform float uRock;    // grows on rock, in the moss (terrainView.js rockAt): density there
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing, cells per tile
+uniform vec3 uCellPat;  // the pattern frame in cells (origin.js): offset x, z, period
+${PAT_GLSL}
 uniform vec4 uRad;      // shrink start, end
 uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
@@ -56,6 +59,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
     const uniforms = {
       ...shared,
       uGrid: { value: new THREE.Vector4(0, 0, spacing, k) },
+      uCellPat: { value: new THREE.Vector3(0, 0, 1) }, uPat: PAT,
       uRad: { value: new THREE.Vector4(radius * 0.7, radius, 0, 0) },
       uShape: { value: new THREE.Vector4(...shape) },
       uKind: { value: new THREE.Vector4(...kind) },
@@ -74,13 +78,15 @@ float gk = uGrid.w;
 float gid = float(gl_InstanceID);
 vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
 vec2 cellIdx = uGrid.xy + aTile * gk + vec2(mod(gid, gk), floor(gid / gk));
-vec2 hA = uHash22(cellIdx + uShape.w), hB = uHash22(cellIdx + uShape.w + 17.17);
-vec2 pxz = (cellIdx + hA) * uGrid.z;
+// the hash's cell: in the pattern frame (the window's shifts are whole cells), wrapped at its period
+vec2 cellH = mod(cellIdx + uCellPat.xy, uCellPat.z);
+vec2 hA = uHash22(cellH + uShape.w), hB = uHash22(cellH + uShape.w + 17.17);
+vec2 pxz = (cellIdx + hA) * uGrid.z, pq = (cellH + hA) * uGrid.z;
 float dCam = distance(pxz, cameraPosition.xz);
 float shrink = 1.0 - smoothstep(uRad.x, uRad.y, dCam);
 vec4 gd = textureLod(tData, (pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);
 vec4 sp = textureLod(tSplat, ((pxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0);
-vec4 nz = textureLod(tNoise, pxz / 53.0, 0.0);
+vec4 nz = textureLod(tNoise, pq / ${ppf(53)}, 0.0);
 float bare = clamp(1.0 - (sp.r + sp.g + sp.b + sp.a) * 2.5, 0.0, 1.0) * (1.0 - smoothstep(0.3, 0.6, gd.b));
 float forest = smoothstep(0.25, 0.75, gd.g);
 float meadow = gd.a * (1.0 - forest);
@@ -89,7 +95,7 @@ float dens = uKind.x * forest * smoothstep(0.3, 0.55, nz.r + 0.15)
            + uKind.z * (forest * 0.6 + meadow * 0.25) * smoothstep(0.35, 0.6, nz.g)
            + uKind.w * meadow * smoothstep(0.45, 0.6, nz.a);
 if (uField.x > 0.0) {
-  vec4 fn = textureLod(tNoise, pxz / uField.y + uField.w, 0.0);
+  vec4 fn = textureLod(tNoise, pq / uField.y + uField.w, 0.0);
   float patchK = smoothstep(uField.z, uField.z + 0.1, fn.r * 0.7 + fn.g * 0.3);
   dens += uField.x * smoothstep(0.15, 0.5, gd.a) * (1.0 - forest) * patchK;
 }
@@ -193,7 +199,8 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       for (const K of kinds) {
         const r = Math.min(K.baseRadius * dist, K.uniforms.uField.value.x > 0 ? FIELD_RADIUS : Infinity, K.maxRadius);
         K.radius = r;
-        K.spacing = K.baseSpacing / Math.sqrt(dens);
+        // snapped so the cells divide the window's step (256 m): the plants stay put when the frame shifts
+        K.spacing = 256 / Math.max(1, Math.round(256 * Math.sqrt(dens) / K.baseSpacing));
         K.k = Math.ceil(r * 2 / K.spacing / TILES);
         K.uniforms.uGrid.value.z = K.spacing;
         K.uniforms.uGrid.value.w = K.k;
@@ -212,6 +219,8 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
         const s = K.spacing, k = K.k, n = k * TILES, R = K.radius;
         const bx = Math.floor((cx / s - n / 2) / k) * k, bz = Math.floor((cz / s - n / 2) / k) * k;
         K.uniforms.uGrid.value.x = bx; K.uniforms.uGrid.value.y = bz;
+        const pc = Math.round(PAT_PERIOD / s);
+        K.uniforms.uCellPat.value.set(Math.round(PAT.value.x / s) % pc, Math.round(PAT.value.y / s) % pc, pc);
         for (const m of K.tiles) {
           const [tx, tz] = m.userData.tile;
           const x0 = (bx + tx * k) * s, z0 = (bz + tz * k) * s, x1 = x0 + k * s, z1 = z0 + k * s;

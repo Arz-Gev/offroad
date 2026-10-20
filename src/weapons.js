@@ -131,6 +131,8 @@ class MuzzleFlash {
 
 // impact and smoke particles (own pool: hit feedback is gameplay, not the Dust option)
 class Fx {
+  // the local frame moved by (dx, dz) (origin.js)
+  shift(dx, dz) { for (let i = 0; i < this.pos.length; i += 3) { this.pos[i] -= dx; this.pos[i + 2] -= dz; } }
   constructor(scene, additive) {
     const n = MAX_FX;
     this.pos = new Float32Array(n * 3); this.vel = new Float32Array(n * 3); this.col = new Float32Array(n * 3);
@@ -352,6 +354,12 @@ export class Gunnery {
       this.smoke.emit(x, y + 0.02, z, (rnd() - 0.5) * 1.6, s, (rnd() - 0.5) * 1.6, (0.06 + rnd() * 0.12) * big, 0.7 + rnd() * 0.6, 0.82, 0.88, 0.92, 1.0, 0.4, 0.25);
     }
     this.audio?.impact?.('water', { x, y, z });
+  }
+
+  // the local frame moved by (dx, dz) (origin.js): rounds in flight and the sparks and smoke follow
+  shift(dx, dz) {
+    for (const b of this.rounds) { b.p.x -= dx; b.p.z -= dz; b.prev.x -= dx; b.prev.z -= dz; }
+    this.sparks.shift(dx, dz); this.smoke.shift(dx, dz);
   }
 
   // per frame (camera: sets tracer width so they stay visible far away)

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 import { LAYER } from './textures.js';
 import { mulberry32 } from './noise.js';
+import { PAT, pp, ORIGIN } from './origin.js';
 
 // Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the strip
 // between the ruts, never big ones in the ruts; scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
@@ -160,6 +161,7 @@ vDAO = ${kind === 'flat' || kind === 'stick' ? '0.8' : 'mix(0.3, 0.7, smoothstep
 uniform sampler2D tNoise;
 uniform sampler2DArray tAlb;
 uniform float uWet, uRockLum;
+uniform vec2 uPat;
 varying vec3 vDCol;
 varying vec3 vDPos;
 varying float vDAO;
@@ -167,12 +169,12 @@ varying float vDH;
 float gDH = 0.5;`)
       .replace('#include <map_fragment>', stone ? `
 {
-  vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
+  vec4 nz = texture2D(tNoise, (vDPos.xz + uPat) * ${(1 / pp(1 / 1.7)).toFixed(6)} + vDPos.y * 0.9);
   // the rock-face photo (terrainView.js layer ${LAYER.rock}), triplanar at 0.8 m a tile: grain, cracks and pits on the
   // stone's own colour; its height bumps the normal (normal_fragment_maps)
   vec3 fn = normalize(cross(dFdx(vDPos), dFdy(vDPos)));
   vec3 tw = pow(abs(fn), vec3(4.0)); tw /= tw.x + tw.y + tw.z;
-  vec3 tp = vDPos / 0.8;
+  vec3 tp = (vDPos + vec3(uPat.x, 0.0, uPat.y)) / ${pp(0.8).toFixed(6)};
   vec4 ta = texture(tAlb, vec3(tp.zy, ${LAYER.rock}.0)) * tw.x + texture(tAlb, vec3(tp.xz, ${LAYER.rock}.0)) * tw.y + texture(tAlb, vec3(tp.xy, ${LAYER.rock}.0)) * tw.z;
   gDH = ta.a;
   float grain = clamp(dot(ta.rgb, vec3(0.2126, 0.7152, 0.0722)) / uRockLum, 0.45, 1.7);
@@ -184,7 +186,7 @@ float gDH = 0.5;`)
   diffuseColor.rgb *= col * vec3(1.0, 1.01, 0.95) * (1.0 - 0.35 * uWet);
 }` : `
 {
-  vec4 nz = texture2D(tNoise, vDPos.xz * 1.7 + vDPos.y * 0.9);
+  vec4 nz = texture2D(tNoise, (vDPos.xz + uPat) * ${(1 / pp(1 / 1.7)).toFixed(6)} + vDPos.y * 0.9);
   diffuseColor.rgb *= vDCol * (0.78 + 0.44 * nz.a) * (1.0 - 0.35 * uWet);
 }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.9, 0.3, uWet);')
@@ -207,14 +209,14 @@ if (normal.z < 0.0) normal = -normal;
 vec3 nonPerturbedNormal = normal;`);
     }
   };
-  mat.customProgramCacheKey = () => `debris-${kind}-v2`;
+  mat.customProgramCacheKey = () => `debris-${kind}-v3`;
   return mat;
 }
 
 export function buildDebris(terrain, terrainView) {
   const U = terrainView.uniforms;
   const ra = terrainView.layers.avg[LAYER.rock];
-  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 }, tAlb: U.tAlb,
+  const shared = { uCam: { value: new THREE.Vector3() }, tNoise: U.tNoise, uWet: U.uWet, uSizeFade: { value: 1 }, tAlb: U.tAlb, uPat: PAT,
     uRockLum: { value: Math.max(0.02, 0.2126 * ra.x + 0.7152 * ra.y + 0.0722 * ra.z) } };
   let L = LEVELS.normal;
   const group = new THREE.Group();
@@ -245,13 +247,16 @@ export function buildDebris(terrain, terrainView) {
   }
 
   // ---- placement
-  const gd = terrainView.groundData, ld = terrainView.landData, DN = terrainView.groundN;
-  const splat = terrainView.splat.image.data;
+  const DN = terrainView.groundN;
+  let gd, ld, splat;   // the current window's maps (terrainView), read when a chunk is made
   const cache = new Map();   // chunk key -> { blob: Float32Array, flat, stick }
   const nrm = new THREE.Vector3();
   function generate(cx, cz) {
+    gd = terrainView.groundData; ld = terrainView.landData; splat = terrainView.splat.image.data;
     const out = { blob: [], pebble: [], flat: [], stick: [] };
-    const rnd = mulberry32((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
+    // seeded by the chunk's place in the world (the window's shifts are whole chunks)
+    const ax = cx + Math.round(ORIGIN.x / CHUNK), az = cz + Math.round(ORIGIN.z / CHUNK);
+    const rnd = mulberry32((ax * 73856093) ^ (az * 19349663) ^ 0x5bd1e995);
     const x0 = -HALF + cx * CHUNK, z0 = -HALF + cz * CHUNK;
     const put = (list, x, z, sx, sy, sz, col, sink, yaw = rnd() * Math.PI * 2) => {
       const y = terrain.surfaceHeight(x, z);
@@ -352,6 +357,21 @@ export function buildDebris(terrain, terrainView) {
   return {
     group,
     get count() { return Object.values(meshes).reduce((n, M) => n + M.count, 0); },
+    // the local frame moved by (dx, dz) (whole chunks): the cached chunks follow; those near the old window's edge
+    // (where its heights blended into the vista) are made again
+    shift(dx, dz) {
+      const sx = Math.round(dx / CHUNK), sz = Math.round(dz / CHUNK), old = [...cache];
+      cache.clear();
+      for (const [k, c] of old) {
+        const cx = Math.floor(k / NC) - sx, cz = k % NC - sz;
+        if (cx < 4 || cz < 4 || cx >= NC - 4 || cz >= NC - 4) continue;
+        const ox = Math.floor(k / NC), oz = k % NC;
+        if (ox < 4 || oz < 4 || ox >= NC - 4 || oz >= NC - 4) continue;
+        for (const arr of Object.values(c)) for (let i = 0; i < arr.length; i += STRIDE) { arr[i] -= dx; arr[i + 2] -= dz; }
+        cache.set(cx * NC + cz, c);
+      }
+      dirty = true; lastKey = '';
+    },
     configure(q) {
       enabled = q.vegetation !== false && (q.bushes ?? 1) > 0 && q.veg !== 'off';
       group.visible = enabled;

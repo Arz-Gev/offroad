@@ -7,15 +7,16 @@
 //    each rock: how far the hull sits above the mesh (a hull covers concave dips the mesh shows).
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { Terrain, MAP_SIZE } from '../src/world/terrain.js';
+import { MAP_SIZE } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
+import { loadWindow } from './worldwindow.mjs';
 
 await RAPIER.init();
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-const terrain = new Terrain(7);
+const { terrain, win } = loadWindow();   // a window of the world (worldwindow.mjs: the start, or WX= / WZ=)
 const tc = terrain.createCollider(RAPIER, world);
-const props = buildProps(RAPIER, world, terrain, new Map());
-const stream = props.userData.stream;
+const props = buildProps(RAPIER, world, terrain, new Map(), null, win);
+const stream = props.stream;
 world.step();
 
 let rnd = 12345;
@@ -39,11 +40,12 @@ console.log(`terrain  ${n} rays: mean |ray - drawn| ${(sum / n * 1000).toFixed(3
 // ---- 2. boulders: every streamed hull in the world, the merged rock mesh for the drawn surface
 const hulls = [];
 for (const list of stream.items) for (const it of list) {
-  if (!it.desc.shape.vertices) continue;   // huts (boxes)
+  if (typeof it.desc === 'function') it.desc = it.desc();
+  if (!it.desc?.shape.vertices) continue;   // huts (boxes)
   const c = world.createCollider(it.desc); c.verts = it.desc.shape.vertices; hulls.push(c);
 }
 world.step();
-const rockMesh = props.children.find(o => o.isMesh && o.geometry.attributes.color);
+const rockMesh = props.rockMesh;
 rockMesh.updateMatrixWorld(true);
 const rc = new THREE.Raycaster(); rc.firstHitOnly = true;
 const gaps = [];

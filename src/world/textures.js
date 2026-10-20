@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pp } from './origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { mulberry32 } from './noise.js';
 
@@ -18,8 +19,9 @@ import { mulberry32 } from './noise.js';
 export const LAYER = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4, forest: 5, soil: 6, blocks: 7, slabs: 8, cliff: 9 };
 export const LAYER_COUNT = 10;
 // world size (m) covered by one tile of each layer at its real size (blocks: 6 block widths by 8 beds, set by
-// terrainView.js). The ground stretches the meadow, track, gravel and soil photos further (terrainView setGround)
-export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30];
+// terrainView.js). The ground stretches the meadow, track, gravel and soil photos further (terrainView setGround).
+// Snapped so each divides the pattern period (origin.js: no jump when the local frame moves)
+export const LAYER_TILE = [2.2, 2.6, 2.6, 2.2, 2.4, 2.4, 1.8, 1, 12, 30].map(pp);
 // photo layers: file name, roughness, normal strength, albedo gain and saturation
 const PHOTO = {
   0: { name: 'grass', rough: 0.92, nrm: 1.1, gain: 1.0, sat: 1.0, tint: [0.13, 0.2, 0.05], recolor: 0.85 },

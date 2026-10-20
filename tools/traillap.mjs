@@ -1,5 +1,6 @@
-// Headless ride / handling test on the real map: drives the main trail loop with a pure-pursuit driver
-// and reports bounce, wheel lift, roll and rollovers.
+// Headless ride / handling test on a real map (worldwindow.mjs: MAP=, default classic): drives the classic map's main
+// trail loop, or the longest road of an endless window, with a pure-pursuit driver and reports bounce, wheel lift,
+// roll and rollovers (ends at the road's end).
 //   node tools/traillap.mjs [kmh=60] [cornerG=0.45] [secs=90] [steer=analog|digital]
 // "digital" mimics keyboard steering (full lock with the game's speed-sensitive limit, on/off).
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -8,8 +9,8 @@ import { makeCarParams } from '../src/vehicle/carParams.js';
 import { useCar, applySetup, STOCK, clone } from '../src/vehicle/tuning.js';
 // CAR=gclass|lancia: that car at its stock setup (default: params.js, the baselines)
 const carParams = () => { if (!process.env.CAR) return makeCarParams('defender'); useCar(process.env.CAR); return applySetup(makeCarParams(), clone(STOCK)); };
-import { Terrain } from '../src/world/terrain.js';
 import { buildProps } from '../src/world/props.js';
+import { loadWindow, longestRoad } from './worldwindow.mjs';
 await RAPIER.init();
 
 const kmh = +(process.argv[2] || 60), cornerG = +(process.argv[3] || 0.45), secs = +(process.argv[4] || 90);
@@ -18,7 +19,7 @@ const H = 1 / 240;
 
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 world.timestep = H;
-const terrain = new Terrain();
+const { terrain, win } = loadWindow();
 if (process.env.BLUR) { // test only: smooth the heightfield (box blur, BLUR passes) to separate roughness from features
   const NN = terrain.NN, h = terrain.heights, t = new Float32Array(h.length);
   for (let pass = 0; pass < +process.env.BLUR; pass++) {
@@ -31,11 +32,20 @@ if (process.env.BLUR) { // test only: smooth the heightfield (box blur, BLUR pas
 }
 terrain.createCollider(RAPIER, world);
 const colliderSurface = new Map();
-buildProps(RAPIER, world, terrain, colliderSurface, null);
+const props = buildProps(RAPIER, world, terrain, colliderSurface, null, win);
+props.stream.ring = 99; props.stream.cur = -1; props.stream.update(0, 0);
 world.step();
 const surfaceAt = (col, p) => (col && colliderSurface.get(col.handle)) || terrain.surfaceAt(p.x, p.z);
 
-const curve = terrain.trailCurves[0];
+// the classic map: its main trail loop (the baseline); an endless one: the window's longest road
+let curve;
+if (!terrain.roads.length) curve = terrain.trailCurves[0];
+else {
+  const lr = longestRoad(terrain), rp = lr.road.path;
+  curve = new (await import('../src/world/terrain.js')).Path(rp.xs.slice(lr.k0, lr.k1), rp.zs.slice(lr.k0, lr.k1));
+  console.log('road', lr.road.key);
+}
+console.log('lap', curve.getLength().toFixed(0), 'm');
 const NP = 2000, pts = curve.getSpacedPoints(NP), seg = curve.getLength() / NP;
 const start = pts[40], nxt = pts[48];
 const yaw0 = Math.atan2(-(nxt.x - start.x), -(nxt.z - start.z));
@@ -82,6 +92,7 @@ const st = { n: 0, air: [0, 0, 0, 0], anyAir: 0, allAir: 0, az2: 0, azMax: 0, ro
 const steps = Math.round(secs / H);
 let lastUp = 0, lastSpike = -1e9, azf = 0, latf = 0;
 for (let i = 0; i < steps; i++) {
+  if (terrain.roads.length && best > NP - 80) break;   // the end of the road (the classic loop goes round)
   const { off, inp } = driver();
   v.step(H, inp);
   world.step();

@@ -29,6 +29,12 @@ export class CameraRig {
 
   get label() { return CAM_NAMES[this.mode]; }
 
+  // the local frame moved by (dx, dz) (origin.js)
+  shift(dx, dz) {
+    for (const v of [this.head, this.smoothPos, this.cam.position]) { v.x -= dx; v.z -= dz; }
+    this.cam.updateMatrixWorld();
+  }
+
   cycle() {
     return this.setMode(CAM_MODES[(CAM_MODES.indexOf(this.mode) + 1) % CAM_MODES.length]);
   }

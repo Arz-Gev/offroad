@@ -1,4 +1,5 @@
 import { CAR_IDS, DEFAULT_CAR } from './cars/index.js';
+import { MAPS } from './world/maps/index.js';
 
 // Player settings, persisted in localStorage. Every storage access is wrapped: private windows,
 // blocked site data or sandboxed frames can throw, and the game must still run with the defaults.
@@ -7,6 +8,7 @@ const KEY = 'offroad.settings.v1';
 
 export const DEFAULTS = {
   car: DEFAULT_CAR,         // src/cars/; changing it reloads the game
+  map: MAPS[0].id,          // src/world/maps/; changing it reloads the game
   gearbox: 'auto',          // 'auto' | 'manual'
   autoClutch: true,
   arcadeAuto: true,         // automatic gearbox: hold S at a stop to reverse (off: select R like a real car)
@@ -61,6 +63,7 @@ const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
 const CHOICES = {
   car: CAR_IDS,
+  map: MAPS.map(m => m.id),
   gearbox: ['auto', 'manual'],
   handbrake: ['hold', 'toggle', 'auto'],
   steerAssist: ['strong', 'light', 'off'],

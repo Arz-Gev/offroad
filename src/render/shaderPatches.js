@@ -24,9 +24,9 @@ export const ATMO = {
   atmoGlow: { x: 0, y: 0, z: 0, w: 0.7 },
   // valley mist (dawn, dusk, night): x density at the floor (1/m), y falloff (1/m), z floor height (m)
   atmoMist: { x: 0, y: 0.11, z: -6, w: 0 },
-  // the land beyond the map fades away: x haze density (1/m) along the part of a view ray outside the map square,
-  // y the map's half size (m)
-  atmoVista: { x: 0, y: 512, z: 0, w: 0 },
+  // the land beyond the window fades away: x haze density (1/m) along the part of a view ray outside the window's
+  // square, y the window's half size (m), z the vista's half size (m: it is all haze before its edge)
+  atmoVista: { x: 0, y: 512, z: 4096, w: 0 },
 };
 
 // uniforms to add to custom ShaderMaterials that use fog
@@ -87,12 +87,17 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 			}
 			// beyond the map's edge: haze along the stretch of the ray outside the square, whatever its height (so
 			// far peaks fade too), growing from nothing at the edge
+			float edgeF = 0.0;
 			if ( atmoVista.x > 0.0 ) {
 				vec2 ad = abs( d.xz ) + 1e-4;
 				vec2 te = ( atmoVista.y - cameraPosition.xz * sign( d.xz ) ) / ad;
 				od += atmoVista.x * dist * ( 1.0 - clamp( min( te.x, te.y ), 0.0, 1.0 ) );
+				// the vista ends at its own square (half size z, round the window, so 3.2+ km from the camera): the land
+				// is all haze before it does, by the distance from the camera (the square moves with the window), so
+				// from high ground the world sinks into the haze instead of stopping
+				if ( atmoVista.z > 0.0 ) edgeF = smoothstep( atmoVista.z * 0.6, atmoVista.z * 0.78, length( d.xz ) );
 			}
-			return min( 1.0 - exp( - od ), atmoToward.w );
+			return mix( min( 1.0 - exp( - od ), atmoToward.w ), 1.0, edgeF );
 		}
 		vec3 atmoFogColor( vec3 v ) {
 			vec2 hz = normalize( v.xz + vec2( 1e-5 ) );

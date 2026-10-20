@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ORIGIN } from './world/origin.js';
 import { buildCarModel } from './vehicle/model/index.js';
 import { batchByMaterial } from './vehicle/model/batched.js';
 import { makeCarParams } from './vehicle/carParams.js';
@@ -45,7 +46,10 @@ export const roomFromURL = () => {
   const r = new URLSearchParams(location.search).get('room');
   return r && /^[a-z0-9-]{3,40}$/i.test(r) ? r : null;
 };
-const inviteURL = id => `${location.origin}${location.pathname}?room=${id}`;
+// the invite carries the map (maps/index.js): whoever opens it plays that map for the session
+export const mapFromURL = () => new URLSearchParams(location.search).get('map');
+const roomQuery = (id, map) => `?room=${id}${map ? `&map=${map}` : ''}`;
+const inviteURL = (id, map) => `${location.origin}${location.pathname}${roomQuery(id, map)}`;
 const newRoomId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
 // fields VehicleView reads from a Vehicle
@@ -62,7 +66,7 @@ function makeProxy(P) {
 }
 
 export class Multiplayer {
-  // api: { RAPIER, world, scene, vehicle, view, settings, say(key, html, kind), placeNear(x, z, yaw) }
+  // api: { RAPIER, world, scene, vehicle, view, settings, map (its id), say(key, html, kind), placeNear(x, z, yaw) }
   constructor(api) {
     this.api = api;
     this.room = null;
@@ -94,7 +98,8 @@ export class Multiplayer {
     this.roomId = id;
     this.follow = follow;
     const { joinRoom } = await import('trystero');
-    const room = this.room = joinRoom({ appId: APP_ID }, id);
+    // one room per map (the classic map keeps the bare id): friends on another map never meet in the wrong land
+    const room = this.room = joinRoom({ appId: APP_ID }, this.api.map === 'classic' ? id : `${id}.${this.api.map}`);
     this.hello = room.makeAction('hello');
     this.state = room.makeAction('st');
     room.onPeerJoin = peerId => { this.peer(peerId); this.hello.send(this.helloData(), { target: peerId }); };
@@ -107,10 +112,10 @@ export class Multiplayer {
   async invite() {
     if (!this.room) {
       const id = newRoomId();
-      history.replaceState(null, '', `?room=${id}`);
+      history.replaceState(null, '', roomQuery(id, this.api.map));
       await this.join(id);
     }
-    const url = inviteURL(this.roomId);
+    const url = inviteURL(this.roomId, this.api.map);
     try {
       await navigator.clipboard.writeText(url);
       this.api.say('mp', 'Invite link copied: send it to your friends', 'good');
@@ -152,7 +157,7 @@ export class Multiplayer {
     _q.set(s[S.quat], s[S.quat + 1], s[S.quat + 2], s[S.quat + 3]);
     const right = _v.set(1, 0, 0).applyQuaternion(_q);
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_q);
-    this.api.placeNear(s[S.pos] + right.x * 4.5, s[S.pos + 2] + right.z * 4.5, Math.atan2(-fwd.x, -fwd.z));
+    this.api.placeNear(s[S.pos] + right.x * 4.5, s[S.pos + 2] + right.z * 4.5, Math.atan2(-fwd.x, -fwd.z));   // world coordinates
   }
 
   helloData() {
@@ -255,6 +260,7 @@ export class Multiplayer {
       for (let k = 0; k < N; k++) out[k] = b[k];
       const dt = Math.min(EXTRAP, Math.max(0, ts - b[S.t]));
       for (let k = 0; k < 3; k++) out[S.pos + k] += b[S.vel + k] * dt;
+      out[S.pos] -= ORIGIN.x; out[S.pos + 2] -= ORIGIN.z;   // world -> local (origin.js)
       return true;
     }
     const f = Math.min(1, Math.max(0, (ts - a[S.t]) / Math.max(1e-4, b[S.t] - a[S.t])));
@@ -271,6 +277,7 @@ export class Multiplayer {
       out[S.turret] = a[S.turret] + d * f;
       out[S.turret + 2] = b[S.turret + 2];
     }
+    out[S.pos] -= ORIGIN.x; out[S.pos + 2] -= ORIGIN.z;   // world -> local (origin.js)
     return true;
   }
 
@@ -304,6 +311,14 @@ export class Multiplayer {
     p.qPrev = new THREE.Quaternion();
   }
   setSolid() { for (const p of this.peers.values()) this.syncBody(p); }
+  // the local frame moved by (dx, dz): the puppets move with it (their snapshots are in world coordinates)
+  shift(dx, dz) {
+    for (const p of this.peers.values()) {
+      if (!p.body) continue;
+      const t = p.body.translation();
+      p.body.setTranslation({ x: t.x - dx, y: t.y, z: t.z - dz }, false);
+    }
+  }
 
   // before each physics step (h): pull the puppets to where the friends are then
   stepBodies(t, h) {
@@ -362,7 +377,8 @@ export class Multiplayer {
     const S = this.S || (this.S = layoutFor(v.P)), nA = S.nA;
     const s = new Array(S.N);
     s[S.t] = r4(t);
-    s[S.pos] = r3(v.pos.x); s[S.pos + 1] = r3(v.pos.y); s[S.pos + 2] = r3(v.pos.z);
+    // positions go out in world coordinates (origin.js): each player's local frame is their own
+    s[S.pos] = r3(v.pos.x + ORIGIN.x); s[S.pos + 1] = r3(v.pos.y); s[S.pos + 2] = r3(v.pos.z + ORIGIN.z);
     s[S.quat] = r4(v.quat.x); s[S.quat + 1] = r4(v.quat.y); s[S.quat + 2] = r4(v.quat.z); s[S.quat + 3] = r4(v.quat.w);
     s[S.vel] = r3(v.vel.x); s[S.vel + 1] = r3(v.vel.y); s[S.vel + 2] = r3(v.vel.z);
     for (let a = 0; a < nA; a++) {

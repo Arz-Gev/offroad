@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { NOISE_GLSL } from './textures.js';
+import { PAT, PAT_GLSL, PAT_PERIOD, mod } from './origin.js';
 
 // Water: the lake, the stream (with the ford) and muddy pools in the mud holes. Visual only (no water physics): every
 // surface lies over a real terrain bed the truck drives on.
@@ -44,6 +45,8 @@ function bakeRipples(renderer, size = 512) {
 const WATER_VERT_PARS = /* glsl */`
 attribute vec3 aFlow;   // along (m), across (m), flow speed (m/s)
 attribute vec2 aDir;    // flow direction in world xz
+attribute vec4 aEdge;   // elliptic fade-out of a disc (centre xz, 1/rx, 1/rz); zero radii: no fade
+varying vec4 vEdge;
 varying vec3 vFlow;
 varying vec2 vDir;
 varying vec3 vWPos;
@@ -54,8 +57,8 @@ uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
 uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter, uRain;
-uniform vec4 uEdge;   // elliptic fade-out of a disc (centre xz, 1/rx, 1/rz); zero radii: no fade
 uniform vec3 uScatter;
+${PAT_GLSL}varying vec4 vEdge;
 varying vec3 vFlow;
 varying vec2 vDir;
 varying vec3 vWPos;
@@ -94,7 +97,7 @@ export function buildWater(terrain, terrainView, renderer) {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: opts.rough ?? 0.06, metalness: 0, transparent: true, premultipliedAlpha: true });
     const uniforms = {
       tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time, uRain: rain,
-      uEdge: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uPat: PAT,
       uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
       uGlitter: { value: opts.glitter ?? 1 },
     };
@@ -121,7 +124,7 @@ vec2 sl = ((r1.xy * 2.0 - 1.0) * 0.8 + (r2.xy * 2.0 - 1.0) * 0.6) * uRipple * (1
 sl *= 1.0 - 0.6 * smoothstep(40.0, 260.0, dist);
 vec2 across = vec2(vDir.y, -vDir.x);
 vec2 slW = across * sl.x + vDir * sl.y;
-if (uRain > 0.01 && dist < 70.0) slW += rainRings(vWPos.xz) * 0.35 * uRain * (1.0 - smoothstep(25.0, 70.0, dist));
+if (uRain > 0.01 && dist < 70.0) slW += rainRings(vWPos.xz + uPat) * 0.35 * uRain * (1.0 - smoothstep(25.0, 70.0, dist));
 vec3 nW = normalize(vec3(-slW.x, 1.0, -slW.y));
 vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;
@@ -142,8 +145,9 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   // sun glitter: tiny facets on the ripples that mirror the sun twinkle (the glow turns them into stars)
   #if NUM_SUN_LIGHTS > 0
   {
-    vec4 r3 = texture2D(tRipple, vWPos.xz / 0.7 + vec2(uTime * 0.05, -uTime * 0.04));
-    vec4 r4 = texture2D(tRipple, vWPos.zx / 0.45 - vec2(uTime * 0.03, uTime * 0.06));
+    vec2 pq = vWPos.xz + uPat;
+    vec4 r3 = texture2D(tRipple, pq / 0.7 + vec2(uTime * 0.05, -uTime * 0.04));
+    vec4 r4 = texture2D(tRipple, pq.yx / 0.45 - vec2(uTime * 0.03, uTime * 0.06));
     vec3 jit = vec3((r3.x + r4.y - 1.0) * 0.45, 0.0, (r3.y + r4.x - 1.0) * 0.45);
     vec3 nGl = normalize(normal + (viewMatrix * vec4(jit, 0.0)).xyz);
     vec3 Rv = reflect(-geometryViewDir, nGl);
@@ -154,7 +158,7 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   col = mix(col, irr * 0.8, wFoam); a = mix(a, 1.0, wFoam);
   float edge = smoothstep(-0.03, 0.05, wDepth);
   // the disc's rim: stray hollows near the shore inside it are not part of the lake
-  if (uEdge.z > 0.0) edge *= smoothstep(1.0, 0.97, length((vWPos.xz - uEdge.xy) * uEdge.zw));
+  if (vEdge.z > 0.0) edge *= smoothstep(1.0, 0.97, length((vWPos.xz - vEdge.xy) * vEdge.zw));
   gl_FragColor = vec4(col * edge, a * edge);
 }`)
         .replace('#include <premultiplied_alpha_fragment>', '')
@@ -168,7 +172,7 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
 }
 #endif`);
     };
-    m.customProgramCacheKey = () => 'water-v1';
+    m.customProgramCacheKey = () => 'water-v2';
     m.userData.uniforms = uniforms;
     return m;
   };
@@ -178,80 +182,99 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   const streamMat = makeMaterial('stream', { absorb: 2.0, ripple: 0.8, foam: 1.0, scatter: [0.05, 0.12, 0.11] });
   const mudMat = makeMaterial('mud', { absorb: 9.0, ripple: 0.25, foam: 0.0, scatter: [0.16, 0.11, 0.065], rough: 0.12, glitter: 0.3 });
 
-  const geoFrom = (pos, flow, dir, idx) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-    g.setAttribute('aFlow', new THREE.Float32BufferAttribute(flow, 3));
-    g.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 2));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    return g;
-  };
-  // elliptic disc (lake, pools): world coordinates as the flow frame, no flow
-  const disc = (cx, cz, rx, rz, y, rings = 10, segs = 72) => {
-    const pos = [cx, y, cz], flow = [cx, cz, 0], dir = [0, 1], idx = [];
-    for (let r = 1; r <= rings; r++) for (let s = 0; s < segs; s++) {
-      const a = s / segs * Math.PI * 2, f = r / rings;
-      const x = cx + Math.cos(a) * rx * f, z = cz + Math.sin(a) * rz * f;
-      pos.push(x, y, z); flow.push(z, x, 0); dir.push(0, 1);
-    }
-    flow[0] = cz; flow[1] = cx;
-    const ring = (r, s) => r === 0 ? 0 : 1 + (r - 1) * segs + (s % segs);
-    for (let s = 0; s < segs; s++) idx.push(0, ring(1, s + 1), ring(1, s));
-    for (let r = 1; r < rings; r++) for (let s = 0; s < segs; s++) {
-      const a = ring(r, s), b = ring(r, s + 1), c = ring(r + 1, s), d = ring(r + 1, s + 1);
-      idx.push(a, b, c, b, d, c);
-    }
-    return geoFrom(pos, flow, dir, idx);
-  };
-
-  const meshes = [];
-  const add = (geo, mat) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.receiveShadow = true; m.castShadow = false;
-    m.renderOrder = 1;
-    group.add(m); meshes.push(m);
-    return m;
-  };
-  for (const w of terrain.water) {
-    if (w.type === 'lake') { add(disc(w.x, w.z, w.rx, w.rz, w.level), lakeMat); lakeMat.userData.uniforms.uEdge.value.set(w.x, w.z, 1 / w.rx, 1 / w.rz); }
-    else if (w.type === 'pool') add(disc(w.x, w.z, w.rx, w.rz, w.level, 4, 40), mudMat);
-    else if (w.type === 'stream') {
-      // ribbon along the stream, wider than the water so the waterline comes from the bed
-      const pts = w.pts, n = pts.length, lake = terrain.lake;
-      const pos = [], flow = [], dir = [], idx = [];
-      const ACROSS = [-1, -0.5, 0, 0.5, 1];
-      let along = 0, rows = 0;
-      for (let k = 0; k < n; k++) {
-        const p = pts[k];
-        if (lake && Math.hypot((p.x - lake.x) / lake.rx, (p.z - lake.z) / lake.rz) < 0.97) break;
-        const a = pts[Math.max(0, k - 1)], b = pts[Math.min(n - 1, k + 1)];
-        let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
-        if (k > 0) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);
-        const hw = w.width[k] + 2.5;
-        const drop = k < n - 1 ? (w.level[k] - w.level[k + 1]) / Math.max(0.5, Math.hypot(pts[k + 1].x - p.x, pts[k + 1].z - p.z)) : 0;
-        const spd = Math.min(2.2, 0.35 + drop * 45);
-        for (const s of ACROSS) {
-          const off = s * hw;
-          pos.push(p.x + tz * off, w.level[k], p.z - tx * off);
-          flow.push(along, off, spd);
-          dir.push(tx, tz);
+  // a window's water meshes. pat: the new window's pattern offset (origin.js), added into the flow frame of the
+  // lakes and pools (their ripples are tied to the ground) and the streams' distance along them counts from their
+  // springs: the ripples stay put when the window moves
+  const build = (terrain, pat) => {
+    const meshes = [];
+    const geoFrom = (pos, flow, dir, idx, edge) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+      g.setAttribute('aFlow', new THREE.Float32BufferAttribute(flow, 3));
+      g.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 2));
+      const n = pos.length / 3, e = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) e.set(edge, i * 4);
+      g.setAttribute('aEdge', new THREE.Float32BufferAttribute(e, 4));
+      g.setIndex(idx);
+      g.computeBoundingSphere();
+      return g;
+    };
+    // elliptic disc (lake, pools): world coordinates (pattern frame) as the flow frame, no flow
+    const disc = (cx, cz, rx, rz, y, rings, segs, edge) => {
+      const px = pat[0], pz = pat[1];
+      const pos = [cx, y, cz], flow = [cz + pz, cx + px, 0], dir = [0, 1], idx = [];
+      for (let r = 1; r <= rings; r++) for (let s = 0; s < segs; s++) {
+        const a = s / segs * Math.PI * 2, f = r / rings;
+        const x = cx + Math.cos(a) * rx * f, z = cz + Math.sin(a) * rz * f;
+        pos.push(x, y, z); flow.push(z + pz, x + px, 0); dir.push(0, 1);
+      }
+      const ring = (r, s) => r === 0 ? 0 : 1 + (r - 1) * segs + (s % segs);
+      for (let s = 0; s < segs; s++) idx.push(0, ring(1, s + 1), ring(1, s));
+      for (let r = 1; r < rings; r++) for (let s = 0; s < segs; s++) {
+        const a = ring(r, s), b = ring(r, s + 1), c = ring(r + 1, s), d = ring(r + 1, s + 1);
+        idx.push(a, b, c, b, d, c);
+      }
+      return geoFrom(pos, flow, dir, idx, edge);
+    };
+    const add = (geo, mat) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.receiveShadow = true; m.castShadow = false;
+      m.renderOrder = 1;
+      meshes.push(m);
+      return m;
+    };
+    for (const w of terrain.water) {
+      if (w.type === 'lake') add(disc(w.x, w.z, w.rx, w.rz, w.level, 10, 72, [w.x, w.z, 1 / w.rx, 1 / w.rz]), lakeMat);
+      else if (w.type === 'pool') add(disc(w.x, w.z, w.rx, w.rz, w.level, 4, 40, [0, 0, 0, 0]), mudMat);
+      else if (w.type === 'stream') {
+        // ribbon along the stream, wider than the water so the waterline comes from the bed
+        const pts = w.pts, n = pts.length, lake = w.lake;
+        const pos = [], flow = [], dir = [], idx = [];
+        const ACROSS = [-1, -0.5, 0, 0.5, 1];
+        let along = w.along0 || 0, rows = 0;
+        for (let k = 0; k < n; k++) {
+          const p = pts[k];
+          if (lake && Math.hypot((p.x - lake.x) / lake.rx, (p.z - lake.z) / lake.rz) < 0.97) break;
+          const a = pts[Math.max(0, k - 1)], b = pts[Math.min(n - 1, k + 1)];
+          let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+          if (k > 0) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);
+          const hw = w.width[k] + 2.5;
+          const drop = k < n - 1 ? (w.level[k] - w.level[k + 1]) / Math.max(0.5, Math.hypot(pts[k + 1].x - p.x, pts[k + 1].z - p.z)) : 0;
+          const spd = Math.min(2.2, 0.35 + drop * 45);
+          for (const s of ACROSS) {
+            const off = s * hw;
+            pos.push(p.x + tz * off, w.level[k], p.z - tx * off);
+            flow.push(along % 4096, off, spd);
+            dir.push(tx, tz);
+          }
+          rows++;
         }
-        rows++;
+        const C = ACROSS.length;
+        for (let r = 0; r < rows - 1; r++) for (let c = 0; c < C - 1; c++) {
+          const a = r * C + c, b = a + 1, d = a + C, e = d + 1;
+          idx.push(a, d, b, b, d, e);
+        }
+        if (rows > 1) add(geoFrom(pos, flow, dir, idx, [0, 0, 0, 0]), streamMat);
       }
-      const C = ACROSS.length;
-      for (let r = 0; r < rows - 1; r++) for (let c = 0; c < C - 1; c++) {
-        const a = r * C + c, b = a + 1, d = a + C, e = d + 1;
-        idx.push(a, d, b, b, d, e);
-      }
-      if (rows > 1) add(geoFrom(pos, flow, dir, idx), streamMat);
     }
-  }
+    return meshes;
+  };
+  let meshes = build(terrain, [PAT.value.x, PAT.value.y]);
+  for (const m of meshes) group.add(m);
+  const prepareWindow = (t, w) => {
+    const next = {};
+    return { next, steps: [() => { next.meshes = build(t, [mod(w.ox, PAT_PERIOD), mod(w.oz, PAT_PERIOD)]); }] };
+  };
+  const applyWindow = (next) => {
+    for (const m of meshes) { group.remove(m); m.geometry.dispose(); }
+    meshes = next.meshes;
+    for (const m of meshes) group.add(m);
+  };
 
   let enabled = true;
   return {
-    group, meshes, ripple,
+    group, get meshes() { return meshes; }, ripple, prepareWindow, applyWindow,
     materials: { lake: lakeMat, stream: streamMat, mud: mudMat },
     configure(q) { enabled = true; group.visible = enabled; },
     update(dt) { time.value += dt; },
