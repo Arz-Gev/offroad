@@ -12,6 +12,10 @@ import * as THREE from 'three';
 // A material: adds LEAF_PARS to its fragment shader, sets leafSelf (and leafK: 1 leaves .. 0 wood) before the lights,
 // and takes leafLightsBegin() in place of three's lights_fragment_begin. The lamps stay three's.
 
+// What is around lights a leaf from both its sides: turned back on the one, let through on the other, and again from
+// leaf to leaf inside the crown (LEAF_SKY: the indirect light on a crown against a matte card's). With the card's
+// alone a wood's edge in the shade was black once fog, bloom and all were off.
+export const LEAF_SKY = 1.5;
 export const LEAF_PARS = /* glsl */`
 float leafSelf = 1.0;   // the sunlight the plant itself lets through to here
 float leafK = 1.0;      // 1: leaves, 0: wood (the plain matte light)
@@ -24,7 +28,9 @@ void leafSun( IncidentLight directLight, vec3 N, vec3 V, vec3 albedo, inout Refl
 	// the share of the leaves seen from their unlit face: all of them looking into the sun, none from its side
 	float ft = ( 0.5 + 0.5 * dot( V, - L ) ) * leafK;
 	vec3 through = vec3( 1.0, 1.12, 0.38 ) * ( 0.9 * leafThrough * ft * ft );
-	reflectedLight.directDiffuse += directLight.color * ( mix( 1.0, leafSelf, leafK ) * RECIPROCAL_PI ) * albedo * ( macro * ( 1.0 - 0.5 * ft ) + through );
+	// (deep in, some still arrives, scattered leaf to leaf: it falls off at a third of the rate)
+	float self = 0.8 * leafSelf + 0.2 * pow( leafSelf, 0.3 );
+	reflectedLight.directDiffuse += directLight.color * ( mix( 1.0, self, leafK ) * RECIPROCAL_PI ) * albedo * ( macro * ( 1.0 - 0.5 * ft ) + through );
 }
 `;
 
@@ -54,7 +60,7 @@ float leafPath( vec3 p, vec3 Ld, vec3 c, vec3 r ) {
 
 // a kind's crown as an ellipsoid of leaves: centre height, radii across and up (m), and how much light a metre of it
 // takes (1/m). g: the kind's geometry data (foliage.js: height, crownR, crownBase)
-const DENSITY = { spruce: 0.26, pine: 0.16, birch: 0.15, apple: 0.24, oak: 0.22, dead: 0.04 };
+const DENSITY = { spruce: 0.22, pine: 0.16, birch: 0.15, apple: 0.24, oak: 0.22, dead: 0.04 };
 const THROUGH = { spruce: 0.4, pine: 0.4, birch: 1, apple: 0.9, oak: 0.9, dead: 0 };
 export function crownOf(kind, g) {
   const base = g.crownBase ?? g.height * 0.3, top = g.height;

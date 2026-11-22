@@ -11,7 +11,7 @@ import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { CLOUD } from './clouds.js';
-import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin, crownOf } from './leafLight.js';
+import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin, crownOf, LEAF_SKY } from './leafLight.js';
 import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
@@ -128,11 +128,11 @@ ${LEAF_PATH_GLSL}`)
         .replace('#include <common>', '#include <common>\nvarying vec2 vLeaf;\nvarying vec3 vTint;\n' + LEAF_PARS)
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vTint;')
         .replace('#include <lights_fragment_begin>', `leafSelf = exp(-${cr.sigma.toFixed(3)} * vLeaf.x); leafThrough = ${cr.through.toFixed(2)};\n` + leafLightsBegin())
-        // (deep in the crown less of the sky's light arrives too)
-        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= 0.55 + 0.45 * vLeaf.y * vLeaf.y;');
+        // (deep in the crown a little less of the sky's light arrives: the traced light has the crowns' shade already)
+        .replace('#include <aomap_fragment>', `#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= ${LEAF_SKY.toFixed(2)} * (0.68 + 0.32 * vLeaf.y * vLeaf.y); reflectedLight.indirectSpecular *= 0.6;`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v7';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v8';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -263,7 +263,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
     const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
     // the lamps light the cards from whichever side faces them (lamps.js), as on the grass: the cards' normals point
     // out of the crown, mostly up, so the undersides of the branches stood black in the headlamps
-    crownMat.defines = { TK_THIN: '' };
+    crownMat.defines = { TK_THIN: '', GI_LEAF: '' };
     patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, crown: crownOf(v.kind, v.geo), height: v.geo.height });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
@@ -293,7 +293,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const imp = bakeImpostors(renderer, variants);
   const impGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
-  impMat.defines = { TK_THIN: '' };   // lit by the lamps like the near crowns
+  impMat.defines = { TK_THIN: '', GI_LEAF: '' };   // lit by the lamps and the sky like the near crowns
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
   const softs = variants.map(v => v.kind === 'apple' || v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current
@@ -430,9 +430,10 @@ vec3 nonPerturbedNormal = normal;`)
   leafSelf = exp(-vImpCrown.w * leafPath(vec3(vImpPos.xy, lz), vImpL, vec3(0.0, vImpCrown.x, 0.0), lr));
   leafK = smoothstep(-1.15, -0.9, lq.y); leafThrough = vImpPos.z;
 }
-` + leafLightsBegin());
+` + leafLightsBegin())
+        .replace('#include <aomap_fragment>', `#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= mix(1.0, ${(LEAF_SKY * 0.9).toFixed(2)}, leafK);`);
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v9';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v10';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

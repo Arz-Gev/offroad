@@ -522,6 +522,9 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav0) * 0.25 + sa.g * 0.3 + uWet * 0.2
     + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
   moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (blot.a - 0.5) * 0.3);
+  // on a face it only holds in cushions, rock between them (it followed every joint and ledge to its end: bands of
+  // dark paint along the cuttings)
+  moss *= mix(1.0, smoothstep(0.48, 0.64, mn.b * 0.5 + lh.g * 0.3 + lh.a * 0.2), smoothstep(0.95, 0.78, n0.y));
   vec3 mossCol = mix(vec3(0.08, 0.13, 0.035), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);   // (darker, a mossy ledge in shade read as a band of black paint)
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
@@ -610,11 +613,19 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   float mac = m4.r;
   vec2 wq = m4.gb;
   float mac2 = texture2D(tNoise, p.xz / ${ppf(97)} + 0.3).g;
-  vec3 nG;
-  if (inMap) {
-    nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
-    nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
-  } else {
+  vec3 nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);   // (outside the window: its edge's, the textures clamp)
+  nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
+  float vistaK = inMap ? 0.0 : 1.0;   // how far the vista's own land has taken over
+  if (!inMap) {
+    #ifndef FAR_LAND
+    // A map of one window (Classic): the vista goes on from the land at the edge and takes over over some tens of
+    // metres, raggedly; from the first metre it was a straight line of other colours round the map, seen from the rim.
+    // (Not on an endless map, whose edge moves with the window: its vista holds the same land.)
+    float edgeOut = max(abs(pL.x), abs(pL.z)) - uMap.x;
+    vistaK = smoothstep(5.0, 90.0, edgeOut + (mac2 - 0.5) * 90.0 * smoothstep(0.0, 30.0, edgeOut));
+    vec3 nEdge = nG; vec4 spEdge = vec4(0.0, 0.0, sp.b, sp.a), gdEdge = vec4(gd.rg, 0.0, gd.a), ldEdge = ld;
+    float visEdge = nt.b;
+    #endif
     // vista: normals from its heights plus procedural detail (its heightmap is only 16 m); lushness and rock kind
     // from noise: higher is drier and stonier
     nG = normalize(vFarN);
@@ -631,6 +642,8 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     gd = vec4(1.0, 0.0, 0.0, 1.0);
     ld = vec4(clamp(0.45 + (mac2 - 0.5) * 0.8 - smoothstep(120.0, 320.0, p.y) * 0.35 - dot(nG.xz, SUN_SIDE) * 0.4, 0.0, 1.0), 0.0, 0.0,
               smoothstep(0.4, 0.6, mac) * 0.333 + smoothstep(0.62, 0.72, wq.g) * 0.4);
+    nG = normalize(mix(nEdge, nG, smoothstep(0.0, 12.0, edgeOut)));
+    sp = mix(spEdge, sp, vistaK); gd = mix(gdEdge, gd, vistaK); ld = mix(ldEdge, ld, vistaK); nt.b = mix(visEdge, 1.0, vistaK);
     #endif
   }
   float td = inMap ? nt.a * 6.0 : 6.0;
@@ -659,7 +672,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
   #ifndef FAR_LAND
-  if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
+  if (!inMap) wForest = mix(wForest, smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y), vistaK);
   #endif
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
@@ -831,7 +844,9 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   // microshadows). The canopy's shade is the indirect light's (render/gi.js: the open sky, and the ground's own
   // colour for the light bounced onto slopes and faces from the ground around)
   gCav = mix(nn.a, 1.0, pud);
-  gAO = mix(1.0, gCav, 0.8) * mix(gPomAO, 1.0, pud) * mix(1.0, vis * vis, 0.85);
+  // (the sky the land hides is in the traced light already: multiplied in again, squared, every bank and cutting in
+  // the shade went black. What is left of it there is the metre or two the probes are too coarse for)
+  gAO = mix(1.0, gCav, 0.8) * mix(gPomAO, 1.0, pud) * (giAtlas.x > 0.5 ? mix(1.0, vis, 0.15) : mix(1.0, vis * vis, 0.85));
   gN = normalize(mix(nW, nG, pud * 0.9));
   diffuseColor.rgb *= c;
   giLocal = vec4(mix(giGround.rgb, diffuseColor.rgb, 0.5), gd.r);
@@ -864,7 +879,7 @@ reflectedLight.indirectSpecular *= gAO;
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v11' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v14' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);

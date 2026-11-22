@@ -17,7 +17,8 @@ import { MAP_SIZE, LIGHT_N } from '../world/terrain.js';
 //   set `giLift` (0..1): how far it stands above the ground's shade (a tree's crown rises out of the wood);
 //   define GI_CABIN and set `giCabin` (0..1): a cabin's trim, lit much the same whichever way it faces;
 //   define GI_OFF: the probe alone, as three has it;
-//   define GI_FAST: the traced light read plainly, without the care at edges (grass and bushes).
+//   define GI_FAST: the traced light read plainly, without the care at edges (grass and bushes);
+//   define GI_LEAF: a crown of leaves, lit from both faces, mostly from above.
 
 // shared plain-object uniforms (UniformsUtils.clone keeps plain objects by reference: one write reaches every material)
 export const GI = {
@@ -171,6 +172,12 @@ const GI_DIFFUSE = /* glsl */`
 					giX = texture2D( tGI, vec2( giU3.x + 0.6666667, giU3.y ) ).xy;
 				}
 				vec3 giNw = ( vec4( geometryNormal, 0.0 ) * viewMatrix ).xyz;
+				#ifdef GI_LEAF
+				// a crown: leaves at every angle, most lying flat, lit from both faces, so little of which way the crown's
+				// surface faces. (On the surface's own normal the side of a wood turned from the light took less than a
+				// tenth of what lay round it: black walls along every track through a wood)
+				giNw = giNw * 0.35 + vec3( 0.0, 0.55, 0.0 );
+				#endif
 				vec3 giE = PI * max( giA.rgb + 0.6666667 * ( giY.rgb * giNw.y + giA.rgb * ( dot( giX, giNw.xz ) / max( dot( giA.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ) ) ), 0.1 * giA.rgb );
 				giOpen = min( giY.a * 2.2, 1.0 );   // the open sky's share of the upper half (of a probe's rays half go down)
 				#ifdef GI_CABIN
