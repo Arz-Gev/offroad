@@ -3,7 +3,7 @@ import { MAP_SIZE } from './terrain.js';
 import { SURFACES } from '../vehicle/tire.js';
 import { makeFoliageAtlas } from './foliage.js';
 import { TREE_KINDS } from './treeKinds.js';
-import { PAT_GLSL, PAT } from './origin.js';
+import { PAT_GLSL, PAT, PAT_PERIOD } from './origin.js';
 
 // m from the camera: past these only the far share of the trees is drawn (windowBake.js SUB_SHARE)
 export const SUB_FADE = [220, 260];
@@ -58,6 +58,16 @@ varying float vTreeDist;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 `;
 
+// each tree its own green, from where it stands (the near mesh and the far card alike): a wood all of one colour read
+// as copies
+const TINT_GLSL = /* glsl */`
+vec3 treeTint(vec2 at) {
+  vec3 q = fract(vec3(floor(mod(at, ${PAT_PERIOD.toFixed(1)}) * 2.0).xyx) * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  vec2 h = fract((q.xx + q.yz) * q.zy);
+  return mix(vec3(0.84, 0.98, 1.1), vec3(1.16, 1.03, 0.76), h.x) * (0.8 + 0.4 * h.y);
+}`;
+
 function patchTreeMaterial(mat, kind, uniforms, opts = {}) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
@@ -83,6 +93,8 @@ if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) disca
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
 uniform vec4 uCrownSun;
+varying vec3 vTint;
+${TINT_GLSL}
 varying vec2 vLeaf;   // x: the sun's way through the crown to here (m), y: 0 at the crown's centre .. 1 at its surface
 ${LEAF_PATH_GLSL}`)
         .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
@@ -92,6 +104,7 @@ ${LEAF_PATH_GLSL}`)
   const vec3 lc = vec3(0.0, ${cr.cy.toFixed(2)}, 0.0), lr = vec3(${cr.rx.toFixed(2)}, ${cr.ry.toFixed(2)}, ${cr.rx.toFixed(2)});
   float lp = leafPath(position, lo, lc, lr) * lsc;
   vLeaf = vec2(lp, min(length((position - lc) / lr), 1.0));
+  vTint = treeTint(instanceMatrix[3].xz + uPat);
 #if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
   vSunShadowWorldPosition.xyz += uCrownSun.xyz * (lp + 1.2 * lsc);
 #endif
@@ -99,13 +112,14 @@ ${LEAF_PATH_GLSL}`)
       // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
       // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL)
-        .replace('#include <common>', '#include <common>\nvarying vec2 vLeaf;\n' + LEAF_PARS)
+        .replace('#include <common>', '#include <common>\nvarying vec2 vLeaf;\nvarying vec3 vTint;\n' + LEAF_PARS)
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vTint;')
         .replace('#include <lights_fragment_begin>', `leafSelf = exp(-${cr.sigma.toFixed(3)} * vLeaf.x); leafThrough = ${cr.through.toFixed(2)};\n` + leafLightsBegin())
         // (deep in the crown less of the sky's light arrives too)
         .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= 0.55 + 0.45 * vLeaf.y * vLeaf.y;');
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v5';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v6';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -218,9 +232,9 @@ function bakeImpostors(renderer, variants) {
 
 // ---------------------------------------------------------------- the forest
 // win: the first window's data (windowBake.js: tree placements, logs). Each new window: prepareWindow / applyWindow
-export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform, win) {
+export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform, win, leafPhoto = null) {
   const group = new THREE.Group(); group.name = 'trees';
-  const atlas = makeFoliageAtlas();
+  const atlas = makeFoliageAtlas(leafPhoto);
   const barkC = makeBarkTexture('conifer'), barkB = makeBarkTexture('birch');
   barkC.wrapS = barkC.wrapT = barkB.wrapS = barkB.wrapT = THREE.RepeatWrapping;
   const variants = TREE_KINDS.map(k => ({ kind: k.kind, geo: k.build(), barkTex: k.bark === 'birch' ? barkB : barkC }));
@@ -292,6 +306,8 @@ ${WIND_FIELD_GLSL}
 varying vec3 vImpL;       // towards the light, in the card's frame (right, up, towards the viewer)
 varying vec3 vImpPos;     // this point of the card in that frame (m); z: how much light its leaves let through
 varying vec4 vImpCrown;   // the crown's ellipsoid at this tree's size
+varying vec3 vTint;
+${TINT_GLSL}
 uniform vec2 uFade;
 uniform vec3 uViewPos;
 varying vec2 vImpUv;
@@ -321,6 +337,7 @@ float H = uImpH[int(aVar)] * isc * (aSub > 0.5 ? 1.0 + 0.22 * subK : 1.0);
 vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
 vImpSoft = uImpSoft[int(aVar)];
+vTint = treeTint(ip.xz + uPat);
 vImpLift = smoothstep(0.25, 0.9, position.y);
 {
   vec3 fwdL = normalize(vec3(toCam.x, 0.0, toCam.z));
@@ -377,11 +394,12 @@ varying float vSubKeep;
 varying vec3 vImpL;
 varying vec3 vImpPos;
 varying vec4 vImpCrown;
+varying vec3 vTint;
 ${depth ? '' : LEAF_PARS + LEAF_PATH_GLSL}
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) >= min(smoothstep(uFade.x, uFade.y, vTreeDist), vSubKeep)) discard;`);
-      if (!depth) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
+      if (!depth) sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vTint;').replace('#include <normal_fragment_begin>', `
 float faceDirection = 1.0;
 giLift = vImpLift;
 vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
@@ -401,7 +419,7 @@ vec3 nonPerturbedNormal = normal;`)
 }
 ` + leafLightsBegin());
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v7';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v8';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

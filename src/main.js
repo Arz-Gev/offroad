@@ -9,6 +9,7 @@ import { buildTerrainView } from './world/terrainView.js';
 import { loadGroundPhotos } from './world/textures.js';
 import { buildGrass } from './world/grass.js';
 import { buildTrees } from './world/trees.js';
+import { loadFoliagePhoto } from './world/foliage.js';
 import { buildWater } from './world/water.js';
 import { buildUndergrowth } from './world/undergrowth.js';
 import { buildDebris } from './world/debris.js';
@@ -56,6 +57,7 @@ const MAX_STEPS = 16;
 async function main() {
   setLoading('Starting physics…', 0.08); await frame();
   const groundPhotos = loadGroundPhotos(import.meta.env.BASE_URL);   // downloads while the world is generated
+  const leafPhoto = loadFoliagePhoto(import.meta.env.BASE_URL);
   await RAPIER.init();
 
   const canvas = document.getElementById('c');
@@ -106,7 +108,7 @@ async function main() {
   const extras = map.extras?.({ RAPIER, world, terrain, colliderSurface });
   if (extras) scene.add(extras);
   setLoading('Growing the forest…', 0.58); await frame();
-  const trees = buildTrees(RAPIER, world, colliderSurface, renderer, grass.shared.uWind, win0);
+  const trees = buildTrees(RAPIER, world, colliderSurface, renderer, grass.shared.uWind, win0, await leafPhoto);
   // the traced indirect light: probes through a model of the land and the trees, then per pixel (render/giWorld.js)
   const giWorld = new WorldGI(renderer);
   giWorld.setWindow(terrain, win0.trees, trees.kinds);

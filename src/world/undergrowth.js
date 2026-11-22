@@ -8,10 +8,10 @@ import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { CLOUD } from './clouds.js';
 import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin } from './leafLight.js';
 
-// Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
+// Undergrowth: ferns, shrubs and junipers, meadow flowers, yarrow, burdock, grass tufts and seeding grass, placed on the GPU like the grass (grass.js): one plant per
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
 // wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
-// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive shadows, and the shrubs cast them into
+// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive shadows, and the shrubs and junipers cast them into
 // the nearest shadow cascade (without one a shrub looked pasted on the ground); the small plants cast none (cheap).
 // A plant is lit as a whole, like a crown (leafLight.js): its normals are those of a soft dome (LIGHT), not of its
 // cards. Lit by the card's own facing, half of a field's poppy heads were maroon and half bright, the tufts black.
@@ -69,18 +69,25 @@ const PLANT_LIGHT = {
   rockgrass: { bulge: 0.7, sigma: 0.7, through: 0.9, foot: 0.5 },
   lavender: { bulge: 0.8, sigma: 0.7, through: 0.6, foot: 0.55 },
   poppy: { bulge: 0.7, sigma: 0.4, through: 1.0, foot: 0.55 },
+  yarrow: { bulge: 0.7, sigma: 0.5, through: 0.8, foot: 0.55 },
+  juniper: { bulge: 1.6, sigma: 1.0, through: 0.4, foot: 0.6 },
+  seedgrass: { bulge: 0.6, sigma: 0.4, through: 1.0, foot: 0.5 },
+  herb: { bulge: 1.0, sigma: 0.7, through: 0.9, foot: 0.6 },
 };
 const LIGHT_PARS = /* glsl */`
 uniform vec4 uPlantSun;   // towards the sun or the moon (clouds.js keeps it current)
 uniform vec4 uLeafC;      // the plant as an ellipsoid of leaves: centre height, radii across and up, density
 uniform vec4 uLeafK;      // bulge, through, foot, how far past the plant its sun shadow is looked up (0: at the leaf)
 varying vec2 vPlant;      // the sun the plant lets through to here, the sky's light here
+varying vec3 vPlTint;     // this plant's own shade of its colour
 ${LEAF_PATH_GLSL}`;
 // the plant's light at this vertex: the dome's normal, the sun's way through it, the shade at its foot
 const LIGHT = /* glsl */`
-vPlant = vec2(1.0);
+vPlant = vec2(1.0); vPlTint = vec3(1.0);
 float plPush = 0.0;
 if (plSc > 0.0) {
+  vec2 hT = uHash22(cellH + uShape.w + 5.3);
+  vPlTint = mix(vec3(0.89, 0.99, 1.07), vec3(1.1, 1.01, 0.84), hT.x) * (0.78 + 0.38 * hT.y);
   vec3 pc = vec3(0.0, uLeafC.x, 0.0), pr = uLeafC.yzy;
   vec3 pe = (position - pc) / pr;
   pe /= max(length(pe), 1.0);
@@ -211,12 +218,13 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
         .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
         .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec4 uLeafK;\nvarying vec2 vPlant;\n' + LEAF_PARS)
+        .replace('#include <common>', '#include <common>\nuniform vec4 uLeafK;\nvarying vec2 vPlant;\nvarying vec3 vPlTint;\n' + LEAF_PARS)
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vPlTint;')
         .replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL)
         .replace('#include <lights_fragment_begin>', 'leafSelf = vPlant.x; leafThrough = uLeafK.y;\n' + leafLightsBegin())
         .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= vPlant.y; reflectedLight.indirectSpecular *= 0.3 * vPlant.y;');
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v6';
+    mat.customProgramCacheKey = () => 'undergrowth-v7';
     // the shadow pass places them the same way (three's depth shader has no normal step: all in begin_vertex)
     let depth = null;
     if (opts.casts) {
@@ -263,6 +271,10 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
     makeKind('rockgrass', buildPlant('tuft', 21), 0.4, 14, [0.25, 0.55, 1.0, 37.1], [0, 0, 0, 0], undefined, 1, { maxRadius: 45, color: [0.5, 0.56, 0.32] }),
+    makeKind('yarrow', buildPlant('yarrow', 17), 1.9, 38, [0.7, 1.2, 0.45, 41.9], [0, 0.6, 0, 0.8]),
+    makeKind('seedgrass', buildPlant('seedgrass', 18), 1.6, 40, [0.7, 1.3, 0.42, 47.3], [0.1, 0.5, 0, 0.9]),
+    makeKind('juniper', buildPlant('juniper', 19), 5.2, 72, [0.45, 1.05, 0.45, 53.1], [0, 0, 1, 0.15], undefined, 0, { casts: true }),
+    makeKind('herb', buildPlant('herb', 20), 2.3, 34, [0.55, 1.0, 0.4, 59.7], [0.45, 0, 0, 0.6]),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
     makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
     makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
