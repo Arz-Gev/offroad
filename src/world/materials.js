@@ -54,12 +54,14 @@ export function makeRockMaterial(layers, opts = {}) {
   vec4 a2 = triTex(tAlb, p, w, ${LAYER.rock}.0, uRockTile2);
   vec4 n1 = triTex(tLNrm, p, w, ${LAYER.rock}.0, uRockTile);
   vec3 c = mix(a1.rgb, a2.rgb, 0.4);
-  // moss / grass on top, broken up by the large-scale rock height
-  float up = smoothstep(0.55, 0.9, n.y) * uMoss;
-  float moss = up * smoothstep(0.35, 0.65, a2.a + (n.y - 0.75));
+  // moss on top, in cushions in the rock's hollows, duller than the meadow (a whole cap of the meadow's photo: the
+  // boulders were bright green blobs, glowing at dusk)
+  float up = smoothstep(0.6, 0.95, n.y) * uMoss;
+  float moss = up * smoothstep(0.46, 0.66, a2.a * 0.6 + a1.a * 0.4 + (n.y - 0.9) * 0.5);
   rMoss = moss;
-  vec4 mc = texture(tAlb, vec3(p.xz * uMossTile, ${LAYER.grass}.0));
-  c = mix(c, mc.rgb * vec3(0.85, 0.95, 0.7), moss * 0.85);
+  vec4 mc = texture(tAlb, vec3(p.xz * uMossTile * 1.7, ${LAYER.grass}.0));
+  vec3 mossC = mix(mc.rgb, vec3(dot(mc.rgb, vec3(0.2126, 0.7152, 0.0722))), 0.3) * vec3(0.72, 0.74, 0.5);
+  c = mix(c, mossC, moss * 0.8);
   // detail normal: tangent-space xy of each projection added in its plane (UDN-style blend)
   vec2 tx = (texture(tLNrm, vec3(p.zy * uRockTile, ${LAYER.rock}.0)).xy * 2.0 - 1.0);
   vec2 ty = (texture(tLNrm, vec3(p.xz * uRockTile, ${LAYER.rock}.0)).xy * 2.0 - 1.0);
@@ -72,6 +74,6 @@ export function makeRockMaterial(layers, opts = {}) {
       .replace('#include <normal_fragment_maps>', 'normal = normalize((viewMatrix * vec4(rN, 0.0)).xyz);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= rAO; reflectedLight.indirectSpecular *= rAO;');
   };
-  mat.customProgramCacheKey = () => 'rock-tri-v3' + (opts.vertexColors ? '-vc' : '');
+  mat.customProgramCacheKey = () => 'rock-tri-v4' + (opts.vertexColors ? '-vc' : '');
   return mat;
 }
