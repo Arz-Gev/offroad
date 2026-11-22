@@ -174,7 +174,8 @@ void main() {
   float flapT = uTime * (9.0 + aSeed.z * 5.0) + ph;
   c.y = lGround(c.xz) + 1.35 + aSeed.y * 1.3 + sin(uTime * 1.3 + ph) * 0.3 + sin(flapT) * 0.03;   // over the tall grass
   vec3 rel = c - uCam;
-  float fade = smoothstep(0.5 * uBox, 0.42 * uBox, length(rel.xz));
+  // (and gone right at the lens, where one would fill the screen)
+  float fade = smoothstep(0.5 * uBox, 0.42 * uBox, length(rel.xz)) * smoothstep(1.0, 2.5, length(rel));
   float scale = 0.12 * (0.8 + 0.4 * aSeed.z) * home * fade * uDay;
   // wings: up and down around the body line, a quick downstroke
   float flap = sin(flapT);

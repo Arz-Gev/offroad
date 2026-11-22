@@ -261,7 +261,7 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
       group.add(c);
       casters.push(c);
     }
-    return { name, mat, uniforms, tiles, casters, spacing, baseSpacing: spacing, radius, baseRadius: radius, maxRadius: opts.maxRadius ?? Infinity, baseScale: [shape[0], shape[1]], k };
+    return { name, mat, uniforms, tiles, casters, spacing, baseSpacing: spacing, radius, baseRadius: radius, maxRadius: opts.maxRadius ?? Infinity, maxGrow: opts.maxGrow ?? Infinity, baseScale: [shape[0], shape[1]], k };
   };
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
@@ -270,11 +270,12 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
     makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0], undefined, 0, { casts: true }),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
-    makeKind('rockgrass', buildPlant('tuft', 21), 0.4, 14, [0.25, 0.55, 1.0, 37.1], [0, 0, 0, 0], undefined, 1, { maxRadius: 45, color: [0.5, 0.56, 0.32] }),
-    makeKind('yarrow', buildPlant('yarrow', 17), 1.9, 38, [0.7, 1.2, 0.45, 41.9], [0, 0.6, 0, 0.8]),
-    makeKind('seedgrass', buildPlant('seedgrass', 18), 1.6, 40, [0.7, 1.3, 0.42, 47.3], [0.1, 0.5, 0, 0.9]),
-    makeKind('juniper', buildPlant('juniper', 19), 5.2, 72, [0.45, 1.05, 0.45, 53.1], [0, 0, 1, 0.15], undefined, 0, { casts: true }),
-    makeKind('herb', buildPlant('herb', 20), 2.3, 34, [0.55, 1.0, 0.4, 59.7], [0.45, 0, 0, 0.6]),
+    makeKind('rockgrass', buildPlant('tuft', 21), 0.4, 14, [0.25, 0.55, 1.0, 37.1], [0, 0, 0, 0], undefined, 1, { maxRadius: 45, color: [0.9, 1.0, 0.58] }),
+    // (the presets' height multipliers were set for the kinds above: these stop at Medium's)
+    makeKind('yarrow', buildPlant('yarrow', 17), 1.9, 38, [0.7, 1.2, 0.45, 41.9], [0, 0.6, 0, 0.8], undefined, 0, { maxGrow: 1.6 }),
+    makeKind('seedgrass', buildPlant('seedgrass', 18), 1.6, 40, [0.7, 1.3, 0.42, 47.3], [0.1, 0.5, 0, 0.9], undefined, 0, { maxGrow: 1.6 }),
+    makeKind('juniper', buildPlant('juniper', 19), 5.2, 72, [0.45, 1.05, 0.45, 53.1], [0, 0, 1, 0.15], undefined, 0, { casts: true, maxGrow: 1.6 }),
+    makeKind('herb', buildPlant('herb', 20), 2.3, 34, [0.55, 1.0, 0.4, 59.7], [0.45, 0, 0, 0.6], undefined, 0, { maxGrow: 1.6 }),
     // fields: lavender in long drifts, poppies in red patches (each its own noise: they rarely overlap)
     makeKind('lavender', buildPlant('lavender', 15), 0.85, 46, [0.75, 1.15, 1.0, 23.7], [0, 0, 0, 0], FIELDS.lavender.value.toArray()),
     makeKind('poppy', buildPlant('poppy', 16), 0.7, 40, [0.7, 1.1, 1.0, 29.3], [0, 0.12, 0, 0], FIELDS.poppy.value.toArray()),
@@ -299,8 +300,8 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
         K.uniforms.uGrid.value.z = K.spacing;
         K.uniforms.uGrid.value.w = K.k;
         K.uniforms.uRad.value.set(r * 0.7, r, 0, 0);
-        K.uniforms.uShape.value.x = K.baseScale[0] * hs;
-        K.uniforms.uShape.value.y = K.baseScale[1] * hs;
+        K.uniforms.uShape.value.x = K.baseScale[0] * Math.min(hs, K.maxGrow);
+        K.uniforms.uShape.value.y = K.baseScale[1] * Math.min(hs, K.maxGrow);
         for (const m of K.tiles) m.geometry.instanceCount = K.k * K.k;
       }
     },
