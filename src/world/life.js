@@ -378,7 +378,7 @@ export function buildLife(terrainView, env) {
       u.uTime.value = time;
       u.uCam.value.copy(camera.position);
       u.uSunDir.value.copy(env.sunDir);
-      col.copy(env.sun.color).multiplyScalar(env.sun.intensity);
+      col.copy(env.sun.color).multiplyScalar(env.sun.intensity * env.sunVis);
       u.uSunCol.value.set(col.r, col.g, col.b);
       const f = env.hemi.color;
       u.uFill.value.set(f.r, f.g, f.b);

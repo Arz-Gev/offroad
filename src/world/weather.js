@@ -241,7 +241,7 @@ export class Weather {
     u.uAmount.value = Math.min(1, amount * 1.6);
     // the drops are lit by the grey sky (and a little by the sun through the gaps)
     const amb = e.sky.uniforms.uCloudAmb.value;
-    const sc = e.sun.color, si = e.sun.intensity * 0.04;
+    const sc = e.sun.color, si = e.sun.intensity * e.sunVis * 0.04;
     u.uCol.value.set(amb.x * 0.9 + sc.r * si, amb.y * 0.9 + sc.g * si, amb.z * 0.9 + sc.b * si);
     this.drops.geometry.instanceCount = Math.round(this.maxDrops * this.density * Math.min(1, amount * 1.3));
     this.splashes.geometry.setDrawRange(0, Math.round(this.maxSplash * this.density * amount));

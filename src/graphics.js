@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { QUALITY, SHADOWS, CLOUDS, FOG, DOF, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 import { storage } from './settings.js';
+import { setSkylinePerPixel } from './render/skyline.js';
 
 // Graphics settings -> renderer: the preset or Custom values, resolution, dynamic resolution (Mobile) and Auto
 // quality by measurement. ctx: { renderer, pipeline, env, scenery, settings, dust, life, weather, gunnery, game, say, started() }.
@@ -31,6 +32,7 @@ export function createGraphics(ctx) {
     applyResolution();
     const S = SHADOWS[q.shadows], sh = env.sun.shadow;
     env.sun.castShadow = !!S;
+    setSkylinePerPixel(!!S);   // the land's far shadow: per pixel with the sun's shadows, else one value for the view
     if (S && sh.configure) sh.configure(S);   // render/cascadeShadow.js
     else if (S) {                              // three's own two cascades
       if (sh.mapSize.x !== S.map) {

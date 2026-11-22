@@ -20,7 +20,7 @@ import { MAP_SIZE, LIGHT_N } from '../world/terrain.js';
 
 // shared plain-object uniforms (UniformsUtils.clone keeps plain objects by reference: one write reaches every material)
 export const GI = {
-  sun: { x: 0, y: 0, z: 0, w: 0 },             // rgb: the sun's (or the moon's) light on level ground
+  sun: { x: 0, y: 0, z: 0, w: 1 },             // rgb: the sun's (or the moon's) light on level ground; w: the share of the land round the truck it reaches (skyline.js)
   sky: { x: 0, y: 0, z: 0, w: 0 },             // rgb: the sky's light on level ground
   ground: { x: 0.13, y: 0.13, z: 0.07, w: 1 / MAP_SIZE },   // rgb: the land's average colour (the probe's ground), w: 1 / the map's size
   // rgb: what a closed canopy scatters down, per unit of sun on level ground; w: the bounce's gain (the land is grass
@@ -114,12 +114,13 @@ const GI_DIFFUSE = /* glsl */`
 				giOpen = giM.a;
 				float giCover = clamp( ( 1.0 - giM.a ) * 1.64, 0.0, 1.0 );   // 0 open .. 1 a closed wood (the ground data's shade ends at 0.39)
 				// the probe: the sky, and below the horizon the average ground in the open sun; that share comes out
-				vec3 giSkyE = max( giProbe - giGround.rgb * ( giSun.rgb + giSky.rgb ) * giDn, vec3( 0.0 ) );
+				vec3 giSkyE = max( giProbe - giGround.rgb * ( giSun.rgb * giSun.w + giSky.rgb ) * giDn, vec3( 0.0 ) );
 				// the light on the ground round here: the sun through the clouds and the gaps in the canopy, and the sky.
 				// The land is not flat: a face turned away from the sun looks at the sunlit sides of the grass, trunks and
 				// banks beyond it (at a low sun far more light than level ground takes), one turned to the sun at their shade
-				vec3 giE = ( giSun.rgb + giSide.rgb * ( 1.0 - dot( giN.xz, giDir.xz ) ) ) * ( giCloud * ( 1.0 - 0.85 * giCover ) ) + giSky.rgb * giM.a;
-				iblIrradiance += giSkyE * giM.a + giM.rgb * giE * ( giDn * giLeaf.w ) + giLeaf.rgb * giSun.rgb * ( giCloud * giCover * ( 1.0 - 0.5 * giDn ) );
+				float giLit = giCloud * giShade;   // the sun on the ground here: under a cloud, in a mountain's shadow (skyline.js)
+				vec3 giE = ( giSun.rgb + giSide.rgb * ( 1.0 - dot( giN.xz, giDir.xz ) ) ) * ( giLit * ( 1.0 - 0.85 * giCover ) ) + giSky.rgb * giM.a;
+				iblIrradiance += giSkyE * giM.a + giM.rgb * giE * ( giDn * giLeaf.w ) + giLeaf.rgb * giSun.rgb * ( giLit * giCover * ( 1.0 - 0.5 * giDn ) );
 			}
 			#else
 			iblIrradiance += getIBLIrradiance( geometryNormal );

@@ -6,6 +6,7 @@ import { PAT, PAT_PERIOD, ppf, pp, ORIGIN } from './origin.js';
 import { makeSimplex2D, fbm } from './noise.js';
 import { cloudDFGTexture, CLOUD_DFG_GLSL, lightsFragmentBeginDFG } from './clouds.js';
 import { setLightMap } from '../render/gi.js';
+import { SKYLINE, setSkylineLand } from '../render/skyline.js';
 // three's DFG table (the source of its dfgLUT), for the terrain's copy of the cloud coverage (clouds.js)
 import DFG_SRC from 'three/src/renderers/shaders/DFGLUTData.js?raw';
 
@@ -86,7 +87,7 @@ function rgbaTex(data, n, mips) {
   return t;
 }
 
-// The window's textures (heights, vista heights, normals + sky visibility + trail distance, splat, ground and land
+// The window's textures (heights, normals + sky visibility + trail distance, splat, ground and land
 // data), made from a window's data (windowWorker.js) in a few steps, one per frame, so no frame uploads them all:
 // prepare() returns the steps; each fills `next`.
 function windowTextureSteps(renderer, terrain, win, floatLinear, next) {
@@ -96,10 +97,6 @@ function windowTextureSteps(renderer, terrain, win, floatLinear, next) {
       // linear filtering lets the grass read a smooth height with one fetch (texelFetch ignores it)
       if (floatLinear) { hTex.magFilter = THREE.LinearFilter; hTex.minFilter = THREE.LinearFilter; }
       renderer.initTexture(hTex);
-      // the vista: height, lushness, forest floor, rock kind (windowBake.js makeFarLand)
-      next.fTex = new THREE.DataTexture(win.farLand, FN, FN, THREE.RGBAFormat, THREE.FloatType);
-      next.fTex.minFilter = next.fTex.magFilter = THREE.NearestFilter; next.fTex.generateMipmaps = false; next.fTex.needsUpdate = true;
-      renderer.initTexture(next.fTex);
     },
     () => {
       // trail distance (0..6 m in 8 bits, same layout as the heights, windowWorker.js) for the ruts, verges and the
@@ -125,6 +122,9 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
   const tex = {};
   for (const step of windowTextureSteps(renderer, terrain, win, floatLinear, tex)) step();
   setLightMap(renderer, win.light);   // the indirect light's map of this window (render/gi.js)
+  // the vista (height, lushness, forest floor, rock kind: windowBake.js makeFarLand) is layer 0 of the texture whose
+  // layer 1 is the land's far shadow (render/skyline.js): one sampler for both
+  setSkylineLand(terrain, win.farLand);
   const DN = win.groundN;
 
   // ---- patch geometry: (P+1)^2 grid of integer coordinates, Rapier's diagonal (x1,z0)-(x0,z1)
@@ -155,7 +155,7 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
   // ---- material
   const morph = Array.from({ length: LEVELS }, () => new THREE.Vector2());
   const uniforms = {
-    tHeight: { value: tex.hTex }, tFarHeight: { value: tex.fTex }, tNrm: { value: tex.nTex }, tLand: { value: tex.landTex },
+    tHeight: { value: tex.hTex }, tFarHeight: { value: SKYLINE.tex }, tNrm: { value: tex.nTex }, tLand: { value: tex.landTex },
     tSplat: { value: tex.splat }, tData: { value: tex.dataTex }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
@@ -171,7 +171,8 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec4 aPatch;
-uniform highp sampler2D tHeight, tFarHeight;
+uniform highp sampler2D tHeight;
+uniform highp sampler2DArray tFarHeight;
 uniform vec2 uMorph[${LEVELS}];
 uniform vec2 uCamXZ;
 uniform vec4 uMap, uFar;
@@ -186,8 +187,8 @@ float tHgtNear(vec2 xz) {
 vec4 tFar4(vec2 xz) {
   vec2 f = clamp((xz + uFar.x) / uFar.y, vec2(0.0), vec2(uFar.z - 1.001));
   ivec2 i = ivec2(floor(f)); vec2 t = f - vec2(i);
-  vec4 a = texelFetch(tFarHeight, ivec2(i.y, i.x), 0), b = texelFetch(tFarHeight, ivec2(i.y, i.x + 1), 0);
-  vec4 c = texelFetch(tFarHeight, ivec2(i.y + 1, i.x), 0), d = texelFetch(tFarHeight, ivec2(i.y + 1, i.x + 1), 0);
+  vec4 a = texelFetch(tFarHeight, ivec3(i.y, i.x, 0), 0), b = texelFetch(tFarHeight, ivec3(i.y, i.x + 1, 0), 0);
+  vec4 c = texelFetch(tFarHeight, ivec3(i.y + 1, i.x, 0), 0), d = texelFetch(tFarHeight, ivec3(i.y + 1, i.x + 1, 0), 0);
   return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
 }
 float tHgtFar(vec2 xz) { return tFar4(xz).r; }
@@ -219,6 +220,8 @@ if (max(abs(transformed.x), abs(transformed.z)) > uMap.x - 48.0) {
       .replace('#include <common>', `#include <common>
 ${CLOUD_DFG_GLSL}
 precision highp sampler2DArray;
+uniform highp sampler2DArray tFarHeight;
+#define SKYLINE_TEX tFarHeight   // the far shadow is its second layer (render/skyline.js)
 uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
@@ -830,7 +833,7 @@ reflectedLight.indirectSpecular *= gAO;
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v7' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v8' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);
@@ -895,15 +898,15 @@ reflectedLight.indirectSpecular *= gAO;
       return { next, steps: windowTextureSteps(renderer, terrain, w, floatLinear, next) };
     },
     applyWindow(next) {
-      const old = [uniforms.tHeight.value, uniforms.tFarHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tData.value, uniforms.tLand.value];
+      const old = [uniforms.tHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tData.value, uniforms.tLand.value];
       uniforms.tHeight.value = view.heightTex = next.hTex;
-      uniforms.tFarHeight.value = next.fTex;
       uniforms.tNrm.value = view.normalTex = next.nTex;
       uniforms.tSplat.value = view.splat = next.splat;
       uniforms.tData.value = view.dataTex = next.dataTex;
       uniforms.tLand.value = view.landTex = next.landTex;
       view.groundData = next.win.groundData; view.landData = next.win.landData;
       setLightMap(renderer, next.win.light);
+      setSkylineLand(terrain, next.win.farLand);
       mins = next.win.pyramid.mins; maxs = next.win.pyramid.maxs; rocks = next.win.pyramid.rocks;
       uniforms.uDipOff.value = ORIGIN.x * 0.035 - ORIGIN.z * 0.02;   // the rock beds' dip (shader: dip), in the local frame
       for (const L of lists) L.sent.fill(NaN);

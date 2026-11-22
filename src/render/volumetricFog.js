@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ORIGIN, mod } from '../world/origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { CLOUD_GLSL, cloudUniforms } from '../world/clouds.js';
+import { SKYLINE_GLSL, skylineUniforms } from './skyline.js';
 
 // Volumetric fog: a haze lying in the low ground, lit by the sun (or the moon) through the sun's shadow map and
 // the clouds' shadows, so trees, hills and the truck cast shafts of light into it and broken cloud throws long
@@ -16,6 +17,7 @@ precision highp float;
 precision highp sampler3D;
 precision highp sampler2DShadow;
 ${CLOUD_GLSL}
+${SKYLINE_GLSL}
 uniform sampler2D tDepth, tPrev;
 uniform sampler3D tNoise;
 uniform sampler2DShadow tShadow;
@@ -64,7 +66,8 @@ void main() {
   // a white-noise offset per pixel walking the golden ratio over the frames (the blend averages it evenly)
   float jit = fract(fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) + uFrame * 0.6180340);
   // the clouds' shadow changes over kilometres: taken at two points of the ray and interpolated
-  float cs0 = cloudShadow(uCam + dir * min(tEnd, 20.0)), cs1 = cloudShadow(uCam + dir * tEnd);
+  // (and with it the land's far shadow, render/skyline.js: the sun behind a mountain)
+  float cs0 = cloudShadow(uCam + dir * min(tEnd, 20.0)) * skylineShade(uCam + dir * min(tEnd, 20.0)), cs1 = cloudShadow(uCam + dir * tEnd) * skylineShade(uCam + dir * tEnd);
   vec3 S = vec3(0.0); float T = 1.0;
   float prev = 0.0;
   for (int i = 0; i < 48; i++) {
@@ -145,7 +148,7 @@ export class VolumetricFog {
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
       fragmentShader: MARCH_FRAG, depthTest: false, depthWrite: false,
       uniforms: {
-        ...cloudUniforms(),
+        ...cloudUniforms(), ...skylineUniforms(),
         tDepth: { value: null }, tPrev: { value: null }, tNoise: { value: noise3D }, tShadow: { value: null },
         uInvViewProj: { value: new THREE.Matrix4() }, uPrevViewProj: { value: new THREE.Matrix4() },
         uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },

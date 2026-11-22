@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { installCascadeShadowChunks } from './cascadeShadow.js';
 import { cloudUniforms } from '../world/clouds.js';
 import { installGI } from './gi.js';
+import { installSkyline } from './skyline.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
 // 1. Atmosphere: three's fog chunks become exponential height fog plus aerial perspective, coloured by
@@ -148,6 +149,7 @@ export function installShaderPatches() {
   C.fog_fragment = FOG_FRAGMENT;
   installCascadeShadowChunks();
   installGI();
+  installSkyline();
   // built-in materials with fog get the shared atmosphere uniforms
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;

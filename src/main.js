@@ -36,6 +36,7 @@ import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { loadLog, setLoading, frame, hideLoading, showError } from './loading.js';
 import { createGraphics, GFX_KEYS } from './graphics.js';
 import { GI, airLight } from './render/gi.js';
+import { SKYLINE, initSkyline } from './render/skyline.js';
 import { cloudShadowAt } from './world/clouds.js';
 import { createPlacement } from './placement.js';
 import { Menu } from './menu.js';
@@ -63,6 +64,7 @@ async function main() {
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.NoToneMapping;     // done in the pipeline's composite pass
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  initSkyline(renderer);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 6000);
@@ -177,7 +179,7 @@ async function main() {
     RAPIER, world, terrain, vehicle, trees, props, streamer, map, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { map, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE, gi: GI };
+  const game = { map, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE, gi: GI, skyline: SKYLINE };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -244,17 +246,15 @@ async function main() {
   // ---------------------------------------------------------------- settings -> game
   // Every persisted setting is applied here (key, menu or startup). opts.silent: no toast.
   const k = id => capsHTML(id, input.device);
-  let autoHead = false;   // the low beam came on by itself at dusk and nobody has touched the switch since
-  const setHeadlights = (h, silent, auto = false) => {
+  const setHeadlights = (h, silent) => {
     view.lights.head = h;
-    autoHead = auto;
     if (!silent) say('head', ['Headlights off', 'Low beam', 'High beam'][h]);
   };
-  // automatic headlights (env.night has hysteresis: fires once per crossing): on at dusk, and off again at dawn
-  // if they came on by themselves (lamps by day cost a shadow pass for no light)
+  // automatic headlights (env.night has hysteresis: fires once per crossing): on at dusk, off at dawn, whoever
+  // switched them on (lamps by day cost a shadow pass for no light); the switch works in between
   env.onNightChange = night => {
-    if (night && view.lights.head === 0) setHeadlights(1, true, true);
-    else if (!night && autoHead) setHeadlights(0, true);
+    if (night && view.lights.head === 0) setHeadlights(1, true);
+    else if (!night && view.lights.head > 0) setHeadlights(0, true);
   };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
@@ -644,7 +644,7 @@ async function main() {
       // takes the sun whatever its height: the beam, not the light on level ground); at night never under what the
       // lamps would show of it
       airLight(rPos.x, rPos.z, 0, dustAmb);
-      const beam = env.sun.intensity * cloudShadowAt(rPos.x, rPos.y, rPos.z) * 0.2, floor = 0.04 * env.darkness, sc = env.sun.color;
+      const beam = env.sun.intensity * cloudShadowAt(rPos.x, rPos.y, rPos.z) * env.sunVis * 0.2, floor = 0.04 * env.darkness, sc = env.sun.color;
       dustSun[0] = sc.r * beam; dustSun[1] = sc.g * beam; dustSun[2] = sc.b * beam;
       for (let i = 0; i < 3; i++) dustAmb[i] = Math.max(dustAmb[i], floor);
       dust.setLight(dustSun, dustAmb, env.lightDir, env.sun, model.root, carBox.c, carBox.half);
