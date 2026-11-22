@@ -24,11 +24,17 @@ import { giVolumeGLSL } from './giWorld.js';
 const CARS = 2;
 const _m = new THREE.Matrix4();
 
+// the sky's depth in the half-float textures: finite (past 65504 a half float is infinite, and the materials'
+// depth-weighted lookup made NaN of a pixel with only sky round it: a black square in the bloom)
+const SKY = 3e4;
 const VERT = /* glsl */`
 void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
-// The frame as the tracing reads it: half size, the colour and the view depth in one texel, smaller copies in the
-// mip levels for the samples far from the pixel (one small texture instead of two full-size ones read all over)
+// The frame as the tracing reads it: its colour and view depth in one texel, with mip levels. A sample stands for a
+// whole wedge of directions (two or three slices share the half turn), so the light it takes from the frame is the
+// frame blurred to that wedge's width there: a mip level, filtered. (Read sharp, a few samples of the sun's dapples
+// under a tree were a different handful every frame: the bounce blinked, in blocks.) The sky's pixels are black here:
+// they are no surface, the probes have the sky.
 const PRE_FRAG = /* glsl */`
 precision highp float;
 precision highp sampler2D;
@@ -37,8 +43,8 @@ uniform vec2 uNearFar, uScale;   // uScale: the frame's texels per texel of this
 void main() {
   ivec2 q = min(ivec2(gl_FragCoord.xy * uScale), textureSize(tDepth, 0) - 1);
   float d = texelFetch(tDepth, q, 0).r;
-  float z = d >= 0.999999 ? 1e5 : uNearFar.x * uNearFar.y / (uNearFar.y - d * (uNearFar.y - uNearFar.x));
-  gl_FragColor = vec4(min(texelFetch(tScene, q, 0).rgb, vec3(4.0)), z);
+  float z = d >= 0.999999 ? ${SKY.toFixed(1)} : uNearFar.x * uNearFar.y / (uNearFar.y - d * (uNearFar.y - uNearFar.x));
+  gl_FragColor = vec4(d >= 0.999999 ? vec3(0.0) : min(texelFetch(tScene, q, 0).rgb, vec3(4.0)), z);
 }`;
 
 const GATHER_FRAG = /* glsl */`
@@ -99,7 +105,7 @@ void main() {
   vec2 uv = uvAt(ip);
   vec3 P = posAt(ip);
   float z = -P.z;
-  if (z > 5500.0) { o0 = vec4(uGIFallA, 1e5); o1 = vec4(uGIFallY, 1.0); o2 = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  if (z > 5500.0) { o0 = vec4(uGIFallA, ${SKY.toFixed(1)}); o1 = vec4(uGIFallY, 1.0); o2 = vec4(0.0, 0.0, 0.0, 1.0); return; }
   // the surface's normal from the depth around (the side with the smaller step across an edge)
   vec2 tx = 1.0 / uRes;
   vec3 pr = posAt(ip + ivec2(1, 0)), pl = posAt(ip - ivec2(1, 0)), pu = posAt(ip + ivec2(0, 1)), pd = posAt(ip - ivec2(0, 1));
@@ -137,10 +143,11 @@ void main() {
           float t = (float(k) + n2) / float(STEPS), r = t * t * rpx + 1.5;
           vec2 suv = uv + sd * dss * r * tx;
           if (suv.x <= 0.0 || suv.y <= 0.0 || suv.x >= 1.0 || suv.y >= 1.0) break;
-          // (far from the pixel: a smaller copy of the frame)
-          vec4 sc = textureLod(tPre, suv, clamp(log2(r) - 3.0, 0.0, 3.0));
-          vec3 S = vec3((suv * 2.0 - 1.0) * uTan, -1.0) * sc.a;
-          if (sc.a > 5500.0) { Sprev = S; rPrev = r; tPrev = 1e9; continue; }
+          // where the surface is: the depth of the texel itself (of a half-size copy far from the pixel)
+          int lvl = r > 28.0 ? 1 : 0;
+          float sz = texelFetch(tPre, clamp(ivec2(suv * uRes) >> lvl, ivec2(0), (ivec2(uRes) >> lvl) - 1), lvl).a;
+          vec3 S = vec3((suv * 2.0 - 1.0) * uTan, -1.0) * sz;
+          if (sz > 5500.0) { Sprev = S; rPrev = r; tPrev = 1e9; continue; }
           vec3 dl = S - P;
           float dist = length(dl);
           vec3 df = dl / max(dist, 1e-4);
@@ -166,7 +173,8 @@ void main() {
           float thm = gamma - HPI + float(a + b) * (0.5 * PI / 32.0);
           float W = float(popc(nw)) * abs(sin(thm)) * (PI / 32.0) * (PI / float(SLICES)) * fade / (4.0 * PI);
           vec3 w = uCamRot * df;
-          vec3 Lw = giRadiance(Aw, Yw.rgb, Xw, w), Ls = sc.rgb;
+          // (the light it sends: the frame blurred to the width of this sample's wedge)
+          vec3 Lw = giRadiance(Aw, Yw.rgb, Xw, w), Ls = textureLod(tPre, suv, clamp(log2(r * WEDGE), 0.0, 6.0)).rgb;
           RA += Lw * W; RY += Lw * (3.0 * W * w.y); RX += giLum(Lw) * 3.0 * W * w.xz;
           BA += Ls * W; BY += Ls * (3.0 * W * w.y); BX += giLum(Ls) * 3.0 * W * w.xz;
         }
@@ -197,6 +205,9 @@ uniform mat3 uCamRot;
 uniform vec3 uCam;
 uniform vec2 uRes;
 uniform float uBlend;
+uniform mat4 uCarNow[CARS];    // world to each truck's own frame
+uniform mat4 uCarPrev[CARS];   // and from there to where that was in the world at the last trace
+uniform vec4 uCarBody[CARS];   // its body: half width, half length, bottom, top in its frame
 float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 void main() {
   vec2 fc = gl_FragCoord.xy;
@@ -204,7 +215,7 @@ void main() {
   fc.x -= part * uRes.x;
   ivec2 ip = ivec2(fc), lim = ivec2(uRes) - 1;
   float z = texelFetch(tRaw0, ip, 0).a;
-  if (z > 9e4) { gl_FragColor = part < 0.5 ? texelFetch(tRaw0, ip, 0) : part < 1.5 ? texelFetch(tRaw1, ip, 0) : texelFetch(tRaw2, ip, 0); return; }
+  if (z > 2e4) { gl_FragColor = part < 0.5 ? texelFetch(tRaw0, ip, 0) : part < 1.5 ? texelFetch(tRaw1, ip, 0) : texelFetch(tRaw2, ip, 0); return; }
   // the neighbours at this pixel's depth
   vec4 sum = vec4(0.0); float ws = 0.0, lmin = 1e9, lmax = 0.0;
   for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
@@ -222,7 +233,15 @@ void main() {
     vec2 uv = fc / uRes;
     vec4 pv = uProjInv * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
     vec3 ray = pv.xyz / pv.w;
-    vec4 pc = uPrevVP * vec4(uCam + uCamRot * (ray * (z / -ray.z)), 1.0);
+    vec3 P = uCam + uCamRot * (ray * (z / -ray.z)), Pp = P;
+    // (what is on a truck, and the shade it casts right under it, came along with the truck)
+    for (int i = 0; i < CARS; i++) {
+      vec4 bb = uCarBody[i];
+      if (bb.w <= bb.z) continue;
+      vec3 q = (uCarNow[i] * vec4(P, 1.0)).xyz;
+      if (abs(q.x) < bb.x && abs(q.z) < bb.y && q.y > bb.z && q.y < bb.w) { Pp = (uCarPrev[i] * vec4(q, 1.0)).xyz; break; }
+    }
+    vec4 pc = uPrevVP * vec4(Pp, 1.0);
     vec2 puv = pc.xy / pc.w * 0.5 + 0.5;
     float hx = -1.0, hy = 0.0;
     vec4 hA;
@@ -259,7 +278,7 @@ export class ScreenGI {
                                           // and what is solid is joined up sample to sample anyway
     this.blend = 0.2;                     // the share of the new frame in the kept light
     const hf = { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false };
-    this.pre = new THREE.WebGLRenderTarget(1, 1, { ...hf, minFilter: THREE.NearestMipmapNearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: true });
+    this.pre = new THREE.WebGLRenderTarget(1, 1, { ...hf, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
     this.preMat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: PRE_FRAG, depthTest: false, depthWrite: false,
       uniforms: { tDepth: { value: null }, tScene: { value: null }, uNearFar: { value: new THREE.Vector2(0.1, 6000) }, uScale: { value: new THREE.Vector2(2, 2) } },
@@ -273,20 +292,26 @@ export class ScreenGI {
     this.frame = 0;
     this.viewProj = new THREE.Matrix4();      // the camera of the frame the atlas was made from
     this.cars = [];
+    const perCar = (f) => Array.from({ length: CARS }, f);
+    this.carNow = perCar(() => new THREE.Matrix4());    // world to the truck's frame
+    this.carPrev = perCar(() => new THREE.Matrix4());   // that frame to the world at the last trace
+    this.carBody = perCar(() => new THREE.Vector4(0, 0, 0, -1));
+    this.carWas = perCar(() => false);
     this.gatherMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: GATHER_FRAG, depthTest: false, depthWrite: false,
-      defines: { SLICES: this.slices, STEPS: this.steps, CARS },
+      defines: { SLICES: this.slices, STEPS: this.steps, CARS, WEDGE: (1.2 / this.slices).toFixed(3) },
       uniforms: {
         ...world.uniforms, tPre: { value: this.pre.texture }, uProjInv: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
         uCam: { value: new THREE.Vector3() }, uRes: { value: new THREE.Vector2(1, 1) }, uFull: { value: new THREE.Vector2(1, 1) }, uTan: { value: new THREE.Vector2(1, 1) }, uScale: this.preMat.uniforms.uScale,
         uProjScale: { value: 1 }, uRadius: { value: 4 }, uMaxPx: { value: 100 }, uFrame: { value: 0 }, uThick: { value: 0.3 },
-        uCarM: { value: Array.from({ length: CARS }, () => new THREE.Matrix4()) }, uCarBox: { value: Array.from({ length: CARS }, () => new THREE.Vector4()) },
+        uCarM: { value: this.carNow }, uCarBox: { value: Array.from({ length: CARS }, () => new THREE.Vector4()) },
       },
     });
     const g = this.gatherMat.uniforms;
     this.blendMat = new THREE.ShaderMaterial({
-      vertexShader: VERT, fragmentShader: BLEND_FRAG, depthTest: false, depthWrite: false,
+      vertexShader: VERT, fragmentShader: BLEND_FRAG, depthTest: false, depthWrite: false, defines: { CARS },
       uniforms: {
+        uCarNow: { value: this.carNow }, uCarPrev: { value: this.carPrev }, uCarBody: { value: this.carBody },
         tRaw0: { value: this.raw.textures[0] }, tRaw1: { value: this.raw.textures[1] }, tRaw2: { value: this.raw.textures[2] }, tHist: { value: null },
         uProjInv: g.uProjInv, uCamRot: g.uCamRot, uCam: g.uCam, uRes: g.uRes, uPrevVP: { value: new THREE.Matrix4() }, uBlend: { value: 1 },
       },
@@ -301,12 +326,25 @@ export class ScreenGI {
   // frame, clear: the floor's height above the box's bottom }]
   setCars(list) { this.cars = list; }
 
+  // where the trucks are now against the last trace (before the scene is drawn: its materials follow them too)
+  trackCars() {
+    for (let i = 0; i < CARS; i++) {
+      const c = this.cars[i], bb = this.carBody[i];
+      if (!c || !c.root.visible) { bb.set(0, 0, 0, -1); continue; }
+      c.root.updateWorldMatrix(true, false);
+      // (the box's centre is not the frame's origin: folded into the matrix)
+      this.carNow[i].copy(c.root.matrixWorld).invert().premultiply(_m.makeTranslation(-c.c.x, 0, -c.c.z));
+      if (this.carWas[i]) bb.set(c.half.x + 0.15, c.half.z + 0.2, c.c.y - c.half.y - 0.15, c.c.y + c.half.y + 0.4);
+      else bb.set(0, 0, 0, -1);
+    }
+  }
+
   // q: a GI level (render/quality.js): { height, slices, steps }
   configure(q) {
     if (q.height !== this.rows) { this.rows = q.height; const w = this.width, h = this.height; this.width = 0; this.setSize(w, h); }
     if (q.slices !== this.slices || q.steps !== this.steps) {
       this.slices = q.slices; this.steps = q.steps;
-      this.gatherMat.defines.SLICES = q.slices; this.gatherMat.defines.STEPS = q.steps;
+      this.gatherMat.defines.SLICES = q.slices; this.gatherMat.defines.STEPS = q.steps; this.gatherMat.defines.WEDGE = (1.2 / q.slices).toFixed(3);
       this.gatherMat.needsUpdate = true;
     }
   }
@@ -337,12 +375,10 @@ export class ScreenGI {
     u.uProjScale.value = camera.projectionMatrix.elements[5] * 0.5 * this.h;   // pixels of this pass a metre covers at 1 m
     u.uRadius.value = this.radius; u.uThick.value = this.thick; u.uMaxPx.value = this.h * 0.22;
     u.uFrame.value = this.frame++ % 1024;
+    this.trackCars();
     for (let i = 0; i < CARS; i++) {
       const c = this.cars[i], bx = u.uCarBox.value[i];
       if (!c || !c.root.visible) { bx.w = 0; continue; }
-      u.uCarM.value[i].copy(c.root.matrixWorld).invert();
-      // (the box's centre is not the frame's origin: folded into the matrix)
-      _m.makeTranslation(-c.c.x, 0, -c.c.z); u.uCarM.value[i].premultiply(_m);
       // (the low flat part of a truck's floor: between its axles, a little short of its sides)
       bx.set(c.half.x * 0.86, c.half.z * 0.72, c.c.y - c.half.y + c.clear, 1);
     }
@@ -356,6 +392,10 @@ export class ScreenGI {
     this.blendQuad.render(r);
     this.cur = 1 - this.cur;
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    for (let i = 0; i < CARS; i++) {
+      this.carWas[i] = !!this.cars[i]?.root.visible;
+      if (this.carWas[i]) this.carPrev[i].copy(this.carNow[i]).invert();
+    }
     this.ready = true; this.cut = false;
   }
 }

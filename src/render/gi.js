@@ -16,7 +16,8 @@ import { MAP_SIZE, LIGHT_N } from '../world/terrain.js';
 //     the grass have that from their own data (and the terrain has no texture unit to spare);
 //   set `giLift` (0..1): how far it stands above the ground's shade (a tree's crown rises out of the wood);
 //   define GI_CABIN and set `giCabin` (0..1): a cabin's trim, lit much the same whichever way it faces;
-//   define GI_OFF: the probe alone, as three has it.
+//   define GI_OFF: the probe alone, as three has it;
+//   define GI_FAST: the traced light read plainly, without the care at edges (grass and bushes).
 
 // shared plain-object uniforms (UniformsUtils.clone keeps plain objects by reference: one write reaches every material)
 export const GI = {
@@ -49,6 +50,11 @@ export const GI_TRACED = {
   giPrevVP: { value: new THREE.Matrix4() },
   // x: 1 while the atlas holds a frame (0: the estimate below), y: half a texel of the screen across, zw: 1 / the screen's size
   giAtlas: { value: new THREE.Vector4(0, 0, 1, 1) },
+  giRes: { value: new THREE.Vector2(1, 1) },   // the size of one part of the atlas (texels)
+  // the player's truck against the last trace (GI_STICKY: what is on it reads the light found for it then): world to
+  // its frame, that frame to the world then, its box there (half width, half length, bottom, top)
+  giCarNow: { value: new THREE.Matrix4() }, giCarPrev: { value: new THREE.Matrix4() },
+  giCarBody: { value: new THREE.Vector4(0, 0, 0, -1) },
   // the light at the truck (giWorld.js here): its mean, and how much more comes from above (a cabin's trim is lit
   // by it through the glass: the screen's own tracing would shut a cabin in)
   giCarA: { value: new THREE.Vector3(0.1, 0.1, 0.1) }, giCarY: { value: new THREE.Vector3() },
@@ -102,6 +108,12 @@ uniform vec4 giDir;
 uniform sampler2D tGI;
 uniform mat4 giPrevVP;
 uniform vec4 giAtlas;
+uniform vec2 giRes;
+#ifdef GI_STICKY
+uniform mat4 giCarNow;
+uniform mat4 giCarPrev;
+uniform vec4 giCarBody;
+#endif
 uniform vec3 giCarA;
 uniform vec3 giCarY;
 #ifndef GI_LOCAL
@@ -121,15 +133,43 @@ const GI_DIFFUSE = /* glsl */`
 			if ( giAtlas.x > 0.5 ) {
 				// the traced light: where this point was on last frame's screen, the light found there, on this normal
 				vec3 giP = cameraPosition - ( vec4( vViewPosition, 0.0 ) * viewMatrix ).xyz;
-				vec4 giC = giPrevVP * vec4( giP, 1.0 );
-				vec2 giUv = giC.w > 0.0 ? giC.xy / giC.w * 0.5 + 0.5 : gl_FragCoord.xy * giAtlas.zw;
+				vec3 giPp = giP;
 				#ifdef GI_STICKY
-				giUv = gl_FragCoord.xy * giAtlas.zw;   // what moves with the camera (the truck): the same place on the screen
+				{	// what is on the truck: where it was on the truck at the last trace
+					vec3 giQl = ( giCarNow * vec4( giP, 1.0 ) ).xyz;
+					if ( abs( giQl.x ) < giCarBody.x && abs( giQl.z ) < giCarBody.y && giQl.y > giCarBody.z && giQl.y < giCarBody.w ) giPp = ( giCarPrev * vec4( giQl, 1.0 ) ).xyz;
+				}
 				#endif
+				vec4 giC = giPrevVP * vec4( giPp, 1.0 );
+				vec2 giUv = giC.w > 0.0 ? giC.xy / giC.w * 0.5 + 0.5 : gl_FragCoord.xy * giAtlas.zw;
+				float giZ = giC.w;   // how far it was from that camera
 				giUv = clamp( giUv, vec2( giAtlas.y, 0.002 ), vec2( 1.0 - giAtlas.y, 0.998 ) );
-				giUv.x *= 0.3333333;
-				vec4 giA = texture2D( tGI, giUv ), giY = texture2D( tGI, vec2( giUv.x + 0.3333333, giUv.y ) );
-				vec2 giX = texture2D( tGI, vec2( giUv.x + 0.6666667, giUv.y ) ).xy;
+				vec2 giU3 = vec2( giUv.x * 0.3333333, giUv.y );
+				vec4 giA = texture2D( tGI, giU3 ), giY;
+				vec2 giX;
+				#ifdef GI_FAST
+				// (grass, bushes: blades in front of blades, an edge at every pixel; the plain lookup)
+				if ( false ) {
+				#else
+				if ( abs( giA.a - giZ ) > 0.08 * giZ + 0.06 ) {
+				#endif
+					// An edge: the light there was found for something nearer or farther (the atlas is coarser than the
+					// frame). Of the four texels round the point, the ones at this point's depth: the dark under the
+					// truck does not creep up its sills, the sky's light on a branch does not spill over the ground behind
+					vec2 giS = giUv * giRes - 0.5, giF = fract( giS );
+					ivec2 giI = ivec2( floor( giS ) ), giMax = ivec2( giRes ) - 1, giW = ivec2( int( giRes.x ), 0 );
+					vec4 giSA = vec4( 0.0 ), giSY = vec4( 0.0 ); vec2 giSX = vec2( 0.0 ); float giWs = 0.0;
+					for ( int giK = 0; giK < 4; giK ++ ) {
+						ivec2 giO = ivec2( giK & 1, giK >> 1 ), giQ = clamp( giI + giO, ivec2( 0 ), giMax );
+						vec4 giT = texelFetch( tGI, giQ, 0 );
+						float giWk = ( ( giO.x == 1 ? giF.x : 1.0 - giF.x ) * ( giO.y == 1 ? giF.y : 1.0 - giF.y ) + 0.02 ) / ( 0.02 * giZ + 0.01 + abs( giT.a - giZ ) );
+						giSA += giT * giWk; giSY += texelFetch( tGI, giQ + giW, 0 ) * giWk; giSX += texelFetch( tGI, giQ + 2 * giW, 0 ).xy * giWk; giWs += giWk;
+					}
+					giA = giSA / giWs; giY = giSY / giWs; giX = giSX / giWs;
+				} else {
+					giY = texture2D( tGI, vec2( giU3.x + 0.3333333, giU3.y ) );
+					giX = texture2D( tGI, vec2( giU3.x + 0.6666667, giU3.y ) ).xy;
+				}
 				vec3 giNw = ( vec4( geometryNormal, 0.0 ) * viewMatrix ).xyz;
 				vec3 giE = PI * max( giA.rgb + 0.6666667 * ( giY.rgb * giNw.y + giA.rgb * ( dot( giX, giNw.xz ) / max( dot( giA.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ) ) ), 0.1 * giA.rgb );
 				giOpen = min( giY.a * 2.2, 1.0 );   // the open sky's share of the upper half (of a probe's rays half go down)

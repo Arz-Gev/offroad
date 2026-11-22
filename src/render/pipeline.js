@@ -468,6 +468,14 @@ void main() { gl_FragColor = texture2D(tSrc, vUv); }`;
 
 const _sunNdc = new THREE.Vector3(), _camFwd = new THREE.Vector3(), _giP = new THREE.Vector3();
 
+// the truck's motion since the last trace, for its materials' lookup (gi.js GI_STICKY)
+function followTruck(screen) {
+  screen.trackCars();
+  GI_TRACED.giCarNow.value.copy(screen.carNow[0]);
+  GI_TRACED.giCarPrev.value.copy(screen.carPrev[0]);
+  GI_TRACED.giCarBody.value.copy(screen.carBody[0]);
+}
+
 export class RenderPipeline {
   constructor(renderer, scene, camera) {
     this.renderer = renderer;
@@ -629,6 +637,8 @@ export class RenderPipeline {
       GI_TRACED.tGI.value = gi.screen.atlas.texture;
       GI_TRACED.giPrevVP.value.copy(gi.screen.viewProj);
       GI_TRACED.giAtlas.value.set(gi.screen.ready && !gi.noForward ? 1 : 0, 0.5 / gi.screen.w, 1 / this.width, 1 / this.height);
+      GI_TRACED.giRes.value.set(gi.screen.w, gi.screen.h);
+      followTruck(gi.screen);
     } else GI_TRACED.giAtlas.value.x = 0;
     r.setRenderTarget(this.hdr);
     r.render(this.scene, this.camera);
@@ -638,6 +648,7 @@ export class RenderPipeline {
         // a jump of the camera: no last frame to read the light from. The frame is drawn again with the light just
         // gathered from its own depth
         GI_TRACED.giPrevVP.value.copy(gi.screen.viewProj);
+        followTruck(gi.screen);
         GI_TRACED.giAtlas.value.x = gi.noForward ? 0 : 1;
         GI_TRACED.tGI.value = gi.screen.atlas.texture;
         r.setRenderTarget(this.hdr);

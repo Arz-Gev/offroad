@@ -3,23 +3,26 @@ import { CLOUD_GLSL } from '../world/clouds.js';
 
 // Sun shadow in one depth atlas, in two parts:
 // - the world (terrain, trees, rocks, props): 1-2 cascades with explicit splits (render/quality.js SHADOWS) and a
-//   smooth wide filter, so tree shadows are soft like real ones (the sun is a disc: the further the caster is
+//   smooth filter, so tree shadows are soft like real ones (the sun is a disc: the further the caster is
 //   from the ground, the softer the edge, and leaves are metres up);
 // - the player's car: its own small, sharp tile that follows the car (setCar: its meshes go on CAR_LAYER, nothing
 //   else is drawn into the tile and the car is in no world cascade), so the contact shadow under the car and its
 //   shadow on itself stay crisp. The shader multiplies it in only where the point projects (along the light) onto
 //   the car's bounding sphere.
 // The world cascades fit like three's SunLightShadow (bounding sphere per frustum slice, texel snapping, fade
-// band), with the count, splits and atlas layout configurable; a drop-in LightShadow.
+// band), with the count, splits and atlas layout configurable; a drop-in LightShadow. The texel grid of each tile
+// turns with the sun about a point that follows the camera (the car's tile: the car), not about the world's origin:
+// there, a few hundred metres away, a sun moving with the day swept the grid ~2 cm a frame, so every edge was drawn
+// anew every frame and the sun dapples in the woods blinked.
 //
 // three's WebGLShadowMap tests every object's layers against the *view* camera, not the shadow camera, so the
 // shadow pass sets the view camera's layers per tile (attach): world tiles see layers 0 and SHADOW_LAYER (the
-// shadow-only proxies, trees.js), the nearest also NEAR_SHADOW_LAYER (small things; unused since the debris stopped casting), the car tile CAR_LAYER only, the
+// shadow-only proxies, trees.js), the nearest also NEAR_SHADOW_LAYER (small things: the shrubs), the car tile CAR_LAYER only, the
 // lamps' shadows 0 and SHADOW_LAYER.
 //
 // The shader side comes from installCascadeShadowChunks(): MAX_CASCADES slots are always declared (the last one
 // is the car's); unused ones carry an empty depth range and draw nothing. The `w` of each cascade vec4 is its
-// texel size in metres, which scales the depth bias, normal offset and filter radius per cascade.
+// texel size in metres, which scales the depth bias and normal offset per cascade and picks its filter.
 
 export const CAR_LAYER = 2;      // the player's car: drawn by the view camera and into the car's tile only
 export const SHADOW_LAYER = 1;   // shadow-only proxies: drawn into the shadow maps only
@@ -32,18 +35,23 @@ export const MAX_CASCADES = WORLD_MAX + 1;
 const _lightOrientation = new THREE.Matrix4();
 const _viewToLight = new THREE.Matrix4();
 const _lightInverse = new THREE.Matrix4();
+const _pivotAt = new THREE.Matrix4();
 const _lightDir = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _center = new THREE.Vector3();
+const _v = new THREE.Vector3();
 const _near = Array.from({ length: 4 }, () => new THREE.Vector3());
 const _far = Array.from({ length: 4 }, () => new THREE.Vector3());
 const _corners = Array.from({ length: 8 }, () => new THREE.Vector3());
 const _sun = [], _rest = [];
+const _ax = new THREE.Vector3(), _ay = new THREE.Vector3(), _az = new THREE.Vector3(), _p = new THREE.Vector3();
 
-// filter radius in texels: soft / texel, clamped to [MIN_RADIUS, MAX_RADIUS]; the tile inset keeps the filter
-// inside its tile
-const MIN_RADIUS = 0.8, MAX_RADIUS = 1.5;
-const INSET = Math.ceil(MAX_RADIUS) + 1;
+// The filter: a tent over 5x5 texels (the near cascade, the car) or 3x3 (cascades with texels over TENT3_TEXEL),
+// each from a few hardware-filtered compares with the weights worked out per sample (Castano's optimised PCF): a
+// smooth edge without bands, a lone lit texel under the leaves a round soft spot. The tile inset keeps the filter
+// inside its tile.
+const TENT3_TEXEL = 0.1;
+const INSET = 3;
 
 export class CascadedSunShadow extends THREE.LightShadow {
   constructor() {
@@ -62,20 +70,22 @@ export class CascadedSunShadow extends THREE.LightShadow {
     this._frustums = [];
     this._cascadeData = [];
     this._viewports = [];
+    this._pivots = [];      // per tile: the grid point the grid turns about, and its texel size
     for (let i = 0; i < MAX_CASCADES; i++) {
       this._cameras.push(new THREE.OrthographicCamera());
       this._matrices.push(new THREE.Matrix4());
       this._frustums.push(new THREE.Frustum());
       this._cascadeData.push(new THREE.Vector4(1e10, -1e10, 1e10, 1));
       this._viewports.push(new THREE.Vector4(0, 0, 1, 1));
+      this._pivots.push({ p: new THREE.Vector3(), t: 0 });
     }
     this._viewportCount = MAX_CASCADES;
     this._rendering = false;
     this._viewCamera = null;
-    this.configure({ map: 2048, cascades: 2, splits: [48], car: 1024, far: 170, soft: 0.07 });
+    this.configure({ map: 2048, cascades: 2, splits: [48], car: 1024, far: 170 });
   }
 
-  // S: a SHADOWS preset (render/quality.js): { map, cascades, splits, car, far, soft }. The atlas holds the world
+  // S: a SHADOWS preset (render/quality.js): { map, cascades, splits, car, far }. The atlas holds the world
   // tiles side by side and then the car's, a fraction of a tile (car / map) wide. A new layout drops the map
   // (WebGLShadowMap makes a new one on the next frame).
   configure(S) {
@@ -89,7 +99,6 @@ export class CascadedSunShadow extends THREE.LightShadow {
       if (this.map) { this.map.depthTexture?.dispose(); this.map.dispose(); this.map = null; }
     }
     this.camera.far = S.far;
-    this.radius = S.soft;
   }
 
   // the player's car: its meshes go on CAR_LAYER (out of the world cascades, into the car's tile); the view
@@ -219,11 +228,10 @@ export class CascadedSunShadow extends THREE.LightShadow {
       }
       let radius = Math.sqrt(r2);
 
-      // snap to the texel grid: no shimmering when the camera moves
-      radius /= 1 - 1 / resolution;
+      // snap to the texel grid: no shimmering when the camera moves (the radius in steps, so the texel holds)
+      radius = Math.ceil(radius * 16) / 16 / (1 - 1 / resolution);
       const tx = 2 * radius / resX, ty = 2 * radius / resY;
-      _center.x = Math.round(_center.x / tx) * tx;
-      _center.y = Math.round(_center.y / ty) * ty;
+      this._snap(i, _center, tx, ty, viewCamera.matrixWorld);
       data.w = 2 * radius / resolution;   // texel size in metres
 
       _center.z = globalMaxZ + shadowNear;
@@ -243,13 +251,26 @@ export class CascadedSunShadow extends THREE.LightShadow {
     const res = vp.z * this.mapSize.x, texel = 2 * car.half / res;
     car.focus.updateMatrixWorld();
     _center.copy(car.center).applyMatrix4(car.focus.matrixWorld).applyMatrix4(_lightInverse.copy(_lightOrientation).transpose());
-    _center.x = Math.round(_center.x / texel) * texel;
-    _center.y = Math.round(_center.y / texel) * texel;
+    this._snap(CAR, _center, texel, texel, _pivotAt.makeTranslation(_p.copy(car.center).applyMatrix4(car.focus.matrixWorld)));
     _center.z += 60;
     _center.applyMatrix4(_lightOrientation);
     this._place(CAR, _center, car.half, 1, 120);
     const w = this.mapSize.x * this._frameExtents.x, h = this.mapSize.y * this._frameExtents.y;
     data.set((vp.x + vp.z / 2) / this._frameExtents.x * w, (vp.y + vp.w / 2) / this._frameExtents.y * h, res / 2, texel);
+  }
+
+  // c (light space) onto tile i's texel grid, which goes through its pivot (world): then the pivot moves along that
+  // same grid to the grid point nearest `at` (the camera, the car), so the grid only turns with the sun about what
+  // is close by, and nothing shifts when the pivot moves
+  _snap(i, c, tx, ty, at) {
+    const pv = this._pivots[i];
+    _lightOrientation.extractBasis(_ax, _ay, _az);
+    if (pv.t !== tx) { pv.t = tx; pv.p.setFromMatrixPosition(at); }   // a new texel size: any grid
+    const px = pv.p.dot(_ax), py = pv.p.dot(_ay);
+    c.x = px + Math.round((c.x - px) / tx) * tx;
+    c.y = py + Math.round((c.y - py) / ty) * ty;
+    _v.setFromMatrixPosition(at).sub(pv.p);
+    pv.p.addScaledVector(_ax, Math.round(_v.dot(_ax) / tx) * tx).addScaledVector(_ay, Math.round(_v.dot(_ay) / ty) * ty).addScaledVector(_az, _v.dot(_az));
   }
 
   // an orthographic camera at `pos` looking along the light, `half` metres to each side
@@ -271,19 +292,33 @@ export class CascadedSunShadow extends THREE.LightShadow {
 // getSunShadow with per-cascade texel-scaled bias, normal offset and filter radius, and the car's tile:
 //   shadow.bias        depth bias in texels of the cascade (a fixed NDC bias was ~15 cm in the near cascade)
 //   shadow.normalBias  offset along the surface normal in texels, scaled by sin(angle to the light)
-//   shadow.radius      filter width in metres; per cascade MIN_RADIUS..MAX_RADIUS texels (the car: 1 texel)
-// The filter is a 3x3 grid of hardware compares `radius` texels apart: a smooth penumbra, no noise, no rings
-// (three's 5-tap rotated Vogel disk is noisy when wide).
+// The filter is a tent over 5x5 or 3x3 texels (above): no noise, no bands (three's 5-tap rotated Vogel disk is
+// noisy when wide).
 const GET_SUN_SHADOW = /* glsl */`
 		${CLOUD_GLSL}
-		float sunPCF( sampler2DShadow shadowMap, vec2 mapSize, vec4 coord, float bias, float radius ) {
+		float sunPCF( sampler2DShadow shadowMap, vec2 mapSize, vec4 coord, float bias, bool wide ) {
 			coord.xyz /= coord.w;
 			coord.z += bias;
 			if ( coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 || coord.z > 1.0 ) return 1.0;
-			vec2 s = vec2( radius ) / mapSize;
-			float sum = 0.0;
-			for ( int y = - 1; y <= 1; y ++ ) for ( int x = - 1; x <= 1; x ++ ) sum += texture( shadowMap, vec3( coord.xy + s * vec2( float( x ), float( y ) ), coord.z ) );
-			return sum * ( 1.0 / 9.0 );
+			vec2 uv = coord.xy * mapSize, base = floor( uv + 0.5 ), f = uv + 0.5 - base;
+			base -= 0.5;
+			vec2 inv = 1.0 / mapSize;
+			float z = coord.z, sum = 0.0;
+			if ( wide ) {
+				vec3 uw = vec3( 4.0 - 3.0 * f.x, 7.0, 1.0 + 3.0 * f.x ), vw = vec3( 4.0 - 3.0 * f.y, 7.0, 1.0 + 3.0 * f.y );
+				vec3 u = ( vec3( 3.0 - 2.0 * f.x, 3.0 + f.x, f.x ) / uw + vec3( - 2.0, 0.0, 2.0 ) + base.x ) * inv.x;
+				vec3 v = ( vec3( 3.0 - 2.0 * f.y, 3.0 + f.y, f.y ) / vw + vec3( - 2.0, 0.0, 2.0 ) + base.y ) * inv.y;
+				sum += uw.x * ( vw.x * texture( shadowMap, vec3( u.x, v.x, z ) ) + vw.y * texture( shadowMap, vec3( u.x, v.y, z ) ) + vw.z * texture( shadowMap, vec3( u.x, v.z, z ) ) );
+				sum += uw.y * ( vw.x * texture( shadowMap, vec3( u.y, v.x, z ) ) + vw.y * texture( shadowMap, vec3( u.y, v.y, z ) ) + vw.z * texture( shadowMap, vec3( u.y, v.z, z ) ) );
+				sum += uw.z * ( vw.x * texture( shadowMap, vec3( u.z, v.x, z ) ) + vw.y * texture( shadowMap, vec3( u.z, v.y, z ) ) + vw.z * texture( shadowMap, vec3( u.z, v.z, z ) ) );
+				return sum * ( 1.0 / 144.0 );
+			}
+			vec2 uw = vec2( 3.0 - 2.0 * f.x, 1.0 + 2.0 * f.x ), vw = vec2( 3.0 - 2.0 * f.y, 1.0 + 2.0 * f.y );
+			vec2 u = ( vec2( 2.0 - f.x, f.x ) / uw + vec2( - 1.0, 1.0 ) + base.x ) * inv.x;
+			vec2 v = ( vec2( 2.0 - f.y, f.y ) / vw + vec2( - 1.0, 1.0 ) + base.y ) * inv.y;
+			sum += uw.x * ( vw.x * texture( shadowMap, vec3( u.x, v.x, z ) ) + vw.y * texture( shadowMap, vec3( u.x, v.y, z ) ) );
+			sum += uw.y * ( vw.x * texture( shadowMap, vec3( u.y, v.x, z ) ) + vw.y * texture( shadowMap, vec3( u.y, v.y, z ) ) );
+			return sum * ( 1.0 / 16.0 );
 		}
 
 		float getSunShadow(
@@ -326,8 +361,7 @@ const GET_SUN_SHADOW = /* glsl */`
 					float bias = - sunLightShadow.shadowBias * texel * zLen;
 
 					#if defined( SHADOWMAP_TYPE_PCF )
-						float radius = clamp( sunLightShadow.shadowRadius / texel, ${MIN_RADIUS.toFixed(1)}, ${MAX_RADIUS.toFixed(1)} );
-						float cascadeShadow = sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), bias, radius );
+						float cascadeShadow = sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), bias, texel < ${TENT3_TEXEL.toFixed(3)} );
 					#else
 						float cascadeShadow = getShadow( shadowMap, mapSize, 1.0, bias, 1.0, m * vec4( p, 1.0 ) );
 					#endif
@@ -352,7 +386,7 @@ const GET_SUN_SHADOW = /* glsl */`
 					float ndl = dot( worldNormal, zRow / zLen );
 					float sinT = sqrt( max( 1.0 - ndl * ndl, 0.0 ) );
 					vec3 p = worldPos + worldNormal * ( sunLightShadow.shadowNormalBias * texel * ( 0.3 + 0.7 * sinT ) );
-					shadow *= sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), - sunLightShadow.shadowBias * texel * zLen, 1.0 );
+					shadow *= sunPCF( shadowMap, mapSize, m * vec4( p, 1.0 ), - sunLightShadow.shadowBias * texel * zLen, true );
 				}
 			}
 			#endif

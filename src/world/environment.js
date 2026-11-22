@@ -179,7 +179,6 @@ export class Environment {
       this.sun.shadow.attach(renderer);
       this.sun.shadow.bias = 1.0;         // texels of the cascade
       this.sun.shadow.normalBias = 1.5;   // texels of the cascade
-      this.sun.shadow.radius = 0.07;      // filter width (m)
     } else {                                // three's own two cascades, bias in depth units
       this.sun.shadow.bias = -0.0004;
       this.sun.shadow.normalBias = 0.05;

@@ -72,14 +72,14 @@ export const QUALITY = {
 };
 
 // Sun shadow per level (render/cascadeShadow.js). The world: map texels per cascade, far: shadow distance (m),
-// splits: where cascades hand over (m from the camera), soft: filter width (m). Texel size is about
-// 2.4 * (cascade end distance) / map. car: texels of the car's own sharp tile (only the player's car).
+// splits: where cascades hand over (m from the camera). Texel size is about 2.4 * (cascade end distance) / map;
+// the filter is a tent over 5x5 texels, 3x3 past 10 cm texels. car: texels of the car's own sharp tile.
 export const SHADOWS = {
   off: null,
-  low: { map: 1024, far: 90, cascades: 2, splits: [28], soft: 0.1, car: 512 },
-  medium: { map: 2048, far: 130, cascades: 2, splits: [38], soft: 0.08, car: 1024 },
-  high: { map: 2560, far: 180, cascades: 2, splits: [48], soft: 0.07, car: 1024 },
-  ultra: { map: 3072, far: 260, cascades: 2, splits: [52], soft: 0.06, car: 2048 },
+  low: { map: 1024, far: 90, cascades: 2, splits: [28], car: 512 },
+  medium: { map: 2048, far: 130, cascades: 2, splits: [38], car: 1024 },
+  high: { map: 2560, far: 180, cascades: 2, splits: [48], car: 1024 },
+  ultra: { map: 3072, far: 260, cascades: 2, splits: [52], car: 2048 },
 };
 
 // Volumetric clouds per level (world/clouds.js): resolution of the cloud texture, steps along a ray. off: the
@@ -107,9 +107,9 @@ export const FOG = {
 // of the probe grid.
 export const GI_LEVELS = {
   off: null,
-  low: { height: 400, slices: 2, steps: 3, turns: [12, 24, 24] },
+  low: { height: 450, slices: 2, steps: 3, turns: [12, 24, 24] },
   medium: { height: 540, slices: 2, steps: 4, turns: [8, 16, 16] },
-  high: { height: 640, slices: 2, steps: 5, turns: [6, 12, 12] },
+  high: { height: 720, slices: 2, steps: 5, turns: [6, 12, 12] },
 };
 
 // Depth of field per level (render/pipeline.js): most taps of the half-res gather; it follows the clouds' level.

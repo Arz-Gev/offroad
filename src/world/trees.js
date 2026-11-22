@@ -310,7 +310,7 @@ varying float vImpLift;   // 0 at the foot .. 1 at the top (the indirect light, 
 vec3 ip = instanceMatrix[3].xyz;
 float isc = length(instanceMatrix[0].xyz);
 float yaw = atan(-instanceMatrix[0].z, instanceMatrix[0].x);
-vec3 toCam = cameraPosition - ip;
+vec3 toCam = ${depth ? 'uImpSun.xyz + vec3(1e-4, 0.0, 0.0)' : 'cameraPosition - ip'};   // (in the shadow pass a card faces the light: by that camera's place it turned as the player moved, its shadow with it)
 float azW = atan(toCam.x, toCam.z);
 float vf = (azW - yaw) / 6.2831853 * ${VIEWS}.0;
 float view = mod(floor(vf + 0.5), ${VIEWS}.0);
@@ -401,7 +401,7 @@ vec3 nonPerturbedNormal = normal;`)
 }
 ` + leafLightsBegin());
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v6';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v7';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

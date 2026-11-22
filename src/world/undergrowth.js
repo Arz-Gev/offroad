@@ -4,11 +4,13 @@ import { buildPlant } from './foliage.js';
 import { NO_FLIP_NORMAL } from './trees.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, pp, ppf } from './origin.js';
 import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
+import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
 
 // Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
 // wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
-// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive but do not cast shadows (cheap).
+// of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive shadows, and the shrubs cast them into
+// the nearest shadow cascade (without one a shrub looked pasted on the ground); the small plants cast none (cheap).
 // On rock only the rock grass grows (uRock): small, darker tufts in little groups, where terrainView.js draws moss.
 
 const HALF = MAP_SIZE / 2;
@@ -17,6 +19,7 @@ const TILES = 6;
 // The flower fields as plants reach FIELD_RADIUS at most (further out a lavender plant is a few pixels, and at the
 // presets' bush distance, ~150 m, the two fields alone drew 240k plants); beyond, their colour rides on the grass
 // tips (grass.js reads FIELDS: the same drift noise, faded in where the plants shrink away).
+const CAST_RANGE = 56;   // the shrubs' shadows (m from the eye): about the nearest cascade's reach
 const FIELD_RADIUS = 80;
 export const FIELDS = {
   far: { value: new THREE.Vector2(FIELD_RADIUS * 0.62, FIELD_RADIUS * 0.85) },
@@ -38,6 +41,7 @@ uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
 uniform vec4 uField;    // fields: weight, patch size (m), threshold, seed: the plant grows in big drifts over meadows
 uniform vec4 uWind;     // dir x, dir z, strength, time
+uniform vec2 uViewXZ;   // the eye (in the shadow pass too, where cameraPosition is the sun's)
 ${WIND_FIELD_GLSL}
 attribute float aWind;
 vec2 uHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
@@ -50,34 +54,8 @@ float uGround(vec2 xz) {
 }
 `;
 
-export function buildUndergrowth(terrainView, atlas, windUniform) {
-  const U = terrainView.uniforms;
-  const group = new THREE.Group();
-  group.name = 'undergrowth';
-  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tNrm: U.tNrm, uMap: U.uMap, uWind: windUniform, ...windUniforms() };
-
-  // opts: maxRadius (m, after the presets' distance scale), color (multiplies the atlas)
-  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0, opts = {}) => {
-    const k = Math.ceil(radius * 2 / spacing / TILES);
-    const uniforms = {
-      ...shared,
-      uGrid: { value: new THREE.Vector4(0, 0, spacing, k) },
-      uCellPat: { value: new THREE.Vector3(0, 0, 1) }, uPat: PAT,
-      uRad: { value: new THREE.Vector4(radius * 0.7, radius, 0, 0) },
-      uShape: { value: new THREE.Vector4(...shape) },
-      uKind: { value: new THREE.Vector4(...kind) },
-      uField: { value: new THREE.Vector4(...field) },
-      uRock: { value: rock },
-    };
-    const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
-    if (opts.color) mat.color.setRGB(...opts.color);
-    mat.defines = { TK_THIN: '' };   // lamps light both faces (lamps.js)
-    mat.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, uniforms);
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\n' + PARS)
-        .replace('#include <beginnormal_vertex>', `
-float gk = uGrid.w;
+// one plant per instance: where it stands (uPos, at its place in the world) and its normal
+const PLACE = /* glsl */`float gk = uGrid.w;
 float gid = float(gl_InstanceID);
 vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
 vec2 cellIdx = uGrid.xy + aTile * gk + vec2(mod(gid, gk), floor(gid / gk));
@@ -85,7 +63,7 @@ vec2 cellIdx = uGrid.xy + aTile * gk + vec2(mod(gid, gk), floor(gid / gk));
 vec2 cellH = mod(cellIdx + uCellPat.xy, uCellPat.z);
 vec2 hA = uHash22(cellH + uShape.w), hB = uHash22(cellH + uShape.w + 17.17);
 vec2 pxz = (cellIdx + hA) * uGrid.z, pq = (cellH + hA) * uGrid.z;
-float dCam = distance(pxz, cameraPosition.xz);
+float dCam = distance(pxz, uViewXZ);
 float shrink = 1.0 - smoothstep(uRad.x, uRad.y, dCam);
 vec4 gd = textureLod(tGround, vec3((pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0), 0.0);
 vec4 sp = textureLod(tSplat, ((pxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0);
@@ -144,7 +122,36 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
   lp += vec3(sin(t * 4.3 + dot(lp, vec3(3.1, 2.3, 1.7))), 0.0, cos(t * 3.7 + dot(lp, vec3(1.9, 2.9, 2.3)))) * 0.025 * aWind * uWind.z;
   float gy = uGround(pxz);
   uPos = vec3(pxz.x, gy - 0.03, pxz.y) + lp;
-}`)
+}`;
+
+export function buildUndergrowth(terrainView, atlas, windUniform) {
+  const U = terrainView.uniforms;
+  const group = new THREE.Group();
+  group.name = 'undergrowth';
+  const viewXZ = { value: new THREE.Vector2() };
+  const shared = { uViewXZ: viewXZ, tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tNrm: U.tNrm, uMap: U.uMap, uWind: windUniform, ...windUniforms() };
+
+  // opts: maxRadius (m, after the presets' distance scale), color (multiplies the atlas)
+  const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0, opts = {}) => {
+    const k = Math.ceil(radius * 2 / spacing / TILES);
+    const uniforms = {
+      ...shared,
+      uGrid: { value: new THREE.Vector4(0, 0, spacing, k) },
+      uCellPat: { value: new THREE.Vector3(0, 0, 1) }, uPat: PAT,
+      uRad: { value: new THREE.Vector4(radius * 0.7, radius, 0, 0) },
+      uShape: { value: new THREE.Vector4(...shape) },
+      uKind: { value: new THREE.Vector4(...kind) },
+      uField: { value: new THREE.Vector4(...field) },
+      uRock: { value: rock },
+    };
+    const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
+    if (opts.color) mat.color.setRGB(...opts.color);
+    mat.defines = { TK_THIN: '', GI_FAST: '' };   // lamps light both faces (lamps.js); the traced light read plainly (gi.js)
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, uniforms);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\n' + PARS)
+        .replace('#include <beginnormal_vertex>', '\n' + PLACE)
         .replace('#include <begin_vertex>', 'vec3 transformed = uPos;')
         .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
         .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
@@ -159,8 +166,22 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
 #endif
 #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v4';
-    const tiles = [];
+    mat.customProgramCacheKey = () => 'undergrowth-v5';
+    // the shadow pass places them the same way (three's depth shader has no normal step: all in begin_vertex)
+    let depth = null;
+    if (opts.casts) {
+      depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
+      depth.onBeforeCompile = (sh) => {
+        Object.assign(sh.uniforms, uniforms);
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\n' + PARS)
+          .replace('#include <begin_vertex>', PLACE + '\nvec3 transformed = uPos;')
+          .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
+          .replace('#include <worldpos_vertex>', '');
+      };
+      depth.customProgramCacheKey = () => 'undergrowth-depth-v1';
+    }
+    const tiles = [], casters = [];
     for (let tx = 0; tx < TILES; tx++) for (let tz = 0; tz < TILES; tz++) {
       const g = new THREE.InstancedBufferGeometry();
       for (const a of ['position', 'normal', 'uv', 'aWind']) g.setAttribute(a, geoBase.getAttribute(a));
@@ -173,14 +194,22 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       m.position.set(tx, 0, tz); m.updateMatrix(); m.matrixWorldAutoUpdate = false; m.matrixWorld.copy(m.matrix);
       group.add(m);
       tiles.push(m);
+      if (!depth) continue;
+      const c = new THREE.Mesh(g, mat);
+      c.layers.set(NEAR_SHADOW_LAYER);
+      c.frustumCulled = false; c.castShadow = true; c.receiveShadow = false; c.customDepthMaterial = depth;
+      c.position.set(tx, 0, tz); c.updateMatrix(); c.matrixAutoUpdate = false; c.matrixWorldAutoUpdate = false; c.matrixWorld.copy(c.matrix);
+      c.userData.tile = [tx, tz];
+      group.add(c);
+      casters.push(c);
     }
-    return { name, mat, uniforms, tiles, spacing, baseSpacing: spacing, radius, baseRadius: radius, maxRadius: opts.maxRadius ?? Infinity, baseScale: [shape[0], shape[1]], k };
+    return { name, mat, uniforms, tiles, casters, spacing, baseSpacing: spacing, radius, baseRadius: radius, maxRadius: opts.maxRadius ?? Infinity, baseScale: [shape[0], shape[1]], k };
   };
 
   //                          geometry                     spacing radius  [min, max scale, density, seed]  [forest, meadow, shrub, edge]
   const kinds = [
     makeKind('fern', buildPlant('fern', 11), 1.6, 44, [0.75, 1.35, 0.8, 3.1], [1, 0, 0, 0]),
-    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0]),
+    makeKind('shrub', buildPlant('bush', 12), 3.6, 72, [0.45, 1.13, 0.55, 7.7], [0, 0, 1, 0], undefined, 0, { casts: true }),
     makeKind('flowers', buildPlant('flowers', 13), 1.25, 36, [0.7, 1.15, 0.6, 11.3], [0, 1, 0, 0]),
     makeKind('tuft', buildPlant('tuft', 14), 1.0, 32, [0.7, 1.4, 0.45, 19.9], [0.25, 0, 0, 1]),
     makeKind('rockgrass', buildPlant('tuft', 21), 0.4, 14, [0.25, 0.55, 1.0, 37.1], [0, 0, 0, 0], undefined, 1, { maxRadius: 45, color: [0.5, 0.56, 0.32] }),
@@ -218,6 +247,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
       pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(pv);
       const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
+      viewXZ.value.set(cx, cz);
       for (const K of kinds) {
         const s = K.spacing, k = K.k, n = k * TILES, R = K.radius;
         const bx = Math.floor((cx / s - n / 2) / k) * k, bz = Math.floor((cz / s - n / 2) / k) * k;
@@ -231,6 +261,15 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
           if (Math.hypot(ddx, ddz) > R || (Math.abs(x0) > HALF && Math.abs(x1) > HALF) || (Math.abs(z0) > HALF && Math.abs(z1) > HALF)) { m.visible = false; continue; }
           box.min.set(x0, cy - 80, z0); box.max.set(x1, cy + 40, z1);
           m.visible = frustum.intersectsBox(box);
+        }
+        for (let i = 0; i < K.casters.length; i++) {
+          // a shrub out of the view still casts into it: a few metres more round it, as far as the near cascade reaches
+          const c = K.casters[i], [tx, tz] = c.userData.tile;
+          const x0 = (bx + tx * k) * s, z0 = (bz + tz * k) * s, x1 = x0 + k * s, z1 = z0 + k * s;
+          const ddx = Math.max(x0 - cx, 0, cx - x1), ddz = Math.max(z0 - cz, 0, cz - z1);
+          if (Math.hypot(ddx, ddz) > Math.min(R, CAST_RANGE)) { c.visible = false; continue; }
+          box.min.set(x0 - 6, cy - 80, z0 - 6); box.max.set(x1 + 6, cy + 40, z1 + 6);
+          c.visible = frustum.intersectsBox(box);
         }
       }
     },
