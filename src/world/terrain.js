@@ -65,6 +65,26 @@ function fordProfile(e, streams) {
   return hs;
 }
 
+const STREAM_BANKS = 36;   // m from a stream's middle as far as its banks shape the land
+
+// Where the land beside a stream is lower than its water (raw: the lowest ground across it, per point) the land is
+// built up, and that has to read as land: spread, where there is any of it, to 1 in 8 (none of it: next to none is
+// built up, where a cliff drops away past the bank). A narrow brim there was a dike the water ran along, up to 1.9 m
+// over the valley.
+export function bankSpread(level, raw) {
+  const n = raw.length, lift = new Array(n);
+  for (let k = 0; k < n; k++) {
+    let m = 0;
+    for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) m = Math.max(m, level[j] + 0.2 - raw[j]);
+    lift[k] = m;
+  }
+  return lift.map((v, k) => {
+    let s = 0, c = 0;
+    for (let j = Math.max(0, k - 8); j <= Math.min(n - 1, k + 8); j++) { s += lift[j]; c++; }
+    return lerp(1, 8, smoothstep(0, 0.3, s / c));
+  });
+}
+
 export class Terrain {
   // world: worldgen World; (ox, oz): the absolute position of the window's centre (multiples of WINDOW_STEP)
   constructor(world, ox = 0, oz = 0) {
@@ -162,10 +182,10 @@ export class Terrain {
     for (const r of regions) {
       for (const l of r.lakes) if (inBox(l.x, l.z, Math.max(l.rx, l.rz) * 1.5 + 10)) lakes.push(l);
       for (const s of r.sites) if (inBox(s.x, s.z, 80)) sites.push(s);
-      for (const s of r.streams) if (s.bb[2] > ox - half - 20 && s.bb[0] < ox + half + 20 && s.bb[3] > oz - half - 20 && s.bb[1] < oz + half + 20) streams.push(s);
     }
     const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     lakes.sort(byId); sites.sort(byId);
+    streams.push(...W.streamsNear(ox - half, oz - half, ox + half, oz + half, STREAM_BANKS).sort((a, b) => byId(a.lake, b.lake)));
     const roads = W.roadsIn(ox - half, oz - half, ox + half, oz + half, 10).sort((a, b) => (a.key < b.key ? -1 : 1));
     lap('features');
 
@@ -203,6 +223,7 @@ export class Terrain {
     lap('trails');
 
     // ---- streams (after the roads: the fords dip the road into the bed)
+    this.seals = [];
     for (const s of streams) this.carveStream(W.streamFords(s));
 
     // ---- mud holes on the roads (at the bottom of a dip)
@@ -216,13 +237,17 @@ export class Terrain {
     }, 4);
 
     this.smoothTrailBeds();
+    // the roads' smoothing took down the banks of the streams beside and across them, and the water stood over the
+    // road: back up to just over the water
+    for (let q = 0; q < this.seals.length; q += 2) { const i = this.seals[q]; H[i] = Math.max(H[i], this.seals[q + 1]); }
+    this.seals = null;
     lap('streams+smooth');
 
     // muddy pools in the bottom of the mud holes (visual water, the bed stays mud)
     for (const m of muds) {
       let lo = 1e9, rim = 1e9;
       this.stampEllipse(m.x, m.z, m.rx, m.rz, (x, z, i, e) => { if (e < 0.7) lo = Math.min(lo, H[i]); });
-      for (let a = 0; a < 32; a++) { const t = a / 32 * Math.PI * 2; rim = Math.min(rim, this.heightAt(m.x + Math.cos(t) * m.rx * 0.8, m.z + Math.sin(t) * m.rz * 0.8)); }
+      for (let a = 0; a < 48; a++) { const t = a / 48 * Math.PI * 2; for (const f of [0.8, 0.875, 0.95]) rim = Math.min(rim, this.heightAt(m.x + Math.cos(t) * m.rx * f, m.z + Math.sin(t) * m.rz * f)); }
       const level = Math.min(lo + 0.12, rim - 0.03);
       if (level > lo + 0.03 && Math.abs(m.x) < half - 15 && Math.abs(m.z) < half - 15) this.water.push({ type: 'pool', x: m.x, z: m.z, rx: m.rx * 0.95, rz: m.rz * 0.95, level, muddy: true });
     }
@@ -262,20 +287,30 @@ export class Terrain {
     this.water.push({ type: 'lake', x: lx, z: lz, rx: la.rx * 1.1, rz: la.rz * 1.1, level });
   }
 
-  // s: a worldgen stream (absolute); carved where it crosses the window
-  carveStream(s) {
-    const H = this.heights, NN = this.NN, half = MAP_SIZE / 2, ox = this.ox, oz = this.oz;
-    const n = s.xs.length;
-    const pts = [], level = [], width = [];
-    for (let k = 0; k < n; k++) { pts.push({ x: s.xs[k] - ox, y: 0, z: s.zs[k] - oz }); level.push(s.level[k]); width.push(s.width[k]); }
-    // carve: bed = surface - depth (shallower and wider at the fords), soft banks; near the water's edge the bank
-    // is raised to just above the water where the ground is lower (else the water would float over a dip)
-    const R = 12;
+  // A stream's channel in this window, both maps. Each cell takes the level of the stream's nearest point: shaped
+  // segment by segment, every steep run was cut to the lowest segment in reach, metres under its own water.
+  // The bed: level - depth (shallower and wider at a ford); banks that ease up to the land over a few metres, more
+  // where the land stands high over the water. Where the ground is lower than the bed it is built up to it and a
+  // little over the water at its edge (flat as far as the drawn water reaches: water.js), falling away from there by
+  // `spread` (bankSpread): but not in the lake or on its shore, where the stream runs out into open water (a brim
+  // there was a dike sticking out into the lake).
+  // fordAt(x, z, k, u, out): how much of a ford it is here: [0] for the depth, [1] for the banks, [2] how much the
+  // waterline may wander (not at a ford); noise(x, z): its wander, about -1 .. 1
+  cutChannel(pts, level, width, spread, lake, fordAt, noise) {
+    const H = this.heights, NN = this.NN, half = MAP_SIZE / 2, n = pts.length, R = STREAM_BANKS;
+    let bx0 = N, bx1 = 0, bz0 = N, bz1 = 0;
+    for (const q of pts) {
+      bx0 = Math.min(bx0, Math.floor((q.x - R + half) / CELL)); bx1 = Math.max(bx1, Math.ceil((q.x + R + half) / CELL));
+      bz0 = Math.min(bz0, Math.floor((q.z - R + half) / CELL)); bz1 = Math.max(bz1, Math.ceil((q.z + R + half) / CELL));
+    }
+    bx0 = Math.max(0, bx0); bz0 = Math.max(0, bz0); bx1 = Math.min(N, bx1); bz1 = Math.min(N, bz1);
+    if (bx1 < bx0 || bz1 < bz0) return;
+    const bw = bz1 - bz0 + 1, near = new Float32Array((bx1 - bx0 + 1) * bw).fill(1e9), along = new Float32Array(near.length);
     for (let k = 0; k < n - 1; k++) {
       const a = pts[k], b = pts[k + 1];
-      if (Math.max(a.x, b.x) < -half - R || Math.min(a.x, b.x) > half + R || Math.max(a.z, b.z) < -half - R || Math.min(a.z, b.z) > half + R) continue;
-      const ix0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - R + half) / CELL)), ix1 = Math.min(N, Math.ceil((Math.max(a.x, b.x) + R + half) / CELL));
-      const iz0 = Math.max(0, Math.floor((Math.min(a.z, b.z) - R + half) / CELL)), iz1 = Math.min(N, Math.ceil((Math.max(a.z, b.z) + R + half) / CELL));
+      const ix0 = Math.max(bx0, Math.floor((Math.min(a.x, b.x) - R + half) / CELL)), ix1 = Math.min(bx1, Math.ceil((Math.max(a.x, b.x) + R + half) / CELL));
+      const iz0 = Math.max(bz0, Math.floor((Math.min(a.z, b.z) - R + half) / CELL)), iz1 = Math.min(bz1, Math.ceil((Math.max(a.z, b.z) + R + half) / CELL));
+      if (ix1 < ix0 || iz1 < iz0) continue;
       const abx = b.x - a.x, abz = b.z - a.z, ab2 = abx * abx + abz * abz || 1;
       for (let ix = ix0; ix <= ix1; ix++) {
         const x = -half + ix * CELL;
@@ -283,29 +318,64 @@ export class Terrain {
           const z = -half + iz * CELL;
           let u = ((x - a.x) * abx + (z - a.z) * abz) / ab2;
           u = Math.max(0, Math.min(1, u));
-          const d = Math.hypot(x - (a.x + abx * u), z - (a.z + abz * u));
-          const w = width[k] + (width[k + 1] - width[k]) * u;
-          if (d > w + 7) continue;
-          const lvl = level[k] + (level[k + 1] - level[k]) * u;
-          const fd = s.ford[k] + (s.ford[k + 1] - s.ford[k]) * u;
-          const depth = lerp(0.62, 0.32, fd);
-          const bed = lvl - depth * (1 - Math.pow(Math.min(1, d / w), 2));
-          const i = ix * NN + iz;
-          const bankW = lerp(3.5, 9, fd);
-          const t = smoothstep(w, w + bankW, d);
-          const target = lerp(bed, Math.max(H[i], lvl + 0.15), t);
-          if (target < H[i] || d < w + 2.5) {
-            H[i] = target;
-            if (d < w + 0.6) this.surface[i] = SURF.sand;
-          }
+          const d = Math.hypot(x - (a.x + abx * u), z - (a.z + abz * u)), o = (ix - bx0) * bw + iz - bz0;
+          if (d < near[o]) { near[o] = d; along[o] = k + u; }
         }
       }
     }
+    const f = [0, 0, 0];
+    for (let ix = bx0; ix <= bx1; ix++) {
+      const x = -half + ix * CELL;
+      for (let iz = bz0; iz <= bz1; iz++) {
+        const o = (ix - bx0) * bw + iz - bz0, d = near[o];
+        if (d > R) continue;
+        const k = Math.min(n - 2, Math.floor(along[o])), u = along[o] - k;
+        const w = width[k] + (width[k + 1] - width[k]) * u;
+        if (d > w + 32) continue;
+        const z = -half + iz * CELL;
+        const lvl = level[k] + (level[k + 1] - level[k]) * u;
+        fordAt(x, z, k, u, f);
+        const depth = lerp(0.62, 0.32, f[0]);
+        // (the waterline wanders in from the channel's side: a channel of one width read as a canal. Only inwards:
+        // the bank outside and the drawn water's reach stay)
+        const wander = 0.5 + 0.5 * Math.max(-1, Math.min(1, noise(x, z)));
+        const dw = d + wander * Math.min(1.5, 0.32 * w) * f[2] * smoothstep(0.25 * w, 0.8 * w, d);
+        const bed = lvl - depth * (1 - Math.pow(Math.min(1, dw / w), 2));
+        const i = ix * NN + iz;
+        // banks: ease from the bed to the terrain, over 1.7 times the height the land stands over the water
+        const bankW = Math.max(lerp(3.5, 9, f[1]), Math.min(18, 1.7 * (H[i] - lvl)));
+        const t = smoothstep(w, w + bankW, d);
+        const rim = Math.min(1, Math.max(0, dw - w));   // the waterline's own low bank
+        const target = Math.max(lerp(bed, Math.max(H[i], lvl + 0.15), t), dw < w ? -1e9 : lvl + 0.2 * rim);
+        const open = lake ? smoothstep(1.08, 1.4, Math.hypot((x - lake.x) / lake.rx, (z - lake.z) / lake.rz)) : 1;   // 0 in the lake and on its shore
+        const fall = spread[k] + (spread[k + 1] - spread[k]) * u;
+        const out = Math.max(0, d - w - 2.3);   // past the bank's flat top: falls away, and steeper further out (the deep hollows)
+        const brim = (dw < w ? bed : dw < w + 1 ? lvl + 0.2 * rim : lvl + 0.2 - out / fall - out * out / 140) - (1 - open) * 4;
+        if (this.seals && open > 0.97 && dw > w + 0.4 && d < w + 5) this.seals.push(i, lvl + 0.07 - Math.max(0, d - w - 1.9) / 5);
+        if (target < H[i] || H[i] < brim) {
+          H[i] = Math.max(Math.min(H[i], target), brim);
+          if (dw < w + 0.4 + 0.5 * wander) this.surface[i] = SURF.sand;
+        }
+      }
+    }
+  }
+
+  // s: a worldgen stream (absolute); carved where it crosses the window
+  carveStream(s) {
+    const H = this.heights, NN = this.NN, half = MAP_SIZE / 2, ox = this.ox, oz = this.oz;
+    const n = s.xs.length;
+    const pts = [], level = [], width = [];
+    for (let k = 0; k < n; k++) { pts.push({ x: s.xs[k] - ox, y: 0, z: s.zs[k] - oz }); level.push(s.level[k]); width.push(s.width[k]); }
+    const lk = s.lake, W = this.world;
+    const spread = bankSpread(level, s.raw);
+    const lake = { x: lk.x - ox, z: lk.z - oz, rx: lk.rx, rz: lk.rz };
+    this.cutChannel(pts, level, width, spread, lake,
+      (x, z, k, u, out) => { const fd = s.ford[k] + (s.ford[k + 1] - s.ford[k]) * u; out[0] = out[1] = fd; out[2] = 1 - fd; },
+      (x, z) => 0.8 * W.n5((x + ox) * 0.15, (z + oz) * 0.15) + 0.45 * W.n5((x + ox) * 0.47 + 7, (z + oz) * 0.47));
     // the part inside the window (plus a margin) for the water mesh
     let k0 = -1, k1 = -1;
     for (let k = 0; k < n; k++) if (Math.abs(pts[k].x) < half + 30 && Math.abs(pts[k].z) < half + 30) { if (k0 < 0) k0 = k; k1 = k; }
     if (k0 >= 0 && k1 > k0) {
-      const lk = s.lake;
       let along0 = 0;   // the distance from the spring (the water's flow frame counts from there: water.js)
       for (let k = 1; k <= k0; k++) along0 += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
       this.water.push({ type: 'stream', pts: pts.slice(k0, k1 + 1), level: level.slice(k0, k1 + 1), width: width.slice(k0, k1 + 1), along0,

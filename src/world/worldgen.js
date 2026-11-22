@@ -9,12 +9,16 @@ import { makeSimplex2D, mulberry32, fbm, ridged, smoothstep, lerp } from './nois
 //   a hash. Each link's route is an A* search on an 8 m grid between its two nodes (steep ground and water cost),
 //   smoothed into a curve; its bed is the terrain low-passed along it, grade-limited by cutting crests, pinned to
 //   the node heights at the ends so junctions meet. Computed once per link and cached.
-// - Regions (REGION squares): lakes in basins, a stream into each lake from higher ground (fords where it crosses a
+// - Regions (REGION squares): lakes in basins, a stream into each lake down land that falls all the way to it (fords where it crosses a
 //   road), sites: a ruined hut by a road, a quarry in a hillside, a lookout on a summit (spur roads to them).
 
 export const ROAD_CELL = 400;
 export const REGION = 1200;
 const GRID = 8;                         // m: road / stream routing grid
+const STREAM_TOL = 1.2;                 // m: the dips and humps a stream's way may cross
+const STREAM_STEEP = 0.4;               // the steepest land it comes down (steeper read as a slide)
+const STREAM_LOOP = 22;                 // m: the nearest it comes to itself
+const STREAM_REACH = 860;               // m: how far from its lake it rises
 const TAN = d => Math.tan(d * Math.PI / 180);
 // the road bed's 2D low-pass: a 7 x 7 Gaussian over the routing grid (sigma 1.4 cells, ~11 m), normalised
 const BED_K = (() => { const k = []; let s = 0; for (let u = -3; u <= 3; u++) for (let v = -3; v <= 3; v++) { const w = Math.exp(-(u * u + v * v) / (2 * 1.4 * 1.4)); k.push(w); s += w; } return k.map(w => w / s); })();
@@ -348,27 +352,41 @@ export class World {
     return m;
   }
 
-  // streams and sites need the roads, which need the lakes: filled on first use
+  // a region's streams, down into its lakes
+  streamsOf(r) {
+    if (r.streams) return r.streams;
+    r.streams = [];
+    const rnd = rngAt(r.ri, r.rj, 9103 + this.seed);
+    for (const lk of r.lakes) {
+      if (rnd() > 0.8) continue;
+      for (let k = 0; k < 32; k++) rnd();
+      const st = this.routeStream(lk);
+      if (st) r.streams.push(st);
+    }
+    return r.streams;
+  }
+  // the streams that reach into a box. Their lakes can be a region away (STREAM_REACH): asked for by the regions the
+  // box touches, a stream was missing from some of the windows it crossed.
+  streamsNear(x0, z0, x1, z1, pad) {
+    const out = [], M = STREAM_REACH + pad;
+    for (let i = Math.floor((x0 - M) / REGION); i <= Math.floor((x1 + M) / REGION); i++)
+      for (let j = Math.floor((z0 - M) / REGION); j <= Math.floor((z1 + M) / REGION); j++) {
+        const r = this.region(i, j);
+        if (!r.lakes.some(l => l.x > x0 - M && l.x < x1 + M && l.z > z0 - M && l.z < z1 + M)) continue;
+        for (const s of this.streamsOf(r)) if (s.bb[2] > x0 - pad && s.bb[0] < x1 + pad && s.bb[3] > z0 - pad && s.bb[1] < z1 + pad) out.push(s);
+      }
+    return out;
+  }
+  // sites need the roads, which need the lakes: filled on first use
   regionFull(ri, rj) {
     const r = this.region(ri, rj);
     if (r.sites) return r;
-    r.sites = []; r.spurs = []; r.streams = [];
+    r.sites = []; r.spurs = [];
     const rnd = rngAt(ri, rj, 9103 + this.seed);
     const x0 = ri * REGION, z0 = rj * REGION;
-    // ---- streams: from higher ground down into each lake
-    for (const lk of r.lakes) {
-      if (rnd() > 0.8) continue;
-      let src = null;
-      for (let k = 0; k < 16; k++) {
-        const a = rnd() * Math.PI * 2, d = 420 + rnd() * 480;
-        const X = lk.x + Math.cos(a) * d, Z = lk.z + Math.sin(a) * d;
-        const h = this.base(X, Z);
-        if (h > lk.level + 14 && this.inLake(X, Z, this.lakesNear(X, Z, 60), 1.3) > 1 && this.slope(X, Z) < 0.5 && (!src || h > src.h)) src = { X, Z, h };
-      }
-      if (!src) continue;
-      const st = this.routeStream(src, lk, rnd);
-      if (st) r.streams.push(st);
-    }
+    // (streamsOf draws the same first numbers: the sites' go on from there)
+    for (let l = 0; l < r.lakes.length; l++) if (rnd() <= 0.8) for (let k = 0; k < 32; k++) rnd();
+    this.streamsOf(r);
     // ---- sites
     const nodesIn = [];
     for (let i = Math.floor(x0 / ROAD_CELL); i < Math.floor((x0 + REGION) / ROAD_CELL); i++)
@@ -653,65 +671,94 @@ export class World {
     return { key, a, b, xs, zs, hs, len, bb: [x0, z0, x1, z1], muds, spur: !!opts.spur };
   }
 
-  // a stream from src down to the lake: A* that hates climbing, then a bed forced downhill
-  routeStream(src, lk, rnd) {
-    const ang = Math.atan2(src.Z - lk.z, src.X - lk.x);
-    const end = { x: lk.x + Math.cos(ang) * lk.rx * 0.85, z: lk.z + Math.sin(ang) * lk.rz * 0.85 };
-    const a = { x: src.X, z: src.Z }, dist = Math.hypot(end.x - a.x, end.z - a.z), M = 160;
-    const gx0 = Math.floor((Math.min(a.x, end.x) - M) / GRID), gz0 = Math.floor((Math.min(a.z, end.z) - M) / GRID);
-    const W = Math.ceil((Math.max(a.x, end.x) + M) / GRID) - gx0 + 1, Hh = Math.ceil((Math.max(a.z, end.z) + M) / GRID) - gz0 + 1;
-    const n = W * Hh, hg = new Float32Array(n);
-    for (let i = 0; i < W; i++) for (let j = 0; j < Hh; j++) hg[i * Hh + j] = this.baseGrid(gx0 + i, gz0 + j);
-    const cell = (X, Z) => Math.max(0, Math.min(W - 1, Math.round(X / GRID) - gx0)) * Hh + Math.max(0, Math.min(Hh - 1, Math.round(Z / GRID) - gz0));
-    const start = cell(a.x, a.z), goal = cell(end.x, end.z), gi = (goal / Hh) | 0, gj = goal - gi * Hh;
-    const g = new Float32Array(n).fill(Infinity), from = new Int32Array(n).fill(-1), done = new Uint8Array(n);
+  // A stream into a lake. Its way is searched from the lake outwards, only where the land keeps rising (dips and
+  // humps up to STREAM_TOL), along the low ground; it rises at the farthest, highest place reached. Searched from a
+  // high point down to the lake instead, it had to cross whatever lay between: 8 m over the land or under it in the
+  // median stream, 42 m in the worst.
+  routeStream(lk) {
+    const R = STREAM_REACH, gx0 = Math.floor((lk.x - R) / GRID), gz0 = Math.floor((lk.z - R) / GRID);
+    const W = Math.ceil((2 * R) / GRID) + 1, n = W * W;
+    const others = this.lakesNear(lk.x, lk.z, R).filter(l => l.x !== lk.x || l.z !== lk.z);
+    const cost = new Float32Array(n).fill(Infinity), top = new Float32Array(n), from = new Int32Array(n).fill(-1), done = new Uint8Array(n);
     const heap = new Heap();
-    g[start] = 0; heap.push(0, start);
-    const MOVES = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const er = Math.max(lk.rx, lk.rz);
+    for (let i = Math.floor((lk.x - er) / GRID); i <= (lk.x + er) / GRID; i++) for (let j = Math.floor((lk.z - er) / GRID); j <= (lk.z + er) / GRID; j++) {
+      const e = Math.hypot((i * GRID - lk.x) / lk.rx, (j * GRID - lk.z) / lk.rz);
+      if (e < 0.75 || e > 0.95) continue;
+      const u = (i - gx0) * W + j - gz0;
+      cost[u] = 0; top[u] = lk.level; heap.push(0, u);
+    }
+    let best = -1, bestScore = 0;
     while (heap.size) {
       const u = heap.pop();
       if (done[u]) continue;
       done[u] = 1;
-      if (u === goal) break;
-      const ui = (u / Hh) | 0, uj = u - ui * Hh;
-      for (const [di, dj] of MOVES) {
+      const ui = (u / W) | 0, uj = u - ui * W, i = gx0 + ui, j = gz0 + uj, hu = this.baseGrid(i, j);
+      const away = Math.hypot(i * GRID - lk.x, j * GRID - lk.z), rise = hu - lk.level;
+      if (away > 170 && rise > 7 && hu > top[u] - 0.3) {
+        const score = Math.min(away, 700) + 5 * Math.min(rise, 35);
+        if (score > bestScore) { bestScore = score; best = u; }
+      }
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
         const vi = ui + di, vj = uj + dj;
-        if (vi < 0 || vj < 0 || vi >= W || vj >= Hh) continue;
-        const v = vi * Hh + vj;
+        if ((!di && !dj) || vi < 0 || vj < 0 || vi >= W || vj >= W) continue;
+        const v = vi * W + vj;
         if (done[v]) continue;
-        const d = Math.hypot(di, dj) * GRID, rise = hg[v] - hg[u];
-        const c = d * (1 + (rise > 0 ? 60 * rise / d + 4 : 0) + 0.3 * Math.max(0, -rise / d));
-        if (g[u] + c < g[v]) { g[v] = g[u] + c; from[v] = u; heap.push(g[v] + Math.hypot(vi - gi, vj - gj) * GRID, v); }
+        const a = gx0 + vi, b = gz0 + vj, X = a * GRID, Z = b * GRID;
+        const e = Math.hypot((X - lk.x) / lk.rx, (Z - lk.z) / lk.rz);
+        if (e < 0.95) continue;
+        const h = this.baseGrid(a, b), d = di && dj ? GRID * Math.SQRT2 : GRID, shore = e < 1.2;
+        if (!shore && h < top[u] - STREAM_TOL) continue;
+        // (the hillside's slope, not the step's: across a steep hillside every step is gentle, and it climbed in
+        // switchbacks like a road, the upper water over the lower one)
+        if (!shore && Math.hypot(this.baseGrid(a + 1, b) - this.baseGrid(a - 1, b), this.baseGrid(a, b + 1) - this.baseGrid(a, b - 1)) / (2 * GRID) > STREAM_STEEP) continue;
+        let wet = false;
+        for (const l of others) if (Math.hypot((X - l.x) / l.rx, (Z - l.z) / l.rz) < 1.5) { wet = true; break; }
+        if (wet) continue;
+        // along the low ground: the ground 24 m to each side higher, not lower
+        const round = (this.baseGrid(a + 3, b) + this.baseGrid(a - 3, b) + this.baseGrid(a, b + 3) + this.baseGrid(a, b - 3)) / 4;
+        // (straight out of the lake: along its low shore it was a channel on a bank over the lake's water)
+        const c = cost[u] + d * (1 + 3 * Math.max(0, top[u] - h) + 5 * Math.max(0, Math.min(1, 0.4 + (h - round) * 0.8)) + 0.8 * this.wigGrid(a, b) + 14 * (1 - smoothstep(1.1, 2.3, e)));
+        if (c < cost[v]) { cost[v] = c; from[v] = u; top[v] = shore ? Math.max(lk.level, Math.min(h, top[u] + 1)) : Math.max(top[u], h); heap.push(c, v); }
       }
     }
-    if (from[goal] < 0) return null;
-    const pts = [];
-    for (let k = goal; k >= 0; k = from[k]) { const i = (k / Hh) | 0, j = k - i * Hh; pts.push((gx0 + i) * GRID, (gz0 + j) * GRID); if (k === start) break; }
-    // pairs are (x, z) but in reverse order: flip to run from the spring to the lake
+    if (best < 0) return null;
+    // from the spring to the lake
+    const way = [];
+    for (let k = best; k >= 0; k = from[k]) { const i = (k / W) | 0, j = k - i * W; way.push((gx0 + i) * GRID, (gz0 + j) * GRID); }
+    // (no hairpins: where it comes back to within STREAM_LOOP of itself it goes straight through, or the upper arm's
+    // water lay over the lower one's)
     const fw = [];
-    for (let k = pts.length - 2; k >= 0; k -= 2) fw.push(pts[k], pts[k + 1]);
+    for (let i = 0; i < way.length;) {
+      fw.push(way[i], way[i + 1]);
+      let next = i + 2;
+      for (let j = Math.min(way.length - 2, i + 160); j > i + 6; j -= 2) if (Math.hypot(way[j] - way[i], way[j + 1] - way[i + 1]) < STREAM_LOOP) { next = j; break; }
+      i = next;
+    }
     if (fw.length < 6) return null;
+    const src = { X: fw[0], Z: fw[1] };
     const sp = simplify(fw, 4);
     const { xs, zs } = smoothCurve(sp.px, sp.pz, 1);
     const ns = xs.length;
-    // bed profile: lowest ground nearby, smoothed, forced downhill towards the lake
-    let hs = new Float64Array(ns);
+    const width = new Float64Array(ns), level = new Float64Array(ns);
+    // (a rivulet where it rises)
+    for (let k = 0; k < ns; k++) width[k] = (2.6 + 1.4 * (0.5 + 0.5 * this.n5(k * 0.02, 3.3 + src.X * 1e-3)) * Math.min(1, 0.4 + k / ns)) * (0.3 + 0.7 * smoothstep(0, 25, k));
+    // The bed: under the lowest ground across the channel and both its banks, never rising on the way down (a hump is
+    // cut through; raised over the dips instead, the water hung in the air there), never under the lake it runs into.
+    const raw = new Float64Array(ns);
     for (let k = 0; k < ns; k++) {
-      let m = Infinity;
-      for (const o of [-3, 0, 3]) m = Math.min(m, this.baseFast(xs[k] + o, zs[k]), this.baseFast(xs[k], zs[k] + o));
-      hs[k] = m;
+      const a = Math.max(0, k - 1), b = Math.min(ns - 1, k + 1), l = Math.hypot(xs[b] - xs[a], zs[b] - zs[a]) || 1, w = width[k] + 3;
+      const nx = (zs[b] - zs[a]) / l * w, nz = -(xs[b] - xs[a]) / l * w;
+      raw[k] = Math.min(this.baseFast(xs[k], zs[k]), this.baseFast(xs[k] + nx, zs[k] + nz), this.baseFast(xs[k] - nx, zs[k] - nz),
+        this.baseFast(xs[k] + nx / 2, zs[k] + nz / 2), this.baseFast(xs[k] - nx / 2, zs[k] - nz / 2));
     }
-    boxSmooth(hs, 10, 3);
-    for (let k = ns - 2; k >= 0; k--) hs[k] = Math.max(hs[k], hs[k + 1] + 0.02);
-    for (let k = 1; k < ns; k++) hs[k] = Math.min(hs[k], hs[k - 1]);
-    const level = new Float64Array(ns), width = new Float64Array(ns), ford = new Float64Array(ns);
-    for (let k = 0; k < ns; k++) {
-      width[k] = 2.6 + 1.4 * (0.5 + 0.5 * this.n5(k * 0.02, 3.3 + src.X * 1e-3)) * Math.min(1, 0.4 + k / ns);
-      level[k] = lerp(hs[k] - 0.45, lk.level, smoothstep(ns - 40, ns - 1, k));
-    }
+    const hs = boxSmooth(Float64Array.from(raw), 10, 3);
+    for (let k = 0; k < ns; k++) { hs[k] = Math.min(hs[k], raw[k]); if (k) hs[k] = Math.min(hs[k], hs[k - 1] - 0.002); }
+    for (let k = 0; k < ns; k++) hs[k] = Math.max(hs[k], lk.level + 0.45 + 0.004 * (ns - 1 - k));
+    for (let k = 0; k < ns; k++) level[k] = lerp(hs[k] - 0.45, lk.level, smoothstep(ns - 40, ns - 1, k));
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (let k = 0; k < ns; k++) { x0 = Math.min(x0, xs[k]); x1 = Math.max(x1, xs[k]); z0 = Math.min(z0, zs[k]); z1 = Math.max(z1, zs[k]); }
-    return { xs, zs, level, width, ford: null, lake: lk, bb: [x0, z0, x1, z1] };
+    return { xs, zs, level, width, raw, ford: null, lake: lk, bb: [x0, z0, x1, z1] };
   }
 
   // a stream's fords: where a road crosses, wider and shallower (worked out when a window first needs the stream: the
