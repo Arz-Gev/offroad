@@ -3,6 +3,7 @@ import { ORIGIN, mod } from '../world/origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { CLOUD_GLSL, cloudUniforms } from '../world/clouds.js';
 import { SKYLINE_GLSL, skylineUniforms } from './skyline.js';
+import { giVolumeGLSL } from './giWorld.js';
 
 // Volumetric fog: a haze lying in the low ground, lit by the sun (or the moon) through the sun's shadow map and
 // the clouds' shadows, so trees, hills and the truck cast shafts of light into it and broken cloud throws long
@@ -18,6 +19,8 @@ precision highp sampler3D;
 precision highp sampler2DShadow;
 ${CLOUD_GLSL}
 ${SKYLINE_GLSL}
+${giVolumeGLSL()}
+uniform float uGIOn, uAmbK;   // the traced indirect light is on; its scale as the haze's light (setGI)
 uniform sampler2D tDepth, tPrev;
 uniform sampler3D tNoise;
 uniform sampler2DShadow tShadow;
@@ -68,6 +71,14 @@ void main() {
   // the clouds' shadow changes over kilometres: taken at two points of the ray and interpolated
   // (and with it the land's far shadow, render/skyline.js: the sun behind a mountain)
   float cs0 = cloudShadow(uCam + dir * min(tEnd, 20.0)) * skylineShade(uCam + dir * min(tEnd, 20.0)), cs1 = cloudShadow(uCam + dir * tEnd) * skylineShade(uCam + dir * tEnd);
+  // the light the haze scatters from all round: the mean of the light arriving there, from the probes (giWorld.js)
+  // at the ray's two ends; without them one colour everywhere
+  vec3 amb0 = uAmb, amb1 = uAmb;
+  if (uGIOn > 0.5) {
+    vec3 q0 = uCam + dir * min(tEnd, 12.0), q1 = uCam + dir * tEnd, gA; vec4 gY; vec2 gX;
+    giVolume(q0, max(q0.y - giGround(q0.xz, 0.0), 0.0), gA, gY, gX); amb0 = gA * uAmbK;
+    giVolume(q1, max(q1.y - giGround(q1.xz, 0.0), 0.0), gA, gY, gX); amb1 = gA * uAmbK;
+  }
   vec3 S = vec3(0.0); float T = 1.0;
   float prev = 0.0;
   for (int i = 0; i < 48; i++) {
@@ -78,7 +89,7 @@ void main() {
     vec3 p = uCam + dir * t;
     float sig = density(p);
     if (sig < 1e-6) continue;
-    vec3 Li = uLightCol * (sunVis(p, t * dot(dir, uFwd)) * mix(cs0, cs1, f * f) * phase) + uAmb;
+    vec3 Li = uLightCol * (sunVis(p, t * dot(dir, uFwd)) * mix(cs0, cs1, f * f) * phase) + mix(amb0, amb1, f * f);
     float ext = exp(-sig * dt);
     S += T * Li * (1.0 - ext);   // energy-conserving step (Hillaire): the light scattered in over dt, attenuated
     T *= ext;
@@ -88,7 +99,7 @@ void main() {
     vec3 p = uCam + dir * tEnd;
     float sig = density(p), dt = tEnd - prev;
     float ext = exp(-sig * dt);
-    S += T * (uLightCol * cs1 * phase + uAmb) * (1.0 - ext);
+    S += T * (uLightCol * cs1 * phase + amb1) * (1.0 - ext);
     T *= ext;
   }
   vec4 res = vec4(S, T);
@@ -138,6 +149,7 @@ export class VolumetricFog {
     this.width = 1; this.height = 1;
     this.prevViewProj = new THREE.Matrix4();
     this.wind = new THREE.Vector2();
+    this.gi = null; this.giOn = false;   // the traced light's probes (setGI) and whether they are in use (pipeline.js)
     // the medium and its light (environment.js writes them per look): density, falloff, floor, wisps
     this.params = {
       density: 0, falloff: 0.02, floor: 0, wisps: 0.5, maxDist: 320,
@@ -156,13 +168,16 @@ export class VolumetricFog {
         uLightDir: { value: new THREE.Vector3() }, uLightCol: { value: new THREE.Vector3() }, uAmb: { value: new THREE.Vector3() },
         uDens: { value: new THREE.Vector4() }, uPhase: { value: new THREE.Vector4() }, uWind: { value: new THREE.Vector2() },
         uFrame: { value: 0 }, uBlend: { value: 1 }, uSteps: { value: 24 }, uMaxDist: { value: 320 }, uShadowOn: { value: 0 },
-        uNear: { value: 0.1 }, uFar: { value: 6000 },
+        uNear: { value: 0.1 }, uFar: { value: 6000 }, uGIOn: { value: 0 }, uAmbK: { value: 1 },
       },
     });
     this.quad = new FullScreenQuad(this.mat);
   }
   get texture() { return this.rts[this.idx].texture; }
   get active() { return this.enabled && this.params.density > 1e-6; }
+  // the traced indirect light's probes (giWorld.js WorldGI.uniforms): the haze is lit by them
+  setGI(uniforms) { this.gi = uniforms; Object.assign(this.mat.uniforms, uniforms); }
+
   setSize(w, h) {
     const fw = Math.max(1, Math.round(w * this.scale)), fh = Math.max(1, Math.round(h * this.scale));
     if (fw === this.width && fh === this.height) return;
@@ -186,6 +201,10 @@ export class VolumetricFog {
     u.tShadow.value = shadowOn ? sh.map.depthTexture : null;
     if (shadowOn) for (let i = 0; i < 2; i++) { u.uShadowMat.value[i].copy(sh._matrices[i]); u.uCascade.value[i].copy(sh._cascadeData[i]); }
     u.uLightDir.value.copy(P.lightDir); u.uLightCol.value.copy(P.lightCol); u.uAmb.value.copy(P.amb);
+    // the probes' light as the haze's: scaled so that on open land it is as bright as the look's own colour for it
+    const gi = this.gi, fa = gi && gi.uGIFallA.value;
+    u.uGIOn.value = gi && this.giOn ? 1 : 0;
+    if (fa) u.uAmbK.value = (0.2126 * P.amb.x + 0.7152 * P.amb.y + 0.0722 * P.amb.z) / Math.max(0.2126 * fa.x + 0.7152 * fa.y + 0.0722 * fa.z, 1e-6);
     u.uDens.value.set(P.density, P.falloff, P.floor, P.wisps);
     u.uPhase.value.set(P.g, P.forward, P.back, 0);
     u.uWind.value.set(mod(this.wind.x + ORIGIN.x, 60), mod(this.wind.y + ORIGIN.z, 60));   // tied to the world (origin.js)

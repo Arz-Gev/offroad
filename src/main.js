@@ -37,6 +37,8 @@ import { loadLog, setLoading, frame, hideLoading, showError } from './loading.js
 import { createGraphics, GFX_KEYS } from './graphics.js';
 import { GI, airLight } from './render/gi.js';
 import { SKYLINE, initSkyline } from './render/skyline.js';
+import { WorldGI } from './render/giWorld.js';
+import { ScreenGI } from './render/giScreen.js';
 import { cloudShadowAt } from './world/clouds.js';
 import { createPlacement } from './placement.js';
 import { Menu } from './menu.js';
@@ -105,6 +107,11 @@ async function main() {
   if (extras) scene.add(extras);
   setLoading('Growing the forest…', 0.58); await frame();
   const trees = buildTrees(RAPIER, world, colliderSurface, renderer, grass.shared.uWind, win0);
+  // the traced indirect light: probes through a model of the land and the trees, then per pixel (render/giWorld.js)
+  const giWorld = new WorldGI(renderer);
+  giWorld.setWindow(terrain, win0.trees, trees.kinds);
+  env.fog.setGI(giWorld.uniforms);
+  pipeline.gi = { world: giWorld, screen: new ScreenGI(renderer, giWorld), env, focus: null, supported: SKYLINE.canFilter, enabled: false };   // (enabled by the quality level, graphics.js)
   scene.add(trees.group);
   scenery.parts.push(trees);
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
@@ -137,6 +144,8 @@ async function main() {
   scene.add(model.root);
   // the car's box in its own frame (the root has not been moved yet): the dust's shadow of the truck
   const carBox = (b => ({ c: b.getCenter(new THREE.Vector3()), half: b.getSize(new THREE.Vector3()).multiplyScalar(0.5) }))(new THREE.Box3().setFromObject(model.root));
+  // (its floor shades the ground under it in the traced light: about a wheel's radius and a third above the tyres' bottoms)
+  pipeline.gi.screen.setCars([{ root: model.root, c: carBox.c, half: carBox.half, clear: 1.3 * vehicle.P.tire.radius }]);
   env.sun.shadow.setCar?.(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
   model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
@@ -173,6 +182,7 @@ async function main() {
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
     pipeline.resetExposure = true;   // a cut to another place: the eye is adapted to it at once (also while paused)
+    pipeline.gi.screen.cut = true;
     game.redraw = 3;
   };
   const { teleports, nearestLocation, placeVehicle, placeWorld, teleportTo, visit, discover, recover: recoverVehicle } = createPlacement({
@@ -223,6 +233,7 @@ async function main() {
     env.soften(); env.dirty = true;   // the land's average colour is the light probe's ground (render/gi.js)
     terrainView.applyWindow(job.tv.next); lap(); trees.applyWindow(job.tr.next); lap(); props.applyWindow(job.pr.next); lap(); water.applyWindow(job.wa.next);
     grass.applyWindow(job.gr.next); lap();
+    giWorld.setWindow(terrain, w.trees, trees.kinds); lap();
     // the colliders round the truck, and a step so the scene queries see them (an almost zero one: nothing moves)
     trees.updatePhysics(vehicle.pos.x, vehicle.pos.z);
     props.stream.update(vehicle.pos.x, vehicle.pos.z);
@@ -285,6 +296,7 @@ async function main() {
       if (!camModes.includes(v)) v = 'chase';   // gunner's sight on a car without a turret
       rig.setMode(v);
       pipeline.resetExposure = true;   // a cut, as a new place is (afterPlace)
+      if (pipeline.gi) pipeline.gi.screen.cut = true;
       applyDof();
       if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
       if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
@@ -632,6 +644,7 @@ async function main() {
       water.setUnder(pipeline.params.underwater > 0);
       mp.updateTags(camera);
       env.update(dt, rPos, camera);
+      pipeline.gi.focus = rPos;
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
       pushers.push({ x: rPos.x, y: rPos.y, z: rPos.z, r: 1.7 });
       grass.setPushers(pushers);
@@ -643,7 +656,8 @@ async function main() {
       // the light on the dust: the place's sky light and, where the sun reaches a puff, the sun (a cloud of dust
       // takes the sun whatever its height: the beam, not the light on level ground); at night never under what the
       // lamps would show of it
-      airLight(rPos.x, rPos.z, 0, dustAmb);
+      // (the traced light at the truck, or the estimate)
+      if (pipeline.gi.enabled && giWorld.here.ok) giWorld.here.A.toArray(dustAmb); else airLight(rPos.x, rPos.z, 0, dustAmb);
       const beam = env.sun.intensity * cloudShadowAt(rPos.x, rPos.y, rPos.z) * env.sunVis * 0.2, floor = 0.04 * env.darkness, sc = env.sun.color;
       dustSun[0] = sc.r * beam; dustSun[1] = sc.g * beam; dustSun[2] = sc.b * beam;
       for (let i = 0; i < 3; i++) dustAmb[i] = Math.max(dustAmb[i], floor);

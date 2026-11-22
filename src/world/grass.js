@@ -81,7 +81,8 @@ function bladeGeometry(segments) {
 
 const COMMON_GLSL = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tLand, tNoise, tTrack;
+uniform sampler2D tSplat, tNoise, tTrack;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data, 1: the land data (terrainView.js)
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing (m), unused
 uniform vec4 uLod;      // log2(cells per tile side), unused, grass distance (m), flower chance
@@ -122,7 +123,7 @@ void gShape(float sd, float tb, vec3 base, vec3 side, vec2 bend, float ht, float
 export function buildGrass(terrainView, opts = {}) {
   const U = terrainView.uniforms;
   const shared = {
-    tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tLand: U.tLand, tNoise: U.tNoise, tTrack: U.uTrack, uDew: U.uDew,
+    tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tTrack: U.uTrack, uDew: U.uDew,
     uMap: U.uMap,
     uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
@@ -178,7 +179,7 @@ float keep = cv.x;
 float rank = (float(gi) + 0.5) / (gk * gk);
 float fade = (1.0 - smoothstep(uRad.x, uRad.y, dCam)) * clamp((keep * 1.35 - rank) / (keep * 0.35), 0.0, 1.0);
 // density (precomputed: grass surfaces, slope, clearings, canopy) -- most culled blades stop here
-vec4 gdv = textureLod(tData, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);
+vec4 gdv = textureLod(tGround, vec3((bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0), 0.0);
 float dens = gdv.a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
@@ -197,7 +198,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   float trailK = textureLod(tSplat, ((bxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0).r;
   // the land's lushness (terrainView.js): taller, deeper green down the drainage lines and in hollows, short and
   // golden on dry ridges and sunny slopes
-  float lsh = textureLod(tLand, (bxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0).r;
+  float lsh = textureLod(tGround, vec3((bxz + uMap.x + 0.5) / (uMap.w + 1.0), 1.0), 0.0).r;
   float tall = (0.45 + 0.95 * nz.g * nz.g) * (0.7 + 0.6 * lsh);
   float flower = step(hC.x, uLod.w * smoothstep(12.0, 30.0, dCam)) * step(0.5, nz.b + 0.2);
   // far away, the flower fields (undergrowth.js FIELDS: too small to draw as plants there) ride on the grass tips
@@ -312,7 +313,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v8';
+  mat.customProgramCacheKey = () => 'grass-v9';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];
@@ -397,7 +398,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
     }
     return out;
   };
-  densMax = buildDens(U.tData.value.image.data, U.tData.value.image.width);
+  densMax = buildDens(terrainView.groundData, terrainView.groundN);
   // any grass in the world box? (the shader samples the 1 m density map bilinearly at the blade)
   const hasGrass = (x0, z0, x1, z1) => {
     let a = Math.floor(x0 + HALF), b = Math.floor(z0 + HALF), c = Math.floor(x1 + HALF) + 1, d = Math.floor(z1 + HALF) + 1;

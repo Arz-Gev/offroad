@@ -518,6 +518,8 @@ if (vImpSoft > 0.5) {
 
   const counts = new Int32Array(variants.length);
   const api = {
+    // per kind, for the traced light's model of the crowns (render/giWorld.js)
+    kinds: variants.map(v => ({ kind: v.kind, height: v.geo.height, crownR: v.geo.crownR, crownBase: v.geo.crownBase ?? v.geo.height * 0.3 })),
     group, variants, near, atlas, fade, updatePhysics,
     get trees() { return cur.trees; },
     get impMesh() { return cur.impMesh; },

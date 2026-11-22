@@ -40,6 +40,20 @@ export const GI = {
   })(),
 };
 
+// The traced indirect light (giWorld.js, giScreen.js), per pixel: the atlas of last frame's light (three parts side
+// by side: A and the view depth | Y and the open sky's share | X), the camera it was made from. These uniform
+// objects are shared by every lit material (installGI puts them into each one as it compiles: a render target's
+// texture cannot go through three's uniform templates, which clone).
+export const GI_TRACED = {
+  tGI: { value: null },
+  giPrevVP: { value: new THREE.Matrix4() },
+  // x: 1 while the atlas holds a frame (0: the estimate below), y: half a texel of the screen across, zw: 1 / the screen's size
+  giAtlas: { value: new THREE.Vector4(0, 0, 1, 1) },
+  // the light at the truck (giWorld.js here): its mean, and how much more comes from above (a cabin's trim is lit
+  // by it through the glass: the screen's own tracing would shut a cabin in)
+  giCarA: { value: new THREE.Vector3(0.1, 0.1, 0.1) }, giCarY: { value: new THREE.Vector3() },
+};
+
 export function giUniforms() {
   return { giSun: { value: GI.sun }, giSky: { value: GI.sky }, giGround: { value: GI.ground }, giLeaf: { value: GI.leaf }, giSide: { value: GI.side }, giDir: { value: GI.dir }, giMap: { value: GI.map } };
 }
@@ -77,6 +91,11 @@ uniform vec4 giGround;
 uniform vec4 giLeaf;
 uniform vec4 giSide;
 uniform vec4 giDir;
+uniform sampler2D tGI;
+uniform mat4 giPrevVP;
+uniform vec4 giAtlas;
+uniform vec3 giCarA;
+uniform vec3 giCarY;
 #ifndef GI_LOCAL
 uniform sampler2D giMap;
 #endif
@@ -91,7 +110,29 @@ vec4 giLocal = vec4( 0.13, 0.13, 0.07, 1.0 );
 
 const GI_DIFFUSE = /* glsl */`
 			#if defined( STANDARD ) && ! defined( GI_OFF )
-			{
+			if ( giAtlas.x > 0.5 ) {
+				// the traced light: where this point was on last frame's screen, the light found there, on this normal
+				vec3 giP = cameraPosition - ( vec4( vViewPosition, 0.0 ) * viewMatrix ).xyz;
+				vec4 giC = giPrevVP * vec4( giP, 1.0 );
+				vec2 giUv = giC.w > 0.0 ? giC.xy / giC.w * 0.5 + 0.5 : gl_FragCoord.xy * giAtlas.zw;
+				#ifdef GI_STICKY
+				giUv = gl_FragCoord.xy * giAtlas.zw;   // what moves with the camera (the truck): the same place on the screen
+				#endif
+				giUv = clamp( giUv, vec2( giAtlas.y, 0.002 ), vec2( 1.0 - giAtlas.y, 0.998 ) );
+				giUv.x *= 0.3333333;
+				vec4 giA = texture2D( tGI, giUv ), giY = texture2D( tGI, vec2( giUv.x + 0.3333333, giUv.y ) );
+				vec2 giX = texture2D( tGI, vec2( giUv.x + 0.6666667, giUv.y ) ).xy;
+				vec3 giNw = ( vec4( geometryNormal, 0.0 ) * viewMatrix ).xyz;
+				vec3 giE = PI * max( giA.rgb + 0.6666667 * ( giY.rgb * giNw.y + giA.rgb * ( dot( giX, giNw.xz ) / max( dot( giA.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-6 ) ) ), 0.1 * giA.rgb );
+				giOpen = min( giY.a * 2.2, 1.0 );   // the open sky's share of the upper half (of a probe's rays half go down)
+				#ifdef GI_CABIN
+				// inside a cabin the light comes in through the glass on every side: the light round the truck, as on a
+				// surface facing half up, whichever way this one faces
+				giE = mix( giE, PI * max( giCarA + 0.4 * giCarY, 0.1 * giCarA ), giCabin );
+				giOpen = mix( giOpen, 1.0, giCabin );
+				#endif
+				iblIrradiance += giE;
+			} else {
 				#ifdef GI_CABIN
 				// inside a cabin (giCabin) the light comes in through the glass on every side and off the trim, much the
 				// same whichever way a surface faces: as if it faced half up
@@ -148,4 +189,19 @@ export function installGI() {
     if (u && 'directionalLights' in u) Object.assign(u, giUniforms());
   }
   THREE.UniformsLib.lights = { ...THREE.UniformsLib.lights, ...giUniforms() };
+  // Every lit material takes the traced light's shared uniform objects as it compiles, after its own
+  // onBeforeCompile (an accessor on the prototype: a material's own hook, set later, lands in _giUser)
+  const proto = THREE.Material.prototype, base = proto.onBeforeCompile;
+  Object.defineProperty(proto, 'onBeforeCompile', {
+    configurable: true,
+    get() {
+      if (!this._giHook) {
+        const user = this._giUser || base;
+        this._giHook = function (sh, r) { user.call(this, sh, r); if (sh.uniforms && 'directionalLights' in sh.uniforms) Object.assign(sh.uniforms, GI_TRACED); };
+      }
+      return this._giHook;
+    },
+    set(fn) { this._giUser = fn; this._giHook = null; },
+  });
+  proto.customProgramCacheKey = function () { return (this._giUser || base).toString(); };
 }

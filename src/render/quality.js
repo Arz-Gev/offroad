@@ -40,31 +40,31 @@ export const QUALITY = {
   // mobile (phones and tablets): no shadows, AO, grass or bushes (veg 'off'). dynamicDpr: pixel density moves
   // between 1 and `dpr` to hold 45-60 fps (graphics.js, "dynamic resolution").
   mobile: {
-    label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off',
+    label: 'Mobile', dpr: 1.5, dynamicDpr: true, msaa: 0, fxaa: false, shadows: 'off', ssao: 'off', gi: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.7, bloom: true, veg: 'off', clouds: 'off',
     bushes: 0.1, bushHeight: 2.15, bushDist: 1.5,
   },
   low: {
-    label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off',
+    label: 'Low', dpr: 1.0, msaa: 0, fxaa: false, shadows: 'low', ssao: 'off', gi: 'off',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 0, lodScale: 0.7, bloom: true, veg: 'low', clouds: 'low',
     grassCurve: grass(GRASS_LOW), bushes: 0.31, bushHeight: 2.6, bushDist: 3.5,
   },
   medium: {
-    label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off',
+    label: 'Medium', dpr: 1.25, msaa: 0, fxaa: false, shadows: 'medium', ssao: 'off', gi: 'low',
     treeNear: 40, impostorShadows: false,
     terrainDetail: 1, lodScale: 0.85, bloom: true, veg: 'medium', clouds: 'medium',
     grassCurve: grass(GRASS_MEDIUM), bushes: 0.45, bushHeight: 1.6, bushDist: 2.0,
   },
   high: {
-    label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low',
+    label: 'High', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'high', ssao: 'low', gi: 'medium',
     treeNear: 40, impostorShadows: true,
     terrainDetail: 2, lodScale: 0.85, bloom: true, veg: 'high', clouds: 'high',
     grassCurve: grass(GRASS_HIGH), bushes: 2, bushHeight: 1.5, bushDist: 2.2,
   },
   ultra: {
-    label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high',
+    label: 'Ultra', dpr: 1.5, msaa: 0, fxaa: false, shadows: 'ultra', ssao: 'high', gi: 'high',
     impostorShadows: true,
     terrainDetail: 3, lodScale: 1.3, bloom: true, veg: 'ultra', clouds: 'ultra',
     grassCurve: grass(GRASS_ULTRA), bushes: 0.92, bushHeight: 1.4, bushDist: 4,
@@ -102,6 +102,16 @@ export const FOG = {
   ultra: { scale: 0.33, steps: 28 },
 };
 
+// The traced indirect light per level (render/giWorld.js, giScreen.js): height: the rows of the per-pixel pass (at most
+// half the frame's), slices and steps: its tracing on the screen, turns: frames between a probe's updates per level
+// of the probe grid.
+export const GI_LEVELS = {
+  off: null,
+  low: { height: 400, slices: 2, steps: 3, turns: [12, 24, 24] },
+  medium: { height: 540, slices: 2, steps: 4, turns: [8, 16, 16] },
+  high: { height: 640, slices: 2, steps: 5, turns: [6, 12, 12] },
+};
+
 // Depth of field per level (render/pipeline.js): most taps of the half-res gather; it follows the clouds' level.
 export const DOF = { off: 0, low: 0, medium: 24, high: 48, ultra: 80 };
 
@@ -109,7 +119,7 @@ export const DOF = { off: 0, low: 0, medium: 24, high: 48, ultra: 80 };
 // one switches to 'custom', which reads them back.
 export function presetToGfx(q) {
   return {
-    gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gBloom: q.bloom !== false,
+    gDpr: q.dpr, gAA: q.msaa ? 'msaa' + q.msaa : q.fxaa ? 'fxaa' : 'off', gShadows: q.shadows, gSSAO: q.ssao, gGI: q.gi || 'off', gBloom: q.bloom !== false,
     gViewDist: q.lodScale, gTerrain: q.terrainDetail, gTreeShadows: !!q.impostorShadows,
     gVeg: q.veg,
   };
@@ -117,7 +127,7 @@ export function presetToGfx(q) {
 export function gfxToQuality(g) {
   return {
     label: 'Custom', dpr: g.gDpr, msaa: g.gAA === 'msaa4' ? 4 : g.gAA === 'msaa2' ? 2 : 0, fxaa: g.gAA === 'fxaa',
-    shadows: g.gShadows, ssao: g.gSSAO, bloom: g.gBloom,
+    shadows: g.gShadows, ssao: g.gSSAO, gi: g.gGI, bloom: g.gBloom,
     impostorShadows: g.gTreeShadows, terrainDetail: g.gTerrain, lodScale: g.gViewDist,
     clouds: g.gShadows in CLOUDS ? g.gShadows : 'medium',   // the clouds follow the shadow level
     veg: g.gVeg, ...vegOf(g.gVeg),

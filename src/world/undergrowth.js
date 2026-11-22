@@ -25,7 +25,8 @@ export const FIELDS = {
 
 const PARS = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tSplat, tData, tNoise, tNrm, tLand;
+uniform sampler2D tSplat, tNoise, tNrm;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data, 1: the land data (terrainView.js)
 uniform float uRock;    // grows on rock, in the moss (terrainView.js rockAt): density there
 uniform vec4 uMap;      // half, cell, NN, size
 uniform vec4 uGrid;     // base cell x, base cell z, spacing, cells per tile
@@ -51,7 +52,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
   const U = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'undergrowth';
-  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tData: U.tData, tNoise: U.tNoise, tNrm: U.tNrm, tLand: U.tLand, uMap: U.uMap, uWind: windUniform };
+  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tNrm: U.tNrm, uMap: U.uMap, uWind: windUniform };
 
   // opts: maxRadius (m, after the presets' distance scale), color (multiplies the atlas)
   const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0, opts = {}) => {
@@ -84,7 +85,7 @@ vec2 hA = uHash22(cellH + uShape.w), hB = uHash22(cellH + uShape.w + 17.17);
 vec2 pxz = (cellIdx + hA) * uGrid.z, pq = (cellH + hA) * uGrid.z;
 float dCam = distance(pxz, cameraPosition.xz);
 float shrink = 1.0 - smoothstep(uRad.x, uRad.y, dCam);
-vec4 gd = textureLod(tData, (pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);
+vec4 gd = textureLod(tGround, vec3((pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0), 0.0);
 vec4 sp = textureLod(tSplat, ((pxz + uMap.x) / uMap.y + 0.5) / uMap.z, 0.0);
 vec4 nz = textureLod(tNoise, pq / ${ppf(53)}, 0.0);
 float bare = clamp(1.0 - (sp.r + sp.g + sp.b + sp.a) * 2.5, 0.0, 1.0) * (1.0 - smoothstep(0.3, 0.6, gd.b));
@@ -107,7 +108,7 @@ if (uRock > 0.0) {
   vec2 nxz = nr.rg * 2.0 - 1.0;
   float ny = sqrt(max(0.0, 1.0 - dot(nxz, nxz)));
   float rocky = max(sp.b, smoothstep(0.22, 0.34, 1.0 - ny)) * smoothstep(0.45, 0.65, ny);
-  vec4 ld = textureLod(tLand, (pxz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0);   // r lushness, a rock kind
+  vec4 ld = textureLod(tGround, vec3((pxz + uMap.x + 0.5) / (uMap.w + 1.0), 1.0), 0.0);   // r lushness, a rock kind
   vec3 rp = vec3(pxz.x, uGround(pxz), pxz.y);
   float north = clamp(-dot(normalize(nxz + vec2(1e-4, 0.0)), vec2(0.41, -0.91)), 0.0, 1.0) * smoothstep(0.92, 0.6, ny);
   vec4 mn = textureLod(tNoise, rp.xz / 5.3 + rp.y * 0.07, 0.0);
@@ -156,7 +157,7 @@ outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
 #endif
 #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v3';
+    mat.customProgramCacheKey = () => 'undergrowth-v4';
     const tiles = [];
     for (let tx = 0; tx < TILES; tx++) for (let tz = 0; tz < TILES; tz++) {
       const g = new THREE.InstancedBufferGeometry();

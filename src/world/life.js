@@ -13,7 +13,7 @@ import { PAT } from './origin.js';
 
 const GROUND_GLSL = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tData;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data (terrainView.js)
 uniform vec4 uMap;      // half, cell, NN, size
 float lHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
 float lGround(vec2 xz) {
@@ -23,7 +23,7 @@ float lGround(vec2 xz) {
   return t.x + t.y <= 1.0 ? h00 + (h10 - h00) * t.x + (h01 - h00) * t.y : h11 + (h01 - h11) * (1.0 - t.x) + (h10 - h11) * (1.0 - t.y);
 }
 // ground data at xz: g = forest floor, a = grass density
-vec4 lData(vec2 xz) { return textureLod(tData, (xz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0); }
+vec4 lData(vec2 xz) { return textureLod(tGround, vec3((xz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0), 0.0); }
 // a seed position wrapped into a box of side B round the camera (horizontal), drifting with d; wrapped in the
 // pattern frame (origin.js), so nothing jumps when the local frame shifts
 uniform vec2 uPat;
@@ -277,7 +277,7 @@ export function buildLife(terrainView, env) {
   const group = new THREE.Group();
   group.name = 'life';
   const shared = {
-    tHeight: TU.tHeight, tData: TU.tData, uMap: TU.uMap, uPat: PAT,
+    tHeight: TU.tHeight, tGround: TU.tGround, uMap: TU.uMap, uPat: PAT,
     uTime: { value: 0 }, uDay: { value: 1 }, uNight: { value: 0 },
     uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Vector3(1, 1, 1) },
     uFill: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector2(0.5, 0.3) },

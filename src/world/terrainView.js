@@ -78,6 +78,17 @@ function floatTex(data, n) {
   return t;
 }
 
+// the ground data and the land data (windowBake.js), one texture of two layers: one sampler for both (the terrain
+// has no texture unit to spare)
+function groundTex(ground, land, n) {
+  const data = new Uint8Array(n * n * 8);
+  data.set(ground, 0); data.set(land, n * n * 4);
+  const t = new THREE.DataArrayTexture(data, n, n, 2);
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
 function rgbaTex(data, n, mips) {
   const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
   t.magFilter = THREE.LinearFilter;
@@ -109,8 +120,7 @@ function windowTextureSteps(renderer, terrain, win, floatLinear, next) {
     },
     () => { next.splat = rgbaTex(win.splat, NN, true); renderer.initTexture(next.splat); },
     () => {
-      next.dataTex = rgbaTex(win.groundData, win.groundN, true); renderer.initTexture(next.dataTex);
-      next.landTex = rgbaTex(win.landData, win.groundN, true); renderer.initTexture(next.landTex);
+      next.groundTex = groundTex(win.groundData, win.landData, win.groundN); renderer.initTexture(next.groundTex);
     },
   ];
 }
@@ -155,8 +165,8 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
   // ---- material
   const morph = Array.from({ length: LEVELS }, () => new THREE.Vector2());
   const uniforms = {
-    tHeight: { value: tex.hTex }, tFarHeight: { value: SKYLINE.tex }, tNrm: { value: tex.nTex }, tLand: { value: tex.landTex },
-    tSplat: { value: tex.splat }, tData: { value: tex.dataTex }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
+    tHeight: { value: tex.hTex }, tFarHeight: { value: SKYLINE.tex }, tNrm: { value: tex.nTex }, tGround: { value: tex.groundTex },
+    tSplat: { value: tex.splat }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
@@ -222,7 +232,8 @@ ${CLOUD_DFG_GLSL}
 precision highp sampler2DArray;
 uniform highp sampler2DArray tFarHeight;
 #define SKYLINE_TEX tFarHeight   // the far shadow is its second layer (render/skyline.js)
-uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
+uniform sampler2D tNrm, tSplat, tNoise, uTrack;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data, 1: the land data
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
@@ -516,7 +527,7 @@ float stoneDensOf(vec4 nt, vec4 sp, vec4 gd, vec4 ld, out float big, out float r
 }
 float stoneDens(vec2 q, out float big, out float rutQ) {
   vec2 uvN = ((q + uMap.x) / uMap.y + 0.5) / uMap.z, uvD = (q + uMap.x + 0.5) / (uMap.w + 1.0);
-  return stoneDensOf(textureLod(tNrm, uvN, 0.0), textureLod(tSplat, uvN, 0.0), textureLod(tData, uvD, 0.0), textureLod(tLand, uvD, 0.0), big, rutQ);
+  return stoneDensOf(textureLod(tNrm, uvN, 0.0), textureLod(tSplat, uvN, 0.0), textureLod(tGround, vec3(uvD, 0.0), 0.0), textureLod(tGround, vec3(uvD, 1.0), 0.0), big, rutQ);
 }
 // one size class on a grid of cs m cells: at most one stone a cell, inside it with room for its shadow (the odds from
 // the ground data at the cell's centre, so a stone is never cut by a change in the data). cls 0: the small ones
@@ -573,8 +584,8 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   vec4 nt = texture2D(tNrm, uvN);
   vec4 sp = texture2D(tSplat, uvN);
   vec2 uvD = (pL.xz + uMap.x + 0.5) / (uMap.w + 1.0);
-  vec4 gd = texture2D(tData, uvD);
-  vec4 ld = texture2D(tLand, uvD);
+  vec4 gd = texture(tGround, vec3(uvD, 0.0));
+  vec4 ld = texture(tGround, vec3(uvD, 1.0));
   vec4 nz0 = texture2D(tNoise, p.xz / ${ppf(23)});
   vec4 nzP = texture2D(tNoise, p.xz / ${ppf(53)} + 0.61);
   // macro variation (large scale) to break everything up; wq warps the rock beds
@@ -833,7 +844,7 @@ reflectedLight.indirectSpecular *= gAO;
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v8' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v9' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);
@@ -889,7 +900,7 @@ reflectedLight.indirectSpecular *= gAO;
   const view = {
     mesh, material, uniforms, layers, groundN: DN, floatLinear,
     // the current window's textures and data (other systems read these: grass culling, debris, trees)
-    splat: tex.splat, dataTex: tex.dataTex, landTex: tex.landTex, heightTex: tex.hTex, normalTex: tex.nTex,
+    splat: tex.splat, groundTex: tex.groundTex, heightTex: tex.hTex, normalTex: tex.nTex,
     groundData: win.groundData, landData: win.landData,
     get patchCount() { return lists[0].count + lists[1].count; },
     // a new window (streamer): the textures are made over a few frames (prepare's steps), then swapped in at once
@@ -898,12 +909,11 @@ reflectedLight.indirectSpecular *= gAO;
       return { next, steps: windowTextureSteps(renderer, terrain, w, floatLinear, next) };
     },
     applyWindow(next) {
-      const old = [uniforms.tHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tData.value, uniforms.tLand.value];
+      const old = [uniforms.tHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tGround.value];
       uniforms.tHeight.value = view.heightTex = next.hTex;
       uniforms.tNrm.value = view.normalTex = next.nTex;
       uniforms.tSplat.value = view.splat = next.splat;
-      uniforms.tData.value = view.dataTex = next.dataTex;
-      uniforms.tLand.value = view.landTex = next.landTex;
+      uniforms.tGround.value = view.groundTex = next.groundTex;
       view.groundData = next.win.groundData; view.landData = next.win.landData;
       setLightMap(renderer, next.win.light);
       setSkylineLand(terrain, next.win.farLand);
@@ -943,7 +953,7 @@ reflectedLight.indirectSpecular *= gAO;
         L.attr.needsUpdate = true;
       });
     },
-    groundDataChanged() { view.dataTex.needsUpdate = true; view.landTex.needsUpdate = true; },
+    groundDataChanged() { const d = view.groundTex.image.data; d.set(view.groundData, 0); d.set(view.landData, d.length / 2); view.groundTex.needsUpdate = true; },
     // the photos' size (times their real size: grass, road (track and soil), gravel) and the edges between layers
     // (soft, wander 0..1); each tile snapped to divide the pattern period (origin.js)
     setGround({ grass, road, gravel, soft, wander }) {

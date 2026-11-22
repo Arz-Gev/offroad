@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { FOG_APPLY_GLSL } from './volumetricFog.js';
+import { GI, GI_TRACED } from './gi.js';
 
 // HDR render pipeline: scene (half-float, optional MSAA, depth texture) -> SSAO -> bloom -> eye
 // adaptation (GPU log-average luminance, no read-back) -> composite -> optional FXAA. Every pass is a full-screen triangle; bloom and luminance run at half resolution and below.
@@ -287,7 +288,8 @@ void main() {
 }`;
 
 const COMPOSITE_FRAG = /* glsl */`
-uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth, tDof;
+uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth, tDof, tGIDbg;
+uniform float uGIDbg;
 uniform vec2 uDofTexel;
 uniform vec3 uShaftCol, uBowCol;
 uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
@@ -382,6 +384,11 @@ void main() {
   float ex = texture2D(tExposure, vec2(0.5)).r;
   vec4 sc = texture2D(tScene, vUv);
   vec3 c = sc.rgb;
+  // (debug) the traced indirect light alone: on a grey card facing up, or its mean
+  if (uGIDbg > 0.5) {
+    vec3 ga = texture2D(tGIDbg, vec2(vUv.x / 3.0, vUv.y)).rgb, gy = texture2D(tGIDbg, vec2((vUv.x + 1.0) / 3.0, vUv.y)).rgb;
+    c = uGIDbg > 1.5 ? ga : 0.5 * max(ga + 0.6666667 * gy, 0.1 * ga);
+  }
   if (uAOOn > 0.5) c *= texture2D(tAO, vUv).r;
   // volumetric fog (volumetricFog.js): the scene seen through it, plus the light it scatters towards us
   if (uFogOn > 0.5) { vec4 f = fogAt(vUv, tDepth); c = c * f.a + f.rgb; }
@@ -449,7 +456,7 @@ uniform sampler2D tSrc;
 varying vec2 vUv;
 void main() { gl_FragColor = texture2D(tSrc, vUv); }`;
 
-const _sunNdc = new THREE.Vector3(), _camFwd = new THREE.Vector3();
+const _sunNdc = new THREE.Vector3(), _camFwd = new THREE.Vector3(), _giP = new THREE.Vector3();
 
 export class RenderPipeline {
   constructor(renderer, scene, camera) {
@@ -513,7 +520,7 @@ export class RenderPipeline {
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uGamma: { value: 1 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
-      uWater: { value: new THREE.Vector4() },
+      uWater: { value: new THREE.Vector4() }, tGIDbg: { value: null }, uGIDbg: { value: 0 },
     });
     this.aoMat = mat(AO_FRAG, {
       tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
@@ -525,6 +532,7 @@ export class RenderPipeline {
     this.shaftMaskMat = mat(SHAFT_MASK_FRAG, { tDepth: { value: this.hdr.depthTexture }, tClouds: { value: null }, uCloudsOn: { value: 0 }, uSun: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
     this.clouds = null;   // Clouds (world/clouds.js), set by the environment
     this.fog = null;      // VolumetricFog (volumetricFog.js), set by the environment
+    this.gi = null;       // { world, screen, env, enabled }: the traced indirect light (main.js)
     this.cloudCompMat = new THREE.ShaderMaterial({
       vertexShader: CLOUD_VERT, fragmentShader: CLOUD_COMP_FRAG, uniforms: { tClouds: { value: null }, uTexel: { value: new THREE.Vector2() } },
       depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth, transparent: true,
@@ -594,8 +602,39 @@ export class RenderPipeline {
     this.time += dt;
     const prevAutoClear = r.autoClear;
     r.autoClear = true;
+    // ---- the traced indirect light (giWorld.js, giScreen.js): the probes first, then the scene reads last frame's
+    // light per pixel, then this frame's is gathered from its depth
+    const gi = this.gi, giOn = !!(gi && gi.enabled);
+    let cut = false;
+    if (giOn) {
+      // the hour was set or is sweeping: the probes follow at once (every one of them every frame)
+      if (gi.env.lightJump || gi.env.anim) { gi.world.hurry = Math.max(gi.world.hurry, 10); gi.env.lightJump = false; }
+      cut = gi.screen.cut || !gi.screen.ready;
+      if (cut) gi.world.hurry = Math.max(gi.world.hurry, 8);
+      gi.world.update(this.camera, gi.env, GI);
+      // the light at the truck, for the cabin's trim and the dust (a metre above the ground it stands on)
+      if (gi.focus) { gi.world.readHere(_giP.copy(gi.focus).setY(gi.focus.y + 1)); const h = gi.world.here; GI_TRACED.giCarA.value.copy(h.A); GI_TRACED.giCarY.value.set(h.Y.x, h.Y.y, h.Y.z); }
+      gi.screen.setSize(this.width, this.height);
+      GI_TRACED.tGI.value = gi.screen.atlas.texture;
+      GI_TRACED.giPrevVP.value.copy(gi.screen.viewProj);
+      GI_TRACED.giAtlas.value.set(gi.screen.ready && !gi.noForward ? 1 : 0, 0.5 / gi.screen.w, 1 / this.width, 1 / this.height);
+    } else GI_TRACED.giAtlas.value.x = 0;
     r.setRenderTarget(this.hdr);
     r.render(this.scene, this.camera);
+    if (giOn) {
+      gi.screen.render(this.camera, this.hdr.texture, this.hdr.depthTexture);
+      if (cut) {
+        // a jump of the camera: no last frame to read the light from. The frame is drawn again with the light just
+        // gathered from its own depth
+        GI_TRACED.giPrevVP.value.copy(gi.screen.viewProj);
+        GI_TRACED.giAtlas.value.x = gi.noForward ? 0 : 1;
+        GI_TRACED.tGI.value = gi.screen.atlas.texture;
+        r.setRenderTarget(this.hdr);
+        r.render(this.scene, this.camera);
+        gi.screen.cut = true;
+        gi.screen.render(this.camera, this.hdr.texture, this.hdr.depthTexture);
+      }
+    }
 
     // ---- volumetric clouds: marched at low resolution, then laid onto the sky of the HDR scene
     const cloudsOn = !!(this.clouds && this.clouds.enabled);
@@ -613,13 +652,14 @@ export class RenderPipeline {
     // ---- volumetric fog (low resolution), laid over the scene in the composite
     const fogOn = !!(this.fog && this.fog.active);
     if (fogOn) {
+      this.fog.giOn = giOn;
       this.fog.setSize(this.width, this.height);
       this.fog.render(this.camera, this.hdr.depthTexture);
     }
     this.shaftMaskMat.uniforms.tClouds.value = cloudsOn ? this.clouds.texture : null;
 
     // ---- SSAO (half resolution), multiplied into the scene colour in the composite
-    const aoOn = this.ssao !== 'off';
+    const aoOn = this.ssao !== 'off' && !giOn;   // (the traced light has the dark of corners in it)
     if (aoOn) {
       const au = this.aoMat.uniforms, cam = this.camera;
       au.uProjInv.value.copy(cam.projectionMatrixInverse);
@@ -761,6 +801,7 @@ export class RenderPipeline {
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;
+    cu.uGIDbg.value = giOn ? (P.giDebug || 0) : 0; cu.tGIDbg.value = giOn ? gi.screen.atlas.texture : null;
     if (this.fxaa) {
       this.pass(this.compMat, this.ldr);
       this.fxaaMat.uniforms.tDiffuse.value = this.ldr.texture;
