@@ -27,7 +27,9 @@ const VIEWS = 8, CELL_W = 192, CELL_H = 384;
 const CHUNK = 32, CN = MAP_SIZE / CHUNK;
 
 // (the phases by the tree's place: in the pattern frame, origin.js, at frequencies that repeat over its period)
+const TREE_LEAN = 0.6;   // how far a tree's top leans in a full gust (m, x the gust); the far cards alike
 const WIND_GLSL = /* glsl */`
+#define TREE_LEAN ${TREE_LEAN.toFixed(3)}
 uniform vec4 uWind;   // dir x, dir z, strength, time
 ${WIND_FIELD_GLSL}
 ${PAT_GLSL}attribute float aWind;
@@ -40,9 +42,12 @@ vec3 windOffset(vec3 objPos, float w) {
   // slow rocking in it
   float gust = windGust(pq, t - 0.5);
   float sway = 0.75 + 0.25 * sin(t * 0.85 + ph) + 0.12 * sin(t * 1.9 + ph * 1.7);
-  vec3 ww = vec3(uWind.x, 0.0, uWind.y) * uWind.z * gust * sway * w * 0.34;
-  // tips flutter
-  ww += vec3(sin(t * 5.3 + dot(objPos, vec3(2.1, 1.7, 2.9)) + ph), sin(t * 4.1 + dot(objPos, vec3(1.3, 2.3, 1.1))), cos(t * 4.7 + dot(objPos, vec3(2.7, 1.1, 1.9)))) * 0.045 * w * w * uWind.z;
+  vec3 ww = vec3(uWind.x, 0.0, uWind.y) * uWind.z * gust * sway * w * TREE_LEAN;
+  // each bough on its own swing, up and down as it goes
+  float bph = dot(objPos, vec3(0.9, 0.55, 0.75)) + ph, bough = sin(t * 2.1 + bph) + 0.4 * sin(t * 3.3 + bph * 1.6);
+  ww += vec3(uWind.x * 0.5, 0.4, uWind.y * 0.5) * uWind.z * gust * bough * w * w * 0.16;
+  // tips flutter, most in a gust
+  ww += vec3(sin(t * 5.3 + dot(objPos, vec3(2.1, 1.7, 2.9)) + ph), sin(t * 4.1 + dot(objPos, vec3(1.3, 2.3, 1.1))), cos(t * 4.7 + dot(objPos, vec3(2.7, 1.1, 1.9)))) * (0.025 + 0.05 * gust) * w * w * uWind.z;
   // world -> object space (yaw + uniform scale)
   float s2 = dot(instanceMatrix[0].xyz, instanceMatrix[0].xyz);
   return (transpose(mat3(instanceMatrix)) * ww) / s2;
@@ -119,7 +124,7 @@ ${LEAF_PATH_GLSL}`)
         .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= 0.55 + 0.45 * vLeaf.y * vLeaf.y;');
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v6';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v7';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -364,7 +369,7 @@ vMapUv = vImpUv;
   vec2 wq = ip.xz + uPat;
   float wph = dot(wq, vec2(0.070563, 0.113515));
   float wsway = 0.75 + 0.25 * sin(uWind.w * 0.85 + wph) + 0.12 * sin(uWind.w * 1.9 + wph * 1.7);
-  transformed.xz += uWind.xy * (uWind.z * windGust(wq, uWind.w - 0.5) * wsway * 0.34 * position.y * position.y * 0.9);
+  transformed.xz += uWind.xy * (uWind.z * windGust(wq, uWind.w - 0.5) * wsway * ${TREE_LEAN.toFixed(3)} * position.y * position.y * 0.9);
 }`)
         .replace('#include <project_vertex>', `
 vec4 mvPosition = viewMatrix * vec4(ip + transformed, 1.0);
@@ -419,7 +424,7 @@ vec3 nonPerturbedNormal = normal;`)
 }
 ` + leafLightsBegin());
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v8';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v9';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });
