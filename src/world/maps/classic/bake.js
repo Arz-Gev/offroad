@@ -32,7 +32,7 @@ const ROCK_REGIONS = [
   { x: POI.peak.x, z: POI.peak.z, r0: POI.peak.r * 0.8, r1: POI.peak.r * 1.25, k: 1 / 3 },
   { x: POI.quarry.x, z: POI.quarry.z, r0: 70, r1: 110, k: 2 / 3 },
   { x: POI.forest.x, z: POI.forest.z, r0: 90, r1: 160, k: 1 },
-  ...STREAM.slice(0, 6).map(([x, z]) => ({ x, z, r0: 50, r1: 90, k: 1 })),
+  ...STREAM.slice(0, 4).map(([x, z]) => ({ x, z, r0: 50, r1: 90, k: 1 })),
 ];
 
 // ---------------------------------------------------------------- trees and fallen logs

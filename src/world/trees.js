@@ -11,6 +11,7 @@ import { makeBarkTexture } from './textures.js';
 import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { CLOUD } from './clouds.js';
+import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin, crownOf } from './leafLight.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
 // and small groups of apple trees; each with a trunk collider.
@@ -69,44 +70,38 @@ vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);${lift ? '\nvTreeLift = sm
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;${lift ? '\ngiLift = vTreeLift;' : ''}`);
     if (opts.translucent) {
-      // the crown casts from its twin, 1.35x larger, which also covers the crown's own sunlit (moonlit) side: look
-      // the shadow up half a crown radius towards the light, so the outer leaves come out of it and only the inside
-      // stays shaded (the impostor goes a whole radius; without this the near crown went much darker than its
-      // impostor, nearly black by moonlight)
+      // The sun on the crown (leafLight.js): what the crown itself lets through comes from the length of the sun's
+      // way through it (the crown as an ellipsoid of leaves), per vertex. The shadow map is then asked beyond the
+      // crown, towards the light: it holds the crown's own twin (1.35x larger), which shaded card by card; the
+      // shade of the trees around still lands.
+      const cr = opts.crown;
       sh.uniforms.uCrownSun = { value: CLOUD.sun };
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform vec4 uCrownSun;')
+        .replace('#include <common>', `#include <common>
+uniform vec4 uCrownSun;
+varying vec2 vLeaf;   // x: the sun's way through the crown to here (m), y: 0 at the crown's centre .. 1 at its surface
+${LEAF_PATH_GLSL}`)
         .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
+{
+  float lsc = length(instanceMatrix[0].xyz);
+  vec3 lo = normalize(transpose(mat3(instanceMatrix)) * uCrownSun.xyz);
+  const vec3 lc = vec3(0.0, ${cr.cy.toFixed(2)}, 0.0), lr = vec3(${cr.rx.toFixed(2)}, ${cr.ry.toFixed(2)}, ${cr.rx.toFixed(2)});
+  float lp = leafPath(position, lo, lc, lr) * lsc;
+  vLeaf = vec2(lp, min(length((position - lc) / lr), 1.0));
 #if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
-vSunShadowWorldPosition.xyz += uCrownSun.xyz * (${(0.5 * opts.crownR).toFixed(2)} * length(instanceMatrix[0].xyz));
-#endif`);
+  vSunShadowWorldPosition.xyz += uCrownSun.xyz * (lp + 1.2 * lsc);
+#endif
+}`);
       // foliage cards: both faces keep the outward (crown-volume) normal; DoubleSide's flip shaded back faces as if
       // they faced into the crown
-      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
-      // a touch of light through the leaves when backlit; a soft crown (opts.soft: the meadow trees) also wraps
-      // the sunlight round to its shade side and lets a little through its leaves, so it is never bright on one side
-      // and dull on the other
-      const soft = opts.soft ? `
-#if NUM_SUN_LIGHTS > 0
-{
-  float ndl = dot(normal, sunLights[0].direction);
-  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
-  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
-}
-#endif` : '';
-      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
-#if NUM_SUN_LIGHTS > 0
-{
-  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
-  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
-  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
-}
-#endif
-#include <opaque_fragment>`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL)
+        .replace('#include <common>', '#include <common>\nvarying vec2 vLeaf;\n' + LEAF_PARS)
+        .replace('#include <lights_fragment_begin>', `leafSelf = exp(-${cr.sigma.toFixed(3)} * vLeaf.x); leafThrough = ${cr.through.toFixed(2)};\n` + leafLightsBegin())
+        // (deep in the crown less of the sky's light arrives too)
+        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= 0.55 + 0.45 * vLeaf.y * vLeaf.y;');
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + (opts.crownR ? '-r' + opts.crownR.toFixed(2) : '') + '-v4';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.crown ? '-c' + [opts.crown.cy, opts.crown.rx, opts.crown.ry, opts.crown.sigma, opts.crown.through].map(v => v.toFixed(2)).join('_') : '') + '-v5';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -238,7 +233,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
     // the lamps light the cards from whichever side faces them (lamps.js), as on the grass: the cards' normals point
     // out of the crown, mostly up, so the undersides of the branches stood black in the headlamps
     crownMat.defines = { TK_THIN: '' };
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'apple' || v.kind === 'oak', crownR: v.geo.crownR, height: v.geo.height });
+    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, crown: crownOf(v.kind, v.geo), height: v.geo.height });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
     const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
@@ -274,7 +269,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   // uSubFade: past x..y m only the far share of the trees is drawn (windowBake.js SUB_SHARE: the far ring has only
   // those), a little bigger to fill in; so the window moving (its trees replacing the ring's) shows nothing
   const subFade = { value: new THREE.Vector2(SUB_FADE[0], SUB_FADE[1]) };
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos, uSubFade: subFade };
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpCrown: { value: variants.map(v => { const c = crownOf(v.kind, v.geo); return new THREE.Vector4(c.cy, c.rx, c.ry, c.sigma); }) }, uImpThrough: { value: variants.map(v => crownOf(v.kind, v.geo).through) }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos, uSubFade: subFade };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
 attribute float aSub;
@@ -284,7 +279,12 @@ uniform float uImpRows;
 uniform float uImpH[${variants.length}];
 uniform float uImpW[${variants.length}];
 uniform float uImpSoft[${variants.length}];
+uniform vec4 uImpCrown[${variants.length}];   // the crown's ellipsoid: centre height, radii across and up (m), density (leafLight.js)
+uniform float uImpThrough[${variants.length}];
 uniform vec4 uImpSun;
+varying vec3 vImpL;       // towards the light, in the card's frame (right, up, towards the viewer)
+varying vec3 vImpPos;     // this point of the card in that frame (m); z: how much light its leaves let through
+varying vec4 vImpCrown;   // the crown's ellipsoid at this tree's size
 uniform vec2 uFade;
 uniform vec3 uViewPos;
 varying vec2 vImpUv;
@@ -315,6 +315,13 @@ vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
 vImpSoft = uImpSoft[int(aVar)];
 vImpLift = smoothstep(0.25, 0.9, position.y);
+{
+  vec3 fwdL = normalize(vec3(toCam.x, 0.0, toCam.z));
+  float isc2 = H / uImpH[int(aVar)];
+  vImpL = vec3(dot(uImpSun.xyz, right), uImpSun.y, dot(uImpSun.xyz, fwdL));
+  vImpPos = vec3(position.x * H * uImpW[int(aVar)], position.y * H, uImpThrough[int(aVar)]);
+  vImpCrown = vec4(uImpCrown[int(aVar)].xyz * isc2, uImpCrown[int(aVar)].w);
+}
 {
   // the crown as a ball (centre at 0.62 of the height): left / right, up / down and towards the viewer
   vec2 q = vec2(position.x * 2.0, (position.y - 0.62) / 0.38);
@@ -353,6 +360,10 @@ varying vec3 vImpRound;
 varying float vImpSoft;
 varying float vImpLift;
 varying float vSubKeep;
+varying vec3 vImpL;
+varying vec3 vImpPos;
+varying vec4 vImpCrown;
+${depth ? '' : LEAF_PARS + LEAF_PATH_GLSL}
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) >= min(smoothstep(uFade.x, uFade.y, vTreeDist), vSubKeep)) discard;`);
@@ -365,26 +376,18 @@ vec3 nW = normalize(vec3(cy * nObj.x + sy * nObj.z, nObj.y, -sy * nObj.x + cy * 
 nW = normalize(mix(nW, normalize(vImpRound), 0.55 * vImpSoft));
 vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;`)
-        // light through the leaves, as on the near crowns (patchTreeMaterial): soft crowns wrap the sun round
-        .replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;
-#if NUM_SUN_LIGHTS > 0
-{
-  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
-  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
-  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.2);
+        // the sun on the crown as on the near crowns (leafLight.js): this point of the card taken as the crown's
+        // near surface; below the crown it is the trunk
+        .replace('#include <lights_fragment_begin>', `{
+  vec3 lr = vec3(vImpCrown.y, vImpCrown.z, vImpCrown.y);
+  vec2 lq = vec2(vImpPos.x / lr.x, (vImpPos.y - vImpCrown.x) / lr.y);
+  float lz = sqrt(max(0.0, 1.0 - dot(lq, lq))) * lr.z;
+  leafSelf = exp(-vImpCrown.w * leafPath(vec3(vImpPos.xy, lz), vImpL, vec3(0.0, vImpCrown.x, 0.0), lr));
+  leafK = smoothstep(-1.15, -0.9, lq.y); leafThrough = vImpPos.z;
 }
-#endif
-#if NUM_SUN_LIGHTS > 0
-if (vImpSoft > 0.5) {
-  float ndl = dot(normal, sunLights[0].direction);
-  float wrapExtra = max(0.0, (ndl + 0.7) / 1.7) - max(0.0, ndl);
-  outgoingLight += diffuseColor.rgb * sunLights[0].color * (wrapExtra * 0.85 + max(0.0, -ndl) * 0.3) * (1.0 / 3.14159);
-}
-#endif
-#include <opaque_fragment>`);
+` + leafLightsBegin());
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v4';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v6';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

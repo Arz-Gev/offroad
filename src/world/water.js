@@ -245,7 +245,8 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
         let along = w.along0 || 0, rows = 0;
         for (let k = 0; k < n; k++) {
           const p = pts[k];
-          if (lake && Math.hypot((p.x - lake.x) / lake.rx, (p.z - lake.z) / lake.rz) < 0.97) break;
+          // (the ribbon ends just inside the lake's own water: the disc reaches 1.1 of the lake's radii)
+          if (lake && Math.hypot((p.x - lake.x) / lake.rx, (p.z - lake.z) / lake.rz) < 1.05) break;
           const a = pts[Math.max(0, k - 1)], b = pts[Math.min(n - 1, k + 1)];
           let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
           if (k > 0) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);

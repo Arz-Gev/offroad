@@ -76,12 +76,17 @@ float underFloor(vec3 p) {
     vec4 bx = uCarBox[i];
     if (bx.w < 0.5) continue;
     vec3 q = (uCarM[i] * vec4(p, 1.0)).xyz;
-    float h = bx.z - q.y;
-    if (h < 0.03 || max(abs(q.x) - bx.x, abs(q.z) - bx.y) > 4.0 * h + 0.5) continue;
+    // (never nearer than a hand's width: when the truck dives under braking its floor's plane all but meets the
+    // ground at one end, and a floor that near took all the light at once: a black wedge with a hard edge. What is
+    // above the floor fades out of it)
+    float hr = bx.z - q.y, h = max(hr, 0.22);
+    float k = smoothstep(-0.12, 0.08, hr);
+    if (k <= 0.0 || max(abs(q.x) - bx.x, abs(q.z) - bx.y) > 4.0 * h + 0.5) continue;
     float x0 = -bx.x - q.x, x1 = bx.x - q.x, z0 = -bx.y - q.z, z1 = bx.y - q.z;
-    F += overCorner(x1, z1, h) - overCorner(x0, z1, h) - overCorner(x1, z0, h) + overCorner(x0, z0, h);
+    F += k * (overCorner(x1, z1, h) - overCorner(x0, z1, h) - overCorner(x1, z0, h) + overCorner(x0, z0, h));
   }
-  return clamp(F, 0.0, 1.0);
+  // (light gets in under a truck from its sides: never all of it gone)
+  return clamp(F, 0.0, 1.0) * 0.82;
 }
 // the view position of this pass's pixel ip (its depth is that of one texel of the frame: unprojected there)
 vec2 uvAt(ivec2 ip) { return (floor((vec2(ip) + 0.5) * uScale) + 0.5) / uFull; }
@@ -338,7 +343,8 @@ export class ScreenGI {
       u.uCarM.value[i].copy(c.root.matrixWorld).invert();
       // (the box's centre is not the frame's origin: folded into the matrix)
       _m.makeTranslation(-c.c.x, 0, -c.c.z); u.uCarM.value[i].premultiply(_m);
-      bx.set(c.half.x * 0.92, c.half.z * 0.94, c.c.y - c.half.y + c.clear, 1);
+      // (the low flat part of a truck's floor: between its axles, a little short of its sides)
+      bx.set(c.half.x * 0.86, c.half.z * 0.72, c.c.y - c.half.y + c.clear, 1);
     }
     r.setRenderTarget(this.raw);
     this.quad.render(r);
