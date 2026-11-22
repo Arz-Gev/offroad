@@ -24,6 +24,9 @@ export const LAMP_KNEE = 2.0;
 // of blades faces the lamp everywhere, and at full gain it glowed pale and drowned the stones on the road. The blades' lighting normals are
 // turned towards the sun/moon, so with plain N.L every blade facing away from the truck stood black in the beam.
 const THIN_BACK = 0.6, THIN_GAIN = 0.55;
+// A card of many leaves and petals turned every way (TK_LEAF too: undergrowth.js, its normals are the plant's dome,
+// mostly up, which the level beams only grazed) takes a lamp alike from every side: the mean |N.L| of such leaves.
+const LEAF_MEAN = 0.5;
 function installLampShoulder() {
   const C = THREE.ShaderChunk;
   if (C.lights_fragment_begin.includes('tkLampE')) return;
@@ -34,6 +37,9 @@ function installLampShoulder() {
   // direction mirrored through its plane, so N.L is positive
   const glsl = `#ifdef TK_THIN
 \t\tdirectLight.color *= ${THIN_GAIN.toFixed(2)};\n\t\t{\n\t\t\tfloat tkD = dot( geometryNormal, directLight.direction );\n\t\t\tif ( tkD < 0.0 ) { directLight.direction -= 2.0 * tkD * geometryNormal; directLight.color *= ${THIN_BACK.toFixed(2)}; }\n\t\t}
+#endif
+#ifdef TK_LEAF
+\t\tdirectLight.direction = geometryNormal; directLight.color *= ${LEAF_MEAN.toFixed(2)};
 #endif
 \t\t{\n\t\t\tfloat tkLampE = max( dot( geometryNormal, directLight.direction ), 0.0 ) * max( directLight.color.r, max( directLight.color.g, directLight.color.b ) );\n\t\t\tdirectLight.color *= inversesqrt( 1.0 + tkLampE * tkLampE * ${k} );\n\t\t}\n${PAIR_GLSL}`;
   C.lights_fragment_begin = C.lights_fragment_begin.replace(spotRE, (m, a, body, re) => `${a}${body}${glsl}${re}`);

@@ -3,6 +3,7 @@ import { MAP_SIZE, CELL, N } from './terrain.js';
 import { FIELDS } from './undergrowth.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, ppf } from './origin.js';
 import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
+import { LEAF_PARS, leafLightsBegin } from './leafLight.js';
 
 // GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
 // blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
@@ -266,7 +267,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
       .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying float vGOpen;\nvarying vec3 vGPos;\nuniform float uDew;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying float vGOpen;\nvarying vec3 vGPos;\nuniform float uDew;\n' + LEAF_PARS)
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
 // thin, translucent blades: whichever face we see is lit like the face towards the sun (lit by its own
@@ -288,14 +289,11 @@ float gOpp = dot(normalize(vViewPosition), sunLights[0].direction);
 diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif`)
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vGAO; reflectedLight.indirectSpecular *= vGAO * 0.35;')
-      // backlit, the blades glow: sunlight through the leaf, yellower, strongest towards the tips (the direct diffuse
-      // already carries the shadow, so blades in shade stay dark)
+      // the sun on the blades and through them (leafLight.js), less of it down among them
+      .replace('#include <lights_fragment_begin>', 'float gTip = clamp((vGAO - 0.6) / 0.4, 0.0, 1.0);\nleafSelf = mix(0.35, 1.0, smoothstep(0.0, 0.8, gTip)); leafThrough = 1.1;\n' + leafLightsBegin())
       .replace('#include <opaque_fragment>', `
 #if NUM_SUN_LIGHTS > 0
 {
-  float gBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
-  float gTip = clamp((vGAO - 0.6) / 0.4, 0.0, 1.0);
-  outgoingLight += reflectedLight.directDiffuse * vec3(1.15, 1.2, 0.55) * (pow(gBack, 1.5) * 3.2) * (0.25 + 0.75 * gTip);
   // dew in the morning (and drops after rain): tiny mirrors scattered over the blades, each turned its own way, so
   // the sunlit ones glint as the view moves
   float gDist = length(vViewPosition);
@@ -314,7 +312,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v9';
+  mat.customProgramCacheKey = () => 'grass-v10';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

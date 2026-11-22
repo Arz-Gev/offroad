@@ -5,12 +5,16 @@ import { NO_FLIP_NORMAL } from './trees.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, pp, ppf } from './origin.js';
 import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
 import { NEAR_SHADOW_LAYER } from '../render/cascadeShadow.js';
+import { CLOUD } from './clouds.js';
+import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin } from './leafLight.js';
 
 // Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
 // wetness) and surface splat (none on trails, rock, sand, mud). Plants shrink to nothing at their radius edge instead
 // of popping. Alpha-tested foliage-atlas cards in the shared wind; they receive shadows, and the shrubs cast them into
 // the nearest shadow cascade (without one a shrub looked pasted on the ground); the small plants cast none (cheap).
+// A plant is lit as a whole, like a crown (leafLight.js): its normals are those of a soft dome (LIGHT), not of its
+// cards. Lit by the card's own facing, half of a field's poppy heads were maroon and half bright, the tufts black.
 // On rock only the rock grass grows (uRock): small, darker tufts in little groups, where terrainView.js draws moss.
 
 const HALF = MAP_SIZE / 2;
@@ -54,7 +58,45 @@ float uGround(vec2 xz) {
 }
 `;
 
-// one plant per instance: where it stands (uPos, at its place in the world) and its normal
+// per kind, how the plant takes the light (LIGHT): bulge: how much of its dome is sides (0: lit as level ground),
+// sigma: how much of the sun a metre of it takes, through: how much a leaf or petal lets through, foot: what is left
+// of the light at its foot (the neighbours' shade)
+const PLANT_LIGHT = {
+  fern: { bulge: 0.9, sigma: 0.7, through: 0.8, foot: 0.65 },
+  shrub: { bulge: 2.0, sigma: 1.1, through: 0.7, foot: 0.6 },
+  flowers: { bulge: 0.7, sigma: 0.5, through: 0.9, foot: 0.55 },
+  tuft: { bulge: 0.7, sigma: 0.7, through: 0.9, foot: 0.45 },
+  rockgrass: { bulge: 0.7, sigma: 0.7, through: 0.9, foot: 0.5 },
+  lavender: { bulge: 0.8, sigma: 0.7, through: 0.6, foot: 0.55 },
+  poppy: { bulge: 0.7, sigma: 0.4, through: 1.0, foot: 0.55 },
+};
+const LIGHT_PARS = /* glsl */`
+uniform vec4 uPlantSun;   // towards the sun or the moon (clouds.js keeps it current)
+uniform vec4 uLeafC;      // the plant as an ellipsoid of leaves: centre height, radii across and up, density
+uniform vec4 uLeafK;      // bulge, through, foot, how far past the plant its sun shadow is looked up (0: at the leaf)
+varying vec2 vPlant;      // the sun the plant lets through to here, the sky's light here
+${LEAF_PATH_GLSL}`;
+// the plant's light at this vertex: the dome's normal, the sun's way through it, the shade at its foot
+const LIGHT = /* glsl */`
+vPlant = vec2(1.0);
+float plPush = 0.0;
+if (plSc > 0.0) {
+  vec3 pc = vec3(0.0, uLeafC.x, 0.0), pr = uLeafC.yzy;
+  vec3 pe = (position - pc) / pr;
+  pe /= max(length(pe), 1.0);
+  objectNormal = normalize(pe * uLeafK.x + vec3(0.0, 1.0, 0.0));
+  objectNormal.xz = plR * objectNormal.xz;
+  vec3 pl = uPlantSun.xyz;
+  pl.xz = transpose(plR) * pl.xz;
+  float path = leafPath(position, normalize(pl), pc, pr) * plSc;
+  float up = clamp((position.y - (pc.y - pr.y)) / (2.0 * pr.y), 0.0, 1.0);
+  float foot = mix(uLeafK.z, 1.0, smoothstep(0.0, 0.6, up));
+  vPlant = vec2(exp(-uLeafC.w * path) * foot, foot);
+  if (uLeafK.w > 0.0) plPush = path + uLeafK.w * plSc;
+}
+`;
+
+// one plant per instance: where it stands (uPos, at its place in the world)
 const PLACE = /* glsl */`float gk = uGrid.w;
 float gid = float(gl_InstanceID);
 vec2 aTile = modelMatrix[3].xz;   // the tile index rides in the mesh position (see below)
@@ -104,6 +146,7 @@ dens *= uShape.z;
 float inMap = step(max(abs(pxz.x), abs(pxz.y)), uMap.x - 2.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
 vec3 uPos = vec3(0.0, -1e4, 0.0);
+mat2 plR = mat2(1.0); float plSc = 0.0;   // this plant's turn and size
 if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
   // (shrinking to nothing at the radius: they used to stop at 15 % and vanish)
   float sc = mix(uShape.x, uShape.y, hB.y) * (0.15 + 0.85 * shrink) * smoothstep(0.0, 0.2, shrink);
@@ -112,8 +155,7 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
   mat2 R = mat2(c, -s, s, c);
   vec3 lp = position * sc;
   lp.xz = R * lp.xz;
-  objectNormal = normal;
-  objectNormal.xz = R * objectNormal.xz;
+  plR = R; plSc = sc;
   // wind: whole plant leans, tips flutter
   float t = uWind.w;
   float gust = windGust(pq, t);   // the same gusts as the grass and the trees (wind.js)
@@ -144,29 +186,37 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
       uField: { value: new THREE.Vector4(...field) },
       uRock: { value: rock },
     };
+    geoBase.computeBoundingBox();
+    const bb = geoBase.boundingBox, pl = PLANT_LIGHT[name];
+    const rx = 0.9 * Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z), ry = 0.5 * (bb.max.y - bb.min.y);
+    const lit = {
+      uPlantSun: { value: CLOUD.sun },
+      uLeafC: { value: new THREE.Vector4(bb.min.y + ry, rx, ry, pl.sigma) },
+      // (a caster: past its own shadow, which shaded it card by card; the shade of what stands round it still lands)
+      uLeafK: { value: new THREE.Vector4(pl.bulge, pl.through, pl.foot, opts.casts ? 0.4 * rx : 0) },
+    };
     const mat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
     if (opts.color) mat.color.setRGB(...opts.color);
-    mat.defines = { TK_THIN: '', GI_FAST: '' };   // lamps light both faces (lamps.js); the traced light read plainly (gi.js)
+    mat.defines = { TK_THIN: '', TK_LEAF: '', GI_FAST: '' };   // the lamps light it alike from every side (lamps.js); the traced light read plainly (gi.js)
     mat.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, uniforms);
+      Object.assign(sh.uniforms, uniforms, lit);
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\n' + PARS)
-        .replace('#include <beginnormal_vertex>', '\n' + PLACE)
+        .replace('#include <common>', '#include <common>\n' + PARS + LIGHT_PARS)
+        .replace('#include <beginnormal_vertex>', '\n' + PLACE + LIGHT)
+        .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
+#if defined( USE_SHADOWMAP ) && NUM_SUN_LIGHT_SHADOWS > 0
+vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
+#endif`)
         .replace('#include <begin_vertex>', 'vec3 transformed = uPos;')
         .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
         .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL).replace('#include <opaque_fragment>', `
-outgoingLight += diffuseColor.rgb * 0.15 * reflectedLight.directDiffuse;
-#if NUM_SUN_LIGHTS > 0
-{
-  // backlit, the leaves glow (the direct diffuse carries the shadow: leaves in shade stay dark)
-  float lBack = max(0.0, -dot(normalize(vViewPosition), sunLights[0].direction));
-  outgoingLight += reflectedLight.directDiffuse * vec3(1.1, 1.15, 0.6) * (pow(lBack, 1.5) * 1.8);
-}
-#endif
-#include <opaque_fragment>`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform vec4 uLeafK;\nvarying vec2 vPlant;\n' + LEAF_PARS)
+        .replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL)
+        .replace('#include <lights_fragment_begin>', 'leafSelf = vPlant.x; leafThrough = uLeafK.y;\n' + leafLightsBegin())
+        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= vPlant.y; reflectedLight.indirectSpecular *= 0.3 * vPlant.y;');
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v5';
+    mat.customProgramCacheKey = () => 'undergrowth-v6';
     // the shadow pass places them the same way (three's depth shader has no normal step: all in begin_vertex)
     let depth = null;
     if (opts.casts) {
