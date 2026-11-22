@@ -339,6 +339,14 @@ export class ScreenGI {
     }
   }
 
+  // the world moved (origin.js), m: from where things are now to where they were. Last frame's camera and trucks
+  // with it, or for a frame every lit surface reads the light of a place a window away
+  shift(m) {
+    this.viewProj.multiply(m);
+    _m.copy(m).invert();
+    for (const c of this.carPrev) c.premultiply(_m);
+  }
+
   // q: a GI level (render/quality.js): { height, slices, steps }
   configure(q) {
     if (q.height !== this.rows) { this.rows = q.height; const w = this.width, h = this.height; this.width = 0; this.setSize(w, h); }

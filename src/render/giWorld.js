@@ -27,6 +27,7 @@ import { SKYLINE, SKYLINE_GLSL, skylineUniforms } from './skyline.js';
 
 export const GIW = { N: 64, LEVELS: 3, SPACING: [2, 8, 32], LAYERS: 4, HEIGHTS: [0.3, 1.6, 5, 14], RAYS: 16, TURNS: [8, 16, 16] };   // TURNS: per level, the frames between a probe's updates
 const HN = 1024;                                   // the land model's texels across the window (1 m)
+const MODEL_ROWS = 96, MODEL_TREES = 2500, UPLOAD_ROWS = 128;   // the model's making, a step (prepareWindow)
 const HALF = MAP_SIZE / 2, FN = FAR_N + 1, FAR_HALF = FAR_SIZE / 2;
 const TW = GIW.N * GIW.LAYERS, TH = GIW.N * GIW.LEVELS;
 const PW = (GIW.N + 2) * GIW.LAYERS, PH = (GIW.N + 2) * GIW.LEVELS;   // the published copy: tiles with a border
@@ -330,6 +331,8 @@ void main() {
   o2 = vec4(mix(p2.xy, X, a), 0.0, 1.0);
 }`;
 
+const _strip = new THREE.Box2(), _v0 = new THREE.Vector2(), _v1 = new THREE.Vector2(), _v2 = new THREE.Vector2();
+
 export class WorldGI {
   constructor(renderer) {
     this.renderer = renderer;
@@ -409,62 +412,157 @@ export class WorldGI {
     this.row = GIW.TURNS.map(() => 0);   // each level's next row
   }
 
-  // a window's land and trees. trees: x, y, z, scale, yaw, kind, sub per tree (windowBake.js); kinds: per kind
+  // A window's land and trees as the model the probes trace: what to run (steps, a few ms each: all at once is ~80 ms)
+  // and what they fill in (next). trees: x, y, z, scale, yaw, kind, sub per tree (windowBake.js); kinds: per kind
   // { kind, height, crownR, crownBase }
-  setWindow(terrain, trees, kinds) {
+  modelSteps(terrain, trees, kinds) {
+    const NN = terrain.NN, H = terrain.heights, steps = [];
+    const next = { base: null, mips: null, canopy: null, top: -1e9 };
+    let mx, dens, bot, tp;
     // ---- the land: every second height (1 m) with its normal's x and z, and in the mip levels the maxima of the
     // heights over ever larger squares
-    const NN = terrain.NN, H = terrain.heights, base = new Float32Array(HN * HN * 4), mx = new Float32Array(HN * HN);
-    let top = -1e9;
-    for (let kz = 0; kz < HN; kz++) for (let kx = 0; kx < HN; kx++) {
-      const ix = 2 * kx + 1, iz = 2 * kz + 1, o = ix * NN + iz, q = (kz * HN + kx) * 4;
-      base[q] = H[o];
-      const nx = H[o - NN] - H[o + NN], nz = H[o - 1] - H[o + 1], il = 1 / Math.hypot(nx, 1, nz);   // (the samples either side are 1 m apart)
-      base[q + 1] = nx * il; base[q + 2] = nz * il;
-      const m = Math.max(H[o], H[o - 1], H[o + 1], H[o - NN], H[o + NN], H[o - NN - 1], H[o - NN + 1], H[o + NN - 1], H[o + NN + 1]);
-      mx[kz * HN + kx] = m;
-      if (m > top) top = m;
-    }
-    const mips = [{ data: base, width: HN, height: HN }];
-    let src = mx, n = HN;
-    while (n > 1) {
+    steps.push(() => {
+      next.base = new Float32Array(HN * HN * 4); next.canopy = new Float32Array(HN * HN * 4); mx = new Float32Array(HN * HN);
+    });
+    for (let z0 = 0; z0 < HN; z0 += MODEL_ROWS) steps.push(() => {
+      const base = next.base;
+      let top = next.top;
+      for (let kz = z0, z1 = Math.min(HN, z0 + MODEL_ROWS); kz < z1; kz++) for (let kx = 0; kx < HN; kx++) {
+        const o = (2 * kx + 1) * NN + 2 * kz + 1, q = (kz * HN + kx) * 4, h = H[o], a = H[o - NN], b = H[o + NN], c = H[o - 1], d = H[o + 1];
+        const nx = a - b, nz = c - d, il = 1 / Math.sqrt(nx * nx + 1 + nz * nz);   // (the samples either side are 1 m apart)
+        base[q] = h; base[q + 1] = nx * il; base[q + 2] = nz * il;
+        let m = h;
+        if (a > m) m = a; if (b > m) m = b; if (c > m) m = c; if (d > m) m = d;
+        if (H[o - NN - 1] > m) m = H[o - NN - 1];
+        if (H[o - NN + 1] > m) m = H[o - NN + 1];
+        if (H[o + NN - 1] > m) m = H[o + NN - 1];
+        if (H[o + NN + 1] > m) m = H[o + NN + 1];
+        mx[kz * HN + kx] = m;
+        if (m > top) top = m;
+      }
+      next.top = top;
+    });
+    let src, n = HN;
+    const halve = () => {
       const m = n >> 1, dst = new Float32Array(m * m), d4 = new Float32Array(m * m * 4);
       for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
         const o = 2 * j * n + 2 * i;
         d4[(j * m + i) * 4] = dst[j * m + i] = Math.max(src[o], src[o + 1], src[o + n], src[o + n + 1]);
       }
-      mips.push({ data: d4, width: m, height: m });
+      next.mips.push({ data: d4, width: m, height: m });
       src = dst; n = m;
-    }
-    this.heightTex.image = { data: base, width: HN, height: HN };
-    this.heightTex.mipmaps = mips;
-    this.heightTex.needsUpdate = true;
-    for (let i = 0; i < terrain.far.heights.length; i += 7) top = Math.max(top, terrain.far.heights[i]);
-    this.mat.uniforms.uMaxH.value = top + 30;
+    };
+    steps.push(() => { next.mips = [{ data: next.base, width: HN, height: HN }]; src = mx; halve(); });
+    steps.push(() => {
+      while (n > 1) halve();
+      for (let i = 0; i < terrain.far.heights.length; i += 7) next.top = Math.max(next.top, terrain.far.heights[i]);
+    });
 
     // ---- the crowns: density, bottom and top over each metre (the heights times the density: they filter right)
-    const dens = new Float32Array(HN * HN), bot = new Float32Array(HN * HN).fill(1e9), tp = new Float32Array(HN * HN);
-    for (let i = 0; i < trees.length; i += 7) {
-      const x = trees[i] + HALF, z = trees[i + 2] + HALF, s = trees[i + 3], kd = kinds[trees[i + 5]];
-      if (!kd) continue;
-      const Ht = kd.height * s, cb = kd.crownBase * s, R = Math.max(1.2, kd.crownR * s), dn = CROWN[kd.kind] ?? 0.7, cone = kd.kind === 'spruce';
-      const x0 = Math.max(0, Math.floor(x - R)), x1 = Math.min(HN - 1, Math.ceil(x + R)), z0 = Math.max(0, Math.floor(z - R)), z1 = Math.min(HN - 1, Math.ceil(z + R));
-      for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
-        const d = Math.hypot(cx + 0.5 - x, cz + 0.5 - z) / R;
-        if (d >= 1) continue;
-        let b, t;
-        if (cone) { b = cb; t = cb + (Ht - cb) * (1 - d); }
-        else { const c = (cb + Ht) / 2, q = (Ht - cb) / 2 * Math.sqrt(1 - d * d); b = c - q; t = c + q; }
-        const o = cz * HN + cx;
-        dens[o] = Math.max(dens[o], dn * Math.min(1, (1 - d) * 4));
-        if (b < bot[o]) bot[o] = b;
-        if (t > tp[o]) tp[o] = t;
+    steps.push(() => { dens = new Float32Array(HN * HN); bot = new Float32Array(HN * HN).fill(1e9); tp = new Float32Array(HN * HN); });
+    for (let i0 = 0; i0 < trees.length; i0 += 7 * MODEL_TREES) steps.push(() => {
+      for (let i = i0, i1 = Math.min(trees.length, i0 + 7 * MODEL_TREES); i < i1; i += 7) {
+        const x = trees[i] + HALF, z = trees[i + 2] + HALF, sc = trees[i + 3], kd = kinds[trees[i + 5]];
+        if (!kd) continue;
+        const Ht = kd.height * sc, cb = kd.crownBase * sc, R = Math.max(1.2, kd.crownR * sc), dn = CROWN[kd.kind] ?? 0.7, cone = kd.kind === 'spruce';
+        const x0 = Math.max(0, Math.floor(x - R)), x1 = Math.min(HN - 1, Math.ceil(x + R)), z0 = Math.max(0, Math.floor(z - R)), z1 = Math.min(HN - 1, Math.ceil(z + R));
+        for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+          const ex = cx + 0.5 - x, ez = cz + 0.5 - z, d = Math.sqrt(ex * ex + ez * ez) / R;
+          if (d >= 1) continue;
+          let b, t;
+          if (cone) { b = cb; t = cb + (Ht - cb) * (1 - d); }
+          else { const c = (cb + Ht) / 2, q = (Ht - cb) / 2 * Math.sqrt(1 - d * d); b = c - q; t = c + q; }
+          const o = cz * HN + cx;
+          dens[o] = Math.max(dens[o], dn * Math.min(1, (1 - d) * 4));
+          if (b < bot[o]) bot[o] = b;
+          if (t > tp[o]) tp[o] = t;
+        }
       }
-    }
-    const cd = this.canopyTex.image.data;
-    for (let o = 0; o < HN * HN; o++) { const d = dens[o]; cd[o * 4] = d; cd[o * 4 + 1] = d > 0 ? d * bot[o] : 0; cd[o * 4 + 2] = d * tp[o]; cd[o * 4 + 3] = 1; }
+    });
+    for (let z0 = 0; z0 < HN; z0 += 2 * MODEL_ROWS) steps.push(() => {
+      const cd = next.canopy;
+      for (let o = z0 * HN, o1 = Math.min(HN, z0 + 2 * MODEL_ROWS) * HN; o < o1; o++) {
+        const d = dens[o], q = o * 4;
+        cd[q] = d; cd[q + 1] = d > 0 ? d * bot[o] : 0; cd[q + 2] = d * tp[o]; cd[q + 3] = 1;
+      }
+    });
+    return { next, steps };
+  }
+
+  // the first window: made and uploaded at once (loading)
+  setWindow(terrain, trees, kinds) {
+    const { next, steps } = this.modelSteps(terrain, trees, kinds);
+    for (const step of steps) step();
+    this.heightTex.image = { data: next.base, width: HN, height: HN };
+    this.heightTex.mipmaps = next.mips;
+    this.heightTex.needsUpdate = true;
+    this.canopyTex.image = { data: next.canopy, width: HN, height: HN };
     this.canopyTex.needsUpdate = true;
+    this.mat.uniforms.uMaxH.value = next.top + 30;
     this.hurry = 12;
+  }
+
+  // A window to come (streamer.js: one step a frame): made as the first is, then copied strip by strip into a spare
+  // pair of textures. applyWindow swaps the pairs. (Made and uploaded at the swap it was a 120 ms frame.)
+  prepareWindow(terrain, trees, kinds) {
+    const { next, steps } = this.modelSteps(terrain, trees, kinds), r = this.renderer;
+    steps.push(() => this.makeSpare());
+    const strips = (pick, size, level, tex, rows = UPLOAD_ROWS) => {
+      for (let y0 = 0; y0 < size; y0 += rows) steps.push(() => {
+        const dst = this.spare[tex], y1 = Math.min(size, y0 + rows);
+        // (a texture of the CPU's data, never uploaded itself: three copies straight out of it)
+        const from = new THREE.DataTexture(pick(), size, size, THREE.RGBAFormat, THREE.FloatType);
+        const mipmapped = dst.generateMipmaps;
+        dst.generateMipmaps = mipmapped && y1 === size;   // (its mips once, after the last strip)
+        r.copyTextureToTexture(from, dst, _strip.set(_v0.set(0, y0), _v1.set(size, y1)), _v2.set(0, y0), 0, level);
+        dst.generateMipmaps = mipmapped;
+      });
+    };
+    strips(() => next.base, HN, 0, 'height');
+    strips(() => next.mips[1].data, HN >> 1, 1, 'height', 2 * UPLOAD_ROWS);
+    steps.push(() => {
+      for (let l = 2; l < next.mips.length; l++) {
+        const m = next.mips[l];
+        r.copyTextureToTexture(new THREE.DataTexture(m.data, m.width, m.height, THREE.RGBAFormat, THREE.FloatType), this.spare.height, null, null, 0, l);
+      }
+    });
+    strips(() => next.canopy, HN, 0, 'canopy');
+    return { next, steps };
+  }
+
+  makeSpare() {
+    if (this.spare) return;
+    const make = (like, mipmaps) => {
+      const t = new THREE.DataTexture(null, HN, HN, THREE.RGBAFormat, THREE.FloatType);
+      t.minFilter = like.minFilter; t.magFilter = like.magFilter; t.generateMipmaps = !mipmaps;
+      if (mipmaps) t.mipmaps = mipmaps;
+      t.source.dataReady = false;   // allocated only
+      t.needsUpdate = true;
+      this.renderer.initTexture(t);
+      return t;
+    };
+    this.spare = {
+      height: make(this.heightTex, Array.from({ length: Math.log2(HN) + 1 }, (_, l) => ({ data: null, width: HN >> l, height: HN >> l }))),
+      canopy: make(this.canopyTex, null),
+    };
+  }
+
+  applyWindow(next) {
+    const old = { height: this.heightTex, canopy: this.canopyTex };
+    this.heightTex = this.spare.height; this.canopyTex = this.spare.canopy;
+    this.spare = old;
+    // (kept for a restored GL context, which uploads each texture again)
+    this.heightTex.image = { data: next.base, width: HN, height: HN };
+    this.heightTex.mipmaps = next.mips;
+    this.canopyTex.image = { data: next.canopy, width: HN, height: HN };
+    this.heightTex.source.dataReady = this.canopyTex.source.dataReady = true;
+    // the window left behind: its texture is written over next time, its 39 MB on the CPU are let go
+    for (const t of [old.height, old.canopy]) { t.source.dataReady = false; t.image = { data: null, width: HN, height: HN }; }
+    old.height.mipmaps = old.height.mipmaps.map(m => ({ data: null, width: m.width, height: m.height }));
+    this.uniforms.tGIHeight.value = this.heightTex;
+    this.mat.uniforms.tCanopy.value = this.canopyTex;
+    this.mat.uniforms.uMaxH.value = next.top + 30;
+    // (no hurry: the probes are the same places of the world, and a teleport's cut of the camera hurries them itself)
   }
 
   // start over (a jump of the camera needs nothing: every probe it brings in starts over by itself)

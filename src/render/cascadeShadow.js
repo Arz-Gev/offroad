@@ -266,6 +266,9 @@ export class CascadedSunShadow extends THREE.LightShadow {
     data.set((vp.x + vp.z / 2) / this._frameExtents.x * w, (vp.y + vp.w / 2) / this._frameExtents.y * h, res / 2, texel);
   }
 
+  // the world moved by (-dx, -dz) (origin.js): the grids with it, or every shadow's edge jumps within its texel
+  shift(dx, dz) { for (const pv of this._pivots) { pv.p.x -= dx; pv.p.z -= dz; } }
+
   // c (light space) onto tile i's texel grid, which goes through its pivot (world): then the pivot moves along that
   // same grid to the grid point nearest `at` (the camera, the car), so the grid only turns with the sun about what
   // is close by, and nothing shifts when the pivot moves

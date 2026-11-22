@@ -213,8 +213,8 @@ async function main() {
   hooks.prepare = (t, w) => {
     dropJob();
     const dx = w.ox - ORIGIN.x, dz = w.oz - ORIGIN.z;
-    const job = hooks.job = { tv: terrainView.prepareWindow(t, w), tr: trees.prepareWindow(w), pr: props.prepareWindow(t, w), wa: water.prepareWindow(t, w), gr: grass.prepareWindow(w), collider: null };
-    return [...job.tv.steps, ...job.tr.steps, ...job.pr.steps, ...job.wa.steps, ...job.gr.steps, () => { job.collider = t.createCollider(RAPIER, world, GROUP_GROUND, dx, dz); }];
+    const job = hooks.job = { tv: terrainView.prepareWindow(t, w), tr: trees.prepareWindow(w), pr: props.prepareWindow(t, w), wa: water.prepareWindow(t, w), gr: grass.prepareWindow(w), gi: giWorld.prepareWindow(t, w.trees, trees.kinds), collider: null };
+    return [...job.tv.steps, ...job.tr.steps, ...job.pr.steps, ...job.wa.steps, ...job.gr.steps, ...job.gi.steps, () => { job.collider = t.createCollider(RAPIER, world, GROUP_GROUND, dx, dz); }];
   };
   // apply: swap it in and shift everything by (dx, dz) so the truck is near the centre again (origin.js)
   hooks.apply = (t, w, dx, dz) => {
@@ -229,6 +229,8 @@ async function main() {
     // the temporal passes reproject last frame's view: it moved with the world
     _shiftM.makeTranslation(dx, 0, dz);
     for (const p of [pipeline.clouds, pipeline.fog]) p?.prevViewProj?.multiply(_shiftM);
+    pipeline.gi.screen.shift(_shiftM);
+    env.sun.shadow.shift?.(dx, dz);
     setOrigin(w.ox, w.oz);
     Object.assign(terrain, t);   // every system holds this one object: it now reads the new window
     terrain.collider = job.collider;
@@ -236,7 +238,7 @@ async function main() {
     env.soften(); env.dirty = true;   // the land's average colour is the light probe's ground (render/gi.js)
     terrainView.applyWindow(job.tv.next); lap(); trees.applyWindow(job.tr.next); lap(); props.applyWindow(job.pr.next); lap(); water.applyWindow(job.wa.next);
     grass.applyWindow(job.gr.next); lap();
-    giWorld.setWindow(terrain, w.trees, trees.kinds); lap();
+    giWorld.applyWindow(job.gi.next); lap();
     // the colliders round the truck, and a step so the scene queries see them (an almost zero one: nothing moves)
     trees.updatePhysics(vehicle.pos.x, vehicle.pos.z);
     props.stream.update(vehicle.pos.x, vehicle.pos.z);
