@@ -56,9 +56,10 @@ export const GI_TRACED = {
   // its frame, that frame to the world then, its box there (half width, half length, bottom, top)
   giCarNow: { value: new THREE.Matrix4() }, giCarPrev: { value: new THREE.Matrix4() },
   giCarBody: { value: new THREE.Vector4(0, 0, 0, -1) },
-  // the light at the truck (giWorld.js here): its mean, and how much more comes from above (a cabin's trim is lit
-  // by it through the glass: the screen's own tracing would shut a cabin in)
-  giCarA: { value: new THREE.Vector3(0.1, 0.1, 0.1) }, giCarY: { value: new THREE.Vector3() },
+  // the share of the atlas's width one part takes (three parts, then three texels of the light at the truck:
+  // giWorld.js writeHere, A | Y | X; a cabin's trim is lit by it through the glass, the screen's own tracing would
+  // shut a cabin in)
+  giPart: { value: 1 / 3 },
 };
 
 // What moves with the camera (the player's truck) reads the traced light at the same place on the screen as a frame
@@ -115,8 +116,7 @@ uniform mat4 giCarNow;
 uniform mat4 giCarPrev;
 uniform vec4 giCarBody;
 #endif
-uniform vec3 giCarA;
-uniform vec3 giCarY;
+uniform float giPart;
 #ifndef GI_LOCAL
 uniform sampler2D giMap;
 #endif
@@ -145,7 +145,7 @@ const GI_DIFFUSE = /* glsl */`
 				vec2 giUv = giC.w > 0.0 ? giC.xy / giC.w * 0.5 + 0.5 : gl_FragCoord.xy * giAtlas.zw;
 				float giZ = giC.w;   // how far it was from that camera
 				giUv = clamp( giUv, vec2( giAtlas.y, 0.002 ), vec2( 1.0 - giAtlas.y, 0.998 ) );
-				vec2 giU3 = vec2( giUv.x * 0.3333333, giUv.y );
+				vec2 giU3 = vec2( giUv.x * giPart, giUv.y );
 				vec4 giA = texture2D( tGI, giU3 ), giY;
 				vec2 giX;
 				#ifdef GI_FAST
@@ -168,8 +168,8 @@ const GI_DIFFUSE = /* glsl */`
 					}
 					giA = giSA / giWs; giY = giSY / giWs; giX = giSX / giWs;
 				} else {
-					giY = texture2D( tGI, vec2( giU3.x + 0.3333333, giU3.y ) );
-					giX = texture2D( tGI, vec2( giU3.x + 0.6666667, giU3.y ) ).xy;
+					giY = texture2D( tGI, vec2( giU3.x + giPart, giU3.y ) );
+					giX = texture2D( tGI, vec2( giU3.x + 2.0 * giPart, giU3.y ) ).xy;
 				}
 				vec3 giNw = ( vec4( geometryNormal, 0.0 ) * viewMatrix ).xyz;
 				#ifdef GI_LEAF
@@ -186,6 +186,7 @@ const GI_DIFFUSE = /* glsl */`
 				// (uInside: the camera is in the cabin, declared by the cabin's materials. Looked into from outside a cabin is
 				// dimmer: its roof shuts out the sky)
 				float giCab = giCabin * mix( 0.4, 1.0, uInside );
+				vec3 giCarA = texelFetch( tGI, ivec2( 3 * int( giRes.x ), 0 ), 0 ).rgb, giCarY = texelFetch( tGI, ivec2( 3 * int( giRes.x ) + 1, 0 ), 0 ).rgb;
 				giE = mix( giE, PI * max( giCarA + 0.4 * giCarY, 0.1 * giCarA ), giCab );
 				giOpen = mix( giOpen, 1.0, giCab );
 				#endif

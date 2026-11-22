@@ -204,7 +204,7 @@ uniform mat4 uProjInv, uPrevVP;
 uniform mat3 uCamRot;
 uniform vec3 uCam;
 uniform vec2 uRes;
-uniform float uBlend;
+uniform float uBlend, uPart;   // uPart: the share of the atlas's width one part takes
 uniform mat4 uCarNow[CARS];    // world to each truck's own frame
 uniform mat4 uCarPrev[CARS];   // and from there to where that was in the world at the last trace
 uniform vec4 uCarBody[CARS];   // its body: half width, half length, bottom, top in its frame
@@ -212,6 +212,7 @@ float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 void main() {
   vec2 fc = gl_FragCoord.xy;
   float part = floor(fc.x / uRes.x);
+  if (part > 2.5) { gl_FragColor = vec4(0.0); return; }   // the light at the truck's texels (giWorld.js writeHere)
   fc.x -= part * uRes.x;
   ivec2 ip = ivec2(fc), lim = ivec2(uRes) - 1;
   float z = texelFetch(tRaw0, ip, 0).a;
@@ -246,19 +247,19 @@ void main() {
     float hx = -1.0, hy = 0.0;
     vec4 hA;
     if (pc.w > 0.0 && puv.x > 0.0 && puv.y > 0.0 && puv.x < 1.0 && puv.y < 1.0) {
-      float x = clamp(puv.x, 0.5 / uRes.x, 1.0 - 0.5 / uRes.x) / 3.0;
+      float x = clamp(puv.x, 0.5 / uRes.x, 1.0 - 0.5 / uRes.x) * uPart;
       hA = texture2D(tHist, vec2(x, puv.y));
       // the same surface as then (its depth from that camera)
       if (abs(hA.a - pc.w) < 0.08 * pc.w + 0.05) { hx = x; hy = puv.y; }
     }
     if (hx < 0.0) {
-      float x = clamp(uv.x, 0.5 / uRes.x, 1.0 - 0.5 / uRes.x) / 3.0;
+      float x = clamp(uv.x, 0.5 / uRes.x, 1.0 - 0.5 / uRes.x) * uPart;
       hA = texture2D(tHist, vec2(x, uv.y));
       if (abs(hA.a - z) < 0.04 * z + 0.03) { hx = x; hy = uv.y; }
     }
     if (hx >= 0.0) {
       float hl = lum(hA.rgb), k = clamp(hl, 0.7 * lmin, 1.4 * lmax) / max(hl, 1e-6);
-      vec4 h = part < 0.5 ? hA : texture2D(tHist, vec2(hx + part / 3.0, hy));
+      vec4 h = part < 0.5 ? hA : texture2D(tHist, vec2(hx + part * uPart, hy));
       cur = part < 0.5 ? vec4(mix(h.rgb * k, cur.rgb, uBlend), z) : part < 1.5 ? vec4(mix(h.rgb * k, cur.rgb, uBlend), mix(h.a, cur.a, uBlend)) : mix(h * k, cur, uBlend);
     }
   }
@@ -287,6 +288,7 @@ export class ScreenGI {
     this.raw = new THREE.WebGLRenderTarget(1, 1, { ...hf, count: 3, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
     this.atlases = [0, 1].map(() => new THREE.WebGLRenderTarget(3, 1, { ...hf, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }));
     this.cur = 0;
+    this.part = 1 / 3;                        // the share of the atlas's width one part takes (setSize)
     this.ready = false;                       // the atlas holds a frame
     this.cut = true;                          // nothing to blend with (the first frame, a jump of the camera)
     this.frame = 0;
@@ -313,7 +315,7 @@ export class ScreenGI {
       uniforms: {
         uCarNow: { value: this.carNow }, uCarPrev: { value: this.carPrev }, uCarBody: { value: this.carBody },
         tRaw0: { value: this.raw.textures[0] }, tRaw1: { value: this.raw.textures[1] }, tRaw2: { value: this.raw.textures[2] }, tHist: { value: null },
-        uProjInv: g.uProjInv, uCamRot: g.uCamRot, uCam: g.uCam, uRes: g.uRes, uPrevVP: { value: new THREE.Matrix4() }, uBlend: { value: 1 },
+        uProjInv: g.uProjInv, uCamRot: g.uCamRot, uCam: g.uCam, uRes: g.uRes, uPrevVP: { value: new THREE.Matrix4() }, uBlend: { value: 1 }, uPart: { value: 1 / 3 },
       },
     });
     this.quad = new FullScreenQuad(this.gatherMat);
@@ -362,7 +364,8 @@ export class ScreenGI {
     this.width = w; this.height = h;
     this.h = Math.max(1, Math.min(Math.ceil(h / 2), this.rows)); this.w = Math.max(1, Math.round(w * this.h / h));
     this.raw.setSize(this.w, this.h); this.pre.setSize(this.w, this.h);
-    for (const a of this.atlases) a.setSize(3 * this.w, this.h);
+    for (const a of this.atlases) a.setSize(3 * this.w + 3, this.h);   // (and the light at the truck: giWorld.js writeHere)
+    this.blendMat.uniforms.uPart.value = this.part = this.w / (3 * this.w + 3);
     this.ready = false; this.cut = true;
   }
 

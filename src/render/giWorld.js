@@ -115,7 +115,7 @@ void giVolume(vec3 p, float h, out vec3 A, out vec4 Y, out vec2 X) {
 `;
 }
 
-// the light at one point (the truck), for the CPU: A | Y | X side by side (see WorldGI.here)
+// the light at one point (the truck): A | Y | X side by side, three texels (see WorldGI.renderHere)
 const HERE_FRAG = /* glsl */`
 precision highp float;
 precision highp sampler2D;
@@ -126,7 +126,8 @@ ${giVolumeGLSL()}
 void main() {
   vec3 A; vec4 Y; vec2 X;
   giVolume(uPos, max(uPos.y - giGround(uPos.xz, 0.0), 0.0), A, Y, X);
-  gl_FragColor = gl_FragCoord.x < 1.0 ? vec4(A, 1.0) : gl_FragCoord.x < 2.0 ? Y : vec4(X, 0.0, 1.0);
+  float k = mod(floor(gl_FragCoord.x), 3.0);   // (three texels from any multiple of 3)
+  gl_FragColor = k < 0.5 ? vec4(A, 1.0) : k < 1.5 ? Y : vec4(X, 0.0, 1.0);
 }`;
 
 // the probes as the readers take them: tiles with a border (see giVolumeGLSL)
@@ -394,17 +395,14 @@ export class WorldGI {
     });
     this.pubQuad = new FullScreenQuad(this.pubMat);
     this.uniforms.tGIP0.value = this.pub.textures[0]; this.uniforms.tGIP1.value = this.pub.textures[1]; this.uniforms.tGIP2.value = this.pub.textures[2];
-    // the light at the truck, read back for what is lit on the CPU or by a uniform (dust, the cabin): A, Y (a: the
-    // open sky's share), X
-    this.here = { A: new THREE.Vector3(0.1, 0.1, 0.1), Y: new THREE.Vector4(0, 0, 0, 1), X: new THREE.Vector2(), ok: false };
+    // the light at the truck, for the cabin's trim and the dust: A | Y (a: the open sky's share) | X, three texels
+    // they read on the GPU (renderHere)
     this.hereRT = new THREE.WebGLRenderTarget(3, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
     this.hereMat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: HERE_FRAG, depthTest: false, depthWrite: false,
       uniforms: { ...this.uniforms, uPos: { value: new THREE.Vector3() } },
     });
     this.hereQuad = new FullScreenQuad(this.hereMat);
-    this.hereBuf = new Uint16Array(12);
-    this.hereBusy = false;
     this.copyQuad = new FullScreenQuad(this.copyMat);
     this.quad = new FullScreenQuad(this.mat);
     this.mixQuad = new FullScreenQuad(this.mixMat);
@@ -648,20 +646,26 @@ export class WorldGI {
     this.pubQuad.render(r);
   }
 
-  // The light at a point (local), read back from the GPU without waiting for it: `here` follows a few frames later.
-  // Leaves its own render target set
-  readHere(p) {
-    if (this.hereBusy) return;
+  // The light at a point (local) into hereRT, for the shaders that read it this frame. Never read back to the CPU:
+  // the read-back's wait for the GPU made every tenth frame or so 70-100 ms long on an M1 Pro (the fps held, the
+  // picture jumped). Leaves its own render target set
+  renderHere(p) {
     const r = this.renderer;
     this.hereMat.uniforms.uPos.value.copy(p);
     r.setRenderTarget(this.hereRT);
     this.hereQuad.render(r);
-    this.hereBusy = true;
-    r.readRenderTargetPixelsAsync(this.hereRT, 0, 0, 3, 1, this.hereBuf).then(b => {
-      const f = THREE.DataUtils.fromHalfFloat, h = this.here;
-      h.A.set(f(b[0]), f(b[1]), f(b[2])); h.Y.set(f(b[4]), f(b[5]), f(b[6]), f(b[7])); h.X.set(f(b[8]), f(b[9]));
-      h.ok = true; this.hereBusy = false;
-    }, () => { this.hereBusy = false; });
+  }
+
+  // the same into the three texels after the screen atlas's parts (x = 3 x its part's width, giScreen.js), which the
+  // lit materials already read: a texture of its own was one sampler too many for a downloaded car's paint
+  writeHere(atlas, partW) {
+    const r = this.renderer, ac = r.autoClear;
+    atlas.viewport.set(3 * partW, 0, 3, 1); atlas.scissor.set(3 * partW, 0, 3, 1); atlas.scissorTest = true;
+    r.autoClear = false;
+    r.setRenderTarget(atlas);
+    this.hereQuad.render(r);
+    r.autoClear = ac;
+    atlas.viewport.set(0, 0, atlas.width, atlas.height); atlas.scissor.set(0, 0, atlas.width, atlas.height); atlas.scissorTest = false;
   }
 
   // a probe's values (debug): level, layer, local x and z

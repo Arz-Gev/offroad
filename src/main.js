@@ -661,12 +661,12 @@ async function main() {
       // the light on the dust: the place's sky light and, where the sun reaches a puff, the sun (a cloud of dust
       // takes the sun whatever its height: the beam, not the light on level ground); at night never under what the
       // lamps would show of it
-      // (the traced light at the truck, or the estimate)
-      if (pipeline.gi.enabled && giWorld.here.ok) giWorld.here.A.toArray(dustAmb); else airLight(rPos.x, rPos.z, 0, dustAmb);
+      // (the traced light at the truck, read on the GPU, or the estimate)
+      airLight(rPos.x, rPos.z, 0, dustAmb);
       const beam = env.sun.intensity * cloudShadowAt(rPos.x, rPos.y, rPos.z) * env.sunVis * 0.2, floor = 0.04 * env.darkness, sc = env.sun.color;
       dustSun[0] = sc.r * beam; dustSun[1] = sc.g * beam; dustSun[2] = sc.b * beam;
       for (let i = 0; i < 3; i++) dustAmb[i] = Math.max(dustAmb[i], floor);
-      dust.setLight(dustSun, dustAmb, env.lightDir, env.sun, model.root, carBox.c, carBox.half);
+      dust.setLight(dustSun, dustAmb, env.lightDir, env.sun, model.root, carBox.c, carBox.half, pipeline.gi.enabled ? giWorld.hereRT.texture : null, floor);
       dust.update(dt);
     }
     if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);

@@ -39,7 +39,7 @@ export class Dust {
       // the vertex stage it cost ~2 ms a frame on an M1 Pro with no dust in the air (the frame's vertex work then
       // waits for the shadow pass). Dead particles are clipped away, not drawn with no alpha.
       uniforms: {
-        uHalfH: { value: 360 }, uSun: { value: new THREE.Vector3(1, 1, 1) }, uAmb: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uHalfH: { value: 360 }, uSun: { value: new THREE.Vector3(1, 1, 1) }, uAmb: { value: new THREE.Vector3() }, tHere: { value: null }, uAmbFloor: { value: 0 }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         tShadow: { value: NO_SHADOW_MAP }, uShadowOn: { value: 0 }, uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
         uCarInv: { value: new THREE.Matrix4() }, uCarC: { value: new THREE.Vector3() }, uCarBox: { value: new THREE.Vector3(1, 1, 2.3) },
       },
@@ -81,6 +81,8 @@ export class Dust {
         varying float vA; varying vec3 vC;
         varying vec4 vSh; varying float vBox;
         uniform vec3 uSun, uAmb;
+        uniform float uAmbFloor;
+        uniform sampler2D tHere;   // the traced light at the truck (giWorld.js renderHere), if set: its mean
         uniform sampler2DShadow tShadow;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
@@ -89,7 +91,8 @@ export class Dust {
           float a = vA * (1.0 - r) * (1.0 - r);
           float sun = vBox;
           if (vSh.w > 0.5) sun *= texture(tShadow, vSh.xyz);
-          gl_FragColor = vec4(vC * (uSun * sun + uAmb), a);
+          vec3 amb = uAmbFloor >= 0.0 ? max(texelFetch(tHere, ivec2(0, 0), 0).rgb, vec3(uAmbFloor)) : uAmb;
+          gl_FragColor = vec4(vC * (uSun * sun + amb), a);
         }`,
       transparent: true, depthWrite: false,
     });
@@ -194,10 +197,12 @@ export class Dust {
 
   // The light on the dust (main.js, each frame). sun, amb: [r, g, b] for a white puff in the open sun and in full
   // shade; sunDir: towards the sun; sunLight: the cascaded-shadow light (its world cascades are looked up per
-  // puff); car: the truck's root, carC / carHalf: its box (centre, half size) in the root's frame
-  setLight(sun, amb, sunDir, sunLight, car, carC, carHalf) {
+  // puff); car: the truck's root, carC / carHalf: its box (centre, half size) in the root's frame. here: the
+  // traced light's texture at the truck, used for the shade instead of amb (never under floor)
+  setLight(sun, amb, sunDir, sunLight, car, carC, carHalf, here = null, floor = 0) {
     const u = this.mat.uniforms;
     u.uSun.value.fromArray(sun); u.uAmb.value.fromArray(amb); u.uSunDir.value.copy(sunDir);
+    u.tHere.value = here; u.uAmbFloor.value = here ? floor : -1;
     const sh = sunLight?.shadow, on = !!(sunLight?.castShadow && sh?.map && sh._cascadeData);
     u.uShadowOn.value = on ? 1 : 0;
     u.tShadow.value = on ? sh.map.depthTexture : NO_SHADOW_MAP;

@@ -632,8 +632,9 @@ export class RenderPipeline {
       if (cut) gi.world.hurry = Math.max(gi.world.hurry, 8);
       gi.world.update(this.camera, gi.env, GI);
       // the light at the truck, for the cabin's trim and the dust (a metre above the ground it stands on)
-      if (gi.focus) { gi.world.readHere(_giP.copy(gi.focus).setY(gi.focus.y + 1)); const h = gi.world.here; GI_TRACED.giCarA.value.copy(h.A); GI_TRACED.giCarY.value.set(h.Y.x, h.Y.y, h.Y.z); }
       gi.screen.setSize(this.width, this.height);
+      if (gi.focus) { gi.world.renderHere(_giP.copy(gi.focus).setY(gi.focus.y + 1)); gi.world.writeHere(gi.screen.atlas, gi.screen.w); }
+      GI_TRACED.giPart.value = gi.screen.part;
       GI_TRACED.tGI.value = gi.screen.atlas.texture;
       GI_TRACED.giPrevVP.value.copy(gi.screen.viewProj);
       GI_TRACED.giAtlas.value.set(gi.screen.ready && !gi.noForward ? 1 : 0, 0.5 / gi.screen.w, 1 / this.width, 1 / this.height);
@@ -651,6 +652,7 @@ export class RenderPipeline {
         followTruck(gi.screen);
         GI_TRACED.giAtlas.value.x = gi.noForward ? 0 : 1;
         GI_TRACED.tGI.value = gi.screen.atlas.texture;
+        if (gi.focus) gi.world.writeHere(gi.screen.atlas, gi.screen.w);
         r.setRenderTarget(this.hdr);
         r.render(this.scene, this.camera);
         gi.screen.cut = true;
