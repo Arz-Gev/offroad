@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAP_SIZE } from './world/terrain.js';
+import { NO_SHADOW_MAP } from './render/cascadeShadow.js';
 
 // Dust / mud / water particles kicked up by the tyres, and tyre tracks painted into a map-wide texture.
 
@@ -39,7 +40,7 @@ export class Dust {
       // waits for the shadow pass). Dead particles are clipped away, not drawn with no alpha.
       uniforms: {
         uHalfH: { value: 360 }, uSun: { value: new THREE.Vector3(1, 1, 1) }, uAmb: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-        tShadow: { value: null }, uShadowOn: { value: 0 }, uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+        tShadow: { value: NO_SHADOW_MAP }, uShadowOn: { value: 0 }, uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
         uCarInv: { value: new THREE.Matrix4() }, uCarC: { value: new THREE.Vector3() }, uCarBox: { value: new THREE.Vector3(1, 1, 2.3) },
       },
       vertexShader: `
@@ -199,7 +200,7 @@ export class Dust {
     u.uSun.value.fromArray(sun); u.uAmb.value.fromArray(amb); u.uSunDir.value.copy(sunDir);
     const sh = sunLight?.shadow, on = !!(sunLight?.castShadow && sh?.map && sh._cascadeData);
     u.uShadowOn.value = on ? 1 : 0;
-    u.tShadow.value = on ? sh.map.depthTexture : null;
+    u.tShadow.value = on ? sh.map.depthTexture : NO_SHADOW_MAP;
     if (on) for (let i = 0; i < 2; i++) { u.uShadowMat.value[i].copy(sh._matrices[i]); u.uCascade.value[i].copy(sh._cascadeData[i]); }
     u.uCarInv.value.copy(car.matrixWorld).invert(); u.uCarC.value.copy(carC); u.uCarBox.value.copy(carHalf);
   }

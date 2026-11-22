@@ -24,6 +24,13 @@ import { CLOUD_GLSL } from '../world/clouds.js';
 // is the car's); unused ones carry an empty depth range and draw nothing. The `w` of each cascade vec4 is its
 // texel size in metres, which scales the depth bias and normal offset per cascade and picks its filter.
 
+// For a shader with a sampler2DShadow of its own while there is no shadow map (shadows off, the first frame): a depth
+// texture that compares. three's stand-in for a null one is never uploaded, so the sampler sat on a colour texture
+// and the whole draw failed (dust and pollen drew nothing with the shadows off).
+export const NO_SHADOW_MAP = new THREE.DepthTexture(1, 1);
+NO_SHADOW_MAP.compareFunction = THREE.LessEqualCompare;
+NO_SHADOW_MAP.needsUpdate = true;
+
 export const CAR_LAYER = 2;      // the player's car: drawn by the view camera and into the car's tile only
 export const SHADOW_LAYER = 1;   // shadow-only proxies: drawn into the shadow maps only
 export const NEAR_SHADOW_LAYER = 3;   // shadow-only proxies of small things: drawn into the nearest cascade only

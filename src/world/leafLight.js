@@ -29,7 +29,8 @@ void leafSun( IncidentLight directLight, vec3 N, vec3 V, vec3 albedo, inout Refl
 	float ft = ( 0.5 + 0.5 * dot( V, - L ) ) * leafK;
 	vec3 through = vec3( 1.0, 1.12, 0.38 ) * ( 0.9 * leafThrough * ft * ft );
 	// (deep in, some still arrives, scattered leaf to leaf: it falls off at a third of the rate)
-	float self = 0.8 * leafSelf + 0.2 * pow( leafSelf, 0.3 );
+	float self0 = max( leafSelf, 0.0 );   // (with MSAA a varying runs past its ends at a card's edge: pow of less than 0 is NaN)
+	float self = 0.8 * self0 + 0.2 * pow( self0, 0.3 );
 	reflectedLight.directDiffuse += directLight.color * ( mix( 1.0, self, leafK ) * RECIPROCAL_PI ) * albedo * ( macro * ( 1.0 - 0.5 * ft ) + through );
 }
 `;

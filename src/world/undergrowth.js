@@ -222,9 +222,9 @@ vSunShadowWorldPosition.xyz += normalize(uPlantSun.xyz) * plPush;
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vPlTint;')
         .replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL)
         .replace('#include <lights_fragment_begin>', 'leafSelf = vPlant.x; leafThrough = uLeafK.y;\n' + leafLightsBegin())
-        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= vPlant.y; reflectedLight.indirectSpecular *= 0.3 * vPlant.y;');
+        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= max(vPlant.y, 0.0); reflectedLight.indirectSpecular *= 0.3 * max(vPlant.y, 0.0);');
     };
-    mat.customProgramCacheKey = () => 'undergrowth-v7';
+    mat.customProgramCacheKey = () => 'undergrowth-v8';
     // the shadow pass places them the same way (three's depth shader has no normal step: all in begin_vertex)
     let depth = null;
     if (opts.casts) {

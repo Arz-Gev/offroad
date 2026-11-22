@@ -5,6 +5,7 @@ import { CLOUD_GLSL, cloudUniforms } from '../world/clouds.js';
 import { SKYLINE_GLSL, skylineUniforms } from './skyline.js';
 import { giVolumeGLSL } from './giWorld.js';
 import { atmosphereUniforms } from './shaderPatches.js';
+import { NO_SHADOW_MAP } from './cascadeShadow.js';
 
 // Volumetric fog: a haze lying in the low ground, lit by the sun (or the moon) through the sun's shadow map and
 // the clouds' shadows, so trees, hills and the truck cast shafts of light into it and broken cloud throws long
@@ -174,7 +175,7 @@ export class VolumetricFog {
       fragmentShader: MARCH_FRAG, depthTest: false, depthWrite: false,
       uniforms: {
         ...cloudUniforms(), ...skylineUniforms(), ...atmosphereUniforms(),
-        tDepth: { value: null }, tPrev: { value: null }, tNoise: { value: noise3D }, tShadow: { value: null },
+        tDepth: { value: null }, tPrev: { value: null }, tNoise: { value: noise3D }, tShadow: { value: NO_SHADOW_MAP },
         uInvViewProj: { value: new THREE.Matrix4() }, uPrevViewProj: { value: new THREE.Matrix4() },
         uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
         uCam: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector3() },
@@ -211,7 +212,7 @@ export class VolumetricFog {
     // the sun's world cascades (render/cascadeShadow.js)
     const sh = this.sun?.shadow, shadowOn = !!(this.sun?.castShadow && sh?.map && sh._cascadeData);
     u.uShadowOn.value = shadowOn ? 1 : 0;
-    u.tShadow.value = shadowOn ? sh.map.depthTexture : null;
+    u.tShadow.value = shadowOn ? sh.map.depthTexture : NO_SHADOW_MAP;
     if (shadowOn) for (let i = 0; i < 2; i++) { u.uShadowMat.value[i].copy(sh._matrices[i]); u.uCascade.value[i].copy(sh._cascadeData[i]); }
     u.uLightDir.value.copy(P.lightDir); u.uLightCol.value.copy(P.lightCol); u.uAmb.value.copy(P.amb);
     u.uGIOn.value = this.gi && this.giOn ? 1 : 0;

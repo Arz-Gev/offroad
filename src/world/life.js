@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PAT } from './origin.js';
+import { NO_SHADOW_MAP } from '../render/cascadeShadow.js';
 
 // Life in the air, all on the GPU (fixed buffers, positions from the time and a seed per particle, wrapped
 // round the camera, so nothing is uploaded per frame):
@@ -333,7 +334,7 @@ export function buildLife(terrainView, env) {
     return p;
   };
   const sunShade = {
-    tShadow: { value: null }, uShadowOn: { value: 0 },
+    tShadow: { value: NO_SHADOW_MAP }, uShadowOn: { value: 0 },
     uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
   };
   const pollen = points(900, POLLEN_VERT, 40, { uSeedK: { value: 0.02 }, ...sunShade }, POLLEN_FRAG);
@@ -425,7 +426,7 @@ export function buildLife(terrainView, env) {
       pollen.visible = u.uDay.value > 0.001;
       const sh = env.sun.shadow, shOn = !!(env.sun.castShadow && sh?.map && sh._cascadeData);
       sunShade.uShadowOn.value = shOn ? 1 : 0;
-      sunShade.tShadow.value = shOn ? sh.map.depthTexture : null;
+      sunShade.tShadow.value = shOn ? sh.map.depthTexture : NO_SHADOW_MAP;
       if (shOn) for (let i = 0; i < 2; i++) { sunShade.uShadowMat.value[i].copy(sh._matrices[i]); sunShade.uCascade.value[i].copy(sh._cascadeData[i]); }
       wings.visible = u.uDay.value > 0.001;
       birds.visible = u.uDay.value > 0.001;
