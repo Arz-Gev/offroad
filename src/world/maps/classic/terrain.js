@@ -17,7 +17,7 @@ export const HILL = { x: 72, z: -30, r: 52, h: 24 };
 // points of interest (teleports in main.js)
 export const POI = {
   lake: { x: 300, z: 70, rx: 82, rz: 58 },
-  ford: { x: 268, z: -238 },
+  ford: { x: 304, z: -225 },
   hut: { x: 168, z: 341, yaw: -2.68 },
   quarry: { x: -286, z: 262, rx: 46, rz: 32, depth: 11 },
   peak: { x: -318, z: -250, r: 150, h: 66 },
@@ -48,8 +48,11 @@ function spiralPts() {
   return pts;
 }
 
-// stream from the north-east mountains to the lake (water ~0.35 m deep over a gravel bed)
-export const STREAM = [[150, -500], [176, -420], [214, -340], [252, -276], [268, -238], [292, -190], [324, -120], [334, -40], [322, 18]];
+// stream from the north-east mountains to the lake (water ~0.35 m deep over a gravel bed). The route is the one
+// that runs downhill all the way over this land (found by a search over the heights: the land is full of hollows
+// lower than the lake, and a line drawn by hand across them left the water in the air)
+export const STREAM = [[444, -480], [452, -472], [452, -420], [428, -396], [428, -336], [348, -244], [312, -232], [280, -188], [260, -180],
+  [252, -128], [260, -120], [260, -84], [288, -56], [276, -20], [288, 12], [292, 24]];
 
 export class ClassicTerrain extends Terrain {
   // (Terrain's constructor sets up the arrays and calls generate(): this map's)
@@ -329,20 +332,27 @@ export class ClassicTerrain extends Terrain {
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength(), ns = Math.ceil(len / 1);
     const sp = curve.getSpacedPoints(ns);
-    // bed profile: smoothed terrain minimum along the curve, forced downhill towards the lake
-    let hs = sp.map(p => {
+    // bed profile: the lowest ground across the channel, smoothed but never above it, and never rising on the way
+    // down: a rise in the land is cut through (the old profile was raised over the dips instead, and the water hung
+    // in the air there)
+    const raw = sp.map(p => {
       let m = 1e9;
       for (const o of [-3, 0, 3]) m = Math.min(m, this.heightAt(p.x + o, p.z), this.heightAt(p.x, p.z + o));
       return m;
     });
+    let hs = raw.slice();
     for (let pass = 0; pass < 3; pass++) {
       const o = hs.slice();
       for (let k = 0; k < hs.length; k++) { let s = 0, c = 0; for (let j = -10; j <= 10; j++) { const kk = Math.max(0, Math.min(hs.length - 1, k + j)); s += hs[kk]; c++; } o[k] = s / c; }
       hs = o;
     }
     const lakeLevel = this.lake.level;
-    for (let k = hs.length - 2; k >= 0; k--) hs[k] = Math.max(hs[k], hs[k + 1] + 0.02);
-    for (let k = 1; k < hs.length; k++) hs[k] = Math.min(hs[k], hs[k - 1]);
+    for (let k = 0; k < hs.length; k++) {
+      hs[k] = Math.min(hs[k], raw[k]);
+      if (k) hs[k] = Math.min(hs[k], hs[k - 1] - 0.002);
+    }
+    // (and never below the lake it runs into: there the banks are built up instead, carve below)
+    for (let k = 0; k < hs.length; k++) hs[k] = Math.max(hs[k], lakeLevel + 0.45 + 0.004 * (hs.length - 1 - k));
     const n = hs.length;
     const surfLevel = new Float32Array(n), width = new Float32Array(n);
     const ford = POI.ford;
@@ -356,12 +366,22 @@ export class ClassicTerrain extends Terrain {
     }
     this.streamCurve = curve;
     this.streamPts = sp; this.streamLevel = surfLevel; this.streamWidth = width;
-    // carve: bed = surface - depth (shallower and wider at the ford), soft banks
-    const R = 12;
+    // carve: bed = surface - depth (shallower and wider at the ford), soft banks. Where the ground is lower than
+    // the bed it is built up to it, with a brim at the water's edge that falls away at 1 in 2.5.
+    // Each cell takes the level of the stream's nearest point (first pass). Shaped segment by segment, a steep run
+    // was cut to the level of the lowest segment in reach, metres under its own water.
+    const R = 18;
+    let bx0 = N, bx1 = 0, bz0 = N, bz1 = 0;
+    for (const q of sp) {
+      bx0 = Math.min(bx0, Math.floor((q.x - R + half) / CELL)); bx1 = Math.max(bx1, Math.ceil((q.x + R + half) / CELL));
+      bz0 = Math.min(bz0, Math.floor((q.z - R + half) / CELL)); bz1 = Math.max(bz1, Math.ceil((q.z + R + half) / CELL));
+    }
+    bx0 = Math.max(0, bx0); bz0 = Math.max(0, bz0); bx1 = Math.min(N, bx1); bz1 = Math.min(N, bz1);
+    const bw = bz1 - bz0 + 1, near = new Float32Array((bx1 - bx0 + 1) * bw).fill(1e9), along = new Float32Array(near.length);
     for (let k = 0; k < n - 1; k++) {
       const a = sp[k], b = sp[k + 1];
-      const ix0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - R + half) / CELL)), ix1 = Math.min(N, Math.ceil((Math.max(a.x, b.x) + R + half) / CELL));
-      const iz0 = Math.max(0, Math.floor((Math.min(a.z, b.z) - R + half) / CELL)), iz1 = Math.min(N, Math.ceil((Math.max(a.z, b.z) + R + half) / CELL));
+      const ix0 = Math.max(bx0, Math.floor((Math.min(a.x, b.x) - R + half) / CELL)), ix1 = Math.min(bx1, Math.ceil((Math.max(a.x, b.x) + R + half) / CELL));
+      const iz0 = Math.max(bz0, Math.floor((Math.min(a.z, b.z) - R + half) / CELL)), iz1 = Math.min(bz1, Math.ceil((Math.max(a.z, b.z) + R + half) / CELL));
       const abx = b.x - a.x, abz = b.z - a.z, ab2 = abx * abx + abz * abz;
       for (let ix = ix0; ix <= ix1; ix++) {
         const x = -half + ix * CELL;
@@ -369,22 +389,32 @@ export class ClassicTerrain extends Terrain {
           const z = -half + iz * CELL;
           let u = ((x - a.x) * abx + (z - a.z) * abz) / ab2;
           u = Math.max(0, Math.min(1, u));
-          const d = Math.hypot(x - (a.x + abx * u), z - (a.z + abz * u));
-          const w = width[k] + (width[k + 1] - width[k]) * u;
-          if (d > w + 7) continue;
-          const lvl = surfLevel[k] + (surfLevel[k + 1] - surfLevel[k]) * u;
-          const dF = Math.hypot(x - ford.x, z - ford.z);
-          const depth = lerp(0.62, 0.32, smoothstep(24, 8, dF));
-          const bed = lvl - depth * (1 - Math.pow(Math.min(1, d / w), 2));
-          const i = ix * NN + iz;
-          // banks: never raise the ground, ease from the bed to the terrain over a few metres
-          const bankW = lerp(3.5, 9, smoothstep(26, 8, dF));
-          const t = smoothstep(w, w + bankW, d);
-          const target = lerp(bed, Math.max(H[i], lvl + 0.15), t);
-          if (target < H[i]) {
-            H[i] = target;
-            if (d < w + 0.6) this.surface[i] = SURF.sand;
-          }
+          const d = Math.hypot(x - (a.x + abx * u), z - (a.z + abz * u)), o = (ix - bx0) * bw + iz - bz0;
+          if (d < near[o]) { near[o] = d; along[o] = k + u; }
+        }
+      }
+    }
+    for (let ix = bx0; ix <= bx1; ix++) {
+      const x = -half + ix * CELL;
+      for (let iz = bz0; iz <= bz1; iz++) {
+        const o = (ix - bx0) * bw + iz - bz0, d = near[o];
+        const k = Math.min(n - 2, Math.floor(along[o])), u = along[o] - k;
+        const w = width[k] + (width[k + 1] - width[k]) * u;
+        if (d > w + 13) continue;
+        const z = -half + iz * CELL;
+        const lvl = surfLevel[k] + (surfLevel[k + 1] - surfLevel[k]) * u;
+        const dF = Math.hypot(x - ford.x, z - ford.z);
+        const depth = lerp(0.62, 0.32, smoothstep(24, 8, dF));
+        const bed = lvl - depth * (1 - Math.pow(Math.min(1, d / w), 2));
+        const i = ix * NN + iz;
+        // banks: ease from the bed to the terrain over a few metres
+        const bankW = lerp(3.5, 9, smoothstep(26, 8, dF));
+        const t = smoothstep(w, w + bankW, d);
+        const target = lerp(bed, Math.max(H[i], lvl + 0.15), t);
+        const brim = d < w ? bed : d < w + 1 ? lvl + 0.2 * (d - w) : lvl + 0.2 - (d - w - 1) / 2.5;
+        if (target < H[i] || H[i] < brim) {
+          H[i] = Math.max(Math.min(H[i], target), brim);
+          if (d < w + 0.6) this.surface[i] = SURF.sand;
         }
       }
     }

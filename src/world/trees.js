@@ -13,7 +13,7 @@ import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { CLOUD } from './clouds.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
-// and small groups of trees in blossom; each with a trunk collider.
+// and small groups of apple trees; each with a trunk collider.
 // - Near the camera (preset radius, 40-50 m) trees are real geometry: bark trunks and branches plus alpha-tested
 //   foliage cards, swaying in the wind (also in the shadow pass, where a crown casts from a lighter twin).
 // - Beyond that every tree is an impostor: a camera-facing card baked from 8 directions at startup (albedo +
@@ -56,15 +56,18 @@ float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.0671105
 function patchTreeMaterial(mat, kind, uniforms, opts = {}) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
+    // the indirect light (render/gi.js): the foot of a tree stands in the wood's shade, its top is out in the open sky
+    const lift = opts.height !== undefined;
+    if (lift) sh.uniforms.uTreeH = { value: opts.height };
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\n' + WIND_GLSL + FADE_GLSL)
+      .replace('#include <common>', '#include <common>\n' + WIND_GLSL + FADE_GLSL + (lift ? 'uniform float uTreeH;\nvarying float vTreeLift;\n' : ''))
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 transformed += windOffset(position, aWind);
-vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);`);
+vTreeDist = distance(instanceMatrix[3].xyz, uViewPos);${lift ? '\nvTreeLift = smoothstep(0.25, 0.9, position.y / uTreeH);' : ''}`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + FADE_GLSL)
+      .replace('#include <common>', '#include <common>\n' + FADE_GLSL + (lift ? 'varying float vTreeLift;\n' : ''))
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;`);
+if (ditherHash(gl_FragCoord.xy) < smoothstep(uFade.x, uFade.y, vTreeDist)) discard;${lift ? '\ngiLift = vTreeLift;' : ''}`);
     if (opts.translucent) {
       // the crown casts from its twin, 1.35x larger, which also covers the crown's own sunlit (moonlit) side: look
       // the shadow up half a crown radius towards the light, so the outer leaves come out of it and only the inside
@@ -81,7 +84,7 @@ vSunShadowWorldPosition.xyz += uCrownSun.xyz * (${(0.5 * opts.crownR).toFixed(2)
       // they faced into the crown
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', NO_FLIP_NORMAL);
       // a touch of light through the leaves when backlit; a soft crown (opts.soft: the meadow trees) also wraps
-      // the sunlight round to its shade side and glows through its petals, so it is never bright on one side
+      // the sunlight round to its shade side and lets a little through its leaves, so it is never bright on one side
       // and dull on the other
       const soft = opts.soft ? `
 #if NUM_SUN_LIGHTS > 0
@@ -103,7 +106,7 @@ outgoingLight += diffuseColor.rgb * 0.12 * reflectedLight.directDiffuse;${soft}
 #include <opaque_fragment>`);
     }
   };
-  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + (opts.crownR ? '-r' + opts.crownR.toFixed(2) : '') + '-v3';
+  mat.customProgramCacheKey = () => 'tree-' + kind + (opts.soft ? '-soft' : '') + (opts.crownR ? '-r' + opts.crownR.toFixed(2) : '') + '-v4';
 }
 
 // The crown's shadow comes from a lighter twin: every other card, scaled up about its centre (the shadow is soft,
@@ -229,13 +232,13 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const viewPos = { value: new THREE.Vector3() };
   const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos, uPat: PAT };
   const near = variants.map((v, i) => {
-    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'blossom' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
-    patchTreeMaterial(trunkMat, 'trunk', uniformsT);
+    const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'apple' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
+    patchTreeMaterial(trunkMat, 'trunk', uniformsT, { height: v.geo.height });
     const crownMat = new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.42, side: THREE.DoubleSide, roughness: 0.82, metalness: 0, color: v.kind === 'birch' ? 0xf0ffe0 : 0xffffff, vertexColors: !!v.geo.crown.attributes.color });
     // the lamps light the cards from whichever side faces them (lamps.js), as on the grass: the cards' normals point
     // out of the crown, mostly up, so the undersides of the branches stood black in the headlamps
     crownMat.defines = { TK_THIN: '' };
-    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'blossom' || v.kind === 'oak', crownR: v.geo.crownR });
+    patchTreeMaterial(crownMat, 'crown', uniformsT, { translucent: true, soft: v.kind === 'apple' || v.kind === 'oak', crownR: v.geo.crownR, height: v.geo.height });
     const depthT = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     patchTreeMaterial(depthT, 'trunkDepth', uniformsT);
     const depthC = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.42, side: THREE.DoubleSide });
@@ -266,7 +269,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const impMat = new THREE.MeshStandardMaterial({ map: imp.albedo, alphaTest: 0.45, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   impMat.defines = { TK_THIN: '' };   // lit by the lamps like the near crowns
   const heights = variants.map(v => v.geo.height * 1.04), widths = variants.map(v => v.impW);
-  const softs = variants.map(v => v.kind === 'blossom' ? 1 : v.kind === 'oak' ? 0.6 : 0);
+  const softs = variants.map(v => v.kind === 'apple' || v.kind === 'oak' ? 0.6 : 0);
   // uImpSun: towards the sun (or moon), clouds.js keeps it current
   // uSubFade: past x..y m only the far share of the trees is drawn (windowBake.js SUB_SHARE: the far ring has only
   // those), a little bigger to fill in; so the window moving (its trees replacing the ring's) shows nothing
@@ -289,6 +292,7 @@ varying float vImpYaw;
 varying float vTreeDist;
 varying vec3 vImpRound;   // a round crown's normal (world), for the soft meadow trees
 varying float vImpSoft;
+varying float vImpLift;   // 0 at the foot .. 1 at the top (the indirect light, render/gi.js)
 `;
   const patchImp = (m, depth) => {
     m.onBeforeCompile = (sh) => {
@@ -310,6 +314,7 @@ float H = uImpH[int(aVar)] * isc * (aSub > 0.5 ? 1.0 + 0.22 * subK : 1.0);
 vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x));
 vImpYaw = yaw;
 vImpSoft = uImpSoft[int(aVar)];
+vImpLift = smoothstep(0.25, 0.9, position.y);
 {
   // the crown as a ball (centre at 0.62 of the height): left / right, up / down and towards the viewer
   vec2 q = vec2(position.x * 2.0, (position.y - 0.62) / 0.38);
@@ -346,12 +351,14 @@ varying float vImpYaw;
 varying float vTreeDist;
 varying vec3 vImpRound;
 varying float vImpSoft;
+varying float vImpLift;
 varying float vSubKeep;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 if (ditherHash(gl_FragCoord.xy) >= min(smoothstep(uFade.x, uFade.y, vTreeDist), vSubKeep)) discard;`);
       if (!depth) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
 float faceDirection = 1.0;
+giLift = vImpLift;
 vec3 nObj = texture2D(tImpN, vImpUv).xyz * 2.0 - 1.0;
 float cy = cos(vImpYaw), sy = sin(vImpYaw);
 vec3 nW = normalize(vec3(cy * nObj.x + sy * nObj.z, nObj.y, -sy * nObj.x + cy * nObj.z));
@@ -377,7 +384,7 @@ if (vImpSoft > 0.5) {
 #endif
 #include <opaque_fragment>`);
     };
-    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v3';
+    m.customProgramCacheKey = () => 'impostor-' + (depth ? 'd' : 'c') + '-v4';
   };
   patchImp(impMat, false);
   const impDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: imp.albedo, alphaTest: 0.45, side: THREE.DoubleSide });

@@ -8,7 +8,7 @@ import { icon } from './icons.js';
 import { installTooltips, hideTip } from './tooltip.js';
 
 // The side panel (Esc): every setting, the places, multiplayer, the controls list and the tuning (Tab), in
-// sections picked from an icon rail. The game keeps running behind it, like a car's own menu. Mouse and
+// sections picked from an icon rail. The game pauses behind it (setting menuPause; off: it keeps running). Mouse and
 // touch use it directly; the keyboard keeps driving (after a click the focus goes back to the game); a
 // gamepad's d-pad, A, B, LB and RB move through it while the sticks and triggers keep driving.
 // It holds no game state: it reads and writes through `api` (main.js).
@@ -121,7 +121,7 @@ export const SECTIONS = [
     group('Game'),
     sw('menuPause', 'Pause in the menu', { info: 'The game stops while this menu is open and goes on when you close it. Off: the truck keeps driving behind the menu.' }),
     sw('autoPause', 'Pause in the background', { info: 'The game stops when you switch to another window or tab, and goes on when you come back and click or press a key.' }),
-    { type: 'buttons', key: '_reset', label: 'All settings', buttons: [['resetSettings', 'Reset']], info: 'Every setting here back to its default. Tuning setups are kept.' },
+    { type: 'buttons', key: '_reset', label: 'All settings', buttons: [['resetSettings', 'Reset']], info: 'Every setting back to its default. Your car, map, name and tuning setups are kept.' },
   ] },
   { sep: true },
   { id: 'friends', title: 'Friends', icon: 'people', rows: [
@@ -543,13 +543,26 @@ export class Menu {
     this.moveFocus(dir);
   }
 
+  // A place's number typed on the keys: one digit, or two in quick succession for the tenth place and on. A digit
+  // that could start a longer number waits a moment for the second one.
+  typePlace(digit) {
+    const n = this.api.locations.length, first = this.placeDigit;
+    const go = k => { if (k >= 1 && k <= n) { this.api.teleport(k - 1); this.refresh(); } };
+    clearTimeout(this.placeTimer); this.placeDigit = null;
+    if (first != null && first * 10 + digit <= n) { go(first * 10 + digit); return; }
+    if (digit >= 1 && digit * 10 <= n) {
+      this.placeDigit = digit;
+      this.placeTimer = setTimeout(() => { this.placeDigit = null; if (this.isOpen && this.sec === 'places') go(digit); }, 600);
+    } else go(digit);
+  }
+
   // ev: { type: 'key', e } | { type: 'pad', btn }. Returns true when the event was used.
   handle(ev) {
     if (!this.isOpen) return false;
     if (ev.type === 'key') {
       // number keys pick a place while Places is showing; every other key drives as usual
-      const dg = /^(?:Digit|Numpad)([1-9])$/.exec(ev.e.code);
-      if (dg && this.sec === 'places' && +dg[1] <= this.api.locations.length) { this.api.teleport(+dg[1] - 1); this.refresh(); return true; }
+      const dg = /^(?:Digit|Numpad)([0-9])$/.exec(ev.e.code);
+      if (dg && this.sec === 'places') { this.typePlace(+dg[1]); return true; }
       return false;
     }
     const btn = ev.btn, el = document.activeElement;

@@ -48,7 +48,7 @@ export const BINDINGS = [
   { id: 'aim', group: 'Turret', label: 'Turn the turret and the gun: arrows (W A S D drive), the numpad, or the mouse in the sight', keys: ['↑ ↓ ← →', 'Mouse'], alt: ['Num 8 2 4 6'], pad: 'R stick (in the sight)', touch: 'Drag' },
   { id: 'weapon', group: 'Turret', label: 'Gun: KPVT 14.5 mm ⇄ coaxial PKT 7.62 mm', codes: ['Digit1'], keys: ['1'], touch: 'Gun' },
 
-  { id: 'menu', group: 'Game', label: 'Menu (the game keeps running)', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
+  { id: 'menu', group: 'Game', label: 'Menu', codes: ['Escape'], keys: ['Esc'], pad: 'Menu', button: PAD.MENU, touch: 'Menu' },
   { id: 'locations', group: 'Game', label: 'Places: teleport anywhere on the map', codes: ['KeyP'], keys: ['P'] },
   { id: 'controls', group: 'Game', label: 'Controls (this list)', codes: ['KeyH'], keys: ['H'] },
   { id: 'mute', group: 'Game', label: 'Sound on / off', codes: ['KeyV'], keys: ['V'] },

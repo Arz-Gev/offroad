@@ -6,6 +6,8 @@ import { ATMO, setVec4 } from '../render/shaderPatches.js';
 import { CascadedSunShadow, installCascadeShadowChunks } from '../render/cascadeShadow.js';
 import { Clouds, CLOUD } from './clouds.js';
 import { VolumetricFog } from '../render/volumetricFog.js';
+import { SKYLINE, updateSkyline, tickSkyline, skylineAt, skylineArea, skylineRound } from '../render/skyline.js';
+import { GI } from '../render/gi.js';
 
 // Time of day: sun / moon light (cascaded shadows), physically based sky + clouds + stars, height fog and
 // aerial perspective matched to the sky, image-based ambient light from the sky, and the post-processing
@@ -31,10 +33,13 @@ const MOON_TINT = [0.62, 0.74, 1.0];
 // glow (mist: light spills from bright areas into the dark ones beside them), a little warmth in the highlights
 // (highCol), dull colours lifted a bit (vibrance), a soft warm vignette, a soft glow round the sun in the haze
 // (glow), light shafts (shafts), a faint cool fill from above so shade is blue rather than olive (fill).
+// Exposure: by day the eye adapts (auto 1, metering the scene's plain mean: meter 1) from `minEx`, the open land's
+// exposure, up to `maxEx` in a wood or a gorge; dusk and dawn are fixed (their mood is set by hand); the night adapts
+// by the geometric mean (meter 0). `key` is the mean the eye aims for: open land must come out at or under minEx.
 const DAY = {
   sunE: 4.4, moonE: 0, skyScale: 4.2, nightBase: [0, 0, 0],
   cover: 0.42, cloudAlpha: 0.95, stars: 0, fogD: 0.00055, fogFall: 0.012, haze: 0.00017, vista: 0.0005, fogMax: 1, env: 1.3, glow: 0.6, shafts: 0.06,
-  exposure: 1.5, auto: 0, key: 0.3, minEx: 1.5, maxEx: 1.5, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0, vfog: 0.0006,
+  exposure: 1.5, auto: 1, key: 0.22, minEx: 1.5, maxEx: 3.0, meter: 1, bloom: 0.08, bloomThr: 1.4, mist: 0.35, vmist: 0, vfog: 0.0006,
   sat: 1.12, contrast: 0.04, vignette: 0.45, tint: [1.0, 1.0, 1.0], lift: [0, 0, 0],
   vibrance: 0.2, shadowCol: [0.012, 0.012, 0.026], highCol: [1.04, 1.0, 0.94], vigCol: [0.55, 0.46, 0.5],
   fill: 0.13, fillCol: [0.55, 0.62, 1.0],
@@ -42,7 +47,7 @@ const DAY = {
 const DUSK = {
   sunE: 5.2, moonE: 0, skyScale: 4.6, nightBase: [0.0004, 0.0006, 0.0012],
   cover: 0.5, cloudAlpha: 1.0, stars: 0.08, fogD: 0.0007, fogFall: 0.016, haze: 0.0002, vista: 0.0006, fogMax: 0.92, env: 1.0, glow: 1.2, shafts: 0.16,
-  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002, vfog: 0.0028,
+  exposure: 2.3, auto: 0, key: 0.3, minEx: 2.3, maxEx: 2.3, meter: 1, bloom: 0.11, bloomThr: 1.15, mist: 0.45, vmist: 0.002, vfog: 0.0028,
   sat: 1.1, contrast: 0.05, vignette: 0.48, tint: [1.02, 0.94, 0.98], lift: [0, 0, 0.0004],
   vibrance: 0.18, shadowCol: [0.02, 0.012, 0.03], highCol: [1.06, 0.97, 0.9], vigCol: [0.5, 0.38, 0.45],
   fill: 0.34, fillCol: [0.5, 0.45, 1.0],
@@ -50,7 +55,7 @@ const DUSK = {
 const NIGHT = {
   sunE: 5.0, moonE: 0.22, skyScale: 4.2, nightBase: [0.0011, 0.0016, 0.003],
   cover: 0.32, cloudAlpha: 0.75, stars: 1, fogD: 0.0012, fogFall: 0.016, haze: 0.00015, vista: 0.0005, fogMax: 1, env: 1.15, glow: 0.3, shafts: 0,
-  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004, vfog: 0.0016,
+  exposure: 3.6, auto: 1, key: 0.11, minEx: 1.8, maxEx: 5.8, meter: 0, bloom: 0.09, bloomThr: 1.2, mist: 0.25, vmist: 0.004, vfog: 0.0016,
   sat: 0.96, contrast: 0.05, vignette: 0.54, tint: [0.92, 0.97, 1.1], lift: [0.0, 0.0002, 0.0006],
   vibrance: 0.15, shadowCol: [0.003, 0.005, 0.012], highCol: [1.0, 1.0, 1.04], vigCol: [0.2, 0.24, 0.36],
   fill: 0.01, fillCol: [0.4, 0.5, 1.0],
@@ -83,10 +88,10 @@ const KEYS = [
     tint: [0.95, 0.98, 1.06], lift: [0, 0.00015, 0.0005], vigCol: [0.24, 0.26, 0.38], fill: 0.02, vmist: 0.009, vfog: 0.0035 },
   { h: 7.5, ...DUSK, fogD: 0.0008, fogMax: 0.95, tint: [1.0, 0.96, 1.0], pin: [4.5, 2 * SOUTH - 250],                    // dawn: dusk's mirror image,
     highCol: [1.05, 0.99, 0.93], fill: 0.3, vmist: 0.008, vfog: 0.0024 },                                                                           //   a little cooler and mistier
-  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4, vmist: 0.0015, vfog: 0.0014 },   // morning
+  { h: 10, ...DAY, cover: 0.46, fogD: 0.0005, haze: 0.00014, exposure: 1.55, minEx: 1.55, maxEx: 3.1, key: 0.227, tint: [1.0, 0.995, 0.985], glow: 0.8, fill: 0.14, shafts: 0.1, mist: 0.4, vmist: 0.0015, vfog: 0.0014 },   // morning
   { h: 13, ...DAY, pin: [40, 145] },                                                                                      // day
   { h: 18.25, ...DAY, sunE: 4.8, skyScale: 4.4, cover: 0.48, cloudAlpha: 0.98, fogD: 0.0005, fogFall: 0.0135,             // golden hour
-    haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
+    haze: 0.00018, vista: 0.0006, nightBase: [0.0001, 0.00015, 0.0003], exposure: 1.85, minEx: 1.85, maxEx: 3.3, key: 0.27, bloom: 0.1, bloomThr: 1.2, sat: 1.12, glow: 1.0, shafts: 0.13,
     vignette: 0.48, tint: [1.0, 0.97, 0.95], lift: [0, 0, 0.0002], highCol: [1.07, 0.98, 0.88], vigCol: [0.52, 0.4, 0.42], fill: 0.24, fillCol: [0.55, 0.5, 1.0], env: 1.1, mist: 0.45, vmist: 0.0005, vfog: 0.0018 },
   { h: 19.5, ...DUSK, pin: [4.5, 250] },                                                                                  // dusk
   { h: 20.5, ...NIGHT, moonE: 0.18, nightBase: [0.0007, 0.001, 0.002], cover: 0.4, cloudAlpha: 0.88, stars: 0.4,          // blue hour
@@ -105,7 +110,7 @@ for (const k of KEYS) {
 const FOG_AMOUNT = { off: 0, light: 0.45, normal: 0.8, thick: 1.4 };
 
 const SCALARS = ['sunE', 'moonE', 'skyScale', 'cover', 'cloudAlpha', 'stars', 'fogD', 'fogFall', 'haze', 'vista', 'fogMax', 'env',
-  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
+  'exposure', 'auto', 'key', 'minEx', 'maxEx', 'meter', 'bloom', 'bloomThr', 'mist', 'vmist', 'vfog', 'sat', 'contrast', 'vignette', 'vibrance', 'glow', 'fill', 'shafts', 'sunDE', 'sunDA'];
 const VECS = ['nightBase', 'tint', 'lift', 'shadowCol', 'highCol', 'vigCol', 'fillCol'];
 const CURVE_SRC = [...SCALARS.map(k => [k, key => key[k]]), ...VECS.flatMap(k => [0, 1, 2].map(i => [k + i, key => key[k][i]]))];
 const NK = KEYS.length;
@@ -138,6 +143,12 @@ const sstep = THREE.MathUtils.smoothstep;
 // below the horizon the transmittance is zero (the planet blocks the ray); clamping to the horizon dip of the
 // 400 m eye keeps the last dim red value there, and the sunUp / moonUp fades take it to zero
 const lowDir = d => [d[0], Math.max(d[1], -0.006), d[2]];
+
+// the sky's light on level ground (gi.js): the scattering model summed over the upper hemisphere, at four heights
+// (each a band of the cosine-weighted hemisphere) and six directions round the sun (four by symmetry)
+const SKY_RINGS = [[0, 14], [14, 32], [32, 54], [54, 90]].map(([a, b]) => [(a + b) / 2 * RAD, (Math.sin(b * RAD) ** 2 - Math.sin(a * RAD) ** 2) / 2]);
+const LOW_FILL = [0.15, 0.6];   // the land's share of the horizon's glow: under a high sun, at a low one (apply)
+const SKY_AZ = [[0, 1], [60, 2], [120, 2], [180, 1]].map(([a, w]) => [a * RAD, w * Math.PI / 3]);
 
 // "night" for decisions (lamps visible, automatic headlights) switches with hysteresis on the continuous darkness
 const NIGHT_ON = 0.7, NIGHT_OFF = 0.45;
@@ -190,6 +201,7 @@ export class Environment {
     this.targetHour = this.hour;
     this.anim = null;
     this.dirty = true;
+    this.soft = false;                 // see soften()
     this.appliedHour = this.hour;
     this.weather = null;               // world/weather.js sets itself here: the storm s, the rainbow bow
     this.appliedWeather = { s: -1, bow: -1 };
@@ -201,6 +213,12 @@ export class Environment {
     this.sunDir = new THREE.Vector3();
     this.moonDir = new THREE.Vector3();
     this.lightDir = new THREE.Vector3(0, 1, 0);
+    // the sun the land leaves (render/skyline.js: a mountain between here and the sun), 0..1: at the truck, at the
+    // camera, and the share of the ground round the truck (what the light probe's ground is lit by)
+    this.sunVis = 1; this.sunCam = 1; this.sunArea = 1; this.appliedArea = 1;
+    this.focus = new THREE.Vector3(); this.camPos = new THREE.Vector3(0, 2, 0);
+    this.shaftBase = new THREE.Vector3();
+    this.horizon = { at: new THREE.Vector3(1e9, 0, 0), land: -1, next: new Float32Array(32) };   // the skyline round the truck, in the light probe
     this.envDirty = true;
     this.envTimer = 0;
     this.shadowScale = 1;
@@ -216,6 +234,7 @@ export class Environment {
     h = wrapHour(+h);
     if (!Number.isFinite(h)) return;
     this.targetHour = h;
+    this.soft = false;
     if (instant || h === this.hour) { this.hour = h; this.anim = null; }
     else this.anim = { from: this.hour, dist: wrapHour(h - this.hour), t: 0 };
     this.dirty = true;
@@ -241,6 +260,10 @@ export class Environment {
     this.fog.reset = true;
     this.dirty = true;
   }
+
+  // the next refresh of the look is a small step of something gradual (time passing, the weather): the eye keeps
+  // adapting through it. Not while a change that shows at once is pending
+  soften() { if (!this.dirty) this.soft = true; }
 
   // apply a pending hour change right away (otherwise it happens in the next update())
   flush() { this.dirty = false; this.apply(); }
@@ -270,6 +293,9 @@ export class Environment {
     c.cloudAlpha = c.cloudAlpha + (1 - c.cloudAlpha) * k;
     c.fogD *= 1 + 2.2 * k; c.haze *= 1 + 7 * k; c.vista *= 1 + 4 * k;   // the rain curtains hide the far hills
     c.exposure *= 1 + 0.3 * k; c.minEx *= 1 + 0.3 * k; c.maxEx *= 1 + 0.3 * k;
+    // the day's adaptation: open land in the rain stays at the exposure set here (the scene's mean is lower under
+    // the deck, so the mean aimed for is too), and a wood opens the eye by half as much as in fair weather
+    if (c.meter > 0.5) { c.key *= 1 - 0.25 * k; c.maxEx += (c.minEx - c.maxEx) * 0.5 * k; }
     c.sat += (0.96 - c.sat) * k; c.vibrance *= 1 - 0.5 * k;
     c.mist += 0.15 * k; c.vfog *= 1 + 1.5 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
     c.fill += 0.1 * k; c.env *= 1 + 0.25 * k;
@@ -326,14 +352,40 @@ export class Environment {
       }
       for (const v of [away, toward]) for (let i = 0; i < 3; i++) v[i] += (side[i] - v[i]) * 0.9 * c.storm;
     }
+    // the sky's light on level ground, and the light the land sends back up into the light probe: the ground's own
+    // colour in the sun and the sky (gi.js). The probe's intensity (env) is the sky's: it is taken out of the ground
+    const skyE = [0, 0, 0];
+    for (const { L, lE, tint, w } of parts) {
+      const az = Math.atan2(L[0], L[2]);
+      for (const [el, wEl] of SKY_RINGS) for (const [da, wAz] of SKY_AZ) {
+        const q = az + da, ce = Math.cos(el), s = scatter([ce * Math.sin(q), Math.sin(el), ce * Math.cos(q)], L, 8);
+        for (let i = 0; i < 3; i++) skyE[i] += s[i] * lE * tint[i] * w * wEl * wAz;
+      }
+    }
+    for (let i = 0; i < 3; i++) {
+      skyE[i] += c.nightBase[i] * Math.PI * 0.8;
+      if (c.storm > 0) skyE[i] += ((zen[i] * 0.8 + side[i] * 0.9) * Math.PI * 0.85 - skyE[i]) * c.storm;   // the grey deck (sky.js uOvercast)
+    }
+    GI.sky.x = skyE[0]; GI.sky.y = skyE[1]; GI.sky.z = skyE[2];
+    // (the land round the truck in a mountain's shadow sends up the sky's light alone)
+    const area = this.appliedArea = GI.sun.w = this.sunArea;
+    const bk = 1 / (Math.PI * Math.max(c.env, 1e-3));
+    su.uBounce.value.set(GI.ground.x * (GI.sun.x * area + skyE[0]) * bk, GI.ground.y * (GI.sun.y * area + skyE[1]) * bk, GI.ground.z * (GI.sun.z * area + skyE[2]) * bk);
+    // the horizon's glow off the land (sky.js): a little under a high sun, most of the horizon's own brightness at
+    // dusk and dawn, all but all of it by night (the night's look was set with it)
+    const lowDay = LOW_FILL[0] + (LOW_FILL[1] - LOW_FILL[0]) * Math.max(1 - sstep(c.sunElev, 6, 26), c.storm);   // (wet land under a grey deck mirrors it)
+    su.uLowFill.value = lowDay * (0.2 + 0.8 * area) * (1 - this.darkness) + 0.92 * this.darkness;   // (land in a mountain's shadow: the sun is not on it)
     // fog is slightly darker than the sky right at the horizon (it is lit, but also shadowed by terrain)
     const k = 0.92;
     setVec4(ATMO.atmoSun, Lf.x, Lf.y, Lf.z, c.fogFall);
+    // In a mountain's shadow the air between here and the mountain is in that shadow too: the haze towards the sun
+    // loses its glow (the ridge stands dark against the bright sky), the haze to the sides some of its light
+    const sh = 1 - area, ks = k * (1 - 0.2 * sh);
     setVec4(ATMO.atmoAway, away[0] * k, away[1] * k, away[2] * k, 0);
-    setVec4(ATMO.atmoSide, side[0] * k, side[1] * k, side[2] * k, c.haze);
-    setVec4(ATMO.atmoToward, toward[0] * k, toward[1] * k, toward[2] * k, c.fogMax);
+    setVec4(ATMO.atmoSide, side[0] * ks, side[1] * ks, side[2] * ks, c.haze);
+    setVec4(ATMO.atmoToward, (toward[0] + (side[0] * 0.7 - toward[0]) * sh) * k, (toward[1] + (side[1] * 0.7 - toward[1]) * sh) * k, (toward[2] + (side[2] * 0.7 - toward[2]) * sh) * k, c.fogMax);
     // a soft glow around the sun in the haze (Mie), coloured by the light that reaches us
-    const gk = c.glow * sunUp * 0.004;
+    const gk = c.glow * sunUp * 0.004 * (0.3 + 0.7 * area);   // (in a mountain's shadow the air in front is shaded too)
     setVec4(ATMO.atmoGlow, sunRGB[0] * gk, sunRGB[1] * gk, sunRGB[2] * gk, 0.75);
     // valley mist: a shallow layer lying in the low ground (floor 6 m under the lake, falling off over ~9 m)
     setVec4(ATMO.atmoMist, Math.max(0, c.vmist), 0.11, -6, 0);
@@ -344,6 +396,10 @@ export class Environment {
     F.density = c.vfog * this.fogAmount; F.falloff = 0.022; F.floor = 0;
     const sl = 0.2126 * side[0] + 0.7152 * side[1] + 0.0722 * side[2];
     F.amb.set(side[0] + (sl - side[0]) * 0.4, side[1] + (sl - side[1]) * 0.4, side[2] + (sl - side[2]) * 0.4).multiplyScalar(0.75);
+    if (sh > 0) {   // in a mountain's shadow the mist is lit by the sky overhead, not by the glow at the horizon
+      const el = 0.2126 * skyE[0] + 0.7152 * skyE[1] + 0.0722 * skyE[2], al = (0.2126 * F.amb.x + 0.7152 * F.amb.y + 0.0722 * F.amb.z) * 0.8 / Math.max(el, 1e-6);
+      F.amb.x += (skyE[0] * al - F.amb.x) * 0.75 * sh; F.amb.y += (skyE[1] * al - F.amb.y) * 0.75 * sh; F.amb.z += (skyE[2] * al - F.amb.z) * 0.75 * sh;
+    }
     this.scene.fog.density = c.fogD;
     this.scene.fog.color.setRGB(side[0], side[1], side[2]);
 
@@ -371,26 +427,34 @@ export class Environment {
     cu.uAmbTop.value.copy(su.uCloudAmb.value);
     cu.uAmbBot.value.copy(su.uCloudAmb.value).multiplyScalar(0.42);
 
-    const bounce = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04;
+    const bounce = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04 * (0.15 + 0.85 * area);
     this.hemi.groundColor.setRGB(0.36 * bounce, 0.30 * bounce, 0.22 * bounce);
     this.hemi.userData.level = bounce;   // the ambient level the lamps scale against (VehicleView.ambientLevel)
     this.hemi.color.setRGB(c.fillCol[0] * c.fill, c.fillCol[1] * c.fill, c.fillCol[2] * c.fill);
 
     if (this.pipeline) {
       const P = this.pipeline.params;
-      P.exposure = c.exposure;
+      // standing in a mountain's shadow the eye opens a little more than the bright sky in view would let it
+      const shadeEx = 1 + 0.25 * sh * (1 - this.darkness);
+      P.exposure = c.exposure * shadeEx;
       P.auto = c.auto;
       P.autoExposure = c.auto > 0.001;       // the eye-adaptation pass only runs while it matters
-      P.key = c.key; P.minExposure = c.minEx; P.maxExposure = c.maxEx;
-      P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr; P.mist = c.mist;
+      P.key = c.key; P.minExposure = c.minEx * shadeEx; P.maxExposure = c.maxEx * shadeEx; P.meterMean = Math.min(1, Math.max(0, c.meter));
+      P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr; P.mist = c.mist; P.mistRef = c.meter > 0.5 ? c.minEx : 1e6;
       P.saturation = c.sat; P.contrast = c.contrast; P.vignette = c.vignette;
       P.tint.setRGB(...c.tint); P.lift.setRGB(...c.lift);
       // the rainbow: opposite the sun, while a shower clears (weather.bow), the sun low enough to lift it
-      const bow = (this.weather?.bow ?? 0) * sunUp * (1 - sstep(c.sunElev, 30, 44));
+      const bow = (this.weather?.bow ?? 0) * sunUp * this.sunVis * (1 - sstep(c.sunElev, 30, 44));
       P.bow.set(-this.sunDir.x, -this.sunDir.y, -this.sunDir.z, bow);
       P.bowCol.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(0.12 * bow);
       P.shadowCol.setRGB(...c.shadowCol); P.highCol.setRGB(...c.highCol); P.vigCol.setRGB(...c.vigCol); P.vibrance = c.vibrance;
-      this.pipeline.resetExposure = true;    // the picture follows the hour exactly, no adaptation lag
+      // the light that reaches under water (the pipeline's underwater look): the sun or moon on the surface and the sky
+      const sunK = this.sun.intensity * Math.max(this.lightDir.y, 0.1) * this.sunVis, sc = this.sun.color;
+      P.waterLight.set(sc.r * sunK + zen[0] * Math.PI, sc.g * sunK + zen[1] * Math.PI, sc.b * sunK + zen[2] * Math.PI);
+      // a change of hour asked for (the slider, a key, the start) shows at once, with no adaptation lag; the day
+      // going by, the weather and a new window of land leave the eye adapting as it was (soften())
+      if (!this.soft) this.pipeline.resetExposure = true;
+      this.soft = false;
     }
     this.envDirty = true;
     if (flipped && this.onNightChange) this.onNightChange(night);
@@ -416,13 +480,22 @@ export class Environment {
     const I = Math.max(rgb[0], rgb[1], rgb[2], 1e-6);
     this.sun.color.setRGB(rgb[0] / I, rgb[1] / I, rgb[2] / I);
     this.sun.intensity = I;
-    this.lightDir.set(0, 0, 0)
-      .addScaledVector(this.sunDir, Math.max(...sunRGB) * sunUp)
-      .addScaledVector(this.moonDir, Math.max(...moonRGB) * moonUp);
+    // the same light on level ground, each by its own height: what the ground's bounce is made of (gi.js)
+    const sy = Math.max(sd[1], 0) * sunUp * (1 - c.sunDim), my = Math.max(md[1], 0) * moonUp * (1 - c.sunDim);
+    GI.sun.x = sunRGB[0] * sy + moonRGB[0] * my; GI.sun.y = sunRGB[1] * sy + moonRGB[1] * my; GI.sun.z = sunRGB[2] * sy + moonRGB[2] * my;
+    // and on the sides of what stands up from the land (the share of the view they fill, by the light's height)
+    const sideK = 0.2 * (1 - c.sunDim), ss = Math.hypot(sd[0], sd[2]) * sunUp * sideK, ms = Math.hypot(md[0], md[2]) * moonUp * sideK;
+    GI.side.x = sunRGB[0] * ss + moonRGB[0] * ms; GI.side.y = sunRGB[1] * ss + moonRGB[1] * ms; GI.side.z = sunRGB[2] * ss + moonRGB[2] * ms;
+    const sunW = Math.max(...sunRGB) * sunUp, moonW = Math.max(...moonRGB) * moonUp;
+    this.lightDir.set(0, 0, 0).addScaledVector(this.sunDir, sunW).addScaledVector(this.moonDir, moonW);
+    // the land's far shadow follows the brighter of the two, at its true height
+    if (sunW + moonW > 0) updateSkyline(sunW >= moonW ? this.sunDir : this.moonDir);
     if (this.lightDir.lengthSq() < 1e-12) this.lightDir.copy(this.sunDir); else this.lightDir.normalize();
     // keep the shadow camera above the horizon (long dusk shadows stay bounded)
     if (this.lightDir.y < 0.1) { this.lightDir.y = 0.1; this.lightDir.normalize(); }
     this.sun.position.copy(this.lightDir);
+    const lh = Math.hypot(this.lightDir.x, this.lightDir.z) || 1;
+    GI.dir.x = this.lightDir.x / lh; GI.dir.z = this.lightDir.z / lh;
 
     const su = this.sky.uniforms;
     su.uSunDir.value.copy(this.sunDir); su.uMoonDir.value.copy(this.moonDir);
@@ -437,20 +510,44 @@ export class Environment {
     if (this.pipeline) {
       const P = this.pipeline.params;
       P.shaftDir.copy(this.sunDir);
-      P.shaftCol.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(c.shafts * sunUp);
+      this.shaftBase.set(sunRGB[0], sunRGB[1], sunRGB[2]).multiplyScalar(c.shafts * sunUp);
     }
+    this.shadeHere();
     return { sd, md, sunUp, moonUp, Ts, Tm, sunRGB, moonTint };
+  }
+
+  // the land's shadow where the truck and the camera are now (they move, the sun moves)
+  shadeHere() {
+    const f = this.focus, cp = this.camPos;
+    this.sunVis = this.sun.userData.vis = skylineAt(f.x, f.y + 1, f.z);
+    this.sunCam = skylineAt(cp.x, cp.y, cp.z);
+    SKYLINE.on.z = this.sunVis;   // (the levels that shade the whole view by it)
+    this.sunArea = skylineArea(f.x, f.z);
+    // the skyline round the truck (the light probe's land, sky.js): again after 24 m, on new land; a new probe when it
+    // has changed
+    const hz = this.horizon;
+    if (hz.land !== SKYLINE.land || hz.at.distanceToSquared(f) > 24 * 24) {
+      hz.at.copy(f); hz.land = SKYLINE.land;
+      const cur = this.sky.uniforms.uHoriz.value, next = skylineRound(f.x, f.y + 2, f.z, hz.next);
+      let d = 0;
+      for (let i = 0; i < 32; i++) d = Math.max(d, Math.abs(next[i] - cur[i]));
+      if (d > 0.015) { cur.set(next); this.envDirty = true; }
+    }
+    if (this.pipeline) this.pipeline.params.shaftCol.copy(this.shaftBase).multiplyScalar(this.sunCam);
   }
 
   // time passing (setting timeFlow): the light every frame, the whole look every FLOW_STEP hours
   flow(dh) {
     if (this.anim || !(dh > 0)) return;
     this.hour = this.targetHour = wrapHour(this.hour + dh);
-    if (this.dirty || wrapHour(this.hour - this.appliedHour) >= FLOW_STEP) this.dirty = true;
+    if (this.dirty || wrapHour(this.hour - this.appliedHour) >= FLOW_STEP) { this.soften(); this.dirty = true; }
     else this.applyLight(this.evalLook(this.hour, this.flowLook));
   }
 
   update(dt, focus, camera) {
+    if (focus) this.focus.copy(focus);
+    tickSkyline();
+    if (camera) this.camPos.copy(camera.position);
     const an = this.anim;
     if (an) {
       an.t = Math.min(1, an.t + dt / ANIM_TIME);
@@ -458,6 +555,11 @@ export class Environment {
       this.hour = an.t >= 1 ? this.targetHour : wrapHour(an.from + an.dist * s);
       if (an.t >= 1) this.anim = null;
       this.dirty = true;
+    }
+    if (!this.dirty) {
+      // driving into a mountain's shadow, or out of it: the light probe's ground follows in small steps
+      this.shadeHere();
+      if (Math.abs(this.sunArea - this.appliedArea) > 0.04) { this.soften(); this.dirty = true; }
     }
     if (this.dirty) this.flush();
     if (camera) this.sky.update(dt, camera);

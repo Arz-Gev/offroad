@@ -6,7 +6,7 @@ import { PAT, pp, ORIGIN } from './origin.js';
 
 // Small things lying on the ground near the camera, in 3D: stones and pebbles (on the track verges and the strip
 // between the ruts, never big ones in the ruts; scree under the rock faces, gravel, stream beds) and what falls from the trees (leaves
-// under broadleaves, cones and twigs under conifers, petals under blossom). They give the ground depth in motion:
+// under broadleaves, cones and twigs under conifers). They give the ground depth in motion:
 // they stand up, shade themselves and slide past with parallax, which no texture does. They cast no shadows: on
 // Ultra (every piece into every cascade) that cost 0.4-3 ms, the most on scree; the player turned them off.
 // Placed from the terrain's data (trail distance, surface splat, ground and land data, terrainView.js) per 16 m
@@ -20,7 +20,7 @@ const CHUNK = 16;
 const PER_FRAME = 3;   // chunks generated per frame at most
 // per mesh: the radius drawn (m) and the most instances
 // blob: stones (an icosphere of 80 faces), pebble: pebbles, small stones and cones (20 faces),
-// flat: leaves and petals, stick: twigs
+// flat: leaves, stick: twigs
 const KINDS = { blob: { max: 24000 }, pebble: { max: 40000 }, flat: { max: 40000 }, stick: { max: 6000 } };
 // per level (Ultra with the Ultra grass and bushes): radii (m, before the bushes' distance scale), stone density on
 // scree, at the foot of rock, on gravel and wet gravel, stones under `small` (m) are pebbles, small pieces fade out
@@ -290,7 +290,7 @@ export function buildDebris(terrain, terrainView) {
         const sink = inRut > 0.3 ? 0.45 + rnd() * 0.15 : big && trail + scree > 0.3 ? 0.28 + rnd() * 0.15 : 0.2 + rnd() * 0.15;
         put(s < L.small ? out.pebble : out.blob, sx, sz, s * (0.8 + rnd() * 0.5), s * (0.45 + rnd() * 0.35), s * (0.8 + rnd() * 0.5), pack(...c), sink);
       }
-      // leaves and petals drift a few metres beyond the crowns (onto the tracks too)
+      // leaves drift a few metres beyond the crowns (onto the tracks too)
       if (forest < 0.05 && wet < 0.5) for (const [ox, oz] of DRIFT) {
         const xx = Math.min(DN - 1, Math.max(0, dx + ox)), zz = Math.min(DN - 1, Math.max(0, dz + oz)), oo = (zz * DN + xx) * 4;
         const f2 = gd[oo + 1] / 255 * 0.3;
@@ -309,7 +309,7 @@ export function buildDebris(terrain, terrainView) {
             const L = 0.2 + rnd() * 0.5, r = 0.006 + rnd() * 0.01, t = 0.6 + rnd() * 0.6;
             put(out.stick, x + rnd() - 0.5, z + rnd() - 0.5, L, r, r, pack(0.16 * t, 0.11 * t, 0.07 * t), 0.2);
           }
-        } else if (litter < 0.75) {
+        } else {
           // broadleaves: leaves (on the track too), a few twigs
           n = Math.floor(forest * 7 + rnd());
           for (let k = 0; k < n; k++) {
@@ -320,13 +320,6 @@ export function buildDebris(terrain, terrainView) {
           for (let k = 0; k < n; k++) {
             const L = 0.25 + rnd() * 0.6, r = 0.008 + rnd() * 0.012, t = 0.6 + rnd() * 0.5;
             put(out.stick, x + rnd() - 0.5, z + rnd() - 0.5, L, r, r, pack(0.2 * t, 0.15 * t, 0.1 * t), 0.2);
-          }
-        } else {
-          // blossom: petals
-          n = Math.floor(forest * 14 + rnd());
-          for (let k = 0; k < n; k++) {
-            const s = 0.012 + rnd() * 0.008, t = rnd();
-            put(out.flat, x + rnd() - 0.5, z + rnd() - 0.5, s * 0.8, s, s, pack(0.85 - t * 0.1, 0.5 + t * 0.3, 0.6 + t * 0.25), 0);
           }
         }
       }

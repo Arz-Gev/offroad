@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { shared } from './materials.js';
 
 // A downloaded body (a GLB prepared by tools/prepcar.mjs: +x right, -z forward, metres, the hub centre at
 // y 0, mid-wheelbase at z 0) and the helpers that move its parts into our groups.
@@ -36,11 +37,25 @@ const REAL_BLACK = `#include <metalnessmap_fragment>
   metalnessFactor *= smoothstep(0.08, 0.25, lum);
   diffuseColor.rgb = sqrt(diffuseColor.rgb * diffuseColor.rgb + ${(BLACK * BLACK).toFixed(6)});
 }`;
+// The cabin's light in the driver's view (uInside, VehicleView): a downloaded model's cabin shares its materials with
+// the outside, so what is within arm's reach of the eye counts as the cabin: lit through the glass on every side
+// (render/gi.js giCabin), mostly white, and three times the outside's (the eye is used to the cabin: at the
+// outside's level black trim stays under the grade's toe). Without it the dash and wheel were a black cut-out.
+const CABIN_BEGIN = `giCabin = uInside * (1.0 - smoothstep(0.9, 1.5, length(vViewPosition)));
+#include <lights_fragment_begin>`;
+const CABIN_MAPS = `#include <lights_fragment_maps>
+iblIrradiance = mix(iblIrradiance, vec3(dot(iblIrradiance, vec3(0.2126, 0.7152, 0.0722))), 0.7 * giCabin) * (1.0 + 2.2 * giCabin);
+radiance *= 1.0 + 0.6 * giCabin;`;
 function realBlack(m) {
   if (!m.isMeshStandardMaterial) return;
   if (m.aoMap) m.aoMapIntensity = BAKED_AO;
-  m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', REAL_BLACK); };
-  m.customProgramCacheKey = () => 'real-black';
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uInside = shared.uInside;
+    sh.fragmentShader = '#define GI_CABIN\n' + sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uInside;')
+      .replace('#include <metalnessmap_fragment>', REAL_BLACK)
+      .replace('#include <lights_fragment_begin>', CABIN_BEGIN).replace('#include <lights_fragment_maps>', CABIN_MAPS);
+  };
+  m.customProgramCacheKey = () => 'real-black-v2';
   m.userData.realBlack = true;   // createTireMaterial keeps the patch on the deforming copies
 }
 

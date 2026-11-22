@@ -97,6 +97,7 @@ ${PAT_GLSL}attribute vec3 aBlade;
 varying vec3 vGCol;
 varying vec3 vGFace;
 varying float vGAO;
+varying float vGOpen;   // the open sky over the blade (the ground data's canopy shade; render/gi.js)
 varying vec3 vGPos;
 vec2 gHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float gHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
@@ -141,7 +142,7 @@ export function buildGrass(terrainView, opts = {}) {
     uCurve: { value: Array.from({ length: CURVE_N + 1 }, () => new THREE.Vector4(1, 0.5, 0.07, 0)) },
   };
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
-  mat.defines = { TK_THIN: '', ...(terrainView.floatLinear ? { FLOAT_LINEAR: '' } : {}) };   // TK_THIN: lamps light both faces (lamps.js)
+  mat.defines = { TK_THIN: '', GI_LOCAL: '', ...(terrainView.floatLinear ? { FLOAT_LINEAR: '' } : {}) };   // TK_THIN: lamps light both faces (lamps.js)
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -182,7 +183,7 @@ float dens = gdv.a;
 float inMap = step(max(abs(bxz.x), abs(bxz.y)), uMap.x - 1.0);
 vec3 gPos = vec3(0.0, -1e4, 0.0);
 vec3 objectNormal = vec3(0.0, 1.0, 0.0);
-vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0); vGPos = vec3(0.0);
+vGCol = vec3(0.0); vGAO = 1.0; vGFace = vec3(0.0); vGPos = vec3(0.0); vGOpen = gdv.r;
 if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   vec2 hC = gHash22(cellH + 41.3);
   vec4 nz = textureLod(tNoise, bq / ${ppf(61)}, 0.0);
@@ -263,7 +264,7 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);\ngl_Position = projectionMatrix * mvPosition;')
       .replace('#include <worldpos_vertex>', '#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0\nvec4 worldPosition = vec4(transformed, 1.0);\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying vec3 vGPos;\nuniform float uDew;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGCol;\nvarying vec3 vGFace;\nvarying float vGAO;\nvarying float vGOpen;\nvarying vec3 vGPos;\nuniform float uDew;')
       .replace('#include <normal_fragment_begin>', `
 float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;
 // thin, translucent blades: whichever face we see is lit like the face towards the sun (lit by its own
@@ -277,6 +278,7 @@ vec3 normal = normalize(normalize(vNormal) + vGFace * gSide);
 vec3 nonPerturbedNormal = normal;`)
       .replace('#include <map_fragment>', `
 diffuseColor.rgb = vGCol;
+giLocal = vec4(0.085, 0.15, 0.045, vGOpen);
 #if NUM_SUN_LIGHTS > 0
 // the hot spot: with the sun at the viewer's back every blade shows its sunlit side and hides its shadow,
 // so a meadow is at its brightest; against the sun the specular sheen lights it instead
@@ -310,7 +312,7 @@ diffuseColor.rgb *= 1.0 + 0.18 * smoothstep(-0.1, 0.75, gOpp);
 #endif
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'grass-v7';
+  mat.customProgramCacheKey = () => 'grass-v8';
 
   // tiles: a pool of meshes, each with a 4-, 2- and 1-segment geometry (what the tile's closest blade needs)
   const tiles = [];

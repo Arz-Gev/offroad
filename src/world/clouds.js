@@ -79,6 +79,18 @@ float cloudShadow(vec3 p) {
 }
 `;
 
+// cloudShadow() of CLOUD_GLSL on the CPU, at a local point: for what has no lit material of its own (the dust)
+export function cloudShadowAt(x, y, z) {
+  if (CLOUD.map.w <= 0) return 1;
+  const k = Math.max(CLOUD.sun.w - y, 0) / Math.max(CLOUD.sun.y, 0.12), P = CELL * NOISE_CELLS;
+  const u = mod(x + CLOUD.sun.x * k + CLOUD.map.x, P) / P * NOISE_N - 0.5, v = mod(z + CLOUD.sun.z * k + CLOUD.map.y, P) / P * NOISE_N - 0.5;
+  const iu = Math.floor(u), iv = Math.floor(v), fu = u - iu, fv = v - iv, d = CLOUD.noise.image.data;
+  const at = (a, b) => THREE.DataUtils.fromHalfFloat(d[mod(b, NOISE_N) * NOISE_N + mod(a, NOISE_N)]);
+  const n = (at(iu, iv) * (1 - fu) + at(iu + 1, iv) * fu) * (1 - fv) + (at(iu, iv + 1) * (1 - fu) + at(iu + 1, iv + 1) * fu) * fv;
+  const sst = (a, b, t) => { t = Math.min(1, Math.max(0, (t - a) / (b - a))); return t * t * (3 - 2 * t); };
+  return 1 - CLOUD.map.w * sst(0.02, 0.5, sst(1 - CLOUD.map.z, 1 - CLOUD.map.z + 0.22, n));
+}
+
 export function cloudUniforms() {
   return { uCloudMap: { value: CLOUD.map }, uCloudSun: { value: CLOUD.sun }, tCloudNoise: { value: CLOUD.noise } };
 }

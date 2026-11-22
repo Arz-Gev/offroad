@@ -357,7 +357,11 @@ const GET_SUN_SHADOW = /* glsl */`
 			}
 			#endif
 
-			return mix( 1.0, shadow, sunLightShadow.shadowIntensity ) * cloudShadow( worldPos );
+			float cloud = cloudShadow( worldPos );
+			#ifdef GI_PARS
+			giCloud = cloud;   // the ground's bounce dims under the cloud too (gi.js)
+			#endif
+			return mix( 1.0, shadow, sunLightShadow.shadowIntensity ) * cloud;
 
 		}`;
 

@@ -11,7 +11,7 @@ npm run simtest    # headless physics checks (settle, accel, brake, slope, climb
 See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS.md** for the open work list.
 
 ## Controls
-**Esc** (gamepad **Menu**) opens the side panel; the game keeps running behind it. Its sections: **Car** (pick a car, engine, tyre pressure, lights), **Driving** (gearbox, 4×4, assists), **Tuning** (Tab), **Places** (P, teleport), **View**, **World** (map, time, weather, fog), **Graphics**, **HUD**, **General** (sound, units), **Friends** (multiplayer: Invite copies a link, and whoever opens it drives next to you, peer to peer, no server) and **Controls** (H, with what each HUD icon means). The ⓘ next to a setting explains it. Its pause button pauses; so does switching to another window. Settings are saved in the browser.
+**Esc** (gamepad **Menu**) opens the side panel and pauses the game (General > Pause in the menu turns that off). Its sections: **Car** (pick a car, engine, tyre pressure, lights), **Driving** (gearbox, 4×4, assists), **Tuning** (Tab), **Places** (P, teleport), **View**, **World** (map, time, weather, fog), **Graphics**, **HUD**, **General** (sound, units), **Friends** (multiplayer: Invite copies a link, and whoever opens it drives next to you, peer to peer, no server) and **Controls** (H, with what each HUD icon means). The ⓘ next to a setting explains it. Its pause button pauses; so does switching to another window. Settings are saved in the browser.
 
 | Keyboard | Gamepad | Touch | Action |
 |---|---|---|---|
@@ -35,7 +35,7 @@ See **DEVNOTES.md** for conventions, baselines, known traps and testing, **TASKS
 | C | Y | Cam | Camera: chase, cockpit, hood, wheel, orbit |
 | Mouse drag · wheel | Right stick | Drag the view · pinch | Look around · zoom |
 | N |  |  | Time of day: day, dusk, night |
-| P |  |  | Places (teleport; number keys pick one) |
+| P |  |  | Places (teleport; type a place's number to go there) |
 | H |  |  | Controls list and HUD icons |
 | V |  |  | Sound on / off |
 | U |  |  | Chassis panel: wheel loads, travel, slip, lean |

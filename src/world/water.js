@@ -4,7 +4,8 @@ import { NOISE_GLSL } from './textures.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, mod } from './origin.js';
 
 // Water: the lake, the stream (with the ford) and muddy pools in the mud holes. Visual only (no water physics): every
-// surface lies over a real terrain bed the truck drives on.
+// surface lies over a real terrain bed the truck drives on. A camera under a surface sees it from below, and the
+// pipeline tints the view (params.underwater).
 // - Depth comes from the physics heightfield in the shader (same triangle split), so there is no depth pre-pass:
 //   shallow water shows the bed, deep water absorbs it, the waterline is soft.
 // - Lit as a smooth dielectric (MeshStandardMaterial underneath); Fresnel decides how much bed shows through
@@ -56,7 +57,7 @@ const WATER_FRAG_PARS = /* glsl */`
 uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
-uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter, uRain;
+uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter, uRain, uUnder;
 uniform vec3 uScatter;
 ${PAT_GLSL}varying vec4 vEdge;
 varying vec3 vFlow;
@@ -90,16 +91,18 @@ export function buildWater(terrain, terrainView, renderer) {
   const group = new THREE.Group();
   group.name = 'water';
   const ripple = bakeRipples(renderer);
-  const time = { value: 0 }, rain = { value: 0 };
+  const time = { value: 0 }, rain = { value: 0 }, under = { value: 0 };
   const U = terrainView.uniforms;
 
   const makeMaterial = (kind, opts) => {
-    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: opts.rough ?? 0.06, metalness: 0, transparent: true, premultipliedAlpha: true });
+    // (both faces in one pass: three's two passes for a transparent double-sided material draw the back faces with the
+    // winding flipped, where gl_FrontFacing is true for the underside)
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: opts.rough ?? 0.06, metalness: 0, transparent: true, premultipliedAlpha: true, side: THREE.DoubleSide, forceSinglePass: true });
     const uniforms = {
       tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time, uRain: rain,
       uPat: PAT,
       uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
-      uGlitter: { value: opts.glitter ?? 1 },
+      uGlitter: { value: opts.glitter ?? 1 }, uUnder: under,
     };
     m.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uniforms);
@@ -111,7 +114,7 @@ export function buildWater(terrain, terrainView, renderer) {
         .replace('#include <common>', '#include <common>\n' + WATER_FRAG_PARS)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 wDepth = vWPos.y - wGround(vWPos.xz);
-if (wDepth < -0.03) discard;`)
+if (wDepth < -0.03 || (!gl_FrontFacing && uUnder < 0.5)) discard;`)
         .replace('#include <normal_fragment_begin>', `
 float faceDirection = 1.0;
 // ripples in the flow frame (x across, y along), then rotated into world xz
@@ -156,6 +159,13 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
   }
   #endif
   col = mix(col, irr * 0.8, wFoam); a = mix(a, 1.0, wFoam);
+  // from below (the camera under water): the world above shows through Snell's window, the circle within ~49
+  // degrees of straight up; outside it the surface mirrors the deep
+  if (!gl_FrontFacing) {
+    float win = smoothstep(0.6, 0.74, abs(dot(normalize(vWPos - cameraPosition), nW)));
+    col = mix(irr * uScatter * 0.45, irr * 0.05, win);
+    a = mix(1.0, 0.3, win);
+  }
   float edge = smoothstep(-0.03, 0.05, wDepth);
   // the disc's rim: stray hollows near the shore inside it are not part of the lake
   if (vEdge.z > 0.0) edge *= smoothstep(1.0, 0.97, length((vWPos.xz - vEdge.xy) * vEdge.zw));
@@ -172,7 +182,7 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
 }
 #endif`);
     };
-    m.customProgramCacheKey = () => 'water-v2';
+    m.customProgramCacheKey = () => 'water-v3';
     m.userData.uniforms = uniforms;
     return m;
   };
@@ -279,5 +289,6 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
     configure(q) { enabled = true; group.visible = enabled; },
     update(dt) { time.value += dt; },
     setRain(v) { rain.value = v; },   // weather.js: rings from the drops
+    setUnder(on) { under.value = on ? 1 : 0; },   // main.js: the camera is under a surface (only then is its underside drawn)
   };
 }

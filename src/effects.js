@@ -31,28 +31,64 @@ export class Dust {
     this.mat = new THREE.ShaderMaterial({
       // uHalfH: half the render target height in px (setViewport). With the projection's focal length it
       // turns metres into pixels, so a puff covers the same part of the view at any resolution or fov.
-      uniforms: { uHalfH: { value: 360 }, uLight: { value: 1 } },
+      // The light (setLight): the sun's part falls on a puff only where the sun reaches it, looked up per puff in
+      // the sun's shadow map (the world's cascades) and against the truck's own box (the truck casts into a tile
+      // of its own); the rest is the sky's. Lit by one fixed white, the dust glowed in every shadow.
+      // The shadow map is read in the fragment stage (its place in the map comes from the vertex stage): read in
+      // the vertex stage it cost ~2 ms a frame on an M1 Pro with no dust in the air (the frame's vertex work then
+      // waits for the shadow pass). Dead particles are clipped away, not drawn with no alpha.
+      uniforms: {
+        uHalfH: { value: 360 }, uSun: { value: new THREE.Vector3(1, 1, 1) }, uAmb: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        tShadow: { value: null }, uShadowOn: { value: 0 }, uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+        uCarInv: { value: new THREE.Matrix4() }, uCarC: { value: new THREE.Vector3() }, uCarBox: { value: new THREE.Vector3(1, 1, 2.3) },
+      },
       vertexShader: `
         attribute float size; attribute float alpha; attribute vec3 color;
         varying float vA; varying vec3 vC;
-        uniform float uHalfH;
+        varying vec4 vSh;     // the puff in the sun's shadow map (xyz), w: 1 inside a cascade
+        varying float vBox;   // the sun left after the truck's own shade
+        uniform float uHalfH, uShadowOn;
+        uniform vec3 uSunDir, uCarC, uCarBox;
+        uniform mat4 uShadowMat[2], uCarInv;
+        uniform vec4 uCascade[2];
         void main() {
-          vA = alpha; vC = color;
+          vA = alpha; vC = color; vSh = vec4(0.0); vBox = 1.0;
+          if (alpha <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 1.0; return; }
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          float vz = -mv.z;
+          if (uShadowOn > 0.5) for (int i = 1; i >= 0; i--) {
+            if (vz >= uCascade[i].x && vz < uCascade[i].y) {
+              vec4 c = uShadowMat[i] * vec4(position, 1.0);
+              c.xyz /= c.w;
+              if (c.x > 0.0 && c.x < 1.0 && c.y > 0.0 && c.y < 1.0 && c.z < 1.0) vSh = vec4(c.xy, c.z - 0.0006, 1.0);
+              break;
+            }
+          }
+          // the ray to the sun against the truck's box (in the truck's frame), soft where it only grazes it
+          vec3 o = (uCarInv * vec4(position, 1.0)).xyz - uCarC, d = mat3(uCarInv) * uSunDir;
+          vec3 inv = 1.0 / (d + step(abs(d), vec3(1e-4)) * 1e-4), t1 = (-uCarBox - o) * inv, t2 = (uCarBox - o) * inv;
+          vec3 lo = min(t1, t2), hi = max(t1, t2);
+          float through = min(hi.x, min(hi.y, hi.z)) - max(max(lo.x, max(lo.y, lo.z)), 0.0);
+          vBox = 1.0 - 0.9 * smoothstep(0.0, 0.7, through);
           // fade out right in front of the camera (a big soft blob over the view otherwise)
-          vA *= smoothstep(0.4, 2.5, -mv.z);
-          gl_PointSize = size * projectionMatrix[1][1] * uHalfH / max(0.5, -mv.z);
+          vA *= smoothstep(0.4, 2.5, vz);
+          gl_PointSize = size * projectionMatrix[1][1] * uHalfH / max(0.5, vz);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
+        precision highp sampler2DShadow;
         varying float vA; varying vec3 vC;
-        uniform float uLight;
+        varying vec4 vSh; varying float vBox;
+        uniform vec3 uSun, uAmb;
+        uniform sampler2DShadow tShadow;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = dot(d, d) * 4.0;
           if (r > 1.0) discard;
           float a = vA * (1.0 - r) * (1.0 - r);
-          gl_FragColor = vec4(vC * uLight, a);
+          float sun = vBox;
+          if (vSh.w > 0.5) sun *= texture(tShadow, vSh.xyz);
+          gl_FragColor = vec4(vC * (uSun * sun + uAmb), a);
         }`,
       transparent: true, depthWrite: false,
     });
@@ -155,8 +191,20 @@ export class Dust {
     }
   }
 
-  update(dt, light) {
-    this.mat.uniforms.uLight.value = light;
+  // The light on the dust (main.js, each frame). sun, amb: [r, g, b] for a white puff in the open sun and in full
+  // shade; sunDir: towards the sun; sunLight: the cascaded-shadow light (its world cascades are looked up per
+  // puff); car: the truck's root, carC / carHalf: its box (centre, half size) in the root's frame
+  setLight(sun, amb, sunDir, sunLight, car, carC, carHalf) {
+    const u = this.mat.uniforms;
+    u.uSun.value.fromArray(sun); u.uAmb.value.fromArray(amb); u.uSunDir.value.copy(sunDir);
+    const sh = sunLight?.shadow, on = !!(sunLight?.castShadow && sh?.map && sh._cascadeData);
+    u.uShadowOn.value = on ? 1 : 0;
+    u.tShadow.value = on ? sh.map.depthTexture : null;
+    if (on) for (let i = 0; i < 2; i++) { u.uShadowMat.value[i].copy(sh._matrices[i]); u.uCascade.value[i].copy(sh._cascadeData[i]); }
+    u.uCarInv.value.copy(car.matrixWorld).invert(); u.uCarC.value.copy(carC); u.uCarBox.value.copy(carHalf);
+  }
+
+  update(dt) {
     let puffs = 0, alive = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }

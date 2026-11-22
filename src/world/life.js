@@ -8,7 +8,6 @@ import { PAT } from './origin.js';
 //   flies    fireflies over grass and forest edges at dusk and night, each blinking on its own rhythm
 //   wings    butterflies over the meadows by day: two wings flapping, a wandering path, a colour each
 //   birds    small flocks wheeling over the land by day, flapping in bursts between glides
-//   petals   drifting down from the nearest trees in blossom
 //   leaves   fluttering down in the forest
 // Nothing casts or receives shadows; the ground height comes from the physics height texture (as the grass).
 
@@ -76,7 +75,9 @@ void main() {
   float mu = dot(rel / max(dist, 1e-3), uSunDir);
   float g = 0.7, hg = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5);
   float tw = 0.65 + 0.35 * sin(uTime * (1.7 + aSeed.x * 2.0) + ph * 9.0);
-  vCol = mix(uSunCol * vec3(1.0, 0.88, 0.62) * (0.14 + 0.16 * hg) * tw, uSunCol * 0.2 + uFill * 0.8, big);   // golden specks, white tufts
+  // (under the trees most specks are out of the sun: lit all the same they were sparks in the dark of a wood)
+  float inSun = 1.0 - 0.9 * clamp((1.0 - lData(p.xz).r) * 1.64, 0.0, 1.0);
+  vCol = mix(uSunCol * vec3(1.0, 0.88, 0.62) * (0.14 + 0.16 * hg) * tw, uSunCol * 0.2 + uFill * 0.8, big) * inSun;   // golden specks, white tufts
   vA = fade * uDay;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -216,7 +217,7 @@ ${COMMON_UNIFORMS}
 varying float vLit;
 void main() { gl_FragColor = vec4((vec3(0.035, 0.032, 0.04) + uSunCol * 0.012 + uFill * 0.15) * vLit, 1.0); }`;
 
-// petals and leaves: small quads tumbling down; aCorner = quad corner (-1..1)
+// falling leaves: small quads tumbling down; aCorner = quad corner (-1..1)
 const FALL_COMMON = /* glsl */`
 attribute vec4 aSeed;
 attribute vec2 aCorner;
@@ -229,31 +230,6 @@ vec3 tumble(vec3 c, float size, float t, float ph) {
   vec3 ay = normalize(cross(ax, vec3(sin(b), cos(b), 0.3)));
   vUv = aCorner * 0.5 + 0.5;
   return c + (ax * aCorner.x + ay * aCorner.y) * size;
-}`;
-const PETAL_VERT = /* glsl */`
-${COMMON_UNIFORMS}
-${GROUND_GLSL}
-${FALL_COMMON}
-uniform vec4 uTrees[8];   // nearby trees in blossom: x, crown height, z, crown radius (0: none)
-void main() {
-  int k = int(aSeed.w * 7.99);
-  vec4 T = uTrees[k];
-  float period = 9.0 + aSeed.x * 7.0;                       // s from leaving the crown to fading on the ground
-  float t = fract(uTime / period + aSeed.y) * period;
-  vec3 h = fract(aSeed.xyz * vec3(7.31, 3.17, 5.71)) - 0.5;
-  vec3 p = vec3(T.x, T.y, T.z) + h * vec3(2.0, 0.8, 2.0) * T.w;
-  p += vec3(uWind.x, 0.0, uWind.y) * t * 0.5 + vec3(sin(t * 1.3 + aSeed.z * 9.0), 0.0, cos(t * 1.1 + aSeed.x * 9.0)) * 0.6;
-  p.y -= t * 0.75;
-  float gy = lGround(p.xz) + 0.03;
-  float landed = step(p.y, gy);
-  p.y = max(p.y, gy);
-  float ph = fract(aSeed.z * 13.7);
-  vec3 wp = tumble(p, 0.045, landed > 0.5 ? 0.0 : t, ph);
-  float pink = fract(aSeed.x * 17.3);
-  vCol = pink < 0.55 ? vec3(0.98, 0.72, 0.8) : pink < 0.85 ? vec3(1.0, 0.92, 0.94) : vec3(0.96, 0.58, 0.7);
-  vA = step(0.001, T.w) * smoothstep(0.0, 0.6, t) * (1.0 - smoothstep(period * 0.85, period, t)) * uDay;
-  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
-  if (vA < 0.01) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
 }`;
 const LEAF_VERT = /* glsl */`
 ${COMMON_UNIFORMS}
@@ -296,7 +272,7 @@ function seeds(n, rnd = Math.random) {
   return a;
 }
 
-export function buildLife(terrainView, env, trees) {
+export function buildLife(terrainView, env) {
   const TU = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'life';
@@ -369,7 +345,7 @@ export function buildLife(terrainView, env, trees) {
   birds.frustumCulled = false;
   group.add(birds);
 
-  // petals and leaves: one quad each
+  // falling leaves: one quad each
   const quads = (n, vert, extra) => {
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('aCorner', new THREE.Float32BufferAttribute([-1, -1, 1, -1, 1, 1, -1, 1], 2));
@@ -383,27 +359,12 @@ export function buildLife(terrainView, env, trees) {
     group.add(m);
     return m;
   };
-  const treeSlots = Array.from({ length: 8 }, () => new THREE.Vector4());
-  const petals = quads(900, PETAL_VERT, { uTrees: { value: treeSlots } });
   const leaves = quads(500, LEAF_VERT, { uBox: { value: 34 } });
-  // the trees in blossom (trees.js variants of kind 'blossom'), nearest first every half second
-  let blossoms = [], treesVersion = -1;
-  let slotT = 0;
-  const pickTrees = (cam) => {
-    if (trees && trees.version !== treesVersion) { treesVersion = trees.version; blossoms = trees.trees.filter(t => trees.variants[t.v].kind === 'blossom'); }
-    const near = blossoms.map(t => [t, (t.x - cam.x) ** 2 + (t.z - cam.z) ** 2]).filter(e => e[1] < 90 * 90).sort((a, b) => a[1] - b[1]).slice(0, 8);
-    for (let i = 0; i < 8; i++) {
-      const e = near[i];
-      if (!e) { treeSlots[i].set(0, -1e4, 0, 0); continue; }
-      const t = e[0], v = trees.variants[t.v];
-      treeSlots[i].set(t.x, t.y + v.geo.height * 0.62 * t.s, t.z, v.geo.crownR * 0.8 * t.s);
-    }
-  };
 
   let enabled = true, time = 0;
   const col = new THREE.Color();
   return {
-    group, pollen, flies, wings, birds, petals, leaves, uniforms: shared,
+    group, pollen, flies, wings, birds, leaves, uniforms: shared,
     configure(q) {
       enabled = q.life !== false;
       group.visible = enabled;
@@ -417,7 +378,7 @@ export function buildLife(terrainView, env, trees) {
       u.uTime.value = time;
       u.uCam.value.copy(camera.position);
       u.uSunDir.value.copy(env.sunDir);
-      col.copy(env.sun.color).multiplyScalar(env.sun.intensity);
+      col.copy(env.sun.color).multiplyScalar(env.sun.intensity * env.sunVis);
       u.uSunCol.value.set(col.r, col.g, col.b);
       const f = env.hemi.color;
       u.uFill.value.set(f.r, f.g, f.b);
@@ -427,8 +388,6 @@ export function buildLife(terrainView, env, trees) {
       pollen.visible = u.uDay.value > 0.001;
       wings.visible = u.uDay.value > 0.001;
       birds.visible = u.uDay.value > 0.001;
-      if ((slotT -= dt) <= 0) { slotT = 0.5; pickTrees(camera.position); }
-      petals.visible = u.uDay.value > 0.001 && treeSlots[0].w > 0;
       flies.visible = u.uNight.value > 0.001;
     },
   };

@@ -222,7 +222,7 @@ export class Weather {
       this.bow = this.recent * (1 - this.rain) ** 2 * (1 - THREE.MathUtils.smoothstep(this.s, 0.35, 0.85));
     }
     const e = this.env;
-    if (Math.abs(this.s - (e.appliedWeather?.s ?? -1)) > 0.004 || Math.abs(this.bow - (e.appliedWeather?.bow ?? -1)) > 0.004) e.dirty = true;
+    if (Math.abs(this.s - (e.appliedWeather?.s ?? -1)) > 0.004 || Math.abs(this.bow - (e.appliedWeather?.bow ?? -1)) > 0.004) { e.soften?.(); e.dirty = true; }
 
     this.terrainView.uniforms.uWet.value = this.wet * 0.85;
     // dew on the grass at dawn, until the sun has dried it by mid morning; drops after a shower
@@ -241,7 +241,7 @@ export class Weather {
     u.uAmount.value = Math.min(1, amount * 1.6);
     // the drops are lit by the grey sky (and a little by the sun through the gaps)
     const amb = e.sky.uniforms.uCloudAmb.value;
-    const sc = e.sun.color, si = e.sun.intensity * 0.04;
+    const sc = e.sun.color, si = e.sun.intensity * e.sunVis * 0.04;
     u.uCol.value.set(amb.x * 0.9 + sc.r * si, amb.y * 0.9 + sc.g * si, amb.z * 0.9 + sc.b * si);
     this.drops.geometry.instanceCount = Math.round(this.maxDrops * this.density * Math.min(1, amount * 1.3));
     this.splashes.geometry.setDrawRange(0, Math.round(this.maxSplash * this.density * amount));

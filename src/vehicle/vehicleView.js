@@ -74,7 +74,7 @@ export class VehicleView {
       let dy;
       if (sun.target) { const len = sun.position.distanceTo(sun.target.position) || 1; dy = (sun.position.y - sun.target.position.y) / len; }
       else dy = sun.position.y / (sun.position.length() || 1);
-      a += sun.intensity * Math.max(0, dy) * (1 - darkness);
+      a += sun.intensity * (sun.userData.vis ?? 1) * Math.max(0, dy) * (1 - darkness);
     }
     return a;
   }
@@ -136,5 +136,6 @@ export class VehicleView {
 
     // reflections: scale the (deliberately dim) scene environment up for paint and glass
     shared.uEnvSpec.value = 1.0 + 0.6 * dark;
+    if (env.inside !== undefined) shared.uInside.value = env.inside ? 1 : 0;   // the player's car only says so
   }
 }

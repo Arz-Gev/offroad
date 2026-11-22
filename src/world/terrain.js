@@ -12,6 +12,7 @@ import { lakeShape, lakeE } from './worldgen.js';
 
 export const MAP_SIZE = 1024;
 export const CELL = 0.5;
+export const LIGHT_N = MAP_SIZE / 4;   // the light map's texels across (windowBake.js makeLightMap, render/gi.js)
 export const N = Math.round(MAP_SIZE / CELL); // cells per side
 export const SURF = { grass: 0, dirt: 1, rock: 2, mud: 3, sand: 4 };
 export const SURF_LIST = [SURFACES.grass, SURFACES.dirt, SURFACES.rock, SURFACES.mud, SURFACES.sand];

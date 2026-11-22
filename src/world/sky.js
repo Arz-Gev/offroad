@@ -42,11 +42,14 @@ void main() {
 
 const DOME_FRAG = /* glsl */`
 uniform sampler2D tLUT, tNoise;
-uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround;
+uniform vec3 uSunDir, uMoonDir, uSunDisc, uMoonDisc, uGround, uBounce;
 uniform vec3 uCloudLit, uCloudAmb, uOvercastCol, uHazeCol;
-uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase, uOvercast;
+uniform float uTime, uCover, uStars, uSunSize, uCloudAlpha, uMoonPhase, uOvercast, uLowFill;
 uniform vec2 uWind;
 uniform vec3 uCamPos;
+#ifdef NO_SUN
+uniform float uHoriz[32];   // the land's skyline round the truck (render/skyline.js skylineRound)
+#endif
 varying vec3 vDir;
 
 vec3 lut(vec3 d) {
@@ -88,9 +91,21 @@ void main() {
   vec3 col = lut(d);
   float up = d.y;
 
+  #ifdef NO_SUN
+  // the light probe: below the horizon lies the land, lit by the sun and the sky (uBounce: the light it sends back
+  // up, render/gi.js). With a second sky down there everything was lit from below as brightly as from above. At a low
+  // sun and by night the land does glow like the horizon over it (uLowFill: seen at a grazing angle it mirrors that
+  // sky, and what stands up from it is lit side on): that fill is the dusk's and the night's look.
+  // The land ends at its skyline, not at the level horizon: hills round the truck hide the sky behind them
+  float hzA = fract(atan(d.x, d.z) / 6.2831853) * 32.0;
+  int hz0 = int(hzA) % 32;
+  float hz = mix(uHoriz[hz0], uHoriz[(hz0 + 1) % 32], hzA - floor(hzA));
+  col = mix(col, uBounce + lut(normalize(vec3(d.x, 0.0, d.z))) * uLowFill, smoothstep(0.0, -0.05, up - hz));
+  #else
   // below the horizon (seen only from high ground, past the end of the vista): the horizon's haze, the colour the far
   // land fades into (the world goes on; a dark band there read as the edge of it)
   col = mix(col, lut(normalize(vec3(d.x, 0.0, d.z))) * 0.92 + uGround * 0.2, smoothstep(0.0, -0.08, up));
+  #endif
   // overcast (weather.js): the sky goes a soft grey, brightest overhead (it also greys the light probe); low down it
   // takes the haze's colour, the one the far hills fade to, so the ridges sink into it instead of standing out
   if (uOvercast > 0.0) col = mix(col, mix(uHazeCol, uOvercastCol * (0.6 + 0.4 * max(up, 0.0)), smoothstep(0.0, 0.3, up)), uOvercast * smoothstep(-0.12, 0.0, up));
@@ -203,10 +218,10 @@ export class Sky {
     this.uniforms = {
       tLUT: { value: this.lut.texture }, tNoise: { value: this.noise },
       uSunDir: this.lutMat.uniforms.uSunDir, uMoonDir: this.lutMat.uniforms.uMoonDir,
-      uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) },
+      uSunDisc: { value: new THREE.Vector3() }, uMoonDisc: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3(0.02, 0.02, 0.018) }, uBounce: { value: new THREE.Vector3(0.05, 0.05, 0.03) },
       uCloudLit: { value: new THREE.Vector3(1, 1, 1) }, uCloudAmb: { value: new THREE.Vector3(0.3, 0.33, 0.4) },
       uOvercast: { value: 0 }, uOvercastCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) }, uHazeCol: { value: new THREE.Vector3(0.3, 0.3, 0.32) },
-      uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 },
+      uTime: { value: 0 }, uCover: { value: 0.45 }, uStars: { value: 0 }, uSunSize: { value: 0.0125 }, uCloudAlpha: { value: 1 }, uMoonPhase: { value: 0.6 }, uLowFill: { value: 0 }, uHoriz: { value: new Float32Array(32) },
       uWind: { value: new THREE.Vector2(0.0011, 0.0004) }, uCamPos: { value: new THREE.Vector3() },
     };
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
