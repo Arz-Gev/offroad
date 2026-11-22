@@ -3,13 +3,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { mulberry32 } from './noise.js';
 
 // Foliage: a card atlas drawn with Canvas2D at startup (needle sprays, pine tufts, birch leaves, fern
-// fronds, shrub leaves, bare twigs, blossom, broad oak leaves), and procedural tree / plant geometry that
+// fronds, shrub leaves, bare twigs, apple leaves, broad oak leaves), and procedural tree / plant geometry that
 // uses it.
 // Geometry attributes: position, normal (card normals bent outwards from the crown, so the crown shades
 // like a volume), uv (atlas), aWind (0 at the root .. 1 at the tips: how far the vertex sways).
 
 export const ATLAS = { cols: 4, rows: 3, cell: 512 };
-export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, blossom: 8, oak: 9, lavender: 10, poppy: 11 };
+export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, apple: 8, oak: 9, lavender: 10, poppy: 11 };
 
 const cellUV = (i) => {
   const c = i % ATLAS.cols, r = Math.floor(i / ATLAS.cols);
@@ -138,21 +138,13 @@ export function makeFoliageAtlas() {
     }
   });
 
-  // 8: blossom: clusters of five-petal flowers (pink, white, a little peach) over a few fresh leaves
-  cell(CELLS.blossom, () => {
-    for (let k = 0; k < 70; k++) {
-      const r = Math.sqrt(rnd()) * S * 0.42, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 24), hsl(R(85, 110), R(40, 58), R(36, 48)));
-    }
-    const pal = [[340, 70, 86], [345, 65, 80], [0, 0, 97], [330, 55, 90], [20, 75, 86], [350, 80, 76]];
-    for (let k = 0; k < 230; k++) {
-      const r = Math.pow(rnd(), 0.6) * S * 0.44, a = R(0, Math.PI * 2);
-      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, pr = R(8, 15);
-      const [h, sat, l] = pal[Math.floor(rnd() * pal.length)];
-      const rot = R(0, Math.PI * 2);
-      g.fillStyle = hsl(h, sat, l * R(0.94, 1.03));
-      for (let p = 0; p < 5; p++) { const pa = rot + p / 5 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(pa) * pr * 0.75, y + Math.sin(pa) * pr * 0.75, pr * 0.62, pr * 0.48, pa, 0, Math.PI * 2); g.fill(); }
-      g.fillStyle = hsl(48, 85, 62); g.beginPath(); g.arc(x, y, pr * 0.28, 0, Math.PI * 2); g.fill();
+  // 8: apple: small oval leaves in a dense spray, mid greens with a few fresh light ones (the small meadow trees.
+  // They stood in pink blossom once: the player found it broke the summer landscape)
+  cell(CELLS.apple, () => {
+    for (let k = 0; k < 330; k++) {
+      const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
+      const col = rnd() < 0.2 ? hsl(R(74, 92), R(40, 52), R(38, 47)) : hsl(R(92, 122), R(32, 48), R(22, 35));
+      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 25), col);
     }
   });
 
@@ -432,7 +424,7 @@ function rollFacing(dir, normal) {
 }
 
 // a broadleaf tree with a round, spreading crown: short trunk, branches fanning out and up, many cards
-// (blossom: a smaller tree in flower; oak: a big round crown of leaves)
+// (apple: a smaller round tree; oak: a big round crown of leaves)
 function buildBroadleaf(seed, H, cellIdx, crownR, branches, cardSize) {
   const rnd = mulberry32(seed);
   const R = (a, b) => a + (b - a) * rnd();
@@ -465,7 +457,7 @@ function buildBroadleaf(seed, H, cellIdx, crownR, branches, cardSize) {
   }
   return { trunk: mergeGeometries([trunk, ...sticks]), crown: mergeGeometries(cards), height: H, crownR, trunkR: rr[0], crownBase: trunkTop * 0.85 };
 }
-export const buildBlossom = (seed, H = 8) => buildBroadleaf(seed, H, CELLS.blossom, 3.6, 26, 1.7);
+export const buildApple = (seed, H = 8) => buildBroadleaf(seed, H, CELLS.apple, 3.6, 26, 1.7);
 // an oak: a short trunk forking into limbs, and a broad dome of leaf clumps. Each clump is a ball of cards whose
 // normals point out of the clump, so the crown shades as a cluster of lit domes with darker hollows between
 // (one ball of cards read flat, lit evenly; from afar the impostor bakes the same clumps). A vertex colour holds

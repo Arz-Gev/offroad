@@ -73,23 +73,27 @@ void main() {
   float l = dot(c * 0.25, vec3(0.2126, 0.7152, 0.0722));
   vec2 d = (vUv - 0.5) * vec2(1.6, 2.0);
   float w = exp(-dot(d, d) * 2.0) + 0.15;
-  gl_FragColor = vec4(log2(max(l, 1e-5)) * w, w, 0.0, 1.0);
+  // r: the log for the geometric mean (the night's metering), b: the plain value for the mean (the day's: the
+  // dark of a cabin or a wood's floor hardly moves it), capped so the sun's disc is no more than bright sky
+  gl_FragColor = vec4(log2(max(l, 1e-5)) * w, w, min(l, 3.0) * w, 1.0);
 }`;
 
 // exposure = key / average luminance, clamped to the time-of-day range, adapted over time (log space)
 const ADAPT_FRAG = /* glsl */`
 uniform sampler2D tLum, tPrev;
-uniform float uKey, uMin, uMax, uRate, uLevel, uReset, uBias, uExp, uAuto;
+uniform float uKey, uMin, uMax, uRate, uLevel, uReset, uBias, uExp, uAuto, uMean;
 varying vec2 vUv;
 void main() {
-  vec2 s = textureLod(tLum, vec2(0.5), uLevel).rg;
-  float avgLog = s.x / max(s.y, 1e-5);
+  vec3 s = textureLod(tLum, vec2(0.5), uLevel).rgb;
+  // the scene's brightness: its geometric mean (uMean 0: the night), or its plain mean (1: by day)
+  float avgLog = mix(s.x / max(s.y, 1e-5), log2(max(s.z / max(s.y, 1e-5), 1e-5)), uMean);
   // uAuto 0 = the fixed exposure uExp, 1 = eye adaptation; in between they cross-fade in log space, so the
   // exposure doesn't jump when the time of day passes through the adaptive range
   float target = log2(uExp);
   if (uAuto > 0.0) target = mix(target, clamp(log2(uKey) - avgLog + uBias, log2(uMin), log2(uMax)), uAuto);
   float prev = texture2D(tPrev, vec2(0.5)).g;
-  float v = uReset > 0.5 ? target : mix(prev, target, uRate);
+  // (the eye closes to the light faster than it opens to the dark: out of a wood into the sun is over in a moment)
+  float v = uReset > 0.5 ? target : mix(prev, target, target < prev ? min(1.0, uRate * 2.5) : uRate);
   gl_FragColor = vec4(exp2(v), v, 0.0, 1.0);
 }`;
 
@@ -289,8 +293,9 @@ uniform vec3 uShaftCol, uBowCol;
 uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
 uniform mat4 uProjInv;
 uniform mat3 uCamRot;
-uniform float uMist, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone, uGamma;
+uniform float uMist, uMistRef, uBloom, uVignette, uSat, uContrast, uTime, uBloomOn, uAOOn, uVibrance, uTone, uGamma;
 uniform vec3 uTint, uLift, uShadowCol, uHighCol, uVigCol;
+uniform vec4 uWater;      // under water: rgb the light the water scatters towards the eye, w its density (1/m; 0: above water)
 uniform vec2 uRes;
 varying vec2 vUv;
 ${FOG_APPLY_GLSL}
@@ -388,6 +393,12 @@ void main() {
       c = mix(c, b.rgb, max(t, smoothstep(0.3, 1.2, b.a) * keep));
     } else if (t > 0.0) c = mix(c, dofAt(coc).rgb, t);
   }
+  // the camera under a lake's or stream's surface: everything sinks into the water's own colour within a few
+  // metres, the red first
+  if (uWater.w > 0.0) {
+    vec3 Tw = exp(-min(fogLinZ(texture2D(tDepth, vUv).r), 300.0) * uWater.w * vec3(1.7, 0.8, 0.65));
+    c = c * Tw + uWater.rgb * (1.0 - Tw);
+  }
   c *= ex;
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
@@ -402,7 +413,9 @@ void main() {
   }
   // mist (a diffusion filter): light spills softly from bright areas into the darker ones beside them
   // (sky into the crowns, sunlit grass into the shade); what is dark all around stays dark
-  if (uMist > 0.0) c += uMist * max(texture2D(tMist, vUv).rgb * 0.2 - c, 0.0);
+  // (less of it where the eye has opened up to a dark place, a wood: the adaptation has lifted the shade already, and
+  // both together were a milky veil)
+  if (uMist > 0.0) c += uMist * min(1.0, uMistRef / ex) * max(texture2D(tMist, vUv).rgb * 0.2 - c, 0.0);
   c = max(c * uTint + uLift, 0.0);
   c = uTone < 0.5 ? neutral(c) : uTone < 1.5 ? acesFit(c) : agxPunchy(c);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -451,7 +464,9 @@ export class RenderPipeline {
     this.params = {
       bloom: true, bloomStrength: 0.06, bloomThreshold: 1.6, bloomKnee: 0.6, bloomRadius: 1.0,
       mist: 0,   // the diffusion glow (0..1), see COMPOSITE_FRAG
+      mistRef: 1e6,   // the exposure the mist is at full strength up to (the day's open-land exposure; none: 1e6)
       exposure: 0.72, autoExposure: false, auto: 1, key: 0.18, minExposure: 0.72, maxExposure: 0.72, adaptRate: 1.5, exposureBias: 0,
+      meterMean: 0,   // eye adaptation meters the scene's geometric mean (0) or its plain mean (1), see LUM_FRAG
       vignette: 0.25, gamma: 1, saturation: 1.0, contrast: 0.12, tint: new THREE.Color(1, 1, 1), lift: new THREE.Color(0, 0, 0),
       shadowCol: new THREE.Color(0, 0, 0), highCol: new THREE.Color(1, 1, 1), vigCol: new THREE.Color(0, 0, 0), vibrance: 0,
       tone: 1,   // tone curve: 0 Khronos neutral, 1 ACES (the look's), 2 AgX punchy
@@ -462,6 +477,9 @@ export class RenderPipeline {
       // depth of field (far field): strength (0: off; 1 = a blur radius of 0.6 % of the picture's height far away),
       // where it starts (m), how slowly it grows with distance (m)
       dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10, dofMiniSlope: 4,
+      // under water (main.js: how far the camera is under a surface, 0..1 over the first centimetres): the water's
+      // colour, the light that reaches into it (environment.js), its density (1/m)
+      underwater: 0, waterCol: new THREE.Color(0.02, 0.072, 0.076), waterLight: new THREE.Vector3(1, 1, 1), waterDensity: 0.3,
     };
     this.time = 0;
     this.resetExposure = true;
@@ -488,13 +506,14 @@ export class RenderPipeline {
     this.upMat = mat(UP_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uRadius: { value: 1 } },
       { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, transparent: true });
     this.lumMat = mat(LUM_FRAG, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
-    this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 }, uExp: { value: 1 }, uAuto: { value: 0 } });
+    this.adaptMat = mat(ADAPT_FRAG, { tLum: { value: this.lum.texture }, tPrev: { value: null }, uKey: { value: 0.18 }, uMin: { value: 1 }, uMax: { value: 1 }, uRate: { value: 0.05 }, uLevel: { value: 7 }, uReset: { value: 1 }, uBias: { value: 0 }, uExp: { value: 1 }, uAuto: { value: 0 }, uMean: { value: 0 } });
     this.compMat = mat(COMPOSITE_FRAG, {
-      tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null }, tMist: { value: this.mistMips[0].texture }, uMist: { value: 0 },
+      tScene: { value: this.hdr.texture }, tBloom: { value: this.mips[0].texture }, tExposure: { value: null }, tMist: { value: this.mistMips[0].texture }, uMist: { value: 0 }, uMistRef: { value: 1e6 },
       tDepth: { value: this.hdr.depthTexture }, uBow: { value: new THREE.Vector4() }, uBowCol: { value: new THREE.Vector3() }, uProjInv: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uGamma: { value: 1 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
+      uWater: { value: new THREE.Vector4() },
     });
     this.aoMat = mat(AO_FRAG, {
       tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
@@ -649,7 +668,7 @@ export class RenderPipeline {
       this.lumMat.uniforms.uTexel.value.set(1 / 128, 1 / 128);
       this.pass(this.lumMat, this.lum);
       am.uMin.value = P.minExposure; am.uMax.value = P.maxExposure; am.uKey.value = P.key; am.uBias.value = P.exposureBias;
-      am.uAuto.value = P.auto;
+      am.uAuto.value = P.auto; am.uMean.value = P.meterMean;
     } else {
       am.uMin.value = am.uMax.value = P.exposure; am.uBias.value = 0;
       am.uAuto.value = 0;
@@ -734,8 +753,9 @@ export class RenderPipeline {
     cu.uFogOn.value = fogOn ? 1 : 0;
     if (fogOn) { cu.tFog.value = this.fog.texture; cu.uFogSize.value.set(this.fog.width, this.fog.height); }
     cu.uBloom.value = P.bloomStrength;
-    cu.uMist.value = mistOn ? P.mist : 0;
+    cu.uMist.value = mistOn ? P.mist : 0; cu.uMistRef.value = P.mistRef;
     cu.uBow.value.copy(P.bow); cu.uBowCol.value.copy(P.bowCol);
+    cu.uWater.value.set(P.waterCol.r * P.waterLight.x, P.waterCol.g * P.waterLight.y, P.waterCol.b * P.waterLight.z, P.waterDensity * P.underwater);
     if (P.bow.w > 0) { cu.uProjInv.value.copy(this.camera.projectionMatrixInverse); cu.uCamRot.value.setFromMatrix4(this.camera.matrixWorld); }
     cu.uVignette.value = P.vignette; cu.uGamma.value = P.gamma; cu.uSat.value = P.saturation; cu.uContrast.value = P.contrast;
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);

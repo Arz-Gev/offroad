@@ -5,6 +5,7 @@ import { bakeGroundLayers, LAYER, LAYER_COUNT, LAYER_TILE } from './textures.js'
 import { PAT, PAT_PERIOD, ppf, pp, ORIGIN } from './origin.js';
 import { makeSimplex2D, fbm } from './noise.js';
 import { cloudDFGTexture, CLOUD_DFG_GLSL, lightsFragmentBeginDFG } from './clouds.js';
+import { setLightMap } from '../render/gi.js';
 // three's DFG table (the source of its dfgLUT), for the terrain's copy of the cloud coverage (clouds.js)
 import DFG_SRC from 'three/src/renderers/shaders/DFGLUTData.js?raw';
 
@@ -123,6 +124,7 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
   const floatLinear = !!renderer.extensions.has('OES_texture_float_linear');
   const tex = {};
   for (const step of windowTextureSteps(renderer, terrain, win, floatLinear, tex)) step();
+  setLightMap(renderer, win.light);   // the indirect light's map of this window (render/gi.js)
   const DN = win.groundN;
 
   // ---- patch geometry: (P+1)^2 grid of integer coordinates, Rapier's diagonal (x1,z0)-(x0,z1)
@@ -346,7 +348,7 @@ void triAt(float l, float t, vec3 p, vec3 n0, vec3 w, float nk, out vec4 alb, ou
 // - the meadow: golden on dry ridges and sunny slopes, deep green down the drainage lines, in hollows and by water,
 //   with patches of clover (blue-green) and of thin, sun-bleached grass
 // - soils: warmer or greyer by region, darker where damp; scree takes the colour of the rock above it
-// - forest floor: mossy where damp; under broadleaves a warmer litter, under blossom a pink one
+// - forest floor: mossy where damp; under broadleaves a warmer litter
 vec3 rockTone(float k, float t);
 vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree, float litter) {
   if (l < 0.5) {
@@ -358,7 +360,7 @@ vec3 tintOf(float l, float lush, vec4 nzP, float mac2, float kind, float kScree,
   if (l < 3.5 || l > 5.5) return mix(vec3(1.08, 0.98, 0.88), vec3(0.9, 0.95, 1.02), mac2) * (1.08 - 0.22 * lush) * (l > 2.5 && l < 3.5 ? 0.95 : 1.0);
   if (l < 4.5) return mix(vec3(1.0), rockTone(kind, 0.55) / max(uAvg[4], vec3(0.02)), kScree * 0.75);
   return mix(vec3(1.0), vec3(0.75, 0.95, 0.6), smoothstep(0.55, 0.85, lush + (nzP.b - 0.5) * 0.5) * 0.6)
-    * mix(vec3(1.0), mix(vec3(1.15, 0.98, 0.78), vec3(1.2, 0.98, 1.0), step(0.75, litter)), step(0.25, litter));
+    * mix(vec3(1.0), vec3(1.15, 0.98, 0.78), step(0.25, litter));
 }
 // ---- rock. Kinds (k: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate) differ in colour, bedding and weathering.
 // light and dark tones of each kind (linear)
@@ -490,7 +492,7 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav0) * 0.25 + sa.g * 0.3 + uWet * 0.2
     + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
   moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (blot.a - 0.5) * 0.3);
-  vec3 mossCol = mix(vec3(0.045, 0.09, 0.018), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);
+  vec3 mossCol = mix(vec3(0.08, 0.13, 0.035), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);   // (darker, a mossy ledge in shade read as a band of black paint)
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
   nW = normalize(mix(nW, n0, moss * 0.5));
@@ -791,12 +793,14 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   }
   c *= 1.0 - 0.3 * pud;
   gRough = mix(gRough, 0.03, pud);
-  // ambient occlusion: the sky the terrain hides, canopy, texture cavities (gCav also shadows the direct light:
-  // microshadows)
+  // ambient occlusion: the sky the terrain hides, texture cavities (gCav also shadows the direct light:
+  // microshadows). The canopy's shade is the indirect light's (render/gi.js: the open sky, and the ground's own
+  // colour for the light bounced onto slopes and faces from the ground around)
   gCav = mix(nn.a, 1.0, pud);
-  gAO = gd.r * mix(1.0, gCav, 0.8) * mix(1.0, vis * vis, 0.85);
+  gAO = mix(1.0, gCav, 0.8) * mix(1.0, vis * vis, 0.85);
   gN = normalize(mix(nW, nG, pud * 0.9));
   diffuseColor.rgb *= c;
+  giLocal = vec4(mix(giGround.rgb, diffuseColor.rgb, 0.5), gd.r);
 }`)
 
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = gRough;')
@@ -806,12 +810,6 @@ vec3 normal = normalize((viewMatrix * vec4(gN, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;`)
       .replace('#include <normal_fragment_maps>', '')
       .replace('#include <aomap_fragment>', `
-#if NUM_SUN_LIGHTS > 0
-// light bounced off the sunlit ground onto slopes and rock faces (the sky probe has no ground below it): warm, by how
-// far the surface turns from the sky; without it a face in shade was lit by the blue sky alone
-reflectedLight.indirectDiffuse += diffuseColor.rgb * sunLights[0].color * vec3(1.0, 0.85, 0.65)
-  * (max((vec4(sunLights[0].direction, 0.0) * viewMatrix).y, 0.0) * 0.25 * (1.0 - gN.y) * 0.5 * RECIPROCAL_PI);
-#endif
 reflectedLight.indirectDiffuse *= gAO;
 reflectedLight.indirectSpecular *= gAO;
 #if NUM_SUN_LIGHTS > 0
@@ -826,13 +824,13 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_DFG: '', ...(opts.farLand ? { FAR_LAND: '' } : {}), POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_DFG: '', GI_LOCAL: '', ...(opts.farLand ? { FAR_LAND: '' } : {}), POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v6' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v7' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);
@@ -905,6 +903,7 @@ reflectedLight.indirectSpecular *= gAO;
       uniforms.tData.value = view.dataTex = next.dataTex;
       uniforms.tLand.value = view.landTex = next.landTex;
       view.groundData = next.win.groundData; view.landData = next.win.landData;
+      setLightMap(renderer, next.win.light);
       mins = next.win.pyramid.mins; maxs = next.win.pyramid.maxs; rocks = next.win.pyramid.rocks;
       uniforms.uDipOff.value = ORIGIN.x * 0.035 - ORIGIN.z * 0.02;   // the rock beds' dip (shader: dip), in the local frame
       for (const L of lists) L.sent.fill(NaN);

@@ -86,6 +86,8 @@ await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorag
 await send('Page.navigate', { url: (process.env.URL || 'http://localhost:5181/') + '?t=' + Date.now() + (process.env.PARAMS ? '&' + process.env.PARAMS : '') });
 await evaluate(`new Promise((res, rej) => { (function poll() { const l = document.getElementById('loading'); if (window.game && (!l || l.classList.contains('done'))) return res(1); if (l && l.classList.contains('error')) return rej(new Error(l.textContent)); setTimeout(poll, 200); })(); })`);
 await new Promise(r => setTimeout(r, 6000));
+// SET='{"gBloom":false}': settings changed after the load (a graphics option makes the preset Custom, as in the menu)
+if (process.env.SET) await evaluate(`(() => { const s = ${process.env.SET}; for (const k in s) game.settings.set(k, s[k], { silent: true }); })()`);
 await evaluate(`(() => { document.getElementById('hud').style.display = 'none'; })()`);
 for (const name of names) {
   const v = VIEWS[name];

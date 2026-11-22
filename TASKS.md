@@ -19,7 +19,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 | 📋 Suspension and wheel arches: model + animation | Large | Axles, springs and shocks are drawn and follow the physics, and they stretch with the lift and tyre size from the tuning panel; the wheel arches and the links are still the stock model. Ask the player what's still missing before starting. |
 | 📋 Engine sound per engine | Medium | Every engine and every car uses the V8 sound; diesels need their own. |
 | 📋 River is badly built | Medium | Later. Most of it floats in the air and is invisible from below: the water doesn't follow the terrain, the bed isn't carved. |
-| 📋 Endless map: load time and swap hitch | Medium | World > Map > Endless (`DEVNOTES` → Maps). It loads in ~7-10 s (Classic ~3 s) and each window swap costs one 20-30 ms frame about every 10 s at speed. Its fps has only been measured headless, not in a visible window. Rock walls on cliffs can change pattern about every 2 km. |
+| 📋 Endless map: load time and swap hitch | Medium | World > Map > Endless (`DEVNOTES` → Maps). It loads in ~7-10 s (Classic ~5.5 s) and each window swap costs one 20-30 ms frame about every 10 s at speed. Its fps has only been measured headless, not in a visible window. Rock walls on cliffs can change pattern about every 2 km. |
 
 ## Known gaps (not asked for yet)
 
@@ -28,8 +28,10 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 - BTR-80: no 30 mm BTR-82A turret, no damage model, no swimming; the muzzle flash light casts no shadows.
 - Multiplayer: friends' trucks have no engine sound and no headlight beams; friends on some mobile or work networks can't connect (needs a relay).
 - Driving: the rock garden can wedge the chassis on boulders (fair, but watch for frustration); corner rollovers at 60–70 km/h are plausible (threshold ≈ 0.7 g vs dirt μ 0.72) but may feel harsh.
+- Lighting: the indirect light is an estimate by place with no occlusion (`DEVNOTES` → Indirect light): the truck's underside and the hut's inside are lit as open ground; nothing bounces off the truck's own paint.
+- Water: the truck drives on the bed under any depth (the view goes under water, the engine and the handling don't notice).
 - World: no terrain or trees in water reflections, undergrowth casts no shadow, no ramp into the quarry, no hut interior, no snow on the near mountains.
-- Ideas: water and fording (the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, hill descent control, damage model, force feedback.
+- Ideas: fording (drag, a wading depth: the snorkel is decorative), winch, recovery points, finer tyre tracks and deformable mud, hill descent control, damage model, force feedback.
 - WebGL speed (after the WebGL perf PR): the 120 Hz screen shows WebGL at 60 fps unless a frame fits in 8.3 ms (High meadow is at 8.8). What's left costs the look, so it needs the player: distant trees' impostors in the near shadow cascade (~0.9 ms in the forest; dropping them loses far trees' shadows on near ground at low sun), the car glass drawn in two passes (~0.1 ms CPU; one pass may sort differently). The terrain shader (~3 ms) is the largest single cost. Not measured on Windows (the car batching was kept for ANGLE on D3D11, where a draw costs more).
 
 ## Parked

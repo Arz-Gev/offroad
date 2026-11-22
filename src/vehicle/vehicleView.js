@@ -136,5 +136,6 @@ export class VehicleView {
 
     // reflections: scale the (deliberately dim) scene environment up for paint and glass
     shared.uEnvSpec.value = 1.0 + 0.6 * dark;
+    if (env.inside !== undefined) shared.uInside.value = env.inside ? 1 : 0;   // the player's car only says so
   }
 }

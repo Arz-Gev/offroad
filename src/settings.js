@@ -58,6 +58,8 @@ export const DEFAULTS = {
   solidTrucks: false,       // multiplayer: friends' trucks are solid (off: ghosts)
 };
 
+const KEEP_ON_RESET = ['car', 'map', 'name'];
+
 // saved games may still hold the old preset names
 const OLD_TIMES = { day: 13, dusk: 19.5, night: 23 };
 
@@ -135,5 +137,7 @@ export class Settings {
   onChange(f) { this.subs.push(f); }
   applyAll(opts = {}) { for (const k in this.v) for (const f of this.subs) f(k, this.v[k], { silent: true, ...opts }); }
   save() { storage.set(KEY, JSON.stringify(this.v)); }
-  reset() { for (const k in DEFAULTS) this.set(k, DEFAULTS[k], { silent: true, reset: true }); }
+  // Reset in the menu: the options go back, the game being played stays (the car and map need a restart to
+  // change, and the name is the player's own)
+  reset() { for (const k in DEFAULTS) if (!KEEP_ON_RESET.includes(k)) this.set(k, DEFAULTS[k], { silent: true, reset: true }); }
 }

@@ -81,7 +81,7 @@ function placeTrees(terrain, dims) {
     trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi });
   }
 
-  // lone trees out in the open meadows: big oaks on their own, trees in blossom alone or in little groups
+  // lone trees out in the open meadows: big oaks on their own, apple trees alone or in little groups
   // (away from the forest, trails, water and each other)
   {
     const OCC = 6, ON = Math.ceil(MAP_SIZE / OCC), occ = new Uint8Array(ON * ON);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { installCascadeShadowChunks } from './cascadeShadow.js';
 import { cloudUniforms } from '../world/clouds.js';
+import { installGI } from './gi.js';
 
 // Global shader-chunk patches, installed once before any material compiles.
 // 1. Atmosphere: three's fog chunks become exponential height fog plus aerial perspective, coloured by
@@ -10,6 +11,7 @@ import { cloudUniforms } from '../world/clouds.js';
 // 2. Lights: point and spot lights skip shadow lookups and the BRDF where they contribute nothing
 //    (off, outside the cone, out of range). Without it every lit pixel paid for all the truck's lamps
 //    even by day (~5 ms at 3360x1890 on an M1 Pro).
+// 3. Indirect light (gi.js): the sky, the ground's bounce and the canopy's scatter, by place.
 
 export const ATMO = {
   // xyz: direction towards the sun (or the moon at night), w: height-fog falloff (1/m)
@@ -145,6 +147,7 @@ export function installShaderPatches() {
   C.fog_pars_fragment = FOG_PARS_FRAGMENT;
   C.fog_fragment = FOG_FRAGMENT;
   installCascadeShadowChunks();
+  installGI();
   // built-in materials with fog get the shared atmosphere uniforms
   for (const k in THREE.ShaderLib) {
     const u = THREE.ShaderLib[k].uniforms;

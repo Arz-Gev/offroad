@@ -16,7 +16,8 @@ float tk_noise(vec3 x) {
 export const shared = {
   uEnvSpec: { value: 1.0 },
   uDirt: { value: 1.0 },
-  uCabinAO: { value: 1.0 },
+  uCabinAO: { value: 2.2 },   // the cabin's light against the materials' own `ao` (the light through the glass on every side)
+  uInside: { value: 0.0 },   // 1: the camera is in the cabin (VehicleView)
 };
 
 // opts: dirt (0..1 how much this material collects dirt), env (use uEnvSpec), ao (cabin occlusion), grain
@@ -28,6 +29,7 @@ function patch(mat, opts) {
     sh.uniforms.uEnvSpec = shared.uEnvSpec;
     sh.uniforms.uDirt = shared.uDirt;
     sh.uniforms.uCabinAO = shared.uCabinAO;
+    sh.uniforms.uInside = shared.uInside;
     const needPos = dirt > 0 || grain > 0;
     if (needPos) {
       sh.vertexShader = sh.vertexShader
@@ -38,6 +40,7 @@ function patch(mat, opts) {
 uniform float uEnvSpec;
 uniform float uDirt;
 uniform float uCabinAO;
+uniform float uInside;
 ${needPos ? 'varying vec3 vTkPos;\nvarying vec3 vTkNrm;' : ''}
 ${NOISE}`);
     if (dirt > 0) {
@@ -89,18 +92,23 @@ float tkDirt;
   clearcoatRadiance *= uEnvSpec * ${(+env).toFixed(3)};
 #endif
 `;
-    if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance *= uCabinAO * ${(+ao).toFixed(3)}; radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
+    // (the cabin's light is the sky's, the land's and the bonnet's mixed through the glass: mostly white. In the sky's
+    // own blue the dark trim read navy)
+    if (ao) post += `irradiance *= uCabinAO * ${(+ao).toFixed(3)}; iblIrradiance = mix(iblIrradiance, vec3(dot(iblIrradiance, vec3(0.2126, 0.7152, 0.0722))), 0.7) * (uCabinAO * ${(+ao).toFixed(3)}); radiance *= uCabinAO * ${(+ao).toFixed(3)};\n`;
     if (post) frag = frag.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${post}`);
+    if (ao) frag = '#define GI_CABIN\n' + frag.replace('#include <lights_fragment_begin>', 'giCabin = 1.0;   // the cabin\'s light (render/gi.js)\n#include <lights_fragment_begin>');
     if (glass) {
       // A closed slab (two caps): drawing both attenuated the view twice (0.26^2 = 7%: opaque blue-black),
       // so only the viewer-facing cap is drawn. Premultiplied output: the tint is attenuated by alpha,
-      // reflections are not; alpha rises at grazing angles (Fresnel).
+      // reflections are not; alpha rises at grazing angles (Fresnel). Seen from inside the cabin (uInside) the
+      // glass would mirror the dark cabin, which the light probe does not have: the sky it mirrored instead lay
+      // over the whole view as a grey veil, so in there the reflection all but goes and the glass stays clear.
       frag = frag
         .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (!gl_FrontFacing) discard;')
         .replace('#include <opaque_fragment>', `float tkNV = abs(dot(normalize(vViewPosition), normal));
 float tkFr = pow(1.0 - tkNV, 3.0);
-float tkA = mix(diffuseColor.a, 1.0, tkFr * 0.55);
-gl_FragColor = vec4( totalDiffuse * tkA + totalSpecular + totalEmissiveRadiance, tkA );`)
+float tkA = mix(diffuseColor.a, 1.0, tkFr * 0.55 * (1.0 - 0.75 * uInside));
+gl_FragColor = vec4( totalDiffuse * tkA + totalSpecular * (1.0 - 0.94 * uInside) + totalEmissiveRadiance, tkA );`)
         .replace('#include <fog_fragment>', `#ifdef USE_FOG
   #ifdef FOG_EXP2
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
@@ -139,11 +147,12 @@ export function createMaterials() {
     glassClear: std({ color: 0x0c1418, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true }, { env: 1.6, glass: true }),
     glassDark: std({ color: 0x06080a, roughness: 0.05, metalness: 0.0 }, { env: 1.6 }),
     mirror: std({ color: 0x646a70, roughness: 0.02, metalness: 1.0 }, { env: 2.0 }),
-    // interior (darkened ambient: the cabin hides most of the sky)
-    dash: std({ color: 0x232427, roughness: 0.74, metalness: 0.0 }, { ao: 0.5, grain: 0.4 }),
-    dashSoft: std({ color: 0x2c2d30, roughness: 0.88, metalness: 0.0 }, { ao: 0.5, grain: 0.25 }),
+    // interior (`ao` x uCabinAO: the cabin hides most of the sky, the glass on every side lets a good half back in;
+    // black trim is a dark grey, some 2-3 % of the light: at under 1 % the dash and wheel were a black hole in daylight)
+    dash: std({ color: 0x2a2b2e, roughness: 0.74, metalness: 0.0 }, { ao: 0.5, grain: 0.4 }),
+    dashSoft: std({ color: 0x333437, roughness: 0.88, metalness: 0.0 }, { ao: 0.5, grain: 0.25 }),
     seat: std({ color: 0x34363a, roughness: 0.95, metalness: 0.0 }, { ao: 0.5 }),
-    seatTrim: std({ color: 0x1c1d1f, roughness: 0.75, metalness: 0.0 }, { ao: 0.55 }),
+    seatTrim: std({ color: 0x26272a, roughness: 0.75, metalness: 0.0 }, { ao: 0.55 }),
     headliner: std({ color: 0xa9a69f, roughness: 0.96, metalness: 0.0 }, { ao: 0.55 }),
     carpet: std({ color: 0x18181a, roughness: 1.0, metalness: 0.0 }, { ao: 0.45 }),
     cabinPaint: phys({ color: 0x9c1710, roughness: 0.4, metalness: 0.0, clearcoat: 0.3, clearcoatRoughness: 0.2 }, { ao: 0.55 }),

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
-import { MAP_SIZE, CELL, N, SURF, FAR_SIZE } from './terrain.js';
+import { MAP_SIZE, CELL, N, SURF, FAR_SIZE, LIGHT_N } from './terrain.js';
 import { makeSimplex2D, mulberry32, fbm, smoothstep } from './noise.js';
 import { rngAt, hash3 } from './worldgen.js';
 
@@ -122,7 +122,7 @@ export function makeGroundData(terrain, splat, hgt) {
 // Land data at 1 m, from the shape of the ground (texel x, z at z * DN + x):
 //   r lushness: 0 dry, golden (ridges, sunny slopes, high ground) .. 1 deep green (drainage lines, hollows, by water)
 //   g scree: debris rolled down from the rock faces, fanning out below them and coming to rest where the slope eases
-//   b litter under the trees (written by the trees below): 0 needles, 0.5 leaves, 1 petals
+//   b litter under the trees (written by the trees below): 0 needles, 0.5 leaves
 //   a rock kind: 0 limestone, 1/3 granite, 2/3 sandstone, 1 slate
 // The flow is worked out inside the window only, so the upstream area of a long valley is cut off at the window's
 // edge; it only feeds a smooth "drainage line" term that saturates (sst 5.5..11 of log2 cells) well inside a window.
@@ -314,7 +314,7 @@ function forestCell(gi, gj, ox, oz, ctx) {
   const s = 0.75 + rnd() * 0.5;
   return { x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi, h: rnd(), sub: hash3(gi, gj, 3311) < SUB_SHARE ? 1 : 0 };
 }
-// one 36 m meadow cell's lone tree or group (oaks, trees in blossom), all in the far share
+// one 36 m meadow cell's lone tree or group (oaks, apple trees), all in the far share
 function meadowCell(ci, cj, ox, oz, ok, h) {
   const C = 36, rnd = rngAt(ci, cj, 3407), out = [];
   if (rnd() > 0.3) return out;
@@ -357,7 +357,7 @@ function placeTrees(terrain, dims, gd, ld) {
   }
   const nForestTrees = trees.length;
 
-  // lone trees out in the open meadows: big oaks on their own, trees in blossom alone or in little groups (one
+  // lone trees out in the open meadows: big oaks on their own, apple trees alone or in little groups (one
   // chance per 36 m cell; away from the forest, trails, water and sites)
   {
     const OCC = 8, ON = Math.ceil(MAP_SIZE / OCC), occ = new Uint8Array(ON * ON);
@@ -408,11 +408,11 @@ function placeTrees(terrain, dims, gd, ld) {
 }
 
 // the ground data under the trees (trees: { x, z, s, v } local): forest floor under the crowns, less grass, a little
-// darker; the litter (needles, leaves or petals) into the land data
+// darker; the litter (needles or leaves) into the land data
 export function forestFloor(trees, dims, gd, ld) {
   for (const t of trees) {
     const v = dims[t.v];
-    const litter = v.kind === 'blossom' ? 255 : v.kind === 'spruce' || v.kind === 'pine' ? 0 : 128;
+    const litter = v.kind === 'spruce' || v.kind === 'pine' ? 0 : 128;
     const R = v.crownR * t.s * (v.kind === 'birch' ? 0.8 : 1.0) + 1.0;
     const cx = Math.round(t.x + HALF), cz = Math.round(t.z + HALF);
     const ri = Math.ceil(R);
@@ -423,7 +423,7 @@ export function forestFloor(trees, dims, gd, ld) {
       if (d > 1) continue;
       const o = (z * DN + x) * 4;
       const w = 1 - d * d;
-      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : v.kind === 'blossom' || v.kind === 'oak' ? 0.5 : 1.0;
+      const canopy = v.kind === 'dead' ? 0.3 : v.kind === 'birch' ? 0.65 : v.kind === 'apple' || v.kind === 'oak' ? 0.5 : 1.0;
       if (255 * w * canopy >= gd[o + 1]) ld[o + 2] = litter;
       gd[o + 1] = Math.min(255, Math.max(gd[o + 1], 255 * w * canopy));
       gd[o + 3] = Math.max(0, gd[o + 3] - 255 * w * canopy * 0.55);
@@ -662,6 +662,37 @@ export function grassPyramid(groundData) {
 }
 
 // a window as plain data (terrain: its terrain.js, b: its bake)
+// The light map at 4 m (render/gi.js: the indirect light at a place): rgb the colour of the ground around, which the
+// light bounced off it takes (square-root encoded: the colours are dark); a how open the sky is under the trees (the
+// ground data's canopy shade). Both a little blurred: light gathers from a few metres round.
+const LIGHT_COL = {
+  grass: [0.085, 0.15, 0.045], dry: [0.22, 0.22, 0.09], soil: [0.17, 0.12, 0.075], forest: [0.07, 0.062, 0.035],
+  rock: [0.2, 0.19, 0.17], sand: [0.25, 0.22, 0.18], dirt: [0.21, 0.13, 0.075], mud: [0.1, 0.07, 0.045], water: [0.03, 0.07, 0.09],
+};
+export function makeLightMap(splat, gd, ld) {
+  const G = LIGHT_N, f = new Float32Array(G * G * 4), C = LIGHT_COL, c = [0, 0, 0];
+  const to = (col, k) => { c[0] += (col[0] - c[0]) * k; c[1] += (col[1] - c[1]) * k; c[2] += (col[2] - c[2]) * k; };
+  for (let gz = 0; gz < G; gz++) for (let gx = 0; gx < G; gx++) {
+    const o4 = (gz * G + gx) * 4;
+    for (let j = 1; j < 4; j += 2) for (let i = 1; i < 4; i += 2) {   // four of the cell's one-metre texels
+      const x = gx * 4 + i, z = gz * 4 + j, o = (z * DN + x) * 4, so = (Math.min(N, z * 2) * NN + Math.min(N, x * 2)) * 4;
+      const dryK = Math.max(0, Math.min(1, (0.5 - ld[o] / 255) / 0.38)) * 0.7;
+      for (let k = 0; k < 3; k++) c[k] = C.soil[k] + (C.grass[k] + (C.dry[k] - C.grass[k]) * dryK - C.soil[k]) * (gd[o + 3] / 255);
+      to(C.forest, gd[o + 1] / 255 * 0.85);
+      to(C.rock, splat[so + 2] / 255);
+      to(C.sand, Math.max(splat[so + 3], ld[o + 1]) / 255);
+      to(C.dirt, splat[so] / 255);
+      to(C.mud, splat[so + 1] / 255);
+      if (gd[o + 2] > 250) to(C.water, 1);
+      f[o4] += c[0] / 4; f[o4 + 1] += c[1] / 4; f[o4 + 2] += c[2] / 4; f[o4 + 3] += gd[o] / 1020;
+    }
+  }
+  boxBlur(f, G, 4, 1);
+  const out = new Uint8Array(G * G * 4);
+  for (let i = 0; i < out.length; i++) out[i] = Math.round(255 * Math.min(1, (i & 3) === 3 ? f[i] : Math.sqrt(f[i])));
+  return out;
+}
+
 export function windowData(t, b) {
   // trail distance 0..6 m in 8 bits (the terrain's normal bake reads it)
   const trailByte = new Uint8Array(t.trailDist.length);
@@ -672,6 +703,7 @@ export function windowData(t, b) {
     heights: t.heights, surface: t.surface, trailDist: t.trailDist, far: t.far,
     water: t.water, sites: t.sites, muds: t.muds, lakes: t.lakes,
     roads: (t.roads || []).map(r => ({ key: r.key, xs: r.path.xs, zs: r.path.zs, hs: Float64Array.from(r.hs), spur: r.spur })),
+    light: makeLightMap(b.splat, b.groundData, b.landData),
     ...b,
   };
 }

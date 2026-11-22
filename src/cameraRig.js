@@ -35,6 +35,12 @@ export class CameraRig {
     this.cam.updateMatrixWorld();
   }
 
+  // the lowest the outside cameras go: above the ground, and above the water where there is any (a truck wading
+  // deep is watched from over the surface, not from the lake bed)
+  floorAt(x, z, overGround, overWater) {
+    return Math.max(this.terrain.heightAt(x, z) + overGround, (this.terrain.waterLevelAt?.(x, z) ?? -Infinity) + overWater);
+  }
+
   cycle() {
     return this.setMode(CAM_MODES[(CAM_MODES.indexOf(this.mode) + 1) % CAM_MODES.length]);
   }
@@ -67,7 +73,7 @@ export class CameraRig {
       const yaw = this.camYaw + this.orbitYaw, pitch = 0.27 + this.orbitPitch;
       const d = this.dist;
       const desired = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d).add(target);
-      const gy = this.terrain.heightAt(desired.x, desired.z) + 0.7;
+      const gy = this.floorAt(desired.x, desired.z, 0.7, 0.35);
       if (desired.y < gy) desired.y = gy;
       if (this.first) this.smoothPos.copy(desired);
       // a little vertical lag so bumps read without shaking the view
@@ -116,10 +122,13 @@ export class CameraRig {
       this.orbitYaw -= m.dx * 0.004;
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + m.dy * 0.003, -0.4, 0.8);
       this.dist = THREE.MathUtils.clamp(this.dist * (1 + m.wheel * 0.08), 3.5, 24);
-      const hub = new THREE.Vector3(-0.78, 0.42, -1.4);
-      const yaw = -0.95 + this.orbitYaw, pitch = 0.1 + this.orbitPitch, d = 1.85;
+      // beside the front left wheel: the hub from the car's own track, front axle and tyre; the distance and the
+      // gap to the body follow the tyre's size (k = 1 on the Defender's)
+      const P = vehicle.P, R = vehicle.R, k = R / 0.4;
+      const hub = new THREE.Vector3(-P.track / 2, R + 0.02, P.axles[0].z);
+      const yaw = -0.95 + this.orbitYaw, pitch = 0.1 + this.orbitPitch, d = 1.85 * k;
       const local = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d).add(hub);
-      local.x = Math.min(local.x, -1.08);
+      local.x = Math.min(local.x, hub.x - 0.3 * k);
       cam.position.copy(local).applyQuaternion(quat).add(pos);
       const look = hub.clone().add(new THREE.Vector3(0.1, 0.05, 0.25)).applyQuaternion(quat).add(pos);
       cam.up.set(0, 1, 0).applyQuaternion(quat);
@@ -133,7 +142,7 @@ export class CameraRig {
       const target = _v2.set(0, 1.0, 0).applyQuaternion(quat).add(pos);
       const d = this.freeDist;
       const p = new THREE.Vector3(Math.sin(this.freeYaw) * Math.cos(this.freePitch) * d, Math.sin(this.freePitch) * d, Math.cos(this.freeYaw) * Math.cos(this.freePitch) * d).add(target);
-      const gy = this.terrain.heightAt(p.x, p.z) + 0.4;
+      const gy = this.floorAt(p.x, p.z, 0.4, 0.3);
       if (p.y < gy) p.y = gy;
       cam.position.copy(p);
       cam.lookAt(target);

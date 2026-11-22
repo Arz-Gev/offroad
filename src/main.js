@@ -35,6 +35,8 @@ import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { loadLog, setLoading, frame, hideLoading, showError } from './loading.js';
 import { createGraphics, GFX_KEYS } from './graphics.js';
+import { GI, airLight } from './render/gi.js';
+import { cloudShadowAt } from './world/clouds.js';
 import { createPlacement } from './placement.js';
 import { Menu } from './menu.js';
 import { Settings } from './settings.js';
@@ -106,10 +108,10 @@ async function main() {
   const undergrowth = buildUndergrowth(terrainView, trees.atlas, grass.shared.uWind);
   scene.add(undergrowth.group);
   scenery.parts.push(undergrowth);
-  const debris = buildDebris(terrain, terrainView);   // stones, leaves, cones, twigs and petals on the ground
+  const debris = buildDebris(terrain, terrainView);   // stones, leaves, cones and twigs on the ground
   scene.add(debris.group);
   scenery.parts.push(debris);
-  const life = buildLife(terrainView, env, trees);   // pollen, butterflies, fireflies, birds, petals, leaves
+  const life = buildLife(terrainView, env);   // pollen, butterflies, fireflies, birds, falling leaves
   scene.add(life.group);
   scenery.parts.push(life);
   const weather = new Weather({ env, terrainView, water });   // showers, wet ground, rainbows
@@ -131,6 +133,8 @@ async function main() {
   world.step();
   const model = await buildCarModel(car);
   scene.add(model.root);
+  // the car's box in its own frame (the root has not been moved yet): the dust's shadow of the truck
+  const carBox = (b => ({ c: b.getCenter(new THREE.Vector3()), half: b.getSize(new THREE.Vector3()).multiplyScalar(0.5) }))(new THREE.Box3().setFromObject(model.root));
   env.sun.shadow.setCar?.(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
   model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
@@ -166,13 +170,14 @@ async function main() {
   const afterPlace = () => {
     prevPos.copy(vehicle.pos); curPos.copy(vehicle.pos); prevQ.copy(vehicle.quat); curQ.copy(vehicle.quat);
     rig.first = true;
+    pipeline.resetExposure = true;   // a cut to another place: the eye is adapted to it at once (also while paused)
     game.redraw = 3;
   };
   const { teleports, nearestLocation, placeVehicle, placeWorld, teleportTo, visit, discover, recover: recoverVehicle } = createPlacement({
     RAPIER, world, terrain, vehicle, trees, props, streamer, map, spawn: spawnW, onPlaced: afterPlace, say: (key, html, kind, t) => hud.toast(html, { kind, t, key }) });
   const recover = () => { recoverVehicle(); say('place', 'Recovered', 'good'); };
 
-  const game = { map, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE };
+  const game = { map, hooks, gunnery, scenery, grass, trees, water, undergrowth, life, weather, props, terrainView, streamer, ORIGIN, placeWorld, visit, debris, pipeline, bloom: pipeline.params, tracks, dust, RAPIER, world, terrain, vehicle, model, view, rig, env, input, hud, audio, settings, renderer, scene, camera, placeVehicle, teleports, tuning, colliderView, touch, paused: false, redraw: 0, stepsPerFrame: 0, autopilot: null, loadLog, THREE, gi: GI };
   window.game = game;
 
   const mp = new Multiplayer({
@@ -213,6 +218,7 @@ async function main() {
     Object.assign(terrain, t);   // every system holds this one object: it now reads the new window
     terrain.collider = job.collider;
     lap();
+    env.soften(); env.dirty = true;   // the land's average colour is the light probe's ground (render/gi.js)
     terrainView.applyWindow(job.tv.next); lap(); trees.applyWindow(job.tr.next); lap(); props.applyWindow(job.pr.next); lap(); water.applyWindow(job.wa.next);
     grass.applyWindow(job.gr.next); lap();
     // the colliders round the truck, and a step so the scene queries see them (an almost zero one: nothing moves)
@@ -238,12 +244,18 @@ async function main() {
   // ---------------------------------------------------------------- settings -> game
   // Every persisted setting is applied here (key, menu or startup). opts.silent: no toast.
   const k = id => capsHTML(id, input.device);
-  const setHeadlights = (h, silent) => {
+  let autoHead = false;   // the low beam came on by itself at dusk and nobody has touched the switch since
+  const setHeadlights = (h, silent, auto = false) => {
     view.lights.head = h;
+    autoHead = auto;
     if (!silent) say('head', ['Headlights off', 'Low beam', 'High beam'][h]);
   };
-  // auto headlights at dusk (env.night has hysteresis: fires once per crossing)
-  env.onNightChange = night => { if (night && view.lights.head === 0) setHeadlights(1, true); };
+  // automatic headlights (env.night has hysteresis: fires once per crossing): on at dusk, and off again at dawn
+  // if they came on by themselves (lamps by day cost a shadow pass for no light)
+  env.onNightChange = night => {
+    if (night && view.lights.head === 0) setHeadlights(1, true, true);
+    else if (!night && autoHead) setHeadlights(0, true);
+  };
   const TIME_NAMES = { day: 'Day', dusk: 'Dusk', night: 'Night' };
   const quickTime = h => QUICK_ORDER.find(q => Math.abs(QUICK_HOURS[q] - h) < 0.01);
   // depth of field: off in the gunner's sight (the targets are far away)
@@ -272,6 +284,7 @@ async function main() {
     camera(v, o) {
       if (!camModes.includes(v)) v = 'chase';   // gunner's sight on a car without a turret
       rig.setMode(v);
+      pipeline.resetExposure = true;   // a cut, as a new place is (afterPlace)
       applyDof();
       if (v !== 'gunner' && document.pointerLockElement) document.exitPointerLock?.();
       if (!o.silent) say('camera', v === 'gunner' && input.device !== 'touch' && input.device !== 'pad' ? `${CAM_NAMES[v]} · click in it to aim with the mouse` : CAM_NAMES[v]);
@@ -551,6 +564,7 @@ async function main() {
   }
 
   let lookUntil = 0;
+  const dustSun = [1, 1, 1], dustAmb = [0, 0, 0];
   function tick(dt, render = true) {
     const T = game.timings || (game.timings = {});
     let tm = performance.now();
@@ -608,10 +622,14 @@ async function main() {
       const alpha = acc / H;
       rPos.lerpVectors(prevPos, curPos, alpha);
       rQ.slerpQuaternions(prevQ, curQ, alpha);
-      view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true });
+      view.update(rPos, rQ, paused ? 0 : dt, { night: env.night, darkness: env.darkness, shadows: true, inside: rig.mode === 'cockpit' });
       colliderView.update();
       rig.update(dt, input, rPos, rQ, vehicle, model);
       pipeline.params.dofFocus = camera.position.distanceTo(rPos);   // the miniature depth of field focuses on the truck
+      // under a lake's or stream's surface (the cockpit and wheel cameras, when the truck wades deep)
+      const wl = terrain.waterLevelAt(camera.position.x, camera.position.z);
+      pipeline.params.underwater = wl > -1e8 ? Math.min(1, Math.max(0, (wl - camera.position.y) / 0.1)) : 0;
+      water.setUnder(pipeline.params.underwater > 0);
       mp.updateTags(camera);
       env.update(dt, rPos, camera);
       const pushers = vehicle.wheels.map(w => ({ x: w.P.x, y: w.P.y, z: w.P.z, r: w.contact ? 0.85 : 0 }));
@@ -622,7 +640,15 @@ async function main() {
     mark('view');
     if (!paused && dust.enabled) {
       dust.spawnFromVehicle(vehicle, dt);
-      dust.update(dt, 1 - 0.88 * env.darkness);
+      // the light on the dust: the place's sky light and, where the sun reaches a puff, the sun (a cloud of dust
+      // takes the sun whatever its height: the beam, not the light on level ground); at night never under what the
+      // lamps would show of it
+      airLight(rPos.x, rPos.z, 0, dustAmb);
+      const beam = env.sun.intensity * cloudShadowAt(rPos.x, rPos.y, rPos.z) * 0.2, floor = 0.04 * env.darkness, sc = env.sun.color;
+      dustSun[0] = sc.r * beam; dustSun[1] = sc.g * beam; dustSun[2] = sc.b * beam;
+      for (let i = 0; i < 3; i++) dustAmb[i] = Math.max(dustAmb[i], floor);
+      dust.setLight(dustSun, dustAmb, env.lightDir, env.sun, model.root, carBox.c, carBox.half);
+      dust.update(dt);
     }
     if (gunnery && draw) gunnery.update(paused ? 0 : dt, camera, 1 - 0.85 * env.darkness, env.darkness);
     audio.listener = camera.position;

@@ -222,7 +222,7 @@ export class Weather {
       this.bow = this.recent * (1 - this.rain) ** 2 * (1 - THREE.MathUtils.smoothstep(this.s, 0.35, 0.85));
     }
     const e = this.env;
-    if (Math.abs(this.s - (e.appliedWeather?.s ?? -1)) > 0.004 || Math.abs(this.bow - (e.appliedWeather?.bow ?? -1)) > 0.004) e.dirty = true;
+    if (Math.abs(this.s - (e.appliedWeather?.s ?? -1)) > 0.004 || Math.abs(this.bow - (e.appliedWeather?.bow ?? -1)) > 0.004) { e.soften?.(); e.dirty = true; }
 
     this.terrainView.uniforms.uWet.value = this.wet * 0.85;
     // dew on the grass at dawn, until the sun has dried it by mid morning; drops after a shower

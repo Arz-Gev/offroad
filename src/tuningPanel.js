@@ -9,7 +9,7 @@ import { hasControl } from './input.js';
 import { icon } from './icons.js';
 import './tuning.css';
 
-// Tuning (Tab): the Tuning section of the side panel (menu.js). The game keeps running; every change goes
+// Tuning (Tab): the Tuning section of the side panel (menu.js). Every change goes
 // straight into the physics (Vehicle.retune). Setup, saved setups and section state live in localStorage
 // (offroad.tuning.v1).
 
