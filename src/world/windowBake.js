@@ -396,9 +396,9 @@ function placeTrees(terrain, dims, gd, ld) {
     for (const f of [-1, 0, 1]) { const px = x + dx * f, pz = z + dz * f; if (terrain.isTrail(px, pz, 6) || terrain.waterLevelAt(px, pz) > -1e8 || Math.abs(px) > HALF - 20 || Math.abs(pz) > HALF - 20) ok = false; }
     if (!ok || !siteClear(terrain.sites, x, z, 0)) continue;
     const r = 0.14 + rnd() * 0.16 * (L / 6);
-    const h0 = terrain.surfaceHeight(x - dx, z - dz), h1 = terrain.surfaceHeight(x + dx, z + dz), hm = terrain.surfaceHeight(x, z);
-    if (Math.abs(h1 - h0) > L * 0.45) continue;
-    logs.push(x, Math.max((h0 + h1) / 2, hm) + r * 0.8, z, yaw, Math.atan2(h1 - h0, L), r, LOG_LEN.indexOf(L));
+    if (Math.abs(terrain.surfaceHeight(x + dx, z + dz) - terrain.surfaceHeight(x - dx, z - dz)) > L * 0.45) continue;
+    const rest = logRest(terrain, x, z, yaw, LOG_LEN, LOG_LEN.indexOf(L), r);
+    if (rest) logs.push(x, rest.y, z, yaw, rest.pitch, r, rest.len);
   }
 
   forestFloor(trees, dims, gd, ld);
@@ -522,6 +522,41 @@ function makeFarLand(terrain) {
     out[o * 4] = h; out[o * 4 + 1] = Math.max(0, Math.min(1, lush)); out[o * 4 + 2] = Math.min(1, canopy * 1.5); out[o * 4 + 3] = ks / kw;
   }
   return out;
+}
+
+// How a fallen log lies: a straight stick on the land, held by the two high points either side of its middle (the
+// upper hull of the ground under it; on a hump, tipped over to the gentler side). The mean of the ends' heights hung
+// an end up to a metre in the air wherever the ground under it was humped. It lies only where the land carries it
+// along its length (LOG_GAP: no bridges over gullies, no end out over a drop): else the next shorter one of the
+// lengths, else none there.
+// x, z: its middle; yaw: which way it lies; lens: the lengths, li: the one drawn for it; r: its radius.
+const LOG_GAP = 0.4;
+export function logRest(terrain, x, z, yaw, lens, li, r) {
+  const n = 12, G = new Float64Array(n + 1), sy = Math.sin(yaw), cy = Math.cos(yaw);
+  for (let k = li; k >= 0; k--) {
+    const L = lens[k], at = (i) => (i / n - 0.5) * L, hull = [];
+    for (let i = 0; i <= n; i++) {
+      const s = at(i), p = [s, (G[i] = terrain.surfaceHeight(x + sy * s, z + cy * s))];
+      while (hull.length > 1) {
+        const o = hull[hull.length - 2], a = hull[hull.length - 1];
+        if ((a[0] - o[0]) * (p[1] - o[1]) - (a[1] - o[1]) * (p[0] - o[0]) < 0) break;
+        hull.pop();
+      }
+      hull.push(p);
+    }
+    let best = null;
+    for (let i = 1; i < hull.length; i++) {
+      const a = hull[i - 1], b = hull[i];
+      if (a[0] > 0 || b[0] < 0) continue;
+      const slope = (b[1] - a[1]) / (b[0] - a[0]);
+      if (!best || Math.abs(slope) < Math.abs(best.slope)) best = { slope, h: a[1] - slope * a[0] };
+    }
+    if (!best || Math.abs(best.slope) > 0.5) continue;
+    let gap = 0;
+    for (let i = 0; i <= n; i++) gap = Math.max(gap, best.h + best.slope * at(i) - G[i]);
+    if (gap <= LOG_GAP) return { y: best.h + r * 0.8, pitch: Math.atan(best.slope), len: k };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- boulders

@@ -57,7 +57,7 @@ const WATER_FRAG_PARS = /* glsl */`
 uniform sampler2D tRipple;
 uniform highp sampler2D tHeight;
 uniform vec4 uMap;
-uniform float uTime, uAbsorb, uRipple, uFoam, uGlitter, uRain, uUnder;
+uniform float uTime, uAbsorb, uRipple, uFoam, uShore, uGlitter, uRain, uUnder;
 uniform vec3 uScatter;
 ${PAT_GLSL}varying vec4 vEdge;
 varying vec3 vFlow;
@@ -101,7 +101,7 @@ export function buildWater(terrain, terrainView, renderer) {
     const uniforms = {
       tRipple: { value: ripple }, tHeight: U.tHeight, uMap: U.uMap, uTime: time, uRain: rain,
       uPat: PAT,
-      uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uScatter: { value: new THREE.Color(...opts.scatter) },
+      uAbsorb: { value: opts.absorb }, uRipple: { value: opts.ripple }, uFoam: { value: opts.foam }, uShore: { value: opts.shore ?? 0.7 }, uScatter: { value: new THREE.Color(...opts.scatter) },
       uGlitter: { value: opts.glitter ?? 1 }, uUnder: under,
     };
     m.onBeforeCompile = (sh) => {
@@ -133,7 +133,9 @@ vec3 normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 vec3 nonPerturbedNormal = normal;
 // foam: along the waterline, and in fast shallow water
 float foamN = r1.b * 0.6 + r2.b * 0.4;
-wFoam = uFoam * (smoothstep(0.1, 0.0, wDepth) * 0.7 + smoothstep(0.35, 0.05, wDepth) * smoothstep(0.6, 1.6, spd) * 0.8);
+// (the white water comes in patches: all along both banks it read as painted road lines)
+float r3Foam = texture2D(tRipple, vec2(fp.x * 0.5, fp.y - uTime * spd * 0.3) / 31.0).b;
+wFoam = uFoam * (smoothstep(0.1, 0.0, wDepth) * uShore + smoothstep(0.3, 0.05, wDepth) * smoothstep(0.9, 1.9, spd) * 0.8 * smoothstep(0.4, 0.7, r3Foam));
 wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - smoothstep(30.0, 80.0, dist));`)
         .replace('#include <opaque_fragment>', `
 {
@@ -189,7 +191,7 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
 
   // clear, a little turquoise (shallows show the bed, the deep goes teal)
   const lakeMat = makeMaterial('lake', { absorb: 1.2, ripple: 0.55, foam: 0.6, scatter: [0.035, 0.12, 0.125] });
-  const streamMat = makeMaterial('stream', { absorb: 2.0, ripple: 0.8, foam: 1.0, scatter: [0.05, 0.12, 0.11] });
+  const streamMat = makeMaterial('stream', { absorb: 2.0, ripple: 0.8, foam: 1.0, shore: 0.12, scatter: [0.05, 0.12, 0.11] });
   const mudMat = makeMaterial('mud', { absorb: 9.0, ripple: 0.25, foam: 0.0, scatter: [0.16, 0.11, 0.065], rough: 0.12, glitter: 0.3 });
 
   // a window's water meshes. pat: the new window's pattern offset (origin.js), added into the flow frame of the
@@ -238,25 +240,31 @@ wFoam = clamp(wFoam * smoothstep(0.42, 0.62, foamN) * 1.6, 0.0, 1.0) * (1.0 - sm
       if (w.type === 'lake') add(disc(w.x, w.z, w.rx, w.rz, w.level, 10, 72, [w.x, w.z, 1 / w.rx, 1 / w.rz]), lakeMat);
       else if (w.type === 'pool') add(disc(w.x, w.z, w.rx, w.rz, w.level, 4, 40, [0, 0, 0, 0]), mudMat);
       else if (w.type === 'stream') {
-        // ribbon along the stream, wider than the water so the waterline comes from the bed
+        // ribbon along the stream, wider than the water so the waterline comes from the bed, but no wider than the bank
+        // that holds it is level (terrain carveStream, both maps): past a built-up bank's crest the surface hung in
+        // the air over its outer slope
         const pts = w.pts, n = pts.length, lake = w.lake;
         const pos = [], flow = [], dir = [], idx = [];
         const ACROSS = [-1, -0.5, 0, 0.5, 1];
         let along = w.along0 || 0, rows = 0;
-        for (let k = 0; k < n; k++) {
+        // at the spring it goes on past the first point as far as it is wide, up to the bank round the head (it
+        // ended in a straight line across the pool)
+        const head = !w.along0 && n > 1 ? 2 : 0;
+        for (let k0 = -head; k0 < n; k0++) {
+          const k = Math.max(0, k0);
           const p = pts[k];
           // (the ribbon ends just inside the lake's own water: the disc reaches 1.1 of the lake's radii)
           if (lake && Math.hypot((p.x - lake.x) / lake.rx, (p.z - lake.z) / lake.rz) < 1.05) break;
           const a = pts[Math.max(0, k - 1)], b = pts[Math.min(n - 1, k + 1)];
           let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
           if (k > 0) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);
-          const hw = w.width[k] + 2.5;
+          const hw = w.width[k] + 1.6, back = k0 < 0 ? (-k0 / head) * hw : 0;
           const drop = k < n - 1 ? (w.level[k] - w.level[k + 1]) / Math.max(0.5, Math.hypot(pts[k + 1].x - p.x, pts[k + 1].z - p.z)) : 0;
           const spd = Math.min(2.2, 0.35 + drop * 45);
           for (const s of ACROSS) {
             const off = s * hw;
-            pos.push(p.x + tz * off, w.level[k], p.z - tx * off);
-            flow.push(along % 4096, off, spd);
+            pos.push(p.x + tz * off - tx * back, w.level[k], p.z - tz * back - tx * off);
+            flow.push((along - back) % 4096, off, spd);
             dir.push(tx, tz);
           }
           rows++;

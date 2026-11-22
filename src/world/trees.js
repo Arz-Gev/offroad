@@ -63,6 +63,14 @@ varying float vTreeDist;
 float ditherHash(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 `;
 
+// A trunk's bottom ring goes ROOT m into the ground: cut off level at the middle's height, trees on a slope showed
+// daylight under their downhill side (up to 20 cm).
+const ROOT = 0.45;
+function rootDown(geo) {
+  const P = geo.attributes.position, UV = geo.attributes.uv;
+  for (let i = 0; i < P.count; i++) if (P.getY(i) < 0.01) { P.setY(i, -ROOT); UV.setY(i, UV.getY(i) - ROOT / 1.2); }
+}
+
 // each tree its own green, from where it stands (the near mesh and the far card alike): a wood all of one colour read
 // as copies
 const TINT_GLSL = /* glsl */`
@@ -243,7 +251,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   const barkC = makeBarkTexture('conifer'), barkB = makeBarkTexture('birch');
   barkC.wrapS = barkC.wrapT = barkB.wrapS = barkB.wrapT = THREE.RepeatWrapping;
   const variants = TREE_KINDS.map(k => ({ kind: k.kind, geo: k.build(), barkTex: k.bark === 'birch' ? barkB : barkC }));
-  for (const v of variants) { v.atlas = atlas; v.impW = impostorWidth(v); }
+  for (const v of variants) { v.atlas = atlas; v.impW = impostorWidth(v); rootDown(v.geo.trunk); }
 
   // ---- near meshes (per variant: trunk + crown instanced)
   const fade = { value: new THREE.Vector2(43, 50) };

@@ -475,7 +475,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float tone = mix(0.5, hb, bed.z * (1.0 - far) * face) * 0.6 + mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), face) * 0.4;
   float tb = smoothstep(0.8, 1.0, bf), bell = 4.0 * tb * (1.0 - tb);
   float dr = (hN - hb) * bed.y;
-  float ledge = max(-dr, 0.0) * bell * 2.5 * face, under = max(dr, 0.0) * bell * 2.5 * face;
+  // (an overhang only where the rock is near upright: a slope of 30-40 degrees cannot hang over, and drawn there the
+  // shade under each bed ran along the hillsides as black snakes, over the moss too)
+  float sheer = smoothstep(0.66, 0.4, n0.y);
+  float ledge = max(-dr, 0.0) * bell * 2.5 * face * mix(0.35, 1.0, sheer), under = max(dr, 0.0) * bell * 2.5 * face * sheer;
   nW = normalize(nW + vec3(0.0, 1.0, 0.0) * ((hb - 0.5) * 0.5 * bed.y + ledge * 1.6 - under * 1.6) * face * (1.0 - far) * nk);
   float sand = smoothstep(0.45, 0.67, kind) * smoothstep(0.9, 0.7, kind);
   col = rockTone(kind, clamp(tone + (sa.r - 0.5) * 0.35, 0.0, 1.0)) * mix(1.0, photo, 0.5 - 0.25 * sand);
@@ -522,7 +525,8 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   vec3 mossCol = mix(vec3(0.08, 0.13, 0.035), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);   // (darker, a mossy ledge in shade read as a band of black paint)
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
-  nW = normalize(mix(nW, n0, moss * 0.5));
+  nW = normalize(mix(nW, n0, moss * 0.6));
+  cav = mix(cav, 1.0, moss * 0.6);   // (and fills the cracks)
 }
 // ---- painted stones: beyond the 3D ones (debris.js) the same stones, painted on the ground
 vec4 hash42(vec2 p) { vec4 p4 = fract(vec4(p.xyxy) * vec4(0.1031, 0.1030, 0.0973, 0.1099)); p4 += dot(p4, p4.wzxy + 33.33); return fract((p4.xxyz + p4.yzzw) * p4.zywx); }
@@ -860,7 +864,7 @@ reflectedLight.indirectSpecular *= gAO;
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v10' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v11' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);

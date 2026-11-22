@@ -364,15 +364,30 @@ export class ClassicTerrain extends Terrain {
     // (and never below the lake it runs into: on low ground beside the lake the banks are built up a little, below)
     for (let k = 0; k < n; k++) hs[k] = Math.max(hs[k], lakeLevel + 0.45 + 0.004 * (n - 1 - k));
     for (let k = 0; k < n; k++) surfLevel[k] = lerp(hs[k] - 0.45, lakeLevel, smoothstep(n - 40, n - 1, k));
+    // Where the land beside it is lower than the water (the lower valley lies below the lake's level) the land is
+    // built up, and that has to read as land: spread, where there is any of it, to 1 in 8. A narrow brim there was a
+    // dike the water ran along, up to 1.9 m over the valley.
+    const lift = sp.map((p, k) => {
+      let m = 0;
+      for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) m = Math.max(m, surfLevel[j] + 0.2 - raw[j]);
+      return m;
+    });
+    const spread = lift.map((v, k) => {
+      let s = 0, c = 0;
+      for (let j = Math.max(0, k - 8); j <= Math.min(n - 1, k + 8); j++) { s += lift[j]; c++; }
+      // (none of it: next to none is built up, where a cliff drops away past the bank)
+      return lerp(1, 8, smoothstep(0, 0.3, s / c));
+    });
     this.streamCurve = curve;
     this.streamPts = sp; this.streamLevel = surfLevel; this.streamWidth = width;
     // carve: bed = surface - depth (shallower and wider at the ford), banks that ease up to the land over a few
     // metres, more where the land stands high over the water. Where the ground is lower than the bed it is built up
-    // to it, with a brim at the water's edge that falls away at 1 in 2.5: but not in the lake or on its shore, where
-    // the stream runs out into open water (a brim there was a dike sticking out into the lake).
+    // to it and a little over the water at its edge (flat as far as the drawn water reaches: water.js), falling away
+    // from there by `spread`: but not in the lake or on its shore, where the stream runs out into open water (a brim
+    // there was a dike sticking out into the lake).
     // Each cell takes the level of the stream's nearest point (first pass). Shaped segment by segment, a steep run
     // was cut to the level of the lowest segment in reach, metres under its own water.
-    const R = 24;
+    const R = 36;
     let bx0 = N, bx1 = 0, bz0 = N, bz1 = 0;
     for (const q of sp) {
       bx0 = Math.min(bx0, Math.floor((q.x - R + half) / CELL)); bx1 = Math.max(bx1, Math.ceil((q.x + R + half) / CELL));
@@ -402,22 +417,29 @@ export class ClassicTerrain extends Terrain {
         const o = (ix - bx0) * bw + iz - bz0, d = near[o];
         const k = Math.min(n - 2, Math.floor(along[o])), u = along[o] - k;
         const w = width[k] + (width[k + 1] - width[k]) * u;
-        if (d > w + 19) continue;
+        if (d > R || d > w + 32) continue;
         const z = -half + iz * CELL;
         const lvl = surfLevel[k] + (surfLevel[k + 1] - surfLevel[k]) * u;
         const dF = Math.hypot(x - ford.x, z - ford.z);
         const depth = lerp(0.62, 0.32, smoothstep(24, 8, dF));
-        const bed = lvl - depth * (1 - Math.pow(Math.min(1, d / w), 2));
+        // (the waterline wanders in from the channel's side, not at the ford: a channel of one width read as a canal.
+        // Only inwards: the bank outside and the drawn water's reach stay)
+        const wander = 0.5 + 0.5 * Math.max(-1, Math.min(1, 0.8 * this.n5(x * 0.15, z * 0.15) + 0.45 * this.n5(x * 0.47 + 7, z * 0.47)));
+        const dw = d + wander * Math.min(1.5, 0.32 * w) * smoothstep(10, 22, dF) * smoothstep(0.25 * w, 0.8 * w, d);
+        const bed = lvl - depth * (1 - Math.pow(Math.min(1, dw / w), 2));
         const i = ix * NN + iz;
         // banks: ease from the bed to the terrain, over 1.7 times the height the land stands over the water
         const bankW = Math.max(lerp(3.5, 9, smoothstep(26, 8, dF)), Math.min(18, 1.7 * (H[i] - lvl)));
         const t = smoothstep(w, w + bankW, d);
-        const target = lerp(bed, Math.max(H[i], lvl + 0.15), t);
+        const rim = Math.min(1, Math.max(0, dw - w));   // the waterline's own low bank
+        const target = Math.max(lerp(bed, Math.max(H[i], lvl + 0.15), t), dw < w ? -1e9 : lvl + 0.2 * rim);
         const open = smoothstep(1.08, 1.4, Math.hypot((x - lk.x) / lk.rx, (z - lk.z) / lk.rz));   // 0 in the lake and on its shore
-        const brim = (d < w ? bed : d < w + 1 ? lvl + 0.2 * (d - w) : lvl + 0.2 - (d - w - 1) / 2.5) - (1 - open) * 4;
+        const fall = spread[k] + (spread[k + 1] - spread[k]) * u;
+        const out = Math.max(0, d - w - 2.3);   // past the bank's flat top: falls away, and steeper further out (the deep hollows)
+        const brim = (dw < w ? bed : dw < w + 1 ? lvl + 0.2 * rim : lvl + 0.2 - out / fall - out * out / 140) - (1 - open) * 4;
         if (target < H[i] || H[i] < brim) {
           H[i] = Math.max(Math.min(H[i], target), brim);
-          if (d < w + 0.6) this.surface[i] = SURF.sand;
+          if (dw < w + 0.4 + 0.5 * wander) this.surface[i] = SURF.sand;
         }
       }
     }

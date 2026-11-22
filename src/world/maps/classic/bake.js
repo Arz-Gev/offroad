@@ -3,7 +3,7 @@ import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { makeSimplex2D, fbm, smoothstep } from '../../noise.js';
 import { MAP_SIZE, N, SURF, FAR_N } from '../../terrain.js';
-import { makeSplat, makeGroundData, bakeLand, forestFloor, makePyramid, grassPyramid, windowData } from '../../windowBake.js';
+import { makeSplat, makeGroundData, bakeLand, forestFloor, logRest, makePyramid, grassPyramid, windowData } from '../../windowBake.js';
 import { PAD, SPAWN, POI, HILL, STREAM, LANES } from './terrain.js';
 
 // The classic map's window data (the same shape as a window of the endless world, windowBake.js), made on the main
@@ -11,6 +11,32 @@ import { PAD, SPAWN, POI, HILL, STREAM, LANES } from './terrain.js';
 // forest and the rocks stand where they stood), and its rock kinds by place.
 
 const HALF = MAP_SIZE / 2, NN = N + 1, DN = MAP_SIZE + 1;
+
+// The stream's valley was reshaped after the forest and the rocks were placed, and each pass draws from one random
+// sequence: one tree refused there would move every tree after it on the map. So in this box each test of the land
+// answers as it did on the land they were placed on (PLACED_*: a bit a test, in their order), and what does not stand
+// on the land as it is now (in the water, on a cut bank) is taken out at the end, without a draw of its own. A new
+// test of the land in these passes goes through `was` too.
+const RESHAPED = { x0: 195, x1: HALF, z0: -HALF, z1: 72 };
+const PLACED_TREES = 
+  'qGp1A9gPVFVVVbWqqlSB/0FVVdWqqqpKqlUrwAO1qqpadV1VVapSVet5UL2qqqqqqqpVRamqCgKgqqqqqqraVhVV2hID0FpVq6pXVUVVhQO0qmq1taoqVJUIqqqqqmpXFV'
+  + 'UljqCqqqpqlaq0R6uqWo2qGnEWSFVXVVUNXkGtanVVqwq7IKiqalVRAlRVVVVVFakIVVVtVaWqFEFVVVW1qlJWJVRVVVVVtaomRVVVVW0LFVp1VVW1qqpUrKqqXyWquqqq'
+  + 'qhStqqqqqkpQVa2qqrqhWlVV1VpVKlXVqrZVVZWqqqpVlSVVVVXVqmaqqqqqVVVVKYdaVV1VVP0DVas1VKs+qqqqqqqqHgBVdaVWA1BVrTpVVQ1UVbVqbSGhqqqqVoCoqq'
+  + 'qtWgNAVVXVWlVgqFq3CyBV1arCVlV1wVNVlf1fVXNtzbfuq/r/v1pd9fmrqupnVVVVtXuqqlb5qqqqqqr+r6paeVRVZarqqgJVVbVCVVVVVRVg1aoKqLWqVlVAtaqqqoCq'
+  + 'qqoqQKuqqqoCVVVVqaqqCqraKlVBqqqqqkoFglZVVVXVaquqqqqqqqpaJaqq6qquCqCqrlK1AGBZpaqqAOCRqqqqKECCqqoqAFRImAeg1DY/EAUUbPsXgAB4/isFFADA5v'
+  + '+nEgFhgD8AAIB/8M8wqCDA/z+//78HnAEA8///8+/noR4MDMD7P7//wzMAY4AB+O+/2f/YYw8A2AYMvL/z7zcaAPgHewAwft/9v///zQ0HbEUDBgNg7//3/v9//APP/w8f'
+  + 'AAyO4f//DR8D4J9/+ABgtofB/u3Z+4M37P8/BP7t/djY/Ph/Bo79/zcobO/3///v//4/8P///2MAe////////x/4/////wG8///////ad9v/+897//////7//6v/v34=';
+const PLACED_ROCKS = '7Wt725rV2mrb2lr7+lZT22qnirZ9tbWmuq+++m4=';
+const reshaped = (x, z) => x >= RESHAPED.x0 && x <= RESHAPED.x1 && z >= RESHAPED.z0 && z <= RESHAPED.z1;
+function asPlaced(placed) {
+  const b = atob(placed);
+  let i = 0;
+  return (x, z, now) => {
+    if (!reshaped(x, z)) return now;
+    const k = i++;
+    return ((b.charCodeAt(k >> 3) >> (k & 7)) & 1) === 1;
+  };
+}
 
 // mulberry32 (noise.js) with its state readable: the hut (props.js) carries on the rock shapes' sequence
 function rng(seed) {
@@ -52,6 +78,13 @@ function placeTrees(terrain, dims) {
     return dens;
   };
   const nrm = new THREE.Vector3();
+  const was = asPlaced(PLACED_TREES);
+  const forestFit = (x, z) => {
+    if (terrain.waterLevelAt(x, z) > -1e8) return false;
+    const sid = terrain.surfaceId(x, z);
+    return sid !== SURF.mud && sid !== SURF.sand && terrain.normalAt(x, z, nrm).y >= 0.8;
+  };
+  const meadowFit = (x, z) => terrain.waterLevelAt(x, z) <= -1e8 && terrain.surfaceId(x, z) === SURF.grass && terrain.normalAt(x, z, nrm).y > 0.88;
   for (let gx = -HALF + 6; gx < HALF - 6; gx += G) for (let gz = -HALF + 6; gz < HALF - 6; gz += G) {
     const x = gx + (rnd() - 0.5) * G * 0.9, z = gz + (rnd() - 0.5) * G * 0.9;
     const dens = forestDens(x, z);
@@ -63,11 +96,9 @@ function placeTrees(terrain, dims) {
     if (Math.hypot((x - lake.x) / (lake.rx + 6), (z - lake.z) / (lake.rz + 6)) < 1.05) continue;
     if (Math.hypot((x - q.x) / (q.rx + 4), (z - q.z) / (q.rz + 4)) < 1) continue;
     if (Math.hypot(x - POI.hut.x, z - POI.hut.z) < 16) continue;
-    if (terrain.waterLevelAt(x, z) > -1e8) continue;
-    const sid = terrain.surfaceId(x, z);
-    if (sid === SURF.mud || sid === SURF.sand) continue;
+    const fit = forestFit(x, z);
+    if (!was(x, z, fit)) continue;
     const y = terrain.surfaceHeight(x, z);
-    if (terrain.normalAt(x, z, nrm).y < 0.8) continue;
     // species: birches near water and in the south, pines on high / dry ground, a few snags
     const wet = Math.max(0, 1 - Math.hypot((x - lake.x) / (lake.rx + 70), (z - lake.z) / (lake.rz + 70)));
     const k = nKind(x * 0.01, z * 0.01);
@@ -75,10 +106,10 @@ function placeTrees(terrain, dims) {
     const roll = rnd();
     if (roll < 0.025) vi = 5;
     else if (roll < 0.06 + wet * 0.6 + smoothstep(150, 300, z) * 0.35 + (k > 0.45 ? 0.2 : 0)) vi = 4;
-    else if (y > 30 || k < -0.35 || roll < 0.2) vi = rnd() < 0.5 ? 2 : 3;
+    else if (was(x, z, y > 30) || k < -0.35 || roll < 0.2) vi = rnd() < 0.5 ? 2 : 3;
     else vi = rnd() < 0.55 ? 0 : 1;
     const s = 0.75 + rnd() * 0.5;
-    trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi });
+    trees.push({ x, y, z, s, yaw: rnd() * Math.PI * 2, v: vi, fit });
   }
 
   // lone trees out in the open meadows: big oaks on their own, apple trees alone or in little groups
@@ -99,8 +130,7 @@ function placeTrees(terrain, dims) {
       if (Math.hypot((x - lake.x) / (lake.rx + 10), (z - lake.z) / (lake.rz + 10)) < 1.05) return false;
       if (Math.hypot((x - q.x) / (q.rx + 6), (z - q.z) / (q.rz + 6)) < 1) return false;
       if (Math.hypot(x - POI.hut.x, z - POI.hut.z) < 18) return false;
-      if (terrain.waterLevelAt(x, z) > -1e8 || terrain.surfaceId(x, z) !== SURF.grass) return false;
-      return terrain.normalAt(x, z, nrm).y > 0.88 && free(x, z, clear);
+      return was(x, z, meadowFit(x, z)) && free(x, z, clear);
     };
     let placed = 0;
     for (let tries = 0; tries < 9000 && placed < 150; tries++) {
@@ -113,7 +143,7 @@ function placeTrees(terrain, dims) {
         const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
         if (k > 0 && !ok(px, pz, 4)) continue;
         const vi = oak ? 8 : rnd() < 0.5 ? 6 : 7;
-        trees.push({ x: px, y: terrain.surfaceHeight(px, pz), z: pz, s: oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw: rnd() * Math.PI * 2, v: vi });
+        trees.push({ x: px, y: terrain.surfaceHeight(px, pz), z: pz, s: oak ? 0.85 + rnd() * 0.35 : 0.8 + rnd() * 0.4, yaw: rnd() * Math.PI * 2, v: vi, fit: meadowFit(px, pz) });
         occ[cellOf(px, pz)] = 1;
         placed++;
       }
@@ -131,20 +161,26 @@ function placeTrees(terrain, dims) {
     const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
     const L = LOG_LEN[Math.floor(rnd() * 3)], yaw = rnd() * Math.PI * 2;
     const dx = Math.sin(yaw) * L / 2, dz = Math.cos(yaw) * L / 2;
-    let ok = true;
-    for (const f of [-1, 0, 1]) { const px = x + dx * f, pz = z + dz * f; if (terrain.isTrail(px, pz, 6) || terrain.waterLevelAt(px, pz) > -1e8 || Math.abs(px) > HALF - 20 || Math.abs(pz) > HALF - 20) ok = false; }
-    if (!ok || (x > PAD.x0 - 10 && x < PAD.x1 + 10 && z > PAD.z0 - 10 && z < PAD.z1 + 10) || Math.hypot(x - POI.hut.x, z - POI.hut.z) < 14) continue;
+    let ok = true, dry = true;
+    for (const f of [-1, 0, 1]) {
+      const px = x + dx * f, pz = z + dz * f;
+      if (terrain.isTrail(px, pz, 6) || Math.abs(px) > HALF - 20 || Math.abs(pz) > HALF - 20) ok = false;
+      else if (terrain.waterLevelAt(px, pz) > -1e8) dry = false;
+    }
+    if (!ok || !was(x, z, dry) || (x > PAD.x0 - 10 && x < PAD.x1 + 10 && z > PAD.z0 - 10 && z < PAD.z1 + 10) || Math.hypot(x - POI.hut.x, z - POI.hut.z) < 14) continue;
     const r = 0.14 + rnd() * 0.16 * (L / 6);
-    const h0 = terrain.surfaceHeight(x - dx, z - dz), h1 = terrain.surfaceHeight(x + dx, z + dz), hm = terrain.surfaceHeight(x, z);
-    if (Math.abs(h1 - h0) > L * 0.45) continue;
-    logs.push(x, Math.max((h0 + h1) / 2, hm) + r * 0.8, z, yaw, Math.atan2(h1 - h0, L), r, LOG_LEN.indexOf(L));
+    const flat = Math.abs(terrain.surfaceHeight(x + dx, z + dz) - terrain.surfaceHeight(x - dx, z - dz)) <= L * 0.45;
+    if (!was(x, z, flat)) continue;
     nLogs++;
+    const rest = dry && flat ? logRest(terrain, x, z, yaw, LOG_LEN, LOG_LEN.indexOf(L), r) : null;
+    if (rest) logs.push(x, rest.y, z, yaw, rest.pitch, r, rest.len);
   }
+  const standing = trees.filter(t => t.fit);
 
   // every tree is in the far share (trees.js SUB_FADE): the map ends at its edge, its forest is seen whole
-  const T = new Float32Array(trees.length * 7);
-  trees.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v, 1], i * 7); });
-  return { list: trees, trees: T, logs: Float32Array.from(logs) };
+  const T = new Float32Array(standing.length * 7);
+  standing.forEach((t, i) => { T.set([t.x, t.y, t.z, t.s, t.yaw, t.v, 1], i * 7); });
+  return { list: standing, trees: T, logs: Float32Array.from(logs) };
 }
 
 // ---------------------------------------------------------------- boulders
@@ -156,7 +192,10 @@ function placeRocks(terrain) {
   const noise = makeSimplex2D(99);
   const _v = new THREE.Vector3();
   const geos = [], hulls = [];
-  const addRock = (x, z, r, flat = 0.75, sink = 0.3) => {
+  const was = asPlaced(PLACED_ROCKS);
+  const dry = (x, z) => terrain.waterLevelAt(x, z) < -1e8;
+  // stands: false: drawn for the sequences' sake, not put on the land
+  const addRock = (x, z, r, flat = 0.75, sink = 0.3, stands = true) => {
     let g = new THREE.IcosahedronGeometry(1, r > 0.9 ? 3 : 2);
     g.deleteAttribute('normal'); g.deleteAttribute('uv');
     g = mergeVertices(g);
@@ -202,12 +241,13 @@ function placeRocks(terrain) {
     const ground = Math.min(terrain.heightAt(x - sx * 0.5, z), terrain.heightAt(x + sx * 0.5, z), terrain.heightAt(x, z - sz * 0.5), terrain.heightAt(x, z + sz * 0.5), terrain.heightAt(x, z));
     const cy = ground + sy * (1 - sink);
     g.computeVertexNormals();
+    if (!stands) { g.dispose(); return; }
     hulls.push({ x, y: cy, z, pts: new Float32Array(g.attributes.position.array) });
     g.translate(x, cy, z);
     geos.push(g);
   };
   const clear = (x, z, m) => !terrain.isTrail(x, z, m) && !(x > PAD.x0 - m && x < PAD.x1 + m && z > PAD.z0 - m && z < PAD.z1 + m)
-    && Math.hypot(x - SPAWN.x, z - SPAWN.z) > 25 && Math.hypot(x - POI.hut.x, z - POI.hut.z) > 14 && terrain.waterLevelAt(x, z) < -1e8;
+    && Math.hypot(x - SPAWN.x, z - SPAWN.z) > 25 && Math.hypot(x - POI.hut.x, z - POI.hut.z) > 14 && was(x, z, dry(x, z));
   const slopeAt = (x, z) => Math.hypot(terrain.heightAt(x + 1, z) - terrain.heightAt(x - 1, z), terrain.heightAt(x, z + 1) - terrain.heightAt(x, z - 1)) / 2;
 
   // rock garden in lane C
@@ -221,11 +261,13 @@ function placeRocks(terrain) {
     const x = (rnd() - 0.5) * (MAP_SIZE - 40), z = (rnd() - 0.5) * (MAP_SIZE - 40);
     if (!clear(x, z, 6)) continue;
     const sl = slopeAt(x, z), rocky = terrain.surfaceId(x, z) === SURF.rock ? 1 : Math.min(1, Math.max(0, (sl - 0.2) / 0.35));
-    if (rnd() > 0.3 + 0.7 * rocky) continue;
-    const big = rnd() < 0.15 + rocky * 0.15;
+    const keep = rnd() <= 0.3 + 0.7 * rocky;
+    if (!was(x, z, keep)) continue;
+    const bigNow = rnd() < 0.15 + rocky * 0.15, big = was(x, z, bigNow);
     const r = big ? 1.2 + rnd() * 1.4 : 0.35 + rnd() * 0.7;
-    addRock(x, z, r, 0.65 + rnd() * 0.3, 0.3);
-    if (rnd() < 0.5) for (let c = 0; c < 3; c++) addRock(x + (rnd() - 0.5) * r * 4, z + (rnd() - 0.5) * r * 4, r * (0.3 + rnd() * 0.4), 0.7, 0.35);
+    const stands = !reshaped(x, z) || dry(x, z);
+    addRock(x, z, r, 0.65 + rnd() * 0.3, 0.3, stands);
+    if (rnd() < 0.5) for (let c = 0; c < 3; c++) addRock(x + (rnd() - 0.5) * r * 4, z + (rnd() - 0.5) * r * 4, r * (0.3 + rnd() * 0.4), 0.7, 0.35, stands);
     placed++;
   }
   // outcrops: big slabs half buried in the steeper hillsides
@@ -234,8 +276,8 @@ function placeRocks(terrain) {
     const x = (rnd() - 0.5) * (MAP_SIZE - 60), z = (rnd() - 0.5) * (MAP_SIZE - 60);
     if (!clear(x, z, 10)) continue;
     const sl = slopeAt(x, z);
-    if (sl < 0.3 || sl > 0.9) continue;
-    addRock(x, z, 2.4 + rnd() * 2.2, 0.55 + rnd() * 0.2, 0.5);
+    if (!was(x, z, sl >= 0.3 && sl <= 0.9)) continue;
+    addRock(x, z, 2.4 + rnd() * 2.2, 0.55 + rnd() * 0.2, 0.5, !reshaped(x, z) || dry(x, z));
     placed++;
   }
   // one buffer, as the window bake hands it over
