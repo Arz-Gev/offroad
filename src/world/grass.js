@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAP_SIZE, CELL, N } from './terrain.js';
 import { FIELDS } from './undergrowth.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, ppf } from './origin.js';
+import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
 
 // GPU grass: blades placed procedurally in the vertex shader on a camera-centred grid of world cells; each cell's
 // blade is hashed from the cell index, so blades never swim as the grid follows the camera. Tiles (16-32 m) are
@@ -91,6 +92,7 @@ uniform vec4 uFieldLav, uFieldPop;
 uniform vec2 uRad;      // fade out start, end (m)
 uniform vec4 uCurve[65];  // per sampled distance (CURVE_N + 1): share of the grid drawn, height (m), width (m)
 uniform vec4 uWind;     // dir x, dir z, strength, time
+${WIND_FIELD_GLSL}
 uniform vec4 uPush[5];  // xyz, radius
 uniform vec4 uTrackP;   // origin x, z, size
 uniform vec3 uCellPat;  // the pattern frame in cells (origin.js): offset x, z, period
@@ -125,7 +127,7 @@ export function buildGrass(terrainView, opts = {}) {
   const shared = {
     tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tTrack: U.uTrack, uDew: U.uDew,
     uMap: U.uMap,
-    uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) },
+    uWind: { value: new THREE.Vector4(0.8, 0.6, 1, 0) }, ...windUniforms(),
     uPush: { value: Array.from({ length: 5 }, () => new THREE.Vector4(0, -1e5, 0, 0)) },
     uTrackP: { value: new THREE.Vector4(0, 0, MAP_SIZE, 0) },
     uPat: PAT,
@@ -220,10 +222,9 @@ if (hB.x < dens && fade > 0.0 && inMap > 0.0 && gi < (1u << uint(2 * gn))) {
   // bend: natural lean + travelling wind gusts + pushed by the wheels
   vec2 bend = (hC - 0.5) * 0.5;
   float t = uWind.w;
-  float ph = dot(bq, uWind.xy) * 0.09 - t * 1.3;
-  float gust = 0.55 + 0.45 * sin(ph) * sin(ph * 0.37 + bq.x * 0.05 + 1.7);
+  float gust = windGust(bq, t);   // the same gusts as the bushes and the trees (wind.js)
   float sway = sin(t * (1.6 + hA.y) + bq.x * 0.35 + bq.y * 0.2) * 0.12;
-  bend += uWind.xy * uWind.z * (gust * 0.7 - 0.1 + sway);
+  bend += uWind.xy * uWind.z * (gust * 0.62 - 0.1 + sway * (0.5 + 0.6 * gust));
   float squash = 1.0;
   for (int i = 0; i < 5; i++) {
     vec2 dv = bxz - uPush[i].xz;

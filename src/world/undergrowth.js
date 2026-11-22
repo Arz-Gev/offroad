@@ -3,6 +3,7 @@ import { MAP_SIZE } from './terrain.js';
 import { buildPlant } from './foliage.js';
 import { NO_FLIP_NORMAL } from './trees.js';
 import { PAT, PAT_GLSL, PAT_PERIOD, pp, ppf } from './origin.js';
+import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
 
 // Undergrowth: ferns, shrubs, meadow flowers and grass tufts, placed on the GPU like the grass (grass.js): one plant per
 // cell at most, position / size / yaw hashed from the cell. Density from the ground-data map (forest floor, grass density,
@@ -37,6 +38,7 @@ uniform vec4 uShape;    // min scale, max scale, density multiplier, seed
 uniform vec4 uKind;     // weights: forest, meadow, shrub, edge
 uniform vec4 uField;    // fields: weight, patch size (m), threshold, seed: the plant grows in big drifts over meadows
 uniform vec4 uWind;     // dir x, dir z, strength, time
+${WIND_FIELD_GLSL}
 attribute float aWind;
 vec2 uHash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float uHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
@@ -52,7 +54,7 @@ export function buildUndergrowth(terrainView, atlas, windUniform) {
   const U = terrainView.uniforms;
   const group = new THREE.Group();
   group.name = 'undergrowth';
-  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tNrm: U.tNrm, uMap: U.uMap, uWind: windUniform };
+  const shared = { tHeight: U.tHeight, tSplat: U.tSplat, tGround: U.tGround, tNoise: U.tNoise, tNrm: U.tNrm, uMap: U.uMap, uWind: windUniform, ...windUniforms() };
 
   // opts: maxRadius (m, after the presets' distance scale), color (multiplies the atlas)
   const makeKind = (name, geoBase, spacing, radius, shape, kind, field = [0, 200, 0.6, 0], rock = 0, opts = {}) => {
@@ -136,9 +138,9 @@ if (hB.x < dens && shrink > 0.0 && inMap > 0.0) {
   objectNormal.xz = R * objectNormal.xz;
   // wind: whole plant leans, tips flutter
   float t = uWind.w;
-  float gust = 0.6 + 0.4 * sin(dot(pxz, uWind.xy) * 0.09 - t * 1.3);
+  float gust = windGust(pq, t);   // the same gusts as the grass and the trees (wind.js)
   float sway = sin(t * (1.7 + hA.y) + pxz.x * 0.3 + pxz.y * 0.2);
-  lp.xz += uWind.xy * uWind.z * aWind * aWind * sc * (0.12 * gust + 0.06 * sway);
+  lp.xz += uWind.xy * uWind.z * aWind * aWind * sc * (0.13 * gust + 0.06 * sway * (0.5 + 0.6 * gust));
   lp += vec3(sin(t * 4.3 + dot(lp, vec3(3.1, 2.3, 1.7))), 0.0, cos(t * 3.7 + dot(lp, vec3(1.9, 2.9, 2.3)))) * 0.025 * aWind * uWind.z;
   float gy = uGround(pxz);
   uPos = vec3(pxz.x, gy - 0.03, pxz.y) + lp;

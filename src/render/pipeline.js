@@ -289,7 +289,7 @@ void main() {
 
 const COMPOSITE_FRAG = /* glsl */`
 uniform sampler2D tScene, tBloom, tExposure, tAO, tShafts, tMist, tDepth, tDof, tGIDbg;
-uniform float uGIDbg;
+uniform float uGIDbg, uNight;
 uniform vec2 uDofTexel;
 uniform vec3 uShaftCol, uBowCol;
 uniform vec4 uBow;        // rainbow: xyz the antisolar direction, w > 0: on
@@ -407,6 +407,16 @@ void main() {
     c = c * Tw + uWater.rgb * (1.0 - Tw);
   }
   c *= ex;
+  // Night vision: in the dark the eye sees by its rods, which take the blue-green and next to none of the red, and
+  // see no colour (the Purkinje shift). What is dim loses its colour towards a cold grey, by how sensitive the rods
+  // are to it: a red poppy or the truck's red paint goes near black by moonlight, grass stays a pale grey-green.
+  // What the lamps light is bright enough for colour. (Without it poppies stood out bright red in a field at night,
+  // as if they glowed.)
+  if (uNight > 0.0) {
+    float rods = dot(c, vec3(0.03, 0.57, 0.40));
+    float k = uNight * (1.0 - smoothstep(0.02, 0.3, max(rods, dot(c, vec3(0.2126, 0.7152, 0.0722)))));
+    c = mix(c, rods * vec3(0.8, 0.97, 1.22), 0.88 * k);
+  }
   if (uBloomOn > 0.5) c += texture2D(tBloom, vUv).rgb * uBloom;
   c += texture2D(tShafts, vUv).r * uShaftCol * ex;
   if (uBow.w > 0.0) {
@@ -486,6 +496,7 @@ export class RenderPipeline {
       dof: 0, dofStart: 60, dofRoll: 400, dofMini: false, dofFocus: 10, dofMiniSlope: 4,
       // under water (main.js: how far the camera is under a surface, 0..1 over the first centimetres): the water's
       // colour, the light that reaches into it (environment.js), its density (1/m)
+      night: 0,   // 0 day .. 1 night (environment.js darkness): the eye's night vision (COMPOSITE_FRAG)
       underwater: 0, waterCol: new THREE.Color(0.02, 0.072, 0.076), waterLight: new THREE.Vector3(1, 1, 1), waterDensity: 0.3,
     };
     this.time = 0;
@@ -520,7 +531,7 @@ export class RenderPipeline {
       uBloom: { value: 0.05 }, uBloomOn: { value: 1 }, uVignette: { value: 0.25 }, uGamma: { value: 1 }, uSat: { value: 1 }, uContrast: { value: 0.1 }, uTime: { value: 0 },
       uTint: { value: new THREE.Color(1, 1, 1) }, uLift: { value: new THREE.Color(0, 0, 0) }, uRes: { value: new THREE.Vector2() },
       uShadowCol: { value: new THREE.Color(0, 0, 0) }, uHighCol: { value: new THREE.Color(1, 1, 1) }, uVigCol: { value: new THREE.Color(0, 0, 0) }, uVibrance: { value: 0 }, uTone: { value: 0 },
-      uWater: { value: new THREE.Vector4() }, tGIDbg: { value: null }, uGIDbg: { value: 0 },
+      uWater: { value: new THREE.Vector4() }, tGIDbg: { value: null }, uGIDbg: { value: 0 }, uNight: { value: 0 },
     });
     this.aoMat = mat(AO_FRAG, {
       tDepth: { value: this.hdr.depthTexture }, uProjInv: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() },
@@ -801,6 +812,7 @@ export class RenderPipeline {
     cu.uTint.value.copy(P.tint); cu.uLift.value.copy(P.lift);
     cu.uShadowCol.value.copy(P.shadowCol); cu.uHighCol.value.copy(P.highCol); cu.uVigCol.value.copy(P.vigCol); cu.uVibrance.value = P.vibrance; cu.uTone.value = P.tone;
     cu.uTime.value = this.time;
+    cu.uNight.value = P.night || 0;
     cu.uGIDbg.value = giOn ? (P.giDebug || 0) : 0; cu.tGIDbg.value = giOn ? gi.screen.atlas.texture : null;
     if (this.fxaa) {
       this.pass(this.compMat, this.ldr);

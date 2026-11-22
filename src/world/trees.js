@@ -12,6 +12,7 @@ import { ColliderStream } from './colliderStream.js';
 import { SHADOW_LAYER } from '../render/cascadeShadow.js';
 import { CLOUD } from './clouds.js';
 import { LEAF_PARS, LEAF_PATH_GLSL, leafLightsBegin, crownOf } from './leafLight.js';
+import { WIND_FIELD_GLSL, windUniforms } from './wind.js';
 
 // Trees and undergrowth. ~12k trees in forests (spruce, pine, birch, dead snags), and out in the meadows lone oaks
 // and small groups of apple trees; each with a trunk collider.
@@ -28,15 +29,18 @@ const CHUNK = 32, CN = MAP_SIZE / CHUNK;
 // (the phases by the tree's place: in the pattern frame, origin.js, at frequencies that repeat over its period)
 const WIND_GLSL = /* glsl */`
 uniform vec4 uWind;   // dir x, dir z, strength, time
+${WIND_FIELD_GLSL}
 ${PAT_GLSL}attribute float aWind;
 vec3 windOffset(vec3 objPos, float w) {
   vec3 ip = instanceMatrix[3].xyz;
   vec2 pq = ip.xz + uPat;
   float ph = dot(pq, vec2(0.070563, 0.113515));
   float t = uWind.w;
-  float sway = sin(t * 0.85 + ph) * 0.55 + sin(t * 1.9 + ph * 1.7) * 0.2 + 0.45;
-  float gust = 0.6 + 0.4 * sin(t * 0.31 + pq.x * 0.012272 + pq.y * 0.009204);
-  vec3 ww = vec3(uWind.x, 0.0, uWind.y) * uWind.z * gust * sway * w * 0.32;
+  // the gust at the tree (the same field as the grass, wind.js; a tree answers half a second late) and its own
+  // slow rocking in it
+  float gust = windGust(pq, t - 0.5);
+  float sway = 0.75 + 0.25 * sin(t * 0.85 + ph) + 0.12 * sin(t * 1.9 + ph * 1.7);
+  vec3 ww = vec3(uWind.x, 0.0, uWind.y) * uWind.z * gust * sway * w * 0.34;
   // tips flutter
   ww += vec3(sin(t * 5.3 + dot(objPos, vec3(2.1, 1.7, 2.9)) + ph), sin(t * 4.1 + dot(objPos, vec3(1.3, 2.3, 1.1))), cos(t * 4.7 + dot(objPos, vec3(2.7, 1.1, 1.9)))) * 0.045 * w * w * uWind.z;
   // world -> object space (yaw + uniform scale)
@@ -225,7 +229,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   // ---- near meshes (per variant: trunk + crown instanced)
   const fade = { value: new THREE.Vector2(43, 50) };
   const viewPos = { value: new THREE.Vector3() };
-  const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos, uPat: PAT };
+  const uniformsT = { uWind: windUniform, uFade: fade, uViewPos: viewPos, uPat: PAT, ...windUniforms() };
   const near = variants.map((v, i) => {
     const trunkMat = new THREE.MeshStandardMaterial({ map: v.barkTex, roughness: 0.92, metalness: 0, color: v.kind === 'birch' ? 0xe8e4dc : v.kind === 'apple' ? 0x8a7468 : v.kind === 'oak' ? 0x9a8c7c : 0xb8a898 });
     patchTreeMaterial(trunkMat, 'trunk', uniformsT, { height: v.geo.height });
@@ -269,7 +273,7 @@ export function buildTrees(RAPIER, world, colliderSurface, renderer, windUniform
   // uSubFade: past x..y m only the far share of the trees is drawn (windowBake.js SUB_SHARE: the far ring has only
   // those), a little bigger to fill in; so the window moving (its trees replacing the ring's) shows nothing
   const subFade = { value: new THREE.Vector2(SUB_FADE[0], SUB_FADE[1]) };
-  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpCrown: { value: variants.map(v => { const c = crownOf(v.kind, v.geo); return new THREE.Vector4(c.cy, c.rx, c.ry, c.sigma); }) }, uImpThrough: { value: variants.map(v => crownOf(v.kind, v.geo).through) }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos, uSubFade: subFade };
+  const impUniforms = { tImpN: { value: imp.normal }, uImpRows: { value: imp.rows }, uImpH: { value: heights }, uImpW: { value: widths }, uImpSoft: { value: softs }, uImpCrown: { value: variants.map(v => { const c = crownOf(v.kind, v.geo); return new THREE.Vector4(c.cy, c.rx, c.ry, c.sigma); }) }, uImpThrough: { value: variants.map(v => crownOf(v.kind, v.geo).through) }, uImpSun: { value: CLOUD.sun }, uFade: fade, uViewPos: viewPos, uSubFade: subFade, uWind: windUniform, uPat: PAT, ...windUniforms() };
   const IMP_VERT = /* glsl */`
 attribute float aVar;
 attribute float aSub;
@@ -282,6 +286,9 @@ uniform float uImpSoft[${variants.length}];
 uniform vec4 uImpCrown[${variants.length}];   // the crown's ellipsoid: centre height, radii across and up (m), density (leafLight.js)
 uniform float uImpThrough[${variants.length}];
 uniform vec4 uImpSun;
+uniform vec4 uWind;
+uniform vec2 uPat;
+${WIND_FIELD_GLSL}
 varying vec3 vImpL;       // towards the light, in the card's frame (right, up, towards the viewer)
 varying vec3 vImpPos;     // this point of the card in that frame (m); z: how much light its leaves let through
 varying vec4 vImpCrown;   // the crown's ellipsoid at this tree's size
@@ -334,7 +341,14 @@ vImpUv = vec2((view + cuv.x) / ${VIEWS}.0, (uImpRows - 1.0 - aVar + cuv.y) / uIm
 vMapUv = vImpUv;
 #endif`)
         .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(vec3(toCam.x, 0.0, toCam.z));')
-        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * uImpW[int(aVar)] + vec3(0.0, position.y * H, 0.0);`)
+        .replace('#include <begin_vertex>', `vec3 transformed = right * position.x * H * uImpW[int(aVar)] + vec3(0.0, position.y * H, 0.0);
+// the far trees lean in the same gusts as the near ones (wind.js): the card sheared, most at the top
+{
+  vec2 wq = ip.xz + uPat;
+  float wph = dot(wq, vec2(0.070563, 0.113515));
+  float wsway = 0.75 + 0.25 * sin(uWind.w * 0.85 + wph) + 0.12 * sin(uWind.w * 1.9 + wph * 1.7);
+  transformed.xz += uWind.xy * (uWind.z * windGust(wq, uWind.w - 0.5) * wsway * 0.34 * position.y * position.y * 0.9);
+}`)
         .replace('#include <project_vertex>', `
 vec4 mvPosition = viewMatrix * vec4(ip + transformed, 1.0);
 gl_Position = projectionMatrix * mvPosition;`)

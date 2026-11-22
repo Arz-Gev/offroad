@@ -43,8 +43,9 @@ export function tireGeometry(R = 0.42) {
     parts.push(lug(0.055, 0.395, R - 0.002, 0.05, 0.022, a + 0.05, -0.4));
   }
   const nonIndexed = parts.map(g => { const ng = g.index ? g.toNonIndexed() : g; ng.deleteAttribute('uv'); return ng; });
+  // (the parts keep their own normals: the carcass round, the lugs flat. Recomputed on the unindexed mesh every
+  // face of the carcass was flat)
   _tireGeo = mergeGeometries(nonIndexed);
-  _tireGeo.computeVertexNormals();
   _tireGeo.computeBoundingSphere();
   return _tireGeo;
 }

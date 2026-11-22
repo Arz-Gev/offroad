@@ -106,7 +106,9 @@ const FOG_PARS_FRAGMENT = /* glsl */`
 			vec2 hz = normalize( v.xz + vec2( 1e-5 ) );
 			vec2 sz = normalize( atmoSun.xz + vec2( 1e-5 ) );
 			float a = dot( hz, sz );
-			vec3 col = a > 0.0 ? mix( atmoSide.rgb, atmoToward.rgb, a ) : mix( atmoSide.rgb, atmoAway.rgb, - a );
+			// (eased through the side: straight mixes met there in a crease, a vertical line across a dusk haze)
+			float aw = a * a / ( abs( a ) + 0.15 ) * 1.15;
+			vec3 col = a > 0.0 ? mix( atmoSide.rgb, atmoToward.rgb, aw ) : mix( atmoSide.rgb, atmoAway.rgb, aw );
 			float g = atmoGlow.w;
 			float mu = dot( v, atmoSun.xyz );
 			float hg = ( 1.0 - g * g ) / pow( max( 1.0 + g * g - 2.0 * g * mu, 1e-4 ), 1.5 );
