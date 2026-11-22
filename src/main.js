@@ -35,7 +35,7 @@ import { TouchControls } from './touch.js';
 import { HUD, fmtPressure, escapeHTML } from './hud.js';
 import { loadLog, setLoading, frame, hideLoading, showError } from './loading.js';
 import { createGraphics, GFX_KEYS } from './graphics.js';
-import { GI, airLight } from './render/gi.js';
+import { GI, airLight, giSticky } from './render/gi.js';
 import { SKYLINE, initSkyline } from './render/skyline.js';
 import { WorldGI } from './render/giWorld.js';
 import { ScreenGI } from './render/giScreen.js';
@@ -147,6 +147,7 @@ async function main() {
   // (its floor shades the ground under it in the traced light: about a wheel's radius and a third above the tyres' bottoms)
   pipeline.gi.screen.setCars([{ root: model.root, c: carBox.c, half: carBox.half, clear: 1.3 * vehicle.P.tire.radius }]);
   env.sun.shadow.setCar?.(model.root, camera);   // the car gets its own sharp sun shadow, the world a soft one
+  giSticky(model.root);
   model.batch = batchByMaterial(model.root);   // one draw per material (after setCar: the batches take its layer)
   if (P.turret && model.turret) vehicle.turret = new Turret(P.turret);
   const view = new VehicleView(model, vehicle);

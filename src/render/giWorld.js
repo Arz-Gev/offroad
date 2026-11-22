@@ -158,8 +158,9 @@ vec3 rayDir(ivec2 probe, int i, float frame) {
 }`;
 
 // One ray per texel: a probe's rays are a RAY_SIDE x RAY_SIDE block of the ray texture (rgb the light that came
-// back, a the open sky's share). A probe's rays in one long shader were slow in small batches: the GPU runs many
-// short shaders side by side, but each long one start to end.
+// back, a the open sky's share). A probe's rays in one long shader cost a millisecond a frame however few probes
+// were due, and twice the time when all were: the GPU runs many short shaders side by side, but each long one
+// start to end.
 const TRACE_FRAG = /* glsl */`
 precision highp float;
 precision highp int;
@@ -513,8 +514,7 @@ export class WorldGI {
     // The probes that are due: a level's take turns, a band of rows a frame (the scissor keeps the rest out); the
     // rows and columns the grid's move brought in are due at once. Their rays first, into the ray texture; then
     // the grid as it was, and the due probes' new values over it.
-    // (The render target is left set: going back to the one before would be an empty pass on it, and on a
-    // tile-based GPU that loads and stores the whole of it, 1 ms for the screen.)
+    // (The render target is left set: the caller sets its own next.)
     const ac = r.autoClear, N = GIW.N, rects = [];
     const due = (x, y, w, h) => rects.push([x, y, w, h]);
     // texel rows or columns [a, a + n) modulo N as one or two spans

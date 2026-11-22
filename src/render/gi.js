@@ -54,6 +54,14 @@ export const GI_TRACED = {
   giCarA: { value: new THREE.Vector3(0.1, 0.1, 0.1) }, giCarY: { value: new THREE.Vector3() },
 };
 
+// What moves with the camera (the player's truck) reads the traced light at the same place on the screen as a frame
+// ago, not where its point of the world was then: at speed that is a step ahead of it
+export function giSticky(root) {
+  root.traverse(o => {
+    for (const m of [].concat(o.material || [])) if (m.defines && !('GI_STICKY' in m.defines)) { m.defines.GI_STICKY = ''; m.needsUpdate = true; }
+  });
+}
+
 export function giUniforms() {
   return { giSun: { value: GI.sun }, giSky: { value: GI.sky }, giGround: { value: GI.ground }, giLeaf: { value: GI.leaf }, giSide: { value: GI.side }, giDir: { value: GI.dir }, giMap: { value: GI.map } };
 }
@@ -128,8 +136,11 @@ const GI_DIFFUSE = /* glsl */`
 				#ifdef GI_CABIN
 				// inside a cabin the light comes in through the glass on every side: the light round the truck, as on a
 				// surface facing half up, whichever way this one faces
-				giE = mix( giE, PI * max( giCarA + 0.4 * giCarY, 0.1 * giCarA ), giCabin );
-				giOpen = mix( giOpen, 1.0, giCabin );
+				// (uInside: the camera is in the cabin, declared by the cabin's materials. Looked into from outside a cabin is
+				// dimmer: its roof shuts out the sky)
+				float giCab = giCabin * mix( 0.4, 1.0, uInside );
+				giE = mix( giE, PI * max( giCarA + 0.4 * giCarY, 0.1 * giCarA ), giCab );
+				giOpen = mix( giOpen, 1.0, giCab );
 				#endif
 				iblIrradiance += giE;
 			} else {

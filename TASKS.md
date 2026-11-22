@@ -27,7 +27,7 @@ A finished task is deleted, not kept: the PR says what was done. Technical notes
 - BTR-80: no 30 mm BTR-82A turret, no damage model, no swimming; the muzzle flash light casts no shadows.
 - Multiplayer: friends' trucks have no engine sound and no headlight beams; friends on some mobile or work networks can't connect (needs a relay).
 - Driving: the rock garden can wedge the chassis on boulders (fair, but watch for frustration); corner rollovers at 60–70 km/h are plausible (threshold ≈ 0.7 g vs dirt μ 0.72) but may feel harsh.
-- Lighting: the indirect light is an estimate by place; only the land occludes (`DEVNOTES` → Indirect light, The land's far shadow): the truck's underside and the hut's inside are lit as open ground; nothing bounces off the truck's own paint. The far shadow is the land's alone: a forest on a ridge does not add to it.
+- Lighting: the traced indirect light's probes see the land, the tree crowns and the sky only (`DEVNOTES` → Traced indirect light): rocks, props, the hut, the truck and the lamps' bounce are the screen pass's, so they light and shade only while in view; beyond 1 km the light is the open sky's; reflections are still the sky probe's. On Low and Mobile the light is the old estimate.
 - River: on the mountain flank it runs across the slope like a canal, with a built-up bank on the low side (the route with the fewest cuts; `DEVNOTES` → Maps → Classic).
 - Water: the truck drives on the bed under any depth (the view goes under water, the engine and the handling don't notice).
 - World: no terrain or trees in water reflections, undergrowth casts no shadow, no ramp into the quarry, no hut interior, no snow on the near mountains.

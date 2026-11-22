@@ -297,7 +297,9 @@ export class Environment {
     c.exposure *= 1 + 0.3 * k; c.minEx *= 1 + 0.3 * k; c.maxEx *= 1 + 0.3 * k;
     // the day's adaptation: open land in the rain stays at the exposure set here (the scene's mean is lower under
     // the deck, so the mean aimed for is too), and a wood opens the eye by half as much as in fair weather
-    if (c.meter > 0.5) { c.key *= 1 - 0.25 * k; c.maxEx += (c.minEx - c.maxEx) * 0.5 * k; }
+    // (traced, the land under the deck is lit by the grey sky alone and is darker than the estimate made it: the
+    // eye keeps more of its aim)
+    if (c.meter > 0.5) { c.key *= 1 - (this.traced ? 0.1 : 0.25) * k; c.maxEx += (c.minEx - c.maxEx) * 0.5 * k; }
     c.sat += (0.96 - c.sat) * k; c.vibrance *= 1 - 0.5 * k;
     c.mist += 0.15 * k; c.vfog *= 1 + 1.5 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
     c.fill += 0.1 * k; c.env *= 1 + 0.25 * k;

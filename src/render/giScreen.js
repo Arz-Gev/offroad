@@ -250,7 +250,8 @@ export class ScreenGI {
     this.rows = 540;
     this.slices = 2; this.steps = 4;
     this.radius = 4;                      // how far the screen's own tracing reaches (m)
-    this.thick = 0.6;                     // how thick things on screen are taken to be (m)
+    this.thick = 0.3;                     // how thick things on screen are taken to be (m): leaves and blades are thin,
+                                          // and what is solid is joined up sample to sample anyway
     this.blend = 0.2;                     // the share of the new frame in the kept light
     const hf = { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false };
     this.pre = new THREE.WebGLRenderTarget(1, 1, { ...hf, minFilter: THREE.NearestMipmapNearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: true });
@@ -273,7 +274,7 @@ export class ScreenGI {
       uniforms: {
         ...world.uniforms, tPre: { value: this.pre.texture }, uProjInv: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
         uCam: { value: new THREE.Vector3() }, uRes: { value: new THREE.Vector2(1, 1) }, uFull: { value: new THREE.Vector2(1, 1) }, uTan: { value: new THREE.Vector2(1, 1) }, uScale: this.preMat.uniforms.uScale,
-        uProjScale: { value: 1 }, uRadius: { value: 4 }, uMaxPx: { value: 100 }, uFrame: { value: 0 }, uThick: { value: 0.6 },
+        uProjScale: { value: 1 }, uRadius: { value: 4 }, uMaxPx: { value: 100 }, uFrame: { value: 0 }, uThick: { value: 0.3 },
         uCarM: { value: Array.from({ length: CARS }, () => new THREE.Matrix4()) }, uCarBox: { value: Array.from({ length: CARS }, () => new THREE.Vector4()) },
       },
     });
@@ -345,7 +346,7 @@ export class ScreenGI {
     b.tHist.value = hist.texture;
     b.uPrevVP.value.copy(this.viewProj);
     b.uBlend.value = this.cut || !this.ready ? 1 : this.blend;
-    r.setRenderTarget(out);   // (left set: see giWorld.js update)
+    r.setRenderTarget(out);   // (left set, as giWorld.js update leaves its own)
     this.blendQuad.render(r);
     this.cur = 1 - this.cur;
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
