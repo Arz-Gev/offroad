@@ -3,6 +3,9 @@ import { ORIGIN, mod } from '../world/origin.js';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { CLOUD_GLSL, cloudUniforms } from '../world/clouds.js';
 import { SKYLINE_GLSL, skylineUniforms } from './skyline.js';
+import { giVolumeGLSL } from './giWorld.js';
+import { atmosphereUniforms } from './shaderPatches.js';
+import { NO_SHADOW_MAP } from './cascadeShadow.js';
 
 // Volumetric fog: a haze lying in the low ground, lit by the sun (or the moon) through the sun's shadow map and
 // the clouds' shadows, so trees, hills and the truck cast shafts of light into it and broken cloud throws long
@@ -18,6 +21,18 @@ precision highp sampler3D;
 precision highp sampler2DShadow;
 ${CLOUD_GLSL}
 ${SKYLINE_GLSL}
+${giVolumeGLSL()}
+uniform float uGIOn;   // the traced indirect light is on (setGI)
+uniform vec4 atmoSun, atmoAway, atmoSide, atmoToward;   // the far haze's colours (shaderPatches.js)
+// The colour the mist scatters towards the eye from all round: the far haze's own for this direction (towards the
+// sun's side of the horizon, across, away), so the mist near by and the haze behind it are one air. (Lit by its own
+// estimate it came out grey-blue under an orange dusk, and switching the fog changed the whole picture's colour.)
+vec3 hazeColor(vec3 v) {
+  vec2 hz = normalize(v.xz + vec2(1e-5)), sz = normalize(atmoSun.xz + vec2(1e-5));
+  float a = dot(hz, sz), aw = a * a / (abs(a) + 0.15) * 1.15;
+  vec3 col = a > 0.0 ? mix(atmoSide.rgb, atmoToward.rgb, aw) : mix(atmoSide.rgb, atmoAway.rgb, aw);
+  return mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), 0.3) * 0.8;
+}
 uniform sampler2D tDepth, tPrev;
 uniform sampler3D tNoise;
 uniform sampler2DShadow tShadow;
@@ -68,6 +83,16 @@ void main() {
   // the clouds' shadow changes over kilometres: taken at two points of the ray and interpolated
   // (and with it the land's far shadow, render/skyline.js: the sun behind a mountain)
   float cs0 = cloudShadow(uCam + dir * min(tEnd, 20.0)) * skylineShade(uCam + dir * min(tEnd, 20.0)), cs1 = cloudShadow(uCam + dir * tEnd) * skylineShade(uCam + dir * tEnd);
+  // the light the haze scatters from all round: the mean of the light arriving there, from the probes (giWorld.js)
+  // at the ray's two ends; without them one colour everywhere
+  vec3 amb0 = hazeColor(dir), amb1 = amb0;
+  if (uGIOn > 0.5) {
+    // as bright as the place is against open land (a wood, a hollow: dimmer)
+    vec3 q0 = uCam + dir * min(tEnd, 12.0), q1 = uCam + dir * tEnd, gA; vec4 gY; vec2 gX;
+    float open = max(giLum(uGIFallA), 1e-6);
+    giVolume(q0, max(q0.y - giGround(q0.xz, 0.0), 0.0), gA, gY, gX); amb0 *= clamp(giLum(gA) / open, 0.12, 1.3);
+    giVolume(q1, max(q1.y - giGround(q1.xz, 0.0), 0.0), gA, gY, gX); amb1 *= clamp(giLum(gA) / open, 0.12, 1.3);
+  }
   vec3 S = vec3(0.0); float T = 1.0;
   float prev = 0.0;
   for (int i = 0; i < 48; i++) {
@@ -78,7 +103,7 @@ void main() {
     vec3 p = uCam + dir * t;
     float sig = density(p);
     if (sig < 1e-6) continue;
-    vec3 Li = uLightCol * (sunVis(p, t * dot(dir, uFwd)) * mix(cs0, cs1, f * f) * phase) + uAmb;
+    vec3 Li = uLightCol * (sunVis(p, t * dot(dir, uFwd)) * mix(cs0, cs1, f * f) * phase) + mix(amb0, amb1, f * f);
     float ext = exp(-sig * dt);
     S += T * Li * (1.0 - ext);   // energy-conserving step (Hillaire): the light scattered in over dt, attenuated
     T *= ext;
@@ -88,7 +113,7 @@ void main() {
     vec3 p = uCam + dir * tEnd;
     float sig = density(p), dt = tEnd - prev;
     float ext = exp(-sig * dt);
-    S += T * (uLightCol * cs1 * phase + uAmb) * (1.0 - ext);
+    S += T * (uLightCol * cs1 * phase + amb1) * (1.0 - ext);
     T *= ext;
   }
   vec4 res = vec4(S, T);
@@ -138,6 +163,7 @@ export class VolumetricFog {
     this.width = 1; this.height = 1;
     this.prevViewProj = new THREE.Matrix4();
     this.wind = new THREE.Vector2();
+    this.gi = null; this.giOn = false;   // the traced light's probes (setGI) and whether they are in use (pipeline.js)
     // the medium and its light (environment.js writes them per look): density, falloff, floor, wisps
     this.params = {
       density: 0, falloff: 0.02, floor: 0, wisps: 0.5, maxDist: 320,
@@ -148,21 +174,24 @@ export class VolumetricFog {
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
       fragmentShader: MARCH_FRAG, depthTest: false, depthWrite: false,
       uniforms: {
-        ...cloudUniforms(), ...skylineUniforms(),
-        tDepth: { value: null }, tPrev: { value: null }, tNoise: { value: noise3D }, tShadow: { value: null },
+        ...cloudUniforms(), ...skylineUniforms(), ...atmosphereUniforms(),
+        tDepth: { value: null }, tPrev: { value: null }, tNoise: { value: noise3D }, tShadow: { value: NO_SHADOW_MAP },
         uInvViewProj: { value: new THREE.Matrix4() }, uPrevViewProj: { value: new THREE.Matrix4() },
         uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
         uCam: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector3() },
         uLightDir: { value: new THREE.Vector3() }, uLightCol: { value: new THREE.Vector3() }, uAmb: { value: new THREE.Vector3() },
         uDens: { value: new THREE.Vector4() }, uPhase: { value: new THREE.Vector4() }, uWind: { value: new THREE.Vector2() },
         uFrame: { value: 0 }, uBlend: { value: 1 }, uSteps: { value: 24 }, uMaxDist: { value: 320 }, uShadowOn: { value: 0 },
-        uNear: { value: 0.1 }, uFar: { value: 6000 },
+        uNear: { value: 0.1 }, uFar: { value: 6000 }, uGIOn: { value: 0 },
       },
     });
     this.quad = new FullScreenQuad(this.mat);
   }
   get texture() { return this.rts[this.idx].texture; }
   get active() { return this.enabled && this.params.density > 1e-6; }
+  // the traced indirect light's probes (giWorld.js WorldGI.uniforms): the haze is lit by them
+  setGI(uniforms) { this.gi = uniforms; Object.assign(this.mat.uniforms, uniforms); }
+
   setSize(w, h) {
     const fw = Math.max(1, Math.round(w * this.scale)), fh = Math.max(1, Math.round(h * this.scale));
     if (fw === this.width && fh === this.height) return;
@@ -183,9 +212,10 @@ export class VolumetricFog {
     // the sun's world cascades (render/cascadeShadow.js)
     const sh = this.sun?.shadow, shadowOn = !!(this.sun?.castShadow && sh?.map && sh._cascadeData);
     u.uShadowOn.value = shadowOn ? 1 : 0;
-    u.tShadow.value = shadowOn ? sh.map.depthTexture : null;
+    u.tShadow.value = shadowOn ? sh.map.depthTexture : NO_SHADOW_MAP;
     if (shadowOn) for (let i = 0; i < 2; i++) { u.uShadowMat.value[i].copy(sh._matrices[i]); u.uCascade.value[i].copy(sh._cascadeData[i]); }
     u.uLightDir.value.copy(P.lightDir); u.uLightCol.value.copy(P.lightCol); u.uAmb.value.copy(P.amb);
+    u.uGIOn.value = this.gi && this.giOn ? 1 : 0;
     u.uDens.value.set(P.density, P.falloff, P.floor, P.wisps);
     u.uPhase.value.set(P.g, P.forward, P.back, 0);
     u.uWind.value.set(mod(this.wind.x + ORIGIN.x, 60), mod(this.wind.y + ORIGIN.z, 60));   // tied to the world (origin.js)

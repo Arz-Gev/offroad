@@ -179,7 +179,6 @@ export class Environment {
       this.sun.shadow.attach(renderer);
       this.sun.shadow.bias = 1.0;         // texels of the cascade
       this.sun.shadow.normalBias = 1.5;   // texels of the cascade
-      this.sun.shadow.radius = 0.07;      // filter width (m)
     } else {                                // three's own two cascades, bias in depth units
       this.sun.shadow.bias = -0.0004;
       this.sun.shadow.normalBias = 0.05;
@@ -203,6 +202,7 @@ export class Environment {
     this.dirty = true;
     this.soft = false;                 // see soften()
     this.appliedHour = this.hour;
+    this.traced = false;               // the indirect light is traced (render/giWorld.js; graphics.js sets it): no fill light
     this.weather = null;               // world/weather.js sets itself here: the storm s, the rainbow bow
     this.appliedWeather = { s: -1, bow: -1 };
     this.cur = Object.fromEntries(VECS.map(k => [k, [0, 0, 0]]));
@@ -235,6 +235,7 @@ export class Environment {
     if (!Number.isFinite(h)) return;
     this.targetHour = h;
     this.soft = false;
+    this.lightJump = true;   // (the traced light's probes follow at once, pipeline.js)
     if (instant || h === this.hour) { this.hour = h; this.anim = null; }
     else this.anim = { from: this.hour, dist: wrapHour(h - this.hour), t: 0 };
     this.dirty = true;
@@ -295,7 +296,9 @@ export class Environment {
     c.exposure *= 1 + 0.3 * k; c.minEx *= 1 + 0.3 * k; c.maxEx *= 1 + 0.3 * k;
     // the day's adaptation: open land in the rain stays at the exposure set here (the scene's mean is lower under
     // the deck, so the mean aimed for is too), and a wood opens the eye by half as much as in fair weather
-    if (c.meter > 0.5) { c.key *= 1 - 0.25 * k; c.maxEx += (c.minEx - c.maxEx) * 0.5 * k; }
+    // (traced, the land under the deck is lit by the grey sky alone and is darker than the estimate made it: the
+    // eye keeps more of its aim)
+    if (c.meter > 0.5) { c.key *= 1 - (this.traced ? 0.1 : 0.25) * k; c.maxEx += (c.minEx - c.maxEx) * 0.5 * k; }
     c.sat += (0.96 - c.sat) * k; c.vibrance *= 1 - 0.5 * k;
     c.mist += 0.15 * k; c.vfog *= 1 + 1.5 * k; c.glow *= 1 - 0.85 * k; c.shafts *= 1 - k; c.stars *= 1 - k;
     c.fill += 0.1 * k; c.env *= 1 + 0.25 * k;
@@ -396,10 +399,7 @@ export class Environment {
     F.density = c.vfog * this.fogAmount; F.falloff = 0.022; F.floor = 0;
     const sl = 0.2126 * side[0] + 0.7152 * side[1] + 0.0722 * side[2];
     F.amb.set(side[0] + (sl - side[0]) * 0.4, side[1] + (sl - side[1]) * 0.4, side[2] + (sl - side[2]) * 0.4).multiplyScalar(0.75);
-    if (sh > 0) {   // in a mountain's shadow the mist is lit by the sky overhead, not by the glow at the horizon
-      const el = 0.2126 * skyE[0] + 0.7152 * skyE[1] + 0.0722 * skyE[2], al = (0.2126 * F.amb.x + 0.7152 * F.amb.y + 0.0722 * F.amb.z) * 0.8 / Math.max(el, 1e-6);
-      F.amb.x += (skyE[0] * al - F.amb.x) * 0.75 * sh; F.amb.y += (skyE[1] * al - F.amb.y) * 0.75 * sh; F.amb.z += (skyE[2] * al - F.amb.z) * 0.75 * sh;
-    }
+
     this.scene.fog.density = c.fogD;
     this.scene.fog.color.setRGB(side[0], side[1], side[2]);
 
@@ -430,18 +430,25 @@ export class Environment {
     const bounce = (c.sunE * sunUp * Ts[1] + c.moonE * moonUp * Tm[1]) * 0.04 * (0.15 + 0.85 * area);
     this.hemi.groundColor.setRGB(0.36 * bounce, 0.30 * bounce, 0.22 * bounce);
     this.hemi.userData.level = bounce;   // the ambient level the lamps scale against (VehicleView.ambientLevel)
-    this.hemi.color.setRGB(c.fillCol[0] * c.fill, c.fillCol[1] * c.fill, c.fillCol[2] * c.fill);
+    // (the fill light is the estimate's: with the indirect light traced, the sky's own light does it)
+    const fill = this.traced ? 0 : c.fill;
+    if (this.traced) this.hemi.groundColor.setRGB(0, 0, 0);
+    this.hemi.color.setRGB(c.fillCol[0] * fill, c.fillCol[1] * fill, c.fillCol[2] * fill);
 
     if (this.pipeline) {
       const P = this.pipeline.params;
       // standing in a mountain's shadow the eye opens a little more than the bright sky in view would let it
-      const shadeEx = 1 + 0.25 * sh * (1 - this.darkness);
+      // (with the light traced the shade is the sky's light alone, darker than the estimate's: more)
+      const shadeEx = 1 + (this.traced ? 0.8 : 0.25) * sh * (1 - this.darkness);
+      // traced, a wood's floor gets a tenth of the open land's light: the eye opens further for it
+      const woodEx = this.traced && c.meter > 0.5 ? 1.9 : 1;
       P.exposure = c.exposure * shadeEx;
       P.auto = c.auto;
       P.autoExposure = c.auto > 0.001;       // the eye-adaptation pass only runs while it matters
-      P.key = c.key; P.minExposure = c.minEx * shadeEx; P.maxExposure = c.maxEx * shadeEx; P.meterMean = Math.min(1, Math.max(0, c.meter));
+      P.key = c.key; P.minExposure = c.minEx * shadeEx; P.maxExposure = c.maxEx * shadeEx * woodEx; P.meterMean = Math.min(1, Math.max(0, c.meter));
       P.bloomStrength = c.bloom; P.bloomThreshold = c.bloomThr; P.mist = c.mist; P.mistRef = c.meter > 0.5 ? c.minEx : 1e6;
       P.saturation = c.sat; P.contrast = c.contrast; P.vignette = c.vignette;
+      P.night = this.darkness;
       P.tint.setRGB(...c.tint); P.lift.setRGB(...c.lift);
       // the rainbow: opposite the sun, while a shower clears (weather.bow), the sun low enough to lift it
       const bow = (this.weather?.bow ?? 0) * sunUp * this.sunVis * (1 - sstep(c.sunElev, 30, 44));

@@ -1,19 +1,21 @@
 import * as THREE from 'three';
 import { PAT } from './origin.js';
+import { NO_SHADOW_MAP } from '../render/cascadeShadow.js';
 
 // Life in the air, all on the GPU (fixed buffers, positions from the time and a seed per particle, wrapped
 // round the camera, so nothing is uploaded per frame):
-//   pollen   specks drifting on the wind, glowing when you look towards the sun (forward scattering), by day
+//   pollen   specks drifting on the wind, glowing in the sunbeams when you look towards the sun (forward scattering), by day
 //   seeds    a few dandelion tufts, bigger and slower, by day
 //   flies    fireflies over grass and forest edges at dusk and night, each blinking on its own rhythm
 //   wings    butterflies over the meadows by day: two wings flapping, a wandering path, a colour each
 //   birds    small flocks wheeling over the land by day, flapping in bursts between glides
 //   leaves   fluttering down in the forest
-// Nothing casts or receives shadows; the ground height comes from the physics height texture (as the grass).
+// Nothing casts shadows and only the specks receive them; the ground height comes from the physics height texture
+// (as the grass).
 
 const GROUND_GLSL = /* glsl */`
 uniform highp sampler2D tHeight;
-uniform sampler2D tData;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data (terrainView.js)
 uniform vec4 uMap;      // half, cell, NN, size
 float lHgt(ivec2 g) { g = clamp(g, ivec2(0), ivec2(int(uMap.z) - 1)); return texelFetch(tHeight, ivec2(g.y, g.x), 0).r; }
 float lGround(vec2 xz) {
@@ -23,7 +25,7 @@ float lGround(vec2 xz) {
   return t.x + t.y <= 1.0 ? h00 + (h10 - h00) * t.x + (h01 - h00) * t.y : h11 + (h01 - h11) * (1.0 - t.x) + (h10 - h11) * (1.0 - t.y);
 }
 // ground data at xz: g = forest floor, a = grass density
-vec4 lData(vec2 xz) { return textureLod(tData, (xz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0); }
+vec4 lData(vec2 xz) { return textureLod(tGround, vec3((xz + uMap.x + 0.5) / (uMap.w + 1.0), 0.0), 0.0); }
 // a seed position wrapped into a box of side B round the camera (horizontal), drifting with d; wrapped in the
 // pattern frame (origin.js), so nothing jumps when the local frame shifts
 uniform vec2 uPat;
@@ -51,13 +53,33 @@ void main() {
   gl_FragColor = vec4(vCol * a, a);
 }`;
 
+// A speck shines only where the sun reaches it (its place in the sun's shadow map from the vertex stage, read in
+// the fragment one, as the dust: effects.js). Lit everywhere, the specks were lamps in every shadow.
+const POLLEN_FRAG = /* glsl */`
+precision highp sampler2DShadow;
+uniform sampler2DShadow tShadow;
+varying vec3 vCol, vColShade;
+varying float vA;
+varying vec4 vSh;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float r = dot(d, d) * 4.0;
+  if (r > 1.0) discard;
+  float a = vA * (1.0 - r) * (1.0 - r);
+  float sun = vSh.w > 0.5 ? texture(tShadow, vSh.xyz) : 1.0;
+  gl_FragColor = vec4((vCol * sun + vColShade) * a, a);
+}`;
+
 const POLLEN_VERT = /* glsl */`
 ${COMMON_UNIFORMS}
 ${GROUND_GLSL}
 attribute vec4 aSeed;
-uniform float uHalfH, uBox, uSeedK;
-varying vec3 vCol;
+uniform float uHalfH, uBox, uSeedK, uShadowOn;
+uniform mat4 uShadowMat[2];
+uniform vec4 uCascade[2];
+varying vec3 vCol, vColShade;
 varying float vA;
+varying vec4 vSh;
 void main() {
   float big = step(1.0 - uSeedK, aSeed.w);                 // a dandelion tuft instead of a speck
   vec3 drift = vec3(uWind.x, 0.0, uWind.y) * uTime * mix(0.9, 0.5, big);
@@ -77,12 +99,24 @@ void main() {
   float tw = 0.65 + 0.35 * sin(uTime * (1.7 + aSeed.x * 2.0) + ph * 9.0);
   // (under the trees most specks are out of the sun: lit all the same they were sparks in the dark of a wood)
   float inSun = 1.0 - 0.9 * clamp((1.0 - lData(p.xz).r) * 1.64, 0.0, 1.0);
-  vCol = mix(uSunCol * vec3(1.0, 0.88, 0.62) * (0.14 + 0.16 * hg) * tw, uSunCol * 0.2 + uFill * 0.8, big) * inSun;   // golden specks, white tufts
+  // golden specks, white tufts (which have the sky's light in the shade too)
+  vCol = mix(uSunCol * vec3(1.0, 0.88, 0.62) * (0.14 + 0.16 * hg) * tw, uSunCol * 0.2, big) * inSun;
+  vColShade = uFill * (0.8 * big) * inSun;
   vA = fade * uDay;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  float size = mix(0.05, 0.09, big);                        // m
-  gl_PointSize = max(1.5, size * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z));
+  vSh = vec4(0.0);
+  if (uShadowOn > 0.5) for (int i = 1; i >= 0; i--) {
+    if (-mv.z >= uCascade[i].x && -mv.z < uCascade[i].y) {
+      vec4 c = uShadowMat[i] * vec4(p, 1.0);
+      c.xyz /= c.w;
+      if (c.x > 0.0 && c.x < 1.0 && c.y > 0.0 && c.y < 1.0 && c.z < 1.0) vSh = vec4(c.xy, c.z - 0.0003, 1.0);
+      break;
+    }
+  }
+  // (small whatever the distance: a speck two metres off was a ball of light twenty pixels across)
+  float size = mix(0.028, 0.07, big);                       // m
+  gl_PointSize = clamp(size * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z), 1.5, max(2.0, uHalfH * mix(0.009, 0.022, big)));
   if (vA < 0.002) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
 }`;
 
@@ -110,7 +144,7 @@ void main() {
   vA = fade * home * uNight;
   vec4 mv = viewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = max(2.5, 0.12 * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z));
+  gl_PointSize = clamp(0.09 * projectionMatrix[1][1] * uHalfH / max(0.3, -mv.z), 2.5, max(3.0, uHalfH * 0.02));
   if (vA * blink < 0.002) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
 }`;
 
@@ -140,7 +174,8 @@ void main() {
   float flapT = uTime * (9.0 + aSeed.z * 5.0) + ph;
   c.y = lGround(c.xz) + 1.35 + aSeed.y * 1.3 + sin(uTime * 1.3 + ph) * 0.3 + sin(flapT) * 0.03;   // over the tall grass
   vec3 rel = c - uCam;
-  float fade = smoothstep(0.5 * uBox, 0.42 * uBox, length(rel.xz));
+  // (and gone right at the lens, where one would fill the screen)
+  float fade = smoothstep(0.5 * uBox, 0.42 * uBox, length(rel.xz)) * smoothstep(1.0, 2.5, length(rel));
   float scale = 0.12 * (0.8 + 0.4 * aSeed.z) * home * fade * uDay;
   // wings: up and down around the body line, a quick downstroke
   float flap = sin(flapT);
@@ -277,19 +312,19 @@ export function buildLife(terrainView, env) {
   const group = new THREE.Group();
   group.name = 'life';
   const shared = {
-    tHeight: TU.tHeight, tData: TU.tData, uMap: TU.uMap, uPat: PAT,
+    tHeight: TU.tHeight, tGround: TU.tGround, uMap: TU.uMap, uPat: PAT,
     uTime: { value: 0 }, uDay: { value: 1 }, uNight: { value: 0 },
     uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Vector3(1, 1, 1) },
     uFill: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector2(0.5, 0.3) },
     uHalfH: { value: 500 },
   };
-  const points = (n, vert, box, extra = {}) => {
+  const points = (n, vert, box, extra = {}, frag = SPRITE_FRAG) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('aSeed', new THREE.BufferAttribute(seeds(n), 4));
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     const m = new THREE.ShaderMaterial({
-      vertexShader: vert, fragmentShader: SPRITE_FRAG, uniforms: { ...shared, uBox: { value: box }, ...extra },
+      vertexShader: vert, fragmentShader: frag, uniforms: { ...shared, uBox: { value: box }, ...extra },
       transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
       // alpha: what the sprites cover, so the depth of field keeps them sharp (render/pipeline.js)
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
@@ -299,7 +334,11 @@ export function buildLife(terrainView, env) {
     group.add(p);
     return p;
   };
-  const pollen = points(900, POLLEN_VERT, 40, { uSeedK: { value: 0.02 } });
+  const sunShade = {
+    tShadow: { value: NO_SHADOW_MAP }, uShadowOn: { value: 0 },
+    uShadowMat: { value: [new THREE.Matrix4(), new THREE.Matrix4()] }, uCascade: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+  };
+  const pollen = points(900, POLLEN_VERT, 40, { uSeedK: { value: 0.02 }, ...sunShade }, POLLEN_FRAG);
   const flies = points(420, FLY_VERT, 56);
 
   // butterflies: two wing quads per instance
@@ -386,6 +425,10 @@ export function buildLife(terrainView, env) {
       u.uDay.value = 1 - THREE.MathUtils.smoothstep(d, 0.15, 0.5);
       u.uNight.value = THREE.MathUtils.smoothstep(d, 0.3, 0.7);
       pollen.visible = u.uDay.value > 0.001;
+      const sh = env.sun.shadow, shOn = !!(env.sun.castShadow && sh?.map && sh._cascadeData);
+      sunShade.uShadowOn.value = shOn ? 1 : 0;
+      sunShade.tShadow.value = shOn ? sh.map.depthTexture : NO_SHADOW_MAP;
+      if (shOn) for (let i = 0; i < 2; i++) { sunShade.uShadowMat.value[i].copy(sh._matrices[i]); sunShade.uCascade.value[i].copy(sh._cascadeData[i]); }
       wings.visible = u.uDay.value > 0.001;
       birds.visible = u.uDay.value > 0.001;
       flies.visible = u.uNight.value > 0.001;

@@ -183,7 +183,7 @@ float giShade = 1.0;   // the sun the land leaves here (set with the sun's light
 // the sun left at a world point by the land between it and the sun (render/skyline.js)
 float skylineShade( vec3 p ) {
 	if ( uSkyline.x < 0.5 ) return uSkyline.z;
-	vec3 s = texture( SKYLINE_TEX, vec3( ( p.zx + ${(HALF + FAR_CELL / 2).toFixed(1)} ) / ${(FN * FAR_CELL).toFixed(1)}, 1.0 ) ).rgb;
+	vec3 s = textureLod( SKYLINE_TEX, vec3( ( p.zx + ${(HALF + FAR_CELL / 2).toFixed(1)} ) / ${(FN * FAR_CELL).toFixed(1)}, 1.0 ), 0.0 ).rgb;
 	float l = clamp( ( max( p.y - s.r, 0.0 ) - s.g + ${SOFT.toFixed(1)} ) / ( s.b - s.g + ${SOFT.toFixed(1)} ), 0.0, 1.0 );
 	return l * l * ( 3.0 - 2.0 * l );
 }

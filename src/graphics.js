@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { QUALITY, SHADOWS, CLOUDS, FOG, DOF, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
+import { QUALITY, SHADOWS, CLOUDS, FOG, DOF, GI_LEVELS, autoQuality, presetToGfx, gfxToQuality } from './render/quality.js';
 import { storage } from './settings.js';
 import { setSkylinePerPixel } from './render/skyline.js';
 
@@ -40,6 +40,13 @@ export function createGraphics(ctx) {
         if (sh.map) { sh.map.depthTexture?.dispose(); sh.map.dispose(); sh.map = null; }
       }
       sh.camera.far = S.far;
+    }
+    // the traced indirect light (needs filtered float textures: SKYLINE.canFilter)
+    const gi = pipeline.gi, G = GI_LEVELS[q.gi] || null;
+    if (gi) {
+      gi.enabled = !!G && gi.supported;
+      if (env.traced !== gi.enabled) { env.traced = gi.enabled; env.dirty = true; }
+      if (gi.enabled) { gi.screen.configure(G); gi.world.turns = G.turns.slice(); }
     }
     env.setCloudQuality(CLOUDS[q.clouds] ?? null);
     env.setFogQuality(FOG[q.clouds] ?? null);

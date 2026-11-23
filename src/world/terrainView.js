@@ -78,6 +78,17 @@ function floatTex(data, n) {
   return t;
 }
 
+// the ground data and the land data (windowBake.js), one texture of two layers: one sampler for both (the terrain
+// has no texture unit to spare)
+function groundTex(ground, land, n) {
+  const data = new Uint8Array(n * n * 8);
+  data.set(ground, 0); data.set(land, n * n * 4);
+  const t = new THREE.DataArrayTexture(data, n, n, 2);
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
 function rgbaTex(data, n, mips) {
   const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
   t.magFilter = THREE.LinearFilter;
@@ -109,8 +120,7 @@ function windowTextureSteps(renderer, terrain, win, floatLinear, next) {
     },
     () => { next.splat = rgbaTex(win.splat, NN, true); renderer.initTexture(next.splat); },
     () => {
-      next.dataTex = rgbaTex(win.groundData, win.groundN, true); renderer.initTexture(next.dataTex);
-      next.landTex = rgbaTex(win.landData, win.groundN, true); renderer.initTexture(next.landTex);
+      next.groundTex = groundTex(win.groundData, win.landData, win.groundN); renderer.initTexture(next.groundTex);
     },
   ];
 }
@@ -155,8 +165,8 @@ export function buildTerrainView(terrain, renderer, win, opts = {}) {
   // ---- material
   const morph = Array.from({ length: LEVELS }, () => new THREE.Vector2());
   const uniforms = {
-    tHeight: { value: tex.hTex }, tFarHeight: { value: SKYLINE.tex }, tNrm: { value: tex.nTex }, tLand: { value: tex.landTex },
-    tSplat: { value: tex.splat }, tData: { value: tex.dataTex }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
+    tHeight: { value: tex.hTex }, tFarHeight: { value: SKYLINE.tex }, tNrm: { value: tex.nTex }, tGround: { value: tex.groundTex },
+    tSplat: { value: tex.splat }, tAlb: { value: layers.albedo }, tLNrm: { value: layers.normal },
     tNoise: { value: opts.noise || null },
     uMorph: { value: morph }, uCamXZ: { value: new THREE.Vector2() },
     uMap: { value: new THREE.Vector4(HALF, CELL, NN, MAP_SIZE) }, uFar: { value: new THREE.Vector4(FAR_HALF, FAR_CELL, FN, 0) },
@@ -222,7 +232,8 @@ ${CLOUD_DFG_GLSL}
 precision highp sampler2DArray;
 uniform highp sampler2DArray tFarHeight;
 #define SKYLINE_TEX tFarHeight   // the far shadow is its second layer (render/skyline.js)
-uniform sampler2D tNrm, tSplat, tData, tLand, tNoise, uTrack;
+uniform sampler2D tNrm, tSplat, tNoise, uTrack;
+uniform highp sampler2DArray tGround;   // layer 0: the ground data, 1: the land data
 uniform sampler2DArray tAlb, tLNrm;
 uniform vec4 uMap, uFar;
 uniform float uTile[${LAYER_COUNT}];
@@ -236,7 +247,7 @@ uniform vec4 uStoneK;   // the level's stone densities (debris.js LEVELS): scree
 varying vec3 vWPos;
 varying vec3 vFarN;
 varying vec3 vFarLand;
-float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0;
+float gRough; float gAO; float gCav; vec3 gN; float gWet; float gPomSh = 1.0; float gPomAO = 1.0;
 vec2 gDx, gDy;   // screen derivatives of the world xz (taken in uniform control flow)
 vec3 gDpx, gDpy;
 float gVar;      // anti-tiling: a low-frequency noise that picks each region's tile offset
@@ -262,50 +273,63 @@ void layerAt(float l, vec2 xz, bool two, out vec4 alb, out vec4 nrm) {
     }
   }
 }
-// parallax occlusion near the camera: the dominant layer's height (its alpha, top 1) as relief below the surface,
-// depth m deep, marched along the view ray V (POM_STEPS; the shadow POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1).
+// parallax occlusion out to past the truck in the chase view: the dominant layer's height (its alpha, top 1) as
+// relief round the surface, depth m from its tops to its pits with POM_RISE of that above the ground the wheels
+// stand on (all below, the tyres floated over the pits), marched along the view ray V (POM_STEPS; the shadow
+// POM_SHADOW). Returns the xz where the ray meets it; hitD its depth (0 top .. 1).
 // The relief sinks along the ground's normal n, not straight down: on a steep slope seen from below, straight down
 // stretched each stone into a long streak
 // The relief's depth (0 top .. 1) at xz: the tile's two copies blended as layerAt blends them (b), so it runs on
 // without a seam where one region's copy gives way to the next
 vec4 gPomO; float gPomB;   // the two copies' offsets (xy, zw) and the blend
+float gPomLod;             // the mip the march reads: one, filtered plainly (with the photos' anisotropic filter each of
+                           // its steps cost several lookups, 2-4 ms a frame on an M1 Pro)
+#define POM_RISE 0.4
+// a layer's relief from tops to pits (m): a photo stretched over the ground (setGround) is deeper by as much, so a
+// share of the width of its tile (grass, dirt, -, mud, sand and scree, forest, soil)
+const float RELIEF[7] = float[7]( 0.008, 0.011, 0.0, 0.025, 0.015, 0.03, 0.012 );
+float reliefOf(float l) { int i = int(l + 0.5); return clamp(RELIEF[i] / uTile[i], 0.035, 0.12); }
 float pomH(float l, float t, vec2 xz) {
-  vec2 uv = xz * t, dx = gDx * t, dy = gDy * t;
-  float a = gPomB < 0.999 ? textureGrad(tAlb, vec3(uv + gPomO.xy, l), dx, dy).a : 0.0;
-  if (gPomB > 0.001) a = mix(a, textureGrad(tAlb, vec3(uv + gPomO.zw, l), dx, dy).a, gPomB);
+  vec2 uv = xz * t;
+  float a = gPomB < 0.999 ? textureLod(tAlb, vec3(uv + gPomO.xy, l), gPomLod).a : 0.0;
+  if (gPomB > 0.001) a = mix(a, textureLod(tAlb, vec3(uv + gPomO.zw, l), gPomLod).a, gPomB);
   return 1.0 - a;
 }
-vec2 pomAt(float l, vec2 xz, vec3 V, vec3 n, float depth, out float hitD) {
+vec2 pomAt(float l, vec2 xz, vec3 V, vec3 n, float depth, float dist, out float hitD) {
   float t = uTile[int(l)];
+  gPomLod = floor(max(log2(t * float(textureSize(tAlb, 0).x) * sqrt(length(gDx) * length(gDy))), 0.0) + 0.5);
   float k = gVar * 7.0, i = floor(k);
   gPomO = uDetail > 0.5 ? vec4(sin(vec2(3.0, 7.0) * i), sin(vec2(3.0, 7.0) * (i + 1.0))) : vec4(0.0);
   gPomB = uDetail > 0.5 ? smoothstep(0.3, 0.7, fract(k)) : 0.0;
-  vec2 dxz = V.xz / max(-dot(V, n), 0.25) * depth / float(POM_STEPS);
-  vec2 cur = xz; float d = 0.0;
-  float h = pomH(l, t, cur);
+  vec2 whole = V.xz / max(-dot(V, n), 0.33) * depth;
+  // up to twice the steps where the view runs along the ground (the stones' sides came out in little stairs there),
+  // fewer further off, where a step is a pixel or less
+  float steps = ceil(float(POM_STEPS) * mix(mix(2.0, 1.0, smoothstep(0.15, 0.55, -dot(V, n))), 0.75, smoothstep(5.0, 16.0, dist)));
+  vec2 top = xz - whole * POM_RISE;   // where the ray passes the tops
+  float lo = 0.0, gLo = pomH(l, t, top), hi = 1.0, gHi = -1e-3;   // g: how far above the relief the ray still is
   hitD = 0.0;
-  if (h <= 0.0) return xz;
-  for (int s = 0; s < POM_STEPS; s++) {
-    cur += dxz; d += 1.0 / float(POM_STEPS);
-    h = pomH(l, t, cur);
-    if (d >= h) break;
+  if (gLo <= 0.0) return top;
+  for (int s = 1; s <= 2 * POM_STEPS; s++) {
+    float d = min(float(s) / steps, 1.0), g = pomH(l, t, top + whole * d) - d;
+    if (g <= 0.0 || d >= 1.0) { hi = d; gHi = min(g, -1e-4); break; }
+    lo = d; gLo = g;
   }
-  // the ray crossed the relief between the last two samples: halve that step until it is found. (Interpolating
-  // between the two samples instead cut the stones' steep sides into terraces, one per step: striped stones)
-  vec2 st = dxz; float sd = 1.0 / float(POM_STEPS);
+  // The ray crossed the relief in that last step: closed in on by the secant, halving the weight of the end that
+  // stays (Illinois: as sure as halving the step, in half the lookups). One straight interpolation across the whole
+  // step cut the stones' steep sides into terraces, one per step: striped stones
   for (int s = 0; s < POM_REFINE; s++) {
-    st *= 0.5; sd *= 0.5;
-    if (d - sd >= pomH(l, t, cur - st)) { cur -= st; d -= sd; }
+    float d = mix(lo, hi, gLo / (gLo - gHi)), g = pomH(l, t, top + whole * d) - d;
+    if (g > 0.0) { lo = d; gLo = g; gHi *= 0.5; } else { hi = d; gHi = min(g, -1e-4); gLo *= 0.5; }
   }
-  hitD = d;
-  return cur;
+  hitD = mix(lo, hi, gLo / (gLo - gHi));
+  return top + whole * hitD;
 }
 // the relief's own shadow at the hit: does it rise above the ray towards the sun (Lw, world)?
 float pomShadow(float l, vec2 xz, float hitD, vec3 Lw, vec3 n, float depth) {
   float ln = dot(Lw, n);
   if (ln < 0.05 || hitD <= 0.0) return 1.0;
   float t = uTile[int(l)];
-  vec2 dir = Lw.xz / max(ln, 0.12) * depth;
+  vec2 dir = Lw.xz / max(ln, 0.2) * depth;
   float sh = 0.0;
   for (int s = 1; s <= POM_SHADOW; s++) {
     float f = float(s) / float(POM_SHADOW) * hitD;
@@ -451,7 +475,10 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float tone = mix(0.5, hb, bed.z * (1.0 - far) * face) * 0.6 + mix(0.5, hash11(floor(sY2) * 3.1 + 7.0), face) * 0.4;
   float tb = smoothstep(0.8, 1.0, bf), bell = 4.0 * tb * (1.0 - tb);
   float dr = (hN - hb) * bed.y;
-  float ledge = max(-dr, 0.0) * bell * 2.5 * face, under = max(dr, 0.0) * bell * 2.5 * face;
+  // (an overhang only where the rock is near upright: a slope of 30-40 degrees cannot hang over, and drawn there the
+  // shade under each bed ran along the hillsides as black snakes, over the moss too)
+  float sheer = smoothstep(0.66, 0.4, n0.y);
+  float ledge = max(-dr, 0.0) * bell * 2.5 * face * mix(0.35, 1.0, sheer), under = max(dr, 0.0) * bell * 2.5 * face * sheer;
   nW = normalize(nW + vec3(0.0, 1.0, 0.0) * ((hb - 0.5) * 0.5 * bed.y + ledge * 1.6 - under * 1.6) * face * (1.0 - far) * nk);
   float sand = smoothstep(0.45, 0.67, kind) * smoothstep(0.9, 0.7, kind);
   col = rockTone(kind, clamp(tone + (sa.r - 0.5) * 0.35, 0.0, 1.0)) * mix(1.0, photo, 0.5 - 0.25 * sand);
@@ -495,10 +522,14 @@ void rockAt(vec3 p, vec3 n0, float dist, float nk, float kind, float lush, float
   float drive = lush * 0.55 + north * 0.35 + ledge * 1.2 + smoothstep(0.55, 0.85, nW.y) * 0.45 + (1.0 - cav0) * 0.25 + sa.g * 0.3 + uWet * 0.2
     + smoothstep(0.75, 1.0, kind) * 0.25 - 0.62;
   moss = smoothstep(0.0, 0.18, drive + (mn.r - 0.5) * 0.5 + (blot.a - 0.5) * 0.3);
+  // on a face it only holds in cushions, rock between them (it followed every joint and ledge to its end: bands of
+  // dark paint along the cuttings)
+  moss *= mix(1.0, smoothstep(0.48, 0.64, mn.b * 0.5 + lh.g * 0.3 + lh.a * 0.2), smoothstep(0.95, 0.78, n0.y));
   vec3 mossCol = mix(vec3(0.08, 0.13, 0.035), vec3(0.13, 0.17, 0.035), mn.g) * (1.0 + 0.3 * uWet);   // (darker, a mossy ledge in shade read as a band of black paint)
   col = mix(col, mossCol, moss);
   rough = mix(rough, 0.97, moss);
-  nW = normalize(mix(nW, n0, moss * 0.5));
+  nW = normalize(mix(nW, n0, moss * 0.6));
+  cav = mix(cav, 1.0, moss * 0.6);   // (and fills the cracks)
 }
 // ---- painted stones: beyond the 3D ones (debris.js) the same stones, painted on the ground
 vec4 hash42(vec2 p) { vec4 p4 = fract(vec4(p.xyxy) * vec4(0.1031, 0.1030, 0.0973, 0.1099)); p4 += dot(p4, p4.wzxy + 33.33); return fract((p4.xxyz + p4.yzzw) * p4.zywx); }
@@ -516,7 +547,7 @@ float stoneDensOf(vec4 nt, vec4 sp, vec4 gd, vec4 ld, out float big, out float r
 }
 float stoneDens(vec2 q, out float big, out float rutQ) {
   vec2 uvN = ((q + uMap.x) / uMap.y + 0.5) / uMap.z, uvD = (q + uMap.x + 0.5) / (uMap.w + 1.0);
-  return stoneDensOf(textureLod(tNrm, uvN, 0.0), textureLod(tSplat, uvN, 0.0), textureLod(tData, uvD, 0.0), textureLod(tLand, uvD, 0.0), big, rutQ);
+  return stoneDensOf(textureLod(tNrm, uvN, 0.0), textureLod(tSplat, uvN, 0.0), textureLod(tGround, vec3(uvD, 0.0), 0.0), textureLod(tGround, vec3(uvD, 1.0), 0.0), big, rutQ);
 }
 // one size class on a grid of cs m cells: at most one stone a cell, inside it with room for its shadow (the odds from
 // the ground data at the cell's centre, so a stone is never cut by a change in the data). cls 0: the small ones
@@ -573,8 +604,8 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   vec4 nt = texture2D(tNrm, uvN);
   vec4 sp = texture2D(tSplat, uvN);
   vec2 uvD = (pL.xz + uMap.x + 0.5) / (uMap.w + 1.0);
-  vec4 gd = texture2D(tData, uvD);
-  vec4 ld = texture2D(tLand, uvD);
+  vec4 gd = texture(tGround, vec3(uvD, 0.0));
+  vec4 ld = texture(tGround, vec3(uvD, 1.0));
   vec4 nz0 = texture2D(tNoise, p.xz / ${ppf(23)});
   vec4 nzP = texture2D(tNoise, p.xz / ${ppf(53)} + 0.61);
   // macro variation (large scale) to break everything up; wq warps the rock beds
@@ -582,11 +613,19 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   float mac = m4.r;
   vec2 wq = m4.gb;
   float mac2 = texture2D(tNoise, p.xz / ${ppf(97)} + 0.3).g;
-  vec3 nG;
-  if (inMap) {
-    nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);
-    nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
-  } else {
+  vec3 nG = vec3(nt.r * 2.0 - 1.0, 0.0, nt.g * 2.0 - 1.0);   // (outside the window: its edge's, the textures clamp)
+  nG.y = sqrt(max(0.0, 1.0 - nG.x * nG.x - nG.z * nG.z));
+  float vistaK = inMap ? 0.0 : 1.0;   // how far the vista's own land has taken over
+  if (!inMap) {
+    #ifndef FAR_LAND
+    // A map of one window (Classic): the vista goes on from the land at the edge and takes over over some tens of
+    // metres, raggedly; from the first metre it was a straight line of other colours round the map, seen from the rim.
+    // (Not on an endless map, whose edge moves with the window: its vista holds the same land.)
+    float edgeOut = max(abs(pL.x), abs(pL.z)) - uMap.x;
+    vistaK = smoothstep(5.0, 90.0, edgeOut + (mac2 - 0.5) * 90.0 * smoothstep(0.0, 30.0, edgeOut));
+    vec3 nEdge = nG; vec4 spEdge = vec4(0.0, 0.0, sp.b, sp.a), gdEdge = vec4(gd.rg, 0.0, gd.a), ldEdge = ld;
+    float visEdge = nt.b;
+    #endif
     // vista: normals from its heights plus procedural detail (its heightmap is only 16 m); lushness and rock kind
     // from noise: higher is drier and stonier
     nG = normalize(vFarN);
@@ -603,6 +642,8 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     gd = vec4(1.0, 0.0, 0.0, 1.0);
     ld = vec4(clamp(0.45 + (mac2 - 0.5) * 0.8 - smoothstep(120.0, 320.0, p.y) * 0.35 - dot(nG.xz, SUN_SIDE) * 0.4, 0.0, 1.0), 0.0, 0.0,
               smoothstep(0.4, 0.6, mac) * 0.333 + smoothstep(0.62, 0.72, wq.g) * 0.4);
+    nG = normalize(mix(nEdge, nG, smoothstep(0.0, 12.0, edgeOut)));
+    sp = mix(spEdge, sp, vistaK); gd = mix(gdEdge, gd, vistaK); ld = mix(ldEdge, ld, vistaK); nt.b = mix(visEdge, 1.0, vistaK);
     #endif
   }
   float td = inMap ? nt.a * 6.0 : 6.0;
@@ -631,7 +672,7 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   float wSoil = wTrail * 0.8 * verge + smoothstep(0.17, 0.28, slope + (mac - 0.5) * 0.1) * 0.5 * (1.0 - wRock) * (1.0 - wTrail) * (1.0 - wScree);
   float wForest = gd.g * (1.0 - wTrail) * (1.0 - wMud);
   #ifndef FAR_LAND
-  if (!inMap) wForest = smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y);
+  if (!inMap) wForest = mix(wForest, smoothstep(0.35, 0.65, mac2) * smoothstep(0.32, 0.18, slope) * smoothstep(260.0, 120.0, p.y), vistaK);
   #endif
   float wGrass = max(0.0, 1.0 - wDirt - wMud - wSand - wForest - wSoil);
   // colour of each layer by the land. The meadow: golden on dry ridges and sunny slopes, deep green down the drainage
@@ -653,22 +694,25 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
     vec4 a1, n1, a2, n2;
     // near the camera the ground has depth: parallax occlusion on the dominant layer, with its own sun shadow
     vec2 pxz = p.xz;
-    // (not on the meadow: the grass covers it)
+    // (it reaches past the truck in the chase view, some 8-12 m off)
     #ifdef GROUND_ULTRA
-    float pomK = (1.0 - smoothstep(7.0, 13.0, dist)) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    float pomK = (1.0 - smoothstep(20.0, 36.0, dist)) * (1.0 - smoothstep(0.3, 0.6, wRock));
     #else
-    float pomK = (uDetail > 1.5 && l1 > 0.5 ? 1.0 - smoothstep(4.0, 8.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
+    float pomK = (uDetail > 1.5 ? 1.0 - smoothstep(12.0, 21.0, dist) : 0.0) * (1.0 - smoothstep(0.3, 0.6, wRock));
     #endif
     // (fading out where the view runs along the ground: there the relief only smears; and where the dominant layer
     // changes, where it would jump from one layer's relief to the other's)
     vec3 V = normalize(pL - cameraPosition);
     pomK *= smoothstep(0.05, 0.25, -dot(V, nG)) * smoothstep(0.0, 0.3, w1 - w2);
     if (pomK > 0.0) {
-      float pomD;
-      pxz = mix(p.xz, pomAt(l1, p.xz, V, nG, 0.05, pomD), pomK);
+      // (fading, it flattens: no swimming from the relief's place to the flat one)
+      float pomD, pomZ = reliefOf(l1) * pomK;
+      pxz = pomAt(l1, p.xz, V, nG, pomZ, dist, pomD);
       #if NUM_SUN_LIGHTS > 0
-      gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), nG, 0.05), pomK);
+      float pomS = pomK * (1.0 - smoothstep(8.0, 14.0, dist));
+      if (pomS > 0.0) gPomSh = mix(1.0, pomShadow(l1, pxz, pomD, normalize((vec4(sunLights[0].direction, 0.0) * viewMatrix).xyz), nG, pomZ), pomS);
       #endif
+      gPomAO = 1.0 - 0.5 * pomK * smoothstep(0.4, 1.0, pomD);   // less of the sky down in the pits: relief in the shade too
     }
     layerAt(l1, pxz, two, a1, n1);
     a1.rgb *= TINT(l1);
@@ -800,7 +844,9 @@ void stoneCell(vec2 xz, float cs, vec2 rr, float cls, float fade, vec3 n0, float
   // microshadows). The canopy's shade is the indirect light's (render/gi.js: the open sky, and the ground's own
   // colour for the light bounced onto slopes and faces from the ground around)
   gCav = mix(nn.a, 1.0, pud);
-  gAO = mix(1.0, gCav, 0.8) * mix(1.0, vis * vis, 0.85);
+  // (the sky the land hides is in the traced light already: multiplied in again, squared, every bank and cutting in
+  // the shade went black. What is left of it there is the metre or two the probes are too coarse for)
+  gAO = mix(1.0, gCav, 0.8) * mix(gPomAO, 1.0, pud) * (giAtlas.x > 0.5 ? mix(1.0, vis, 0.15) : mix(1.0, vis * vis, 0.85));
   gN = normalize(mix(nW, nG, pud * 0.9));
   diffuseColor.rgb *= c;
   giLocal = vec4(mix(giGround.rgb, diffuseColor.rgb, 0.5), gd.r);
@@ -827,13 +873,13 @@ reflectedLight.indirectSpecular *= gAO;
   };
   // ground shading 3 (Ultra) compiles in the heavier parts: the cliff photo on the rock, deeper parallax further out
   let ultra = false;
-  const defines = (lite) => ({ CLOUD_DFG: '', GI_LOCAL: '', ...(opts.farLand ? { FAR_LAND: '' } : {}), POM_STEPS: ultra ? 10 : 6, POM_REFINE: ultra ? 4 : 3, POM_SHADOW: ultra ? 5 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
+  const defines = (lite) => ({ CLOUD_DFG: '', GI_LOCAL: '', ...(opts.farLand ? { FAR_LAND: '' } : {}), POM_STEPS: ultra ? 8 : 5, POM_REFINE: ultra ? 3 : 2, POM_SHADOW: ultra ? 4 : 3, ...(lite ? { NO_ROCK: '' } : {}), ...(ultra ? { GROUND_ULTRA: '' } : {}) });
   const makeMaterial = (lite) => {
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = onBeforeCompile;
     m.defines = defines(lite);   // CLOUD_DFG: at the 16-texture limit with the lamps' cookies (clouds.js)
-    m.customProgramCacheKey = () => 'terrain-cdlod-v8' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
+    m.customProgramCacheKey = () => 'terrain-cdlod-v14' + (lite ? '-lite' : '') + (ultra ? '-ultra' : '') + (opts.farLand ? '-fl' : '');
     return m;
   };
   const material = makeMaterial(false), materialLite = makeMaterial(true);
@@ -889,7 +935,7 @@ reflectedLight.indirectSpecular *= gAO;
   const view = {
     mesh, material, uniforms, layers, groundN: DN, floatLinear,
     // the current window's textures and data (other systems read these: grass culling, debris, trees)
-    splat: tex.splat, dataTex: tex.dataTex, landTex: tex.landTex, heightTex: tex.hTex, normalTex: tex.nTex,
+    splat: tex.splat, groundTex: tex.groundTex, heightTex: tex.hTex, normalTex: tex.nTex,
     groundData: win.groundData, landData: win.landData,
     get patchCount() { return lists[0].count + lists[1].count; },
     // a new window (streamer): the textures are made over a few frames (prepare's steps), then swapped in at once
@@ -898,12 +944,11 @@ reflectedLight.indirectSpecular *= gAO;
       return { next, steps: windowTextureSteps(renderer, terrain, w, floatLinear, next) };
     },
     applyWindow(next) {
-      const old = [uniforms.tHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tData.value, uniforms.tLand.value];
+      const old = [uniforms.tHeight.value, uniforms.tNrm.value, uniforms.tSplat.value, uniforms.tGround.value];
       uniforms.tHeight.value = view.heightTex = next.hTex;
       uniforms.tNrm.value = view.normalTex = next.nTex;
       uniforms.tSplat.value = view.splat = next.splat;
-      uniforms.tData.value = view.dataTex = next.dataTex;
-      uniforms.tLand.value = view.landTex = next.landTex;
+      uniforms.tGround.value = view.groundTex = next.groundTex;
       view.groundData = next.win.groundData; view.landData = next.win.landData;
       setLightMap(renderer, next.win.light);
       setSkylineLand(terrain, next.win.farLand);
@@ -943,7 +988,7 @@ reflectedLight.indirectSpecular *= gAO;
         L.attr.needsUpdate = true;
       });
     },
-    groundDataChanged() { view.dataTex.needsUpdate = true; view.landTex.needsUpdate = true; },
+    groundDataChanged() { const d = view.groundTex.image.data; d.set(view.groundData, 0); d.set(view.landData, d.length / 2); view.groundTex.needsUpdate = true; },
     // the photos' size (times their real size: grass, road (track and soil), gravel) and the edges between layers
     // (soft, wander 0..1); each tile snapped to divide the pattern period (origin.js)
     setGround({ grass, road, gravel, soft, wander }) {

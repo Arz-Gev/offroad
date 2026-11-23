@@ -44,6 +44,7 @@ export const DEFAULTS = {
   gAA: 'off',               // 'off' | 'fxaa' | 'msaa2' | 'msaa4'
   gShadows: 'high',         // 'off' | 'low' | 'medium' | 'high' | 'ultra'
   gSSAO: 'low',             // screen-space ambient occlusion: 'off' | 'low' | 'high'
+  gGI: 'medium',            // the traced indirect light: 'off' | 'low' | 'medium' | 'high'
   gBloom: true,
   gViewDist: 1,             // terrain LOD distance scale
   gTerrain: 2,              // terrain shading detail 0..3
@@ -84,6 +85,7 @@ const CHOICES = {
   gAA: ['off', 'fxaa', 'msaa2', 'msaa4'],
   gShadows: ['off', 'low', 'medium', 'high', 'ultra'],
   gSSAO: ['off', 'low', 'high'],
+  gGI: ['off', 'low', 'medium', 'high'],
   gVeg: ['off', 'low', 'medium', 'high', 'ultra'],
   gTerrain: [0, 1, 2, 3],
 };

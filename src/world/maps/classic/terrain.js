@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeSimplex2D, mulberry32, fbm, ridged, smoothstep, lerp } from '../../noise.js';
-import { Terrain, MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL, FAR_N } from '../../terrain.js';
+import { Terrain, bankSpread, MAP_SIZE, CELL, N, SURF, FAR_SIZE, FAR_CELL, FAR_N } from '../../terrain.js';
 
 // The classic map (maps/index.js): one fixed 1 km window, never streamed; terrain.js's Terrain gives the queries.
 // Procedural map, 1 km square, 0.5 m physics grid. Core 400 m: hills, big hill, trail loop + branch with ruts and a
@@ -51,7 +51,8 @@ function spiralPts() {
 // stream from the north-east mountains to the lake (water ~0.35 m deep over a gravel bed). The route is the one
 // that runs downhill all the way over this land (found by a search over the heights: the land is full of hollows
 // lower than the lake, and a line drawn by hand across them left the water in the air)
-export const STREAM = [[444, -480], [452, -472], [452, -420], [428, -396], [428, -336], [348, -244], [312, -232], [280, -188], [260, -180],
+// It rises at the foot of the north-east mountain: higher up it ran down the flank like a slide.
+export const STREAM = [[437, -412], [429, -394], [428, -336], [348, -244], [312, -232], [280, -188], [260, -180],
   [252, -128], [260, -120], [260, -84], [288, -56], [276, -20], [288, 12], [292, 24]];
 
 export class ClassicTerrain extends Terrain {
@@ -332,92 +333,45 @@ export class ClassicTerrain extends Terrain {
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const len = curve.getLength(), ns = Math.ceil(len / 1);
     const sp = curve.getSpacedPoints(ns);
-    // bed profile: the lowest ground across the channel, smoothed but never above it, and never rising on the way
-    // down: a rise in the land is cut through (the old profile was raised over the dips instead, and the water hung
-    // in the air there)
-    const raw = sp.map(p => {
+    const n = sp.length, lakeLevel = this.lake.level, lk = this.lake, ford = POI.ford;
+    const surfLevel = new Float32Array(n), width = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const p = sp[k], fordW = smoothstep(26, 6, Math.hypot(p.x - ford.x, p.z - ford.z));
+      // (a rivulet where it rises, its full width after 25 m)
+      width[k] = (3.2 + 1.6 * (0.5 + 0.5 * this.n5(k * 0.02, 3.3))) * (0.25 + 0.75 * smoothstep(0, 25, k)) + fordW * 3.5;
+    }
+    // Bed profile: the lowest ground across the channel and both its banks (so the water lies below the land on
+    // either side, also where the stream runs across a slope: perched on the slope it needed a dike on its low side),
+    // smoothed but never above that, and never rising on the way down: a rise in the land is cut through (the old
+    // profile was raised over the dips instead, and the water hung in the air there)
+    const raw = sp.map((p, k) => {
+      const a = sp[Math.max(0, k - 1)], b = sp[Math.min(n - 1, k + 1)];
+      const tx = b.x - a.x, tz = b.z - a.z, tl = Math.hypot(tx, tz) || 1, W = width[k] + 3;
       let m = 1e9;
-      for (const o of [-3, 0, 3]) m = Math.min(m, this.heightAt(p.x + o, p.z), this.heightAt(p.x, p.z + o));
+      for (let q = -4; q <= 4; q++) m = Math.min(m, this.heightAt(p.x - tz / tl * W * q / 4, p.z + tx / tl * W * q / 4));
       return m;
     });
     let hs = raw.slice();
     for (let pass = 0; pass < 3; pass++) {
       const o = hs.slice();
-      for (let k = 0; k < hs.length; k++) { let s = 0, c = 0; for (let j = -10; j <= 10; j++) { const kk = Math.max(0, Math.min(hs.length - 1, k + j)); s += hs[kk]; c++; } o[k] = s / c; }
+      for (let k = 0; k < n; k++) { let s = 0, c = 0; for (let j = -10; j <= 10; j++) { const kk = Math.max(0, Math.min(n - 1, k + j)); s += hs[kk]; c++; } o[k] = s / c; }
       hs = o;
     }
-    const lakeLevel = this.lake.level;
-    for (let k = 0; k < hs.length; k++) {
+    for (let k = 0; k < n; k++) {
       hs[k] = Math.min(hs[k], raw[k]);
       if (k) hs[k] = Math.min(hs[k], hs[k - 1] - 0.002);
     }
-    // (and never below the lake it runs into: there the banks are built up instead, carve below)
-    for (let k = 0; k < hs.length; k++) hs[k] = Math.max(hs[k], lakeLevel + 0.45 + 0.004 * (hs.length - 1 - k));
-    const n = hs.length;
-    const surfLevel = new Float32Array(n), width = new Float32Array(n);
-    const ford = POI.ford;
-    for (let k = 0; k < n; k++) {
-      const p = sp[k];
-      const dF = Math.hypot(p.x - ford.x, p.z - ford.z);
-      const fordW = smoothstep(26, 6, dF);
-      width[k] = 3.2 + 1.6 * (0.5 + 0.5 * this.n5(k * 0.02, 3.3)) + fordW * 3.5;
-      const end = smoothstep(n - 40, n - 1, k);
-      surfLevel[k] = lerp(hs[k] - 0.45, lakeLevel, end);
-    }
+    // (and never below the lake it runs into: on low ground beside the lake the banks are built up a little, below)
+    for (let k = 0; k < n; k++) hs[k] = Math.max(hs[k], lakeLevel + 0.45 + 0.004 * (n - 1 - k));
+    for (let k = 0; k < n; k++) surfLevel[k] = lerp(hs[k] - 0.45, lakeLevel, smoothstep(n - 40, n - 1, k));
+    // (the lower valley lies below the lake's level: built up there)
+    const spread = bankSpread(surfLevel, raw);
     this.streamCurve = curve;
     this.streamPts = sp; this.streamLevel = surfLevel; this.streamWidth = width;
-    // carve: bed = surface - depth (shallower and wider at the ford), soft banks. Where the ground is lower than
-    // the bed it is built up to it, with a brim at the water's edge that falls away at 1 in 2.5.
-    // Each cell takes the level of the stream's nearest point (first pass). Shaped segment by segment, a steep run
-    // was cut to the level of the lowest segment in reach, metres under its own water.
-    const R = 18;
-    let bx0 = N, bx1 = 0, bz0 = N, bz1 = 0;
-    for (const q of sp) {
-      bx0 = Math.min(bx0, Math.floor((q.x - R + half) / CELL)); bx1 = Math.max(bx1, Math.ceil((q.x + R + half) / CELL));
-      bz0 = Math.min(bz0, Math.floor((q.z - R + half) / CELL)); bz1 = Math.max(bz1, Math.ceil((q.z + R + half) / CELL));
-    }
-    bx0 = Math.max(0, bx0); bz0 = Math.max(0, bz0); bx1 = Math.min(N, bx1); bz1 = Math.min(N, bz1);
-    const bw = bz1 - bz0 + 1, near = new Float32Array((bx1 - bx0 + 1) * bw).fill(1e9), along = new Float32Array(near.length);
-    for (let k = 0; k < n - 1; k++) {
-      const a = sp[k], b = sp[k + 1];
-      const ix0 = Math.max(bx0, Math.floor((Math.min(a.x, b.x) - R + half) / CELL)), ix1 = Math.min(bx1, Math.ceil((Math.max(a.x, b.x) + R + half) / CELL));
-      const iz0 = Math.max(bz0, Math.floor((Math.min(a.z, b.z) - R + half) / CELL)), iz1 = Math.min(bz1, Math.ceil((Math.max(a.z, b.z) + R + half) / CELL));
-      const abx = b.x - a.x, abz = b.z - a.z, ab2 = abx * abx + abz * abz;
-      for (let ix = ix0; ix <= ix1; ix++) {
-        const x = -half + ix * CELL;
-        for (let iz = iz0; iz <= iz1; iz++) {
-          const z = -half + iz * CELL;
-          let u = ((x - a.x) * abx + (z - a.z) * abz) / ab2;
-          u = Math.max(0, Math.min(1, u));
-          const d = Math.hypot(x - (a.x + abx * u), z - (a.z + abz * u)), o = (ix - bx0) * bw + iz - bz0;
-          if (d < near[o]) { near[o] = d; along[o] = k + u; }
-        }
-      }
-    }
-    for (let ix = bx0; ix <= bx1; ix++) {
-      const x = -half + ix * CELL;
-      for (let iz = bz0; iz <= bz1; iz++) {
-        const o = (ix - bx0) * bw + iz - bz0, d = near[o];
-        const k = Math.min(n - 2, Math.floor(along[o])), u = along[o] - k;
-        const w = width[k] + (width[k + 1] - width[k]) * u;
-        if (d > w + 13) continue;
-        const z = -half + iz * CELL;
-        const lvl = surfLevel[k] + (surfLevel[k + 1] - surfLevel[k]) * u;
-        const dF = Math.hypot(x - ford.x, z - ford.z);
-        const depth = lerp(0.62, 0.32, smoothstep(24, 8, dF));
-        const bed = lvl - depth * (1 - Math.pow(Math.min(1, d / w), 2));
-        const i = ix * NN + iz;
-        // banks: ease from the bed to the terrain over a few metres
-        const bankW = lerp(3.5, 9, smoothstep(26, 8, dF));
-        const t = smoothstep(w, w + bankW, d);
-        const target = lerp(bed, Math.max(H[i], lvl + 0.15), t);
-        const brim = d < w ? bed : d < w + 1 ? lvl + 0.2 * (d - w) : lvl + 0.2 - (d - w - 1) / 2.5;
-        if (target < H[i] || H[i] < brim) {
-          H[i] = Math.max(Math.min(H[i], target), brim);
-          if (d < w + 0.6) this.surface[i] = SURF.sand;
-        }
-      }
-    }
+    this.cutChannel(sp, surfLevel, width, spread, lk, (x, z, k, u, out) => {
+      const dF = Math.hypot(x - ford.x, z - ford.z);
+      out[0] = smoothstep(24, 8, dF); out[1] = smoothstep(26, 8, dF); out[2] = smoothstep(10, 22, dF);
+    }, (x, z) => 0.8 * this.n5(x * 0.15, z * 0.15) + 0.45 * this.n5(x * 0.47 + 7, z * 0.47));
     this.water.push({ type: 'stream', pts: sp, level: surfLevel, width, lake: this.lake });
   }
 

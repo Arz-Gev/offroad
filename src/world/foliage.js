@@ -2,14 +2,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mulberry32 } from './noise.js';
 
-// Foliage: a card atlas drawn with Canvas2D at startup (needle sprays, pine tufts, birch leaves, fern
-// fronds, shrub leaves, bare twigs, apple leaves, broad oak leaves), and procedural tree / plant geometry that
-// uses it.
+// Foliage: the leaf atlas (pictures of sprays and whole plants on a transparent ground, public/leaves/atlas.webp,
+// 4 x 4 cells) and the procedural tree / plant geometry of cards that uses it.
 // Geometry attributes: position, normal (card normals bent outwards from the crown, so the crown shades
 // like a volume), uv (atlas), aWind (0 at the root .. 1 at the tips: how far the vertex sways).
 
-export const ATLAS = { cols: 4, rows: 3, cell: 512 };
-export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, apple: 8, oak: 9, lavender: 10, poppy: 11 };
+export const ATLAS = { cols: 4, rows: 4, cell: 512 };
+export const CELLS = { spruce: 0, pine: 1, birch: 2, fern: 3, bush: 4, twigs: 5, grassTuft: 6, flowers: 7, apple: 8, oak: 9, lavender: 10, poppy: 11, yarrow: 12, juniper: 13, seedGrass: 14, herb: 15 };
 
 const cellUV = (i) => {
   const c = i % ATLAS.cols, r = Math.floor(i / ATLAS.cols);
@@ -17,203 +16,103 @@ const cellUV = (i) => {
 };
 
 // ---------------------------------------------------------------- atlas
-export function makeFoliageAtlas() {
-  const S = ATLAS.cell, W = S * ATLAS.cols, H = S * ATLAS.rows;
+const ALPHA_REF = 0.42;   // the leaf materials' alpha test
+
+// fetch and decode the atlas; null if it fails
+export function loadFoliagePhoto(base) {
+  return fetch(`${base}leaves/atlas.webp`)
+    .then(r => { if (!r.ok) throw new Error(`atlas.webp: ${r.status}`); return r.blob(); })
+    .then(b => createImageBitmap(b, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }))
+    .catch(e => { console.warn('leaf atlas unavailable, plain leaves stand in', e); return null; });
+}
+
+// without the picture: each cell a clump of plain leaves in about its colour
+const STAND_IN = ['#2f4a2c', '#3d5536', '#5f7f35', '#456b2a', '#3b5c28', '#5a4a3c', '#5f7534', '#b9ba78', '#42612b', '#3f602a', '#7c6ba6', '#c33222', '#c9c9a4', '#44584a', '#7b8151', '#43662f'];
+
+function atlasPixels(photo, W, H) {
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
-  const g = cv.getContext('2d');
-  const rnd = mulberry32(31337);
-  const R = (a, b) => a + (b - a) * rnd();
-  const hsl = (h, s, l, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
-  const cell = (i, fn) => { g.save(); g.translate((i % ATLAS.cols) * S, Math.floor(i / ATLAS.cols) * S); g.beginPath(); g.rect(0, 0, S, S); g.clip(); fn(); g.restore(); };
-  const line = (x0, y0, x1, y1, w, col) => { g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'round'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
-
-  // 0: spruce spray (seen from above): twig up the middle, side twigs, dense short needles
-  cell(CELLS.spruce, () => {
-    const twig = (x0, y0, ang, len, w, depth) => {
-      const x1 = x0 + Math.cos(ang) * len, y1 = y0 + Math.sin(ang) * len;
-      line(x0, y0, x1, y1, w, hsl(25, 35, 20));
-      const n = Math.floor(len / 3.2);
-      for (let k = 0; k < n; k++) {
-        const t = k / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
-        for (const sd of [-1, 1]) {
-          const a = ang + sd * R(0.75, 1.15), l = R(11, 17) * (1 - t * 0.35);
-          line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.6, 2.4), hsl(R(112, 145), R(30, 46), R(22, 37)));
-        }
-      }
-      if (depth > 0) for (let k = 1; k < 6; k++) {
-        const t = k / 6.5, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
-        for (const sd of [-1, 1]) twig(px, py, ang + sd * R(0.6, 0.9), len * R(0.3, 0.45) * (1 - t * 0.5), w * 0.6, depth - 1);
-      }
-    };
-    twig(S / 2, S - 4, -Math.PI / 2, S - 30, 4, 1);
-  });
-
-  // 1: pine: a dense mass of needle bundles on short twigs
-  cell(CELLS.pine, () => {
-    for (let b = 0; b < 16; b++) {
-      const a0 = -Math.PI / 2 + R(-1.1, 1.1), l0 = R(120, 330);
-      const cx = S / 2 + Math.cos(a0) * l0, cy = S - 6 + Math.sin(a0) * l0;
-      line(S / 2, S - 4, cx, cy, 4, hsl(22, 35, 24));
-      for (let k = 0; k < 55; k++) {
-        const a = a0 + R(-1.7, 1.7), l = R(26, 62), u = R(0.4, 1);
-        const px = S / 2 + (cx - S / 2) * u, py = S - 4 + (cy - S + 4) * u;
-        line(px, py, px + Math.cos(a) * l, py + Math.sin(a) * l, R(1.8, 2.8), hsl(R(90, 120), R(30, 44), R(26, 40)));
-      }
-    }
-  });
-
-  // 2: birch: thin twigs with small oval leaves
-  const leaf = (x, y, a, l, w, col) => {
-    g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = col;
-    g.beginPath(); g.ellipse(l / 2, 0, l / 2, w / 2, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(30,50,20,0.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, 0); g.lineTo(l, 0); g.stroke();
-    g.restore();
-  };
-  cell(CELLS.birch, () => {
-    for (let t = 0; t < 7; t++) {
-      const x0 = S / 2 + R(-20, 20), y0 = S - 4, a0 = -Math.PI / 2 + R(-0.9, 0.9), len = R(260, 460);
-      const x1 = x0 + Math.cos(a0) * len, y1 = y0 + Math.sin(a0) * len;
-      line(x0, y0, x1, y1, 3, hsl(20, 25, 22));
-      for (let k = 0; k < 26; k++) {
-        const u = R(0.15, 1), px = x0 + (x1 - x0) * u, py = y0 + (y1 - y0) * u;
-        leaf(px, py, a0 + R(-1.6, 1.6), R(34, 52), R(20, 30), hsl(R(72, 100), R(38, 58), R(34, 52)));
-      }
-    }
-  });
-
-  // 3: fern frond: rachis with tapered pinnae
-  cell(CELLS.fern, () => {
-    const x0 = S / 2, y0 = S - 6, len = S - 40;
-    g.save(); g.translate(x0, y0);
-    line(0, 0, 0, -len, 4, hsl(95, 45, 22));
-    for (let k = 3; k < 34; k++) {
-      const t = k / 34, y = -len * t, pl = 150 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - t * 0.3) + 8;
-      for (const sd of [-1, 1]) {
-        g.save(); g.translate(0, y); g.rotate(sd * (1.2 - t * 0.5)); g.fillStyle = hsl(R(92, 118), R(40, 56), R(29, 41));
-        g.beginPath(); g.moveTo(0, -3); for (let s = 0; s <= 8; s++) { const u = s / 8; g.lineTo(u * pl, -3 - Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) + (s % 2) * 3); }
-        for (let s = 8; s >= 0; s--) { const u = s / 8; g.lineTo(u * pl, 3 + Math.sin(u * Math.PI) * 9 * (1 - u * 0.5) - (s % 2) * 3); }
-        g.closePath(); g.fill(); g.restore();
-      }
-    }
-    g.restore();
-  });
-
-  // 4: shrub leaves: dense broad leaves
-  cell(CELLS.bush, () => {
-    for (let k = 0; k < 260; k++) {
-      const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(36, 58), R(22, 34), hsl(R(80, 125), R(32, 52), R(24, 40)));
-    }
-  });
-
-  // 5: bare twigs (dead trees, winter shrubs)
-  cell(CELLS.twigs, () => {
-    const br = (x, y, a, l, w, d) => {
-      const x1 = x + Math.cos(a) * l, y1 = y + Math.sin(a) * l;
-      line(x, y, x1, y1, w, hsl(25, 15, R(22, 34)));
-      if (d > 0) for (let k = 0; k < 3; k++) br(x1, y1, a + R(-0.7, 0.7), l * R(0.55, 0.75), w * 0.7, d - 1);
-    };
-    br(S / 2, S - 4, -Math.PI / 2, 150, 7, 4);
-  });
-
-  // 6: grass tuft (side view): blades from the bottom centre
-  cell(CELLS.grassTuft, () => {
-    for (let k = 0; k < 60; k++) {
-      const x = S / 2 + R(-90, 90), a = -Math.PI / 2 + R(-0.5, 0.5), l = R(200, 470);
-      g.strokeStyle = hsl(R(70, 98), R(35, 50), R(28, 44)); g.lineWidth = R(4, 8); g.lineCap = 'round';
-      g.beginPath(); g.moveTo(x, S); g.quadraticCurveTo(x + Math.cos(a) * l * 0.5, S + Math.sin(a) * l * 0.6, x + Math.cos(a) * l + R(-40, 40), S + Math.sin(a) * l); g.stroke();
-    }
-  });
-
-  // 7: meadow flowers (side view): stems with small heads
-  cell(CELLS.flowers, () => {
-    for (let k = 0; k < 26; k++) {
-      const x = R(40, S - 40), h = R(200, 440), top = S - h;
-      line(x, S, x + R(-30, 30), top, 3, hsl(95, 40, 28));
-      const col = [hsl(55, 90, 60), hsl(0, 0, 92), hsl(280, 45, 55), hsl(30, 90, 55), hsl(4, 82, 52), hsl(218, 72, 62), hsl(330, 70, 76)][k % 7];
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  if (photo) g.drawImage(photo, 0, 0, W, H);
+  else {
+    const rnd = mulberry32(31337), S = ATLAS.cell;
+    STAND_IN.forEach((col, i) => {
       g.fillStyle = col;
-      for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * 10, top + Math.sin(a) * 10, 9, 6, a, 0, Math.PI * 2); g.fill(); }
-      g.fillStyle = hsl(45, 80, 45); g.beginPath(); g.arc(x, top, 6, 0, Math.PI * 2); g.fill();
-    }
-  });
-
-  // 8: apple: small oval leaves in a dense spray, mid greens with a few fresh light ones (the small meadow trees.
-  // They stood in pink blossom once: the player found it broke the summer landscape)
-  cell(CELLS.apple, () => {
-    for (let k = 0; k < 330; k++) {
-      const r = Math.sqrt(rnd()) * S * 0.44, a = R(0, Math.PI * 2);
-      const col = rnd() < 0.2 ? hsl(R(74, 92), R(40, 52), R(38, 47)) : hsl(R(92, 122), R(32, 48), R(22, 35));
-      leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, R(0, Math.PI * 2), R(30, 46), R(16, 25), col);
-    }
-  });
-
-  // 9: oak: dense lobed broad leaves, fresh greens with lighter sunlit ones
-  cell(CELLS.oak, () => {
-    for (let k = 0; k < 300; k++) {
-      const r = Math.sqrt(rnd()) * S * 0.45, a = R(0, Math.PI * 2);
-      const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, l = R(34, 54), w = R(20, 30), ang = R(0, Math.PI * 2);
-      const col = rnd() < 0.18 ? hsl(R(72, 92), R(42, 55), R(40, 50)) : hsl(R(88, 118), R(34, 52), R(20, 36));
-      leaf(x, y, ang, l, w, col);
-      leaf(x + Math.cos(ang + 1.3) * w * 0.35, y + Math.sin(ang + 1.3) * w * 0.35, ang + R(-0.4, 0.4), l * 0.7, w * 0.8, col);
-    }
-  });
-
-  // 10: lavender (side view): a clump of grey-green stems, each topped with a spike of purple florets
-  cell(CELLS.lavender, () => {
-    for (let k = 0; k < 46; k++) {
-      const x0 = S / 2 + R(-70, 70), lean = R(-0.35, 0.35), h = R(300, 470);
-      const x1 = x0 + Math.sin(lean) * h, y1 = S - Math.cos(lean) * h;
-      line(x0, S, x1, y1, R(3, 4.5), hsl(R(85, 105), R(18, 28), R(42, 54)));
-      const spike = R(60, 105);
-      for (let f = 0; f < 11; f++) {
-        const t = f / 10, px = x1 - Math.sin(lean) * spike * t + R(-3, 3), py = y1 + Math.cos(lean) * spike * t;
-        g.fillStyle = hsl(R(268, 292), R(38, 52), R(52, 70) - t * 8);
-        g.beginPath(); g.ellipse(px, py, R(6, 9) * (1 - t * 0.3), R(7, 10), lean, 0, Math.PI * 2); g.fill();
+      for (let k = 0; k < 170; k++) {
+        const r = Math.sqrt(rnd()) * S * 0.42, a = rnd() * Math.PI * 2;
+        g.beginPath();
+        g.ellipse((i % ATLAS.cols + 0.5) * S + Math.cos(a) * r, (Math.floor(i / ATLAS.cols) + 0.5) * S + Math.sin(a) * r, 22, 11, rnd() * 3.14, 0, Math.PI * 2);
+        g.fill();
       }
-    }
-    for (let k = 0; k < 18; k++) line(S / 2 + R(-80, 80), S, S / 2 + R(-110, 110), S - R(60, 140), R(5, 8), hsl(R(90, 110), R(20, 30), R(38, 50)));
-  });
+    });
+  }
+  return g.getImageData(0, 0, W, H).data;
+}
 
-  // 11: poppies (side view): thin hairy stems, red cups with a dark heart, a few nodding buds
-  cell(CELLS.poppy, () => {
-    for (let k = 0; k < 14; k++) {
-      const x0 = R(60, S - 60), h = R(220, 450), top = S - h, x1 = x0 + R(-40, 40);
-      g.strokeStyle = hsl(R(90, 105), R(35, 45), R(32, 40)); g.lineWidth = 3; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(x0, S); g.quadraticCurveTo(x0 + R(-20, 20), S - h * 0.5, x1, top); g.stroke();
-      if (k % 4 === 3) { g.fillStyle = hsl(95, 40, 34); g.beginPath(); g.ellipse(x1, top + 8, 9, 14, 0.4, 0, Math.PI * 2); g.fill(); continue; }
-      const r = R(26, 38), hue = R(0, 9);
-      for (let p = 0; p < 4; p++) {
-        const a = p / 4 * Math.PI * 2 + R(-0.2, 0.2);
-        g.fillStyle = hsl(hue, R(78, 90), R(44, 54));
-        g.beginPath(); g.ellipse(x1 + Math.cos(a) * r * 0.45, top + Math.sin(a) * r * 0.3 - 4, r * 0.62, r * 0.5, a, 0, Math.PI * 2); g.fill();
-      }
-      g.fillStyle = hsl(hue, 85, 62); g.beginPath(); g.ellipse(x1, top - 8, r * 0.5, r * 0.32, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = hsl(260, 25, 12); g.beginPath(); g.arc(x1, top - 2, r * 0.18, 0, Math.PI * 2); g.fill();
+// The atlas with mip levels of its own, in which:
+// - colour is averaged by coverage, in linear light, and the empty texels take the colour round them from the
+//   coarser levels: no dark fringes;
+// - every cell keeps at every level the share of it that passes the alpha test. Averaged plainly, thin needles and
+//   petals fell under the test with distance: far spruces stood as bare poles, flower fields thinned out.
+export function makeFoliageAtlas(photo) {
+  const { cols, rows, cell } = ATLAS, W = cols * cell, H = rows * cell, src = atlasPixels(photo, W, H);
+  const toLin = new Float32Array(256), toByte = new Uint8Array(4096);
+  for (let i = 0; i < 256; i++) { const v = i / 255; toLin[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
+  for (let i = 0; i < 4096; i++) { const v = i / 4095; toByte[i] = Math.round(255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)); }
+  // level 0: the canvas has y down, the texture's v goes up
+  const lv = [{ w: W, h: H, c: new Uint16Array(W * H * 3), a: new Uint8Array(W * H) }];
+  for (let y = 0, o = 0; y < H; y++) for (let x = 0; x < W; x++, o += 4) {
+    const j = (H - 1 - y) * W + x;
+    for (let k = 0; k < 3; k++) lv[0].c[j * 3 + k] = toLin[src[o + k]] * 65535;
+    lv[0].a[j] = src[o + 3];
+  }
+  while (lv[lv.length - 1].w > 1) {
+    const P = lv[lv.length - 1], w = P.w >> 1, h = P.h >> 1, c = new Uint16Array(w * h * 3), a = new Uint8Array(w * h);
+    for (let y = 0, j = 0; y < h; y++) for (let x = 0; x < w; x++, j++) {
+      const q0 = 2 * y * P.w + 2 * x, q1 = q0 + 1, q2 = q0 + P.w, q3 = q2 + 1;
+      const a0 = P.a[q0], a1 = P.a[q1], a2 = P.a[q2], a3 = P.a[q3], sum = a0 + a1 + a2 + a3;
+      if (!sum) continue;
+      for (let k = 0; k < 3; k++) c[j * 3 + k] = (P.c[q0 * 3 + k] * a0 + P.c[q1 * 3 + k] * a1 + P.c[q2 * 3 + k] * a2 + P.c[q3 * 3 + k] * a3) / sum;
+      a[j] = sum / 4 + 0.5;
     }
-    for (let k = 0; k < 20; k++) leaf(S / 2 + R(-140, 140), S - R(10, 120), -Math.PI / 2 + R(-0.9, 0.9), R(40, 70), R(10, 16), hsl(R(90, 110), R(35, 50), R(30, 40)));
-  });
-
-  // read back (straight alpha), bleed colour into transparent texels so mipmaps don't get dark fringes
-  const img = g.getImageData(0, 0, W, H).data;
-  const data = new Uint8Array(img.length);
-  data.set(img);
-  for (let pass = 0; pass < 6; pass++) {
-    const src = data.slice();
-    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-      const o = (y * W + x) * 4;
-      if (src[o + 3] > 128) continue;
-      let r = 0, gg = 0, b = 0, n = 0;
-      for (const d of [-4, 4, -W * 4, W * 4]) { const q = o + d; if (src[q + 3] > 128 || (pass > 0 && (src[q] | src[q + 1] | src[q + 2]))) { r += src[q]; gg += src[q + 1]; b += src[q + 2]; n++; } }
-      if (n) { data[o] = r / n; data[o + 1] = gg / n; data[o + 2] = b / n; }
+    lv.push({ w, h, c, a });
+  }
+  const solid = ALPHA_REF * 255;
+  for (let l = lv.length - 2; l >= 0; l--) {
+    const { w, h, c, a } = lv[l], P = lv[l + 1];
+    for (let y = 0, j = 0; y < h; y++) for (let x = 0; x < w; x++, j++) {
+      if (a[j] >= solid) continue;
+      const q = ((y >> 1) * P.w + (x >> 1)) * 3, k1 = a[j] / solid;
+      for (let k = 0; k < 3; k++) c[j * 3 + k] = c[j * 3 + k] * k1 + P.c[q + k] * (1 - k1);
     }
   }
-  // the canvas has y down; the texture's v goes up: flip rows
-  const flipped = new Uint8Array(data.length), row = W * 4;
-  for (let y = 0; y < H; y++) flipped.set(data.subarray(y * row, (y + 1) * row), (H - 1 - y) * row);
-  const t = new THREE.DataTexture(flipped, W, H, THREE.RGBAFormat);
+  // the coverage: a cell's alpha scaled so that as much of it passes as at full size
+  const hist = new Uint32Array(256), cover = [];
+  for (let l = 0; (cell >> l) >= 4; l++) {
+    const S = cell >> l, { w, a } = lv[l];
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+      const i = r * cols + q, x0 = q * S, y0 = (rows - 1 - r) * S;
+      hist.fill(0);
+      for (let y = y0; y < y0 + S; y++) for (let x = x0; x < x0 + S; x++) hist[a[y * w + x]]++;
+      if (!l) { let n = 0; for (let v = Math.ceil(solid); v < 256; v++) n += hist[v]; cover[i] = n / (S * S); continue; }
+      let t = 255, n = hist[255];
+      while (t > 1 && n < cover[i] * S * S) n += hist[--t];
+      const k = Math.min(4, Math.max(0.8, solid / t));
+      for (let y = y0; y < y0 + S; y++) for (let x = x0; x < x0 + S; x++) a[y * w + x] = Math.min(255, a[y * w + x] * k + 0.5);
+    }
+  }
+  const mips = lv.map(({ w, h, c, a }) => {
+    const data = new Uint8Array(w * h * 4);
+    for (let j = 0; j < w * h; j++) {
+      for (let k = 0; k < 3; k++) data[j * 4 + k] = toByte[c[j * 3 + k] >> 4];
+      data[j * 4 + 3] = a[j];
+    }
+    return { data, width: w, height: h };
+  });
+  const t = new THREE.DataTexture(mips[0].data, W, H, THREE.RGBAFormat);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.generateMipmaps = true;
+  t.mipmaps = mips;
+  t.generateMipmaps = false;
   t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
   t.anisotropy = 4;
   t.needsUpdate = true;
@@ -359,11 +258,14 @@ export function buildPine(seed, H = 19) {
   const centre = new THREE.Vector3(0, (crownBase + H) / 2, 0);
   const nb = 11;
   const clump = (p, size, t, up = 0) => {
-    // a rounded clump of needle cards facing outwards
-    for (let c = 0; c < 7; c++) {
-      const d = new THREE.Vector3(R(-1, 1), R(-0.3, 1) + up, R(-1, 1)).normalize();
-      const m = cardMatrix(p.clone().addScaledVector(d, -size * 0.45), d, R(0, Math.PI));
-      cards.push(card(CELLS.pine, size, size, m, 0.55 + t * 0.3, 0.85 + t * 0.15, p, 0.35));
+    // a ragged, flattened plate of brushes pointing out and up (balls of cards read as lollipops)
+    const mid = p.clone().add(new THREE.Vector3(0, size * 0.1, 0));
+    for (let c = 0; c < 12; c++) {
+      const a = c * 2.39996 + R(-0.4, 0.4), out = c ? Math.sqrt(c / 12) * R(0.8, 1.2) : 0;
+      const d = new THREE.Vector3(Math.cos(a) * out, R(0.15, 0.65) + up, Math.sin(a) * out).normalize();
+      const at = p.clone().add(new THREE.Vector3(Math.cos(a) * out * size * 0.42, size * R(-0.2, 0.08), Math.sin(a) * out * size * 0.42));
+      const s = size * R(0.55, 0.78);
+      cards.push(card(CELLS.pine, s, s, cardMatrix(at, d, R(0, Math.PI)), 0.55 + t * 0.3, 0.85 + t * 0.15, mid, 0.4));
     }
   };
   for (let k = 0; k < nb; k++) {
@@ -549,7 +451,12 @@ export function buildDead(seed, H = 11) {
   return { trunk: mergeGeometries(parts), crown: mergeGeometries(cards), height: H, crownR: 2, trunkR: rr[0], crownBase: H * 0.3 };
 }
 
-// undergrowth: crossed cards
+// undergrowth: crossed cards. Per standing plant: its cell, its cards' size (m, square like the cells), their lean
+const PLANT_CARDS = {
+  flowers: [CELLS.flowers, 0.6, 0.8, 0.16], tuft: [CELLS.grassTuft, 0.65, 0.9, 0.22], lavender: [CELLS.lavender, 0.62, 0.8, 0.14],
+  poppy: [CELLS.poppy, 0.6, 0.8, 0.18], yarrow: [CELLS.yarrow, 0.55, 0.75, 0.14], seedgrass: [CELLS.seedGrass, 0.8, 1.05, 0.12],
+  herb: [CELLS.herb, 0.6, 0.8, 0.45],
+};
 export function buildPlant(kind, seed) {
   const rnd = mulberry32(seed);
   const R = (a, b) => a + (b - a) * rnd();
@@ -559,7 +466,8 @@ export function buildPlant(kind, seed) {
     for (let k = 0; k < n; k++) {
       const a = k / n * Math.PI * 2 + R(-0.3, 0.3);
       const dir = new THREE.Vector3(Math.cos(a), R(0.5, 0.9), Math.sin(a)).normalize();
-      cards.push(card(CELLS.fern, 0.55, R(0.8, 1.1), cardMatrix(new THREE.Vector3(0, 0, 0), dir, Math.PI / 2 + R(-0.4, 0.4)), 0.0, 0.8, centre, 0.4));
+      const len = R(0.8, 1.1);
+      cards.push(card(CELLS.fern, 0.82 * len, len, cardMatrix(new THREE.Vector3(0, 0, 0), dir, Math.PI / 2 + R(-0.4, 0.4)), 0.0, 0.8, centre, 0.4));
     }
   } else if (kind === 'bush') {
     const centre = new THREE.Vector3(0, 0.5, 0);
@@ -568,11 +476,22 @@ export function buildPlant(kind, seed) {
       const p = d.clone().multiplyScalar(0.35).add(new THREE.Vector3(0, R(0.1, 0.4), 0));
       cards.push(card(CELLS.bush, R(0.9, 1.3), R(0.9, 1.3), cardMatrix(p.addScaledVector(d, -0.5), d, R(0, Math.PI)), 0.1, 0.7, centre, 0.45));
     }
-  } else if (kind === 'flowers' || kind === 'tuft' || kind === 'lavender' || kind === 'poppy') {
-    const cellIdx = { flowers: CELLS.flowers, tuft: CELLS.grassTuft, lavender: CELLS.lavender, poppy: CELLS.poppy }[kind];
+  } else if (kind === 'juniper') {
+    // sprigs out of the middle, up and outwards
+    const centre = new THREE.Vector3(0, 0.3, 0);
+    for (let k = 0; k < 7; k++) {
+      const a = k / 7 * Math.PI * 2 + R(-0.3, 0.3), out = k < 5 ? R(0.45, 0.9) : R(0, 0.2);
+      const d = new THREE.Vector3(Math.cos(a) * out, 1, Math.sin(a) * out).normalize(), len = R(0.75, 1.15);
+      cards.push(card(CELLS.juniper, len, len, cardMatrix(new THREE.Vector3(Math.cos(a) * 0.08, 0, Math.sin(a) * 0.08), d, R(0, Math.PI)), 0.05, 0.45, centre, 0.45));
+    }
+  } else {
+    // standing plants: crossed cards, leaning out a little (seen from above they were three lines)
+    const [cellIdx, w0, w1, lean] = PLANT_CARDS[kind];
     for (let k = 0; k < 3; k++) {
-      const m = cardMatrix(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), k / 3 * Math.PI + R(0, 0.5));
-      cards.push(card(cellIdx, R(0.7, 1.0), R(0.5, 0.75), m, 0.0, 0.8, null));
+      const a = k / 3 * Math.PI * 2 + R(0, 0.5), out = lean * R(0.7, 1.3), size = R(w0, w1);
+      const d = new THREE.Vector3(Math.cos(a) * out, 1, Math.sin(a) * out).normalize();
+      const m = cardMatrix(new THREE.Vector3(-Math.cos(a) * out * 0.12, 0, -Math.sin(a) * out * 0.12), d, rollFacing(d, new THREE.Vector3(Math.cos(a), 0, Math.sin(a))));
+      cards.push(card(cellIdx, size, size, m, 0.0, 0.8, null));
     }
   }
   return mergeGeometries(cards);
